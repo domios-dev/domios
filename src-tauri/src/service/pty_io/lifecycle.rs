@@ -36,14 +36,26 @@ fn restored_snapshot_launch_input(
     >,
 ) -> RestoredSnapshotLaunchInput {
     let mut launch_parameters = launch.launch_parameters;
-    let skip_permissions =
-        launch_parameters.permission_bypass_requested && permission_bypass_authorization.is_some();
+    let legacy_snapshot = !launch_parameters.captured;
+    let skip_permissions = if launch_parameters.captured {
+        launch_parameters.permission_bypass_requested && permission_bypass_authorization.is_some()
+    } else {
+        permission_bypass_authorization.is_some()
+    };
     let provider_id = launch.provider_id;
     let model = launch_parameters.model.clone().or(launch.model);
     let reasoning_effort = launch_parameters
         .resolved_reasoning_effort
         .clone()
         .or_else(|| launch_parameters.requested_reasoning_effort.clone());
+    let (system_prompt_capable, launch_task) =
+        crate::service::restored_launch::restored_launch_task(
+            registry,
+            &provider_id,
+            launch.role.as_deref(),
+            launch.role_profile.as_deref(),
+            &launch_parameters,
+        );
     let params = crate::service::SpawnAgentParams {
         agent: Some(provider_id.clone()),
         agent_name: launch_parameters.agent_name.clone(),
@@ -53,41 +65,28 @@ fn restored_snapshot_launch_input(
         permission_bypass_authorization,
         model: model.clone(),
         reasoning_effort: reasoning_effort.clone(),
+        system_prompt: system_prompt_capable.then(|| launch_task.clone()).flatten(),
         resume_session_id: launch.session_id,
         role: launch.role,
         role_profile: launch.role_profile,
         starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
         ..Default::default()
     };
-    let system_prompt_capable = registry
-        .with_provider(&provider_id, |provider| {
-            matches!(
-                crate::service::launch_delivery::mode_for_descriptor(
-                    &provider.system_prompt_delivery(),
-                ),
-                crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
-            )
-        })
-        .unwrap_or(false);
-    let launch_task = system_prompt_capable
-        .then(|| launch_parameters.system_prompt.clone())
-        .flatten()
-        .or_else(|| {
-            crate::service::orchestrator::provider_launch_task(
-                registry,
-                &provider_id,
-                None,
-                params.role.as_deref(),
-                params.role_profile.as_deref(),
-            )
-        });
-    launch_parameters.system_prompt = system_prompt_capable.then(|| launch_task.clone()).flatten();
+    launch_parameters.captured = true;
+    launch_parameters.identity_instructions = system_prompt_capable
+        .then(|| launch_task.clone())
+        .flatten();
     launch_parameters.model = model;
     if launch_parameters.requested_model.is_none() {
         launch_parameters.requested_model = params.model.clone();
     }
-    launch_parameters.requested_reasoning_effort = reasoning_effort.clone();
+    if launch_parameters.requested_reasoning_effort.is_none() {
+        launch_parameters.requested_reasoning_effort = reasoning_effort.clone();
+    }
     launch_parameters.resolved_reasoning_effort = reasoning_effort;
+    if legacy_snapshot {
+        launch_parameters.permission_bypass_requested = skip_permissions;
+    }
     RestoredSnapshotLaunchInput {
         params,
         launch_parameters,
@@ -522,7 +521,7 @@ impl ServiceContext {
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
-        let (provider_id, session_id, cwd, permission_bypass_requested) = {
+        let (provider_id, session_id, cwd, launch_parameters) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -531,7 +530,7 @@ impl ServiceContext {
                 tab.agent_type.clone(),
                 tab.agent_session_id.clone(),
                 tab.cwd.clone(),
-                tab.restorable_launch.permission_bypass_requested,
+                restorable_launch_parameters(tab),
             )
         };
         let Some(provider_id) = provider_id else {
@@ -552,16 +551,13 @@ impl ServiceContext {
                 tab_id
             )
         })?;
-        let permission_bypass_authorization =
-            crate::service::permission_policy::configured_permission_bypass(
+        let permission_bypass_authorization = crate::service::restored_launch::
+            restore_permission_bypass_authorization(
                 &self.agent_registry,
+                tab_id,
                 &provider_id,
+                &launch_parameters,
             )?;
-        if permission_bypass_requested && permission_bypass_authorization.is_none() {
-            return Err(format!(
-                "restored Tab {tab_id} requested permission bypass, but current policy does not authorize it"
-            ));
-        }
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -592,7 +588,13 @@ impl ServiceContext {
                     .agent
                     .clone()
                     .expect("restored launch provider");
-                persist_restored_launch_identity(&self.mux, tab_id, &provider_id, &input);
+                crate::service::restored_launch::persist_restored_launch_identity(
+                    &self.mux,
+                    tab_id,
+                    &provider_id,
+                    &input.params,
+                    &input.launch_parameters,
+                );
                 let launch_cmd = restored_snapshot_launch_command_for_service(
                     self,
                     tab_id,
@@ -739,34 +741,6 @@ impl ServiceContext {
         })
         .await;
     }
-}
-
-fn persist_restored_launch_identity(
-    mux: &MuxState,
-    tab_id: &str,
-    provider_id: &str,
-    input: &RestoredSnapshotLaunchInput,
-) {
-    let mut mux = mux.write();
-    let Some(tab) = mux.get_tab_mut(tab_id) else {
-        return;
-    };
-    tab.agent_requested_model = input.launch_parameters.requested_model.clone();
-    tab.agent_provider_resolved_model = input.params.model.clone();
-    tab.agent_session_model = None;
-    tab.agent_session_model_identity = None;
-    tab.model_identity_mismatch = None;
-    if let Some(fallback) = tab.model_fallback.as_mut() {
-        fallback.actual_model = None;
-    }
-    let planned_effort = tab.reasoning_effort_identity.planned.clone();
-    crate::service::reasoning_effort::persist_launch_identity(
-        tab,
-        planned_effort.as_deref(),
-        input.params.reasoning_effort.as_deref(),
-    );
-    tab.auto_approve = input.params.permission_bypass_requested(provider_id);
-    tab.restorable_launch = input.launch_parameters.clone();
 }
 
 #[cfg(test)]

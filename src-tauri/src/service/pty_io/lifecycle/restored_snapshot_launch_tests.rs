@@ -29,7 +29,12 @@ fn restored_worker(
     tab.agent_type = Some("claude".into());
     tab.agent_session_id = Some("fixture-session".into());
     tab.agent_session_model = Some("fixture-model".into());
-    tab.restorable_launch.permission_bypass_requested = true;
+    tab.restorable_launch = RestorableLaunchParameters {
+        captured: true,
+        identity_instructions: Some("opaque-worker-identity-instructions".into()),
+        permission_bypass_requested: true,
+        ..Default::default()
+    };
     tab.cwd = Some("fixture-cwd".into());
     tab.role_profile = Some("fixture-profile".into());
     tab.restored_from_snapshot = true;
@@ -111,6 +116,7 @@ fn restored_materialization_preserves_worker_identity_without_assignment_replay(
             crate::agent::provider::StarterPrompt::NoStarter
         );
         let identity = input.launch_task.as_deref().unwrap();
+        assert_eq!(identity, "opaque-worker-identity-instructions");
         assert!(!identity.contains("historical assigned task"));
         assert!(input.fallback_spec.is_none());
         assert!(matches!(
@@ -184,6 +190,32 @@ fn restored_team_member_resume_carries_bypass_only_when_granted() {
     }
 }
 
+#[test]
+fn legacy_snapshot_restore_uses_current_policy_bypass() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let authorization = crate::service::permission_policy::authorize_permission_bypass(
+        &registry, "claude", true,
+    );
+    let input = restored_snapshot_launch_input(
+        &registry,
+        RestoredLaunch {
+            provider_id: "claude".into(),
+            session_id: Some("legacy-session".into()),
+            cwd: Some("legacy-cwd".into()),
+            model: None,
+            launch_parameters: RestorableLaunchParameters::default(),
+            role: None,
+            role_profile: None,
+        },
+        None,
+        authorization,
+    );
+
+    assert!(input.params.permission_bypass_requested("claude"));
+    assert!(input.launch_parameters.permission_bypass_requested);
+}
+
 fn codex_effort_registry() -> crate::agent::registry::AgentRegistry {
     let registry = crate::agent::registry::AgentRegistry::new();
     let effort = crate::agent::provider::ReasoningEffortInfo {
@@ -218,13 +250,14 @@ fn parsed_flag_value(command: &str, flag: &str) -> Option<String> {
 
 fn launch_parameters() -> RestorableLaunchParameters {
     RestorableLaunchParameters {
+        captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),
         requested_reasoning_effort: Some("xhigh".into()),
         resolved_reasoning_effort: Some("xhigh".into()),
         args: Some(vec!["--approval-mode".into(), "restricted".into()]),
         agent_name: Some("restore-agent".into()),
-        system_prompt: Some("opaque-instruction-fragment".into()),
+        identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: false,
     }
 }
@@ -311,7 +344,13 @@ fn inspect_reports_the_restored_launch_parameters() {
     }
     let input = restored_snapshot_launch_input(&registry, codex_restore_launch(), None, None);
     let mux = Arc::new(TimedRwLock::new("restored-launch-inspect", state));
-    super::persist_restored_launch_identity(&mux, &tab_id, "codex-fixture", &input);
+    crate::service::restored_launch::persist_restored_launch_identity(
+        &mux,
+        &tab_id,
+        "codex-fixture",
+        &input.params,
+        &input.launch_parameters,
+    );
     let mux = mux.read();
     let tab = mux.get_tab(&tab_id).unwrap();
 
