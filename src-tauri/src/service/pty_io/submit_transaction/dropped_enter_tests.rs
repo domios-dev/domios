@@ -288,24 +288,17 @@ fn plain_shell_send_succeeds_when_recovery_proof_is_absent() {
 }
 
 #[test]
-fn observed_initial_enter_remains_confirmed_when_recovery_guard_refuses() {
+fn observed_initial_enter_stops_before_recovery_guard() {
     let io = ParkedDraft::dropping(0);
     let mut guard_checks = 0;
     let result = run_with_submit_key(&io, "codex", true, b"\r", tui(), opts(), |initial_key| {
         guard_checks += 1;
-        if guard_checks < 3 {
-            assert!(initial_key);
-            Ok(())
-        } else {
-            assert!(!initial_key);
-            Err(InjectionError::AgentInputUnavailable {
-                pty_id: "launch-pty".into(),
-            })
-        }
+        assert!(initial_key, "an observed initial Enter suppresses recovery keys");
+        Ok(())
     })
     .unwrap();
 
-    assert_eq!(guard_checks, 3);
+    assert_eq!(guard_checks, 2);
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(io.submit_key_writes.get(), 1);
     assert!(result.submit_observed);

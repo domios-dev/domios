@@ -617,7 +617,7 @@ fn run_with_submit_key<T: SubmitTransport>(
         submit_observed |= exact_turn_evidence && transport.exact_user_turn_present(text);
     }
     while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
-        if submit_observed
+        if (submit_key_writes > 0 && submit_observed)
             || (exact_turn_evidence && transport.exact_user_turn_present(text))
         {
             submit_observed = true;
