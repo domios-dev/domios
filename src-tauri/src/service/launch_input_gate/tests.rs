@@ -17,6 +17,7 @@ fn input_observation() -> LaunchInputObservation {
         composer_ready: true,
         pending_prompt: false,
         provider_process_alive: true,
+        provider_busy: false,
         directory_trust_prompt: false,
         active_interactive_prompt: false,
         classification: None,
@@ -280,6 +281,171 @@ fn lazy_composer_readiness_requires_declared_structural_capability() {
         LaunchInputMode::LazySessionStart,
         true,
         false,
+        true,
+    ));
+}
+
+#[test]
+fn opencode_sessionless_home_frame_accepts_centered_visible_composer() {
+    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
+    let provider =
+        crate::plugin::js_runtime::load_one(&plugins.join("provider-opencode").join("plugin.json"))
+            .expect("load bundled OpenCode provider");
+    let screen = std::fs::read_to_string(
+        plugins
+            .join("provider-opencode")
+            .join("tests")
+            .join("fixtures")
+            .join("sessionless-home-screen.txt"),
+    )
+    .expect("read captured OpenCode TUI frame");
+    let snapshot = TabStateSnapshot {
+        tab_id: "opencode-sessionless-home".into(),
+        agent_type: "opencode".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen.clone(),
+    };
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: true,
+        cursor_visible: true,
+        cursor_row: 20,
+        rows: 40,
+        cols: 120,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: None,
+    };
+    let position = provider.composer_cursor_position();
+    let tui_evidence = provider.screen_has_tui(&screen);
+    let terminal_input_ready = launch_composer_input_ready(&input, position);
+    let classification = provider.classify_tab_state(&snapshot);
+    let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
+        value.state == TabState::ClarifyingQuestion
+            && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+    }) && provider.parse_prompt(&screen).is_some();
+
+    assert!(
+        tui_evidence,
+        "the provider recognizes its captured TUI frame"
+    );
+    assert!(
+        terminal_input_ready,
+        "centered visible cursor is provider-declared"
+    );
+    assert!(snapshot.session_id.is_none());
+    assert!(provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
+        provider.provider_readiness_strategy().requires_composer(),
+        terminal_input_ready,
+        tui_evidence,
+    ));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                composer_ready: true,
+                classification,
+                active_interactive_prompt,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+        "an unbound sessionless launch is ready from its composer",
+    );
+}
+
+#[test]
+fn centered_composer_readiness_rejects_busy_and_non_tui_frames() {
+    let input_ready = launch_composer_input_ready(
+        &codeterm_pty::pty::screen_state::ComposerInputState {
+            alternate_screen: true,
+            cursor_visible: true,
+            cursor_row: 20,
+            rows: 40,
+            cols: 120,
+            inverse_caret_row: None,
+            nonblank_inverse_cells: 0,
+            sole_nonblank_inverse_row: None,
+            last_nonblank_row: None,
+        },
+        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+    );
+    assert!(input_ready);
+    assert!(!provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
+        true,
+        input_ready,
+        false,
+    ));
+    let working = launch_classification(TabState::Working);
+    let provider_busy = provider_is_busy(
+        LaunchInputMode::LazySessionStart,
+        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+        working.as_ref(),
+    );
+    assert!(provider_busy);
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                composer_ready: true,
+                provider_busy,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+        "a provider-classified working frame stays blocked",
+    );
+    let busy_input_ready = launch_composer_input_ready(
+        &codeterm_pty::pty::screen_state::ComposerInputState {
+            alternate_screen: true,
+            cursor_visible: false,
+            cursor_row: 20,
+            rows: 40,
+            cols: 120,
+            inverse_caret_row: None,
+            nonblank_inverse_cells: 0,
+            sole_nonblank_inverse_row: None,
+            last_nonblank_row: None,
+        },
+        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+    );
+    assert!(!busy_input_ready);
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                composer_ready: busy_input_ready,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+    );
+}
+
+#[test]
+fn centered_cursor_capability_does_not_change_bottom_composer_providers() {
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: true,
+        cursor_visible: true,
+        cursor_row: 20,
+        rows: 40,
+        cols: 120,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: None,
+    };
+    assert!(!launch_composer_input_ready(
+        &input,
+        crate::agent::provider::ComposerCursorPosition::BottomRegion,
+    ));
+    assert!(!provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
+        false,
+        true,
         true,
     ));
 }

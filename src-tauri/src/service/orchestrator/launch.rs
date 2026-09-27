@@ -930,7 +930,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             pty_id: pty_id.clone(),
             binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
         };
-        crate::service::launch_readiness::arm(readiness_attempt.clone());
+        crate::service::launch_readiness::arm_with_origin(readiness_attempt.clone(), origin);
         if launch.await_provider_ack(std::time::Duration::ZERO) {
             crate::service::launch_readiness::note_acknowledged(
                 &readiness_attempt.tab_id,
@@ -946,10 +946,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             session_starts_on_first_turn,
         );
 
-        let provider_readiness = svc
+        let (provider_readiness, composer_cursor_position) = svc
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
-                provider.provider_readiness_strategy()
+                (
+                    provider.provider_readiness_strategy(),
+                    provider.composer_cursor_position(),
+                )
             })
             .unwrap_or_default();
         let input_readiness_timeout = provider_readiness.timeout();
@@ -962,10 +965,19 @@ pub(crate) fn launch_agent_in_background_with_env(
         );
         let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
             let readiness = if session_starts_on_first_turn {
+                let provider_frame_wait = if composer_cursor_position
+                    == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+                {
+                    crate::agent::provider::ProviderReadinessStrategy::TuiFrame {
+                        timeout: input_readiness_timeout,
+                    }
+                } else {
+                    provider_readiness.clone()
+                };
                 let _ = svc.await_provider_readiness_on_screen(
                     &pty_id,
                     &agent_cmd,
-                    provider_readiness.clone(),
+                    provider_frame_wait,
                 );
                 svc.await_lazy_session_input_readiness(
                     &readiness_attempt,

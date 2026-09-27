@@ -57,6 +57,11 @@ pub trait AgentProvider: Send + Sync {
         ProviderReadinessStrategy::default()
     }
 
+    /// Declared terminal placement of the live composer cursor.
+    fn composer_cursor_position(&self) -> ComposerCursorPosition {
+        ComposerCursorPosition::default()
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }

@@ -87,9 +87,11 @@ impl LaunchSettlement {
 
 /// A launch failure already decided against the launch it names, waiting to be
 /// recorded once its observer has finished whatever teardown it performs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct LaunchExitFailure {
     attempt: LaunchAttempt,
+    origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+    auto_recovery_claimed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     exit_code: Option<i32>,
     reason: String,
     source: LaunchExitSource,
@@ -280,6 +282,7 @@ fn settle_proven_exit(
 
 struct Armed {
     attempt: LaunchAttempt,
+    origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
     evidence: Option<LaunchEvidence>,
     /// One observer already took this exit. Both exit sources claim before
     /// either publishes, so the published verdict cannot be the dedup key.
@@ -301,11 +304,49 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
 /// observation for the tab: only the newest launch is observable.
+#[cfg(test)]
 pub(crate) fn arm(attempt: LaunchAttempt) {
+    arm_inner(attempt, None);
+}
+
+fn route_pre_ready_exit(
+    origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+    source: LaunchExitSource,
+    resume: impl FnOnce(),
+    notify: impl FnOnce(),
+) {
+    if source == LaunchExitSource::ConfirmedPtyExit {
+        return;
+    }
+    match origin {
+        Some(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
+            | crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
+            | crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery,
+        ) => resume(),
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery) => {
+            notify()
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn arm_with_origin(
+    attempt: LaunchAttempt,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+) {
+    arm_inner(attempt, Some(origin));
+}
+
+fn arm_inner(
+    attempt: LaunchAttempt,
+    origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+) {
     OBSERVATIONS.armed.lock().insert(
         attempt.tab_id.clone(),
         Armed {
             attempt,
+            origin,
             evidence: None,
             exit_claimed: false,
             failure: None,
@@ -358,7 +399,12 @@ fn claim_exit(
     pty_id: Option<&str>,
     exit_code: Option<i32>,
     proof: &LaunchExitProof,
-) -> Option<(LaunchAttempt, Option<i32>, LaunchExitProof)> {
+) -> Option<(
+    LaunchAttempt,
+    Option<i32>,
+    LaunchExitProof,
+    Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+)> {
     let mut armed = OBSERVATIONS.armed.lock();
     let observed = armed.get_mut(tab_id)?;
     if proof.attempt != observed.attempt
@@ -370,7 +416,12 @@ fn claim_exit(
         return None;
     }
     observed.exit_claimed = true;
-    Some((observed.attempt.clone(), exit_code, proof.clone()))
+    Some((
+        observed.attempt.clone(),
+        exit_code,
+        proof.clone(),
+        observed.origin,
+    ))
 }
 
 /// Mark this attempt's verdict as published.
@@ -484,8 +535,8 @@ impl ServiceContext {
         exit_code: Option<i32>,
         proof: &LaunchExitProof,
     ) -> Option<LaunchExitFailure> {
-        let (attempt, exit_code, proof) = claim_exit(tab_id, pty_id, exit_code, proof)?;
-        self.launch_exit_verdict(&attempt, exit_code, &proof)
+        let (attempt, exit_code, proof, origin) = claim_exit(tab_id, pty_id, exit_code, proof)?;
+        self.launch_exit_verdict(&attempt, exit_code, &proof, origin)
     }
 
     fn launch_exit_verdict(
@@ -493,6 +544,7 @@ impl ServiceContext {
         attempt: &LaunchAttempt,
         exit_code: Option<i32>,
         proof: &LaunchExitProof,
+        origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
     ) -> Option<LaunchExitFailure> {
         if proof.attempt != *attempt {
             return None;
@@ -506,6 +558,10 @@ impl ServiceContext {
         match settle_proven_exit(tab, attempt, exit_code, proof) {
             LaunchSettlement::Failed { reason, exit_code } => Some(LaunchExitFailure {
                 attempt: attempt.clone(),
+                origin,
+                auto_recovery_claimed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                    false,
+                )),
                 exit_code,
                 reason,
                 source: proof.source,
@@ -525,6 +581,109 @@ impl ServiceContext {
             failure.exit_code,
             failure.source.label(),
             &failure.tree_evidence,
+        );
+    }
+
+    pub(crate) fn handoff_launch_exit_after_teardown(&self, failure: &LaunchExitFailure) {
+        self.recover_pre_ready_exit(failure);
+    }
+
+    fn recover_pre_ready_exit(&self, failure: &LaunchExitFailure) {
+        if failure
+            .auto_recovery_claimed
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return;
+        }
+        let tab_id = failure.attempt.tab_id.clone();
+        let attempt_id = failure.attempt.pty_id.clone();
+        route_pre_ready_exit(
+            failure.origin,
+            failure.source,
+            || {
+                log::warn!(
+                    "[launch-recovery] attempt=started tab={} launch={} reason=pre_ready_exit",
+                    tab_id,
+                    attempt_id,
+                );
+                let svc = self.clone();
+                let attempt = failure.attempt.clone();
+                let recovery_tab_id = tab_id.clone();
+                let recovery_attempt_id = attempt_id.clone();
+                std::thread::spawn(move || {
+                    match svc.recover_exited_provider_after_launch_exit(&attempt) {
+                        Ok(outcome) => log::info!(
+                            "[launch-recovery] attempt=completed tab={} launch={} session={} ready={} recovered_in_place={}",
+                            recovery_tab_id,
+                            recovery_attempt_id,
+                            outcome.session_id.as_deref().unwrap_or("unknown"),
+                            outcome.agent_ready,
+                            outcome.recovered_in_place,
+                        ),
+                        Err(error) => log::error!(
+                            "[launch-recovery] attempt=failed tab={} launch={} error={error:?}",
+                            recovery_tab_id,
+                            recovery_attempt_id,
+                        ),
+                    }
+                });
+            },
+            || {
+                self.notify_pre_ready_recovery_stopped(&tab_id, &attempt_id);
+            },
+        );
+    }
+
+    pub(crate) fn notify_surviving_shell_restart_required(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) {
+        let command = recovery_command(tab_id);
+        self.create_notification_ext(
+            "Agent process exited".into(),
+            Some(format!(
+                "The agent process exited and its shell is available. Restart this Tab with `{command}`."
+            )),
+            Some("warning"),
+            None,
+            Some(true),
+            crate::service::notification::NotificationOrigin::claimed(Some(tab_id.to_string())),
+            crate::service::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some(format!("surviving-shell-restart:{tab_id}:{attempt_id}")),
+            },
+            None,
+        );
+    }
+
+    fn notify_pre_ready_recovery_stopped(&self, tab_id: &str, attempt_id: &str) {
+        let command = recovery_command(tab_id);
+        log::warn!(
+            "[launch-recovery] attempt=stopped tab={} launch={} reason=automatic_attempt_exited_before_readiness",
+            tab_id,
+            attempt_id,
+        );
+        self.create_notification_ext(
+            "Agent recovery stopped".into(),
+            Some(format!(
+                "Automatic resume exited before readiness. The shell is available; recover this Tab with `{command}`."
+            )),
+            Some("warning"),
+            None,
+            Some(true),
+            crate::service::notification::NotificationOrigin::claimed(Some(tab_id.to_string())),
+            crate::service::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some(format!("pre-ready-recovery:{tab_id}:{attempt_id}")),
+            },
+            None,
         );
     }
 
@@ -625,4 +784,8 @@ impl ServiceContext {
         };
         awaiting_first_turn && self.pty.lock().get_session(&attempt.pty_id).is_some()
     }
+}
+
+fn recovery_command(tab_id: &str) -> String {
+    format!("codeterm agent restart --tab {tab_id}")
 }
