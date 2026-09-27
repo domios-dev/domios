@@ -32,25 +32,29 @@ integration surface.
 
 | Route | Handler | Returns |
 |-------|---------|---------|
-| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true, delivery:"sent"}` after its write, `{ok:true, delivery:"pending"}` when only accepted by a background route, or a structured `DeliveryError` |
-| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`; refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
+| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when an enveloped send is accepted in the background, or a structured delivery error with its `bytes_written` status |
+| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
 | `GET /api/tabs/{id}/chat-send` | `tab_routes::chat_send_status` (`src-tauri/src/api/tab_routes/send.rs:50`) | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
 
 `POST .../send` is the synchronous REST write path used by mesh relays, service
 push-token writes, and low-level `actions` / `raw` / `batch` terminal input.
-Responses include `delivery: "sent"` after the route completes its write, or
-`delivery: "pending"` when an enveloped message was only accepted by a
-background route. A failure serializes the delivery taxonomy
+Responses include `delivery: "sent"` after the route confirms its write, or
+`delivery: "pending"` when an enveloped message was accepted by a background
+route. A failure serializes the delivery taxonomy
 (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`,
 `submit_unconfirmed`) documented in `.agents/skills/pty-delivery/SKILL.md`.
 
 Local `codeterm send` uses the socket `tab.send_text` route. It reports
-`OK (pending)` when that route accepts background work and `OK (sent)` only
-when a route explicitly confirms its write. With `--json`, the route's
-`delivery` field carries the same distinction.
+`OK (sent)` after a confirmed write, `OK (pending)` when the route accepted
+background work or wrote bytes without submit confirmation, and a refusal
+when no bytes were written. With `--json`, `delivery` and any `bytes_written`
+field carry the same distinction for one target; multi-target JSON includes
+`pending_written` for accepted writes that still lack submit confirmation.
+The resolved payload echo is emitted for confirmed delivery or a pending write.
 
-`POST .../chat-send` is the Chat UI user turn. It accepts live agent tabs and
-chat-backend tabs; a PTY tab without a live agent identity is refused before
+`POST .../chat-send` is the Chat UI user turn. It accepts tabs with agent
+identity at any launch stage and chat-backend tabs; a PTY tab without an agent
+identity is refused before
 the send transaction so prose is never typed into a bare shell. Accepted sends
 open a ledger entry so the send can be reconciled later; `GET .../chat-send`
 reads that ledger, and `state` is one of `accepted`, `unknown`, `confirmed`,
@@ -242,4 +246,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 33 -->
+<!-- revision: 39 -->

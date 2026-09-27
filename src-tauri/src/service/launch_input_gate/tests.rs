@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::provider::AgentProvider;
 use crate::agent::test_provider::MockProvider;
 
 fn launch_classification(state: TabState) -> Option<TabStateClassification> {
@@ -62,15 +63,17 @@ fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
         assert_eq!(refusal, LaunchInputRefusal::ProviderDialog(state));
     }
 
-    let refusal = decide_launch_input(
-        LaunchInputObservation {
-            pending_prompt: true,
-            ..input_observation()
-        },
-        LaunchInputMode::Standard,
-    )
-    .expect_err("pending provider prompt blocks launch input");
-    assert_eq!(refusal, LaunchInputRefusal::PendingPrompt);
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                pending_prompt: true,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+        "an active structured prompt blocks lazy readiness",
+    );
 
     let refusal = decide_launch_input(
         LaunchInputObservation {
@@ -84,12 +87,11 @@ fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
 }
 
 #[test]
-fn lazy_session_start_blocks_every_classified_modal() {
+fn lazy_session_start_blocks_classified_modals_and_active_questions() {
     for state in [
         TabState::UpdatePrompt,
         TabState::WaitingOnAuth,
         TabState::RateLimited,
-        TabState::ClarifyingQuestion,
     ] {
         assert_eq!(
             decide_launch_input(
@@ -102,21 +104,109 @@ fn lazy_session_start_blocks_every_classified_modal() {
             Ok(None),
         );
     }
+
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                classification: launch_classification(TabState::ClarifyingQuestion),
+                active_interactive_prompt: true,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+    );
 }
 
 #[test]
-fn standard_gate_keeps_transcript_questions_nonblocking() {
+fn resumed_transcript_question_does_not_block_without_an_active_structured_prompt() {
+    let transcript = "Earlier response text.\nassistant: What would you like me to do next?\n";
+    let transcript_provider = MockProvider::new("transcript-question")
+        .with_tab_state(launch_classification(TabState::ClarifyingQuestion).unwrap());
+    let classification = transcript_provider.classify_tab_state(&TabStateSnapshot {
+        tab_id: "restored-tab".into(),
+        agent_type: "fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: transcript.into(),
+    });
+    let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
+        value.state == TabState::ClarifyingQuestion
+            && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+    }) && transcript_provider.parse_prompt(transcript).is_some();
+    assert!(!active_interactive_prompt);
+
     assert_eq!(
         decide_launch_input(
             LaunchInputObservation {
                 session_bound: true,
                 composer_ready: false,
-                classification: launch_classification(TabState::ClarifyingQuestion),
+                pending_prompt: true,
+                classification: classification.clone(),
+                active_interactive_prompt,
                 ..input_observation()
             },
             LaunchInputMode::Standard,
         ),
         Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                classification,
+                active_interactive_prompt,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+    );
+
+    let active_prompt = codeterm_types::pty::PendingPrompt {
+        question: "Active structured choice".into(),
+        options: vec![
+            codeterm_types::pty::PromptOption {
+                label: "Option one".into(),
+                value: "1".into(),
+            },
+            codeterm_types::pty::PromptOption {
+                label: "Option two".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let active_provider = MockProvider::new("active-question")
+        .with_tab_state(launch_classification(TabState::ClarifyingQuestion).unwrap())
+        .with_parsed_prompt(active_prompt);
+    let active_screen = "active input region";
+    let active_classification = active_provider.classify_tab_state(&TabStateSnapshot {
+        tab_id: "restored-tab".into(),
+        agent_type: "fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: active_screen.into(),
+    });
+    let active_interactive_prompt = active_classification.as_ref().is_some_and(|value| {
+        value.state == TabState::ClarifyingQuestion
+            && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+    }) && active_provider.parse_prompt(active_screen).is_some();
+    assert!(active_interactive_prompt);
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                classification: active_classification,
+                active_interactive_prompt,
+                ..input_observation()
+            },
+            LaunchInputMode::Standard,
+        ),
+        Err(LaunchInputRefusal::ProviderDialog(
+            TabState::ClarifyingQuestion
+        )),
     );
 }
 
@@ -168,24 +258,74 @@ fn lazy_session_start_requires_composer_live_process_and_no_prompt() {
 
 #[test]
 fn lazy_composer_readiness_requires_declared_structural_capability() {
+    assert!(!provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        false,
+    ));
     assert!(provider_composer_is_ready(
         LaunchInputMode::LazySessionStart,
         true,
         true,
-        false,
-    ));
-    assert!(!provider_composer_is_ready(
-        LaunchInputMode::LazySessionStart,
-        false,
-        true,
         true,
     ));
     assert!(!provider_composer_is_ready(
         LaunchInputMode::LazySessionStart,
+        false,
+        true,
+        true,
+    ));
+    assert!(!provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
         true,
         false,
-        false,
+        true,
     ));
+}
+
+#[test]
+fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
+    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
+    let provider = crate::plugin::js_runtime::load_one(
+        &plugins.join("provider-codex").join("plugin.json"),
+    )
+    .expect("load the bundled Codex provider");
+    let fixtures = plugins
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+
+    for file in ["codex-update-available.txt", "trust-folder-access-0.157.1.txt"] {
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("read captured screen");
+        let classification = provider.classify_tab_state(&TabStateSnapshot {
+            tab_id: "codex-launch-fixture".into(),
+            agent_type: "codex".into(),
+            session_id: None,
+            cwd: None,
+            screen_text: screen.clone(),
+        });
+        let directory_trust_prompt = provider.directory_trust_prompt_response(&screen).is_some();
+        let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
+            value.state == TabState::ClarifyingQuestion
+                && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+        }) && provider.parse_prompt(&screen).is_some();
+
+        assert_eq!(
+            decide_launch_input(
+                LaunchInputObservation {
+                    directory_trust_prompt,
+                    active_interactive_prompt,
+                    classification,
+                    ..input_observation()
+                },
+                LaunchInputMode::LazySessionStart,
+            ),
+            Ok(None),
+            "captured provider frame {file} must block lazy input readiness",
+        );
+    }
 }
 
 #[test]

@@ -880,9 +880,11 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &readiness_attempt.binding_nonce,
             );
         }
+        let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
+        let launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
-            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+            startup_binding_deadline,
             session_starts_on_first_turn,
         );
 
@@ -902,10 +904,15 @@ pub(crate) fn launch_agent_in_background_with_env(
         );
         let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
             let readiness = if session_starts_on_first_turn {
+                let _ = svc.await_provider_readiness_on_screen(
+                    &pty_id,
+                    &agent_cmd,
+                    provider_readiness.clone(),
+                );
                 svc.await_lazy_session_input_readiness(
                     &readiness_attempt,
                     &agent_cmd,
-                    crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
+                    launch_input_deadline.saturating_duration_since(std::time::Instant::now()),
                 )
             } else {
                 svc.await_launch_input_readiness(
