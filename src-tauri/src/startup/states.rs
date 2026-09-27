@@ -391,6 +391,13 @@ pub(crate) fn init_states() -> AppStates {
         }
     }
 
+    for (tab_id, reason) in crate::session::scrollback_restore::load_restored_scrollback_tails(
+        &mut mux_state_inner,
+        &session_state,
+    ) {
+        log::debug!("[restore-scrollback] tab={tab_id} skipped reason={reason}");
+    }
+
     let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {

@@ -76,6 +76,19 @@ await (async () => {
   assert(host.textContent?.includes("update.md"), "unresolved staged message renders its source descriptor");
 })();
 
+await (async () => {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv('codeterm send --tab recipient "hello"')}
+      result={'OK (pending)\nCODETERM_RESOLVED_TEXT="hello"'}
+    />,
+  );
+  const status = host.querySelector('[data-testid="chat-sent-status"]');
+  assert(status?.getAttribute("aria-label") === "pending", "unconfirmed write renders pending status");
+  assert(status?.textContent === "…", "pending delivery does not show a delivered or failed mark");
+  assert(host.textContent?.includes("hello"), "written payload echo stays visible while delivery is pending");
+})();
+
 for (const [command, expectedBody] of [
   [`codeterm send --tab recipient "inline message"`, "inline message"],
   [`codeterm send --tab recipient --from-file update.md`, "update.md"],

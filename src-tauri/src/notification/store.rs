@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use codeterm_types::pty::PromptIdentity;
 
 use super::answer::{self, AnswerAdmission};
 use super::answer_delivery::{self, AnswerDeliveryPlan};
@@ -45,6 +46,8 @@ pub struct Notification {
     /// at send time and the one answer it may ever hold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<AnswerSlot>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub resolved: bool,
     /// The surface this question offers to turn on, and the one label that
     /// turns it on. Daemon-constructed, and read only when an answer is
     /// recorded — an untapped offer changes nothing.
@@ -118,6 +121,18 @@ impl PushAdmission {
 pub struct Ask {
     pub actions: Option<Vec<NotificationAction>>,
     pub offer: Option<SurfaceOffer>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PromptOptionAnswer {
+    pub to_tab: String,
+    pub value: String,
+    pub identity: PromptIdentity,
+    pub delivered: bool,
 }
 
 impl Ask {
@@ -237,6 +252,7 @@ impl NotificationStore {
             read: false,
             actions,
             answer,
+            resolved: false,
             surface_offer: offer,
             sticky,
             push_failed: None,
@@ -462,6 +478,45 @@ impl NotificationStore {
         }
     }
 
+    pub fn resolve_prompt_notifications(
+        &mut self,
+        tab_id: &str,
+        identity: &PromptIdentity,
+    ) -> Vec<String> {
+        let mut resolved = Vec::new();
+        for notification in &mut self.notifications {
+            let matching_prompt = notification.actions.as_deref().is_some_and(|actions| {
+                actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        NotificationAction::RespondPromptOption {
+                            identity: offered,
+                            ..
+                        } if offered == identity
+                    )
+                })
+            });
+            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
+                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
+            });
+            if notification.tab_id.as_deref() == Some(tab_id)
+                && matching_prompt
+                && unanswered
+                && !notification.resolved
+            {
+                notification.resolved = true;
+                notification.read = true;
+                notification.actions = None;
+                resolved.push(notification.id.clone());
+            }
+        }
+        for id in &resolved {
+            self.close_push_slot_for(id);
+            self.deliveries.release(id);
+        }
+        resolved
+    }
+
     /// The one answer this notification may hold, and the tab it was asked
     /// from. Read-only: recording goes through `record_answer`.
     pub fn answer_slot(&self, id: &str) -> Option<&AnswerSlot> {
@@ -470,6 +525,29 @@ impl NotificationStore {
             .find(|n| n.id == id)?
             .answer
             .as_ref()
+    }
+
+    pub fn prompt_option_answer(&self, id: &str, label: &str) -> Option<PromptOptionAnswer> {
+        let notification = self.notifications.iter().find(|item| item.id == id)?;
+        let answer = notification.answer.as_ref()?;
+        let to_tab = answer.asked_from_tab.clone()?;
+        let action = notification
+            .actions
+            .as_deref()?
+            .iter()
+            .find(|action| action.answer_label() == Some(label))?;
+        let NotificationAction::RespondPromptOption {
+            value, identity, ..
+        } = action
+        else {
+            return None;
+        };
+        Some(PromptOptionAnswer {
+            to_tab,
+            value: value.clone(),
+            identity: identity.clone(),
+            delivered: answer.delivered,
+        })
     }
 
     /// Whether this record still stands as a question.
@@ -545,6 +623,20 @@ impl NotificationStore {
     /// a locator means whatever the channel that wrote it means by it.
     pub fn remember_channel_placement(&mut self, id: &str, service: &str, locator: &str) -> bool {
         channel_placement::remember(&mut self.notifications, id, service, locator)
+    }
+
+    /// Remember a receipt and return any closed question that must be rewritten.
+    pub fn remember_channel_placement_and_spent_question(
+        &mut self,
+        id: &str,
+        service: &str,
+        locator: &str,
+    ) -> Option<SpentQuestion> {
+        if self.remember_channel_placement(id, service, locator) {
+            self.spent_question(id)
+        } else {
+            None
+        }
     }
 
     pub fn channel_placements(&self, id: &str) -> Vec<ChannelPlacement> {

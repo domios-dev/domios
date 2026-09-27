@@ -39,7 +39,9 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
   const slot = notification.answer;
   const chosen = slot?.answered ?? null;
   const askedFrom = slot?.asked_from_tab ?? null;
-  const choices = (notification.actions ?? []).filter((action) => action.type === "answer");
+  const choices = (notification.actions ?? []).filter((action) =>
+    action.type === "answer" || action.type === "respond_prompt_option",
+  );
   const edge = { borderColor: `color-mix(in srgb, ${tone} 18%, transparent)` };
 
   return (
@@ -92,7 +94,15 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             </div>
           )}
 
-          {chosen ? (
+          {notification.resolved ? (
+            <div
+              data-testid="chat-ask-resolved"
+              className="border-t px-3 py-2 text-[11px]"
+              style={{ ...edge, color: "var(--ct-muted-fg)" }}
+            >
+              Resolved in tab.
+            </div>
+          ) : chosen ? (
             <div
               data-testid="chat-ask-answered"
               className="flex items-center gap-1.5 border-t px-3 py-2 text-[11px]"

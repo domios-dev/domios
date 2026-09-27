@@ -5,6 +5,7 @@ use crate::service::ServiceContext;
 
 mod readiness;
 
+#[cfg(test)]
 pub(crate) use readiness::provider_or_generic_tui;
 #[cfg(test)]
 use readiness::{provider_frame_ready, wait_for_observed_readiness};

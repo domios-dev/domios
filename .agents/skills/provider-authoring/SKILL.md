@@ -132,6 +132,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `taskDelivery` | `"inline_flag"` \| `"pty_input"` | `pty_input` | Whether the task rides the launch command line or is typed into the PTY after launch. |
 | `systemPromptDelivery` | `{"kind":"external"}` \| `{"kind":"cli_flag","flag":"--append-system-prompt"}` \| `{"kind":"session_config"}` | `external` | How the composed system prompt reaches the agent. |
 | `providerReadiness` | `{"kind":"tui_frame","timeoutSecs":N}` \| `{"kind":"structural_composer","timeoutSecs":N}` | `tui_frame` / 30 s | When the agent TUI itself counts as ready (post-spawn). |
+| `composerCursorPosition` | `"bottom_region"` \| `"visible_anywhere"` | `bottom_region` | Where the composer cursor appears. `visible_anywhere` allows lazy-session readiness to use a visible cursor anywhere on the provider's alternate-screen TUI. |
 | `verifySubmit` | `{"kind":"shell_prompt","timeoutSecs":N}` \| `{"kind":"tui_input_drained","initialKeyDelayMs":N}` \| `{"kind":"none"}` | `shell_prompt` / 5 s | How the host verifies a submitted message actually went in. `initialKeyDelayMs` defaults to 0. |
 | `busySubmit` | `{"kind":"submit_normally"}` \| `{"kind":"key","key":"<bytes>"}` | `submit_normally` | What to send when submitting while the agent is generating. |
 | `sessionIdInjection` | `"none"` \| `"fresh"` \| `"fresh_and_fork"` | `none` | Whether the host generates and injects a session id at launch (and on fork). |
@@ -139,7 +140,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `agentStateStatusReconciliation` | bool | false | Provider participates in agent-state ↔ status reconciliation. |
 | `supportsLazySkills` | bool | false | Provider can lazy-load skills via trigger words; otherwise skills merge into the system prompt up-front. |
 | `hasHooks` | bool | false | Provider has hook-based detection. |
-| `resumeBindsOnFirstUserTurn` | bool | false | A restored resume needs the owner's first turn to emit its session-binding hook; the host accepts input once the provider is ready. |
+| `sessionStartsOnFirstUserTurn` | bool | false | The provider emits its session binding only after its first user turn; launches without a startup task accept input from declared composer readiness. |
 | `hookEventRoster` | `[{event, route}]`? | absent | Declared hook events: each entry names an `event` and a core ingestion `route`. Unknown routes fail the **whole roster** closed. Absent ⇒ native fallback's roster, else SessionStart-only when `hasHooks`. |
 | `interactiveEvents` | bool | false | Plugin exports `parseInteractiveEvents`; host calls it to extract interactive prompts. False ⇒ native fallback handles it. |
 | `supportsStructuredPrompts` | bool | false | Provider exposes a structured prompt source; host builds `pending_prompt` from it instead of scraping the PTY. **JS-only providers cannot serve this** — see caveats. |

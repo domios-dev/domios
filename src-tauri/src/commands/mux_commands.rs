@@ -71,12 +71,13 @@ pub fn mux_set_active_workspace(
 
 /// Close a workspace and kill all its PTYs.
 #[tauri::command]
-pub fn mux_close_workspace(
+pub async fn mux_close_workspace(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     force: Option<bool>,
 ) -> Result<(), String> {
-    svc.close_workspace_guarded(None, &workspace_id, force.unwrap_or(false))
+    svc.close_workspace_as_human(&workspace_id, force.unwrap_or(false))
+        .await
 }
 
 /// Rename a workspace.
@@ -776,6 +777,9 @@ pub fn mux_respond_prompt(
         | crate::service::tab::RespondPromptOutcome::Structured
         | crate::service::tab::RespondPromptOutcome::PromptNotOnScreen
         | crate::service::tab::RespondPromptOutcome::NoPty => Ok(()),
+        crate::service::tab::RespondPromptOutcome::StalePrompt => {
+            Err("Prompt is no longer current".into())
+        }
         crate::service::tab::RespondPromptOutcome::InvalidOption => {
             Err("Invalid prompt option".into())
         }

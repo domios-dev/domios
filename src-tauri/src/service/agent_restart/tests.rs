@@ -5,19 +5,7 @@ fn fresh_tracker() -> RestartTracker {
 }
 
 fn check(tracker: &RestartTracker, tab_id: &str) -> Result<(), AgentRestartError> {
-    let mut guard = tracker.lock();
-    let now = Instant::now();
-    if let Some(last) = guard.get(tab_id) {
-        let elapsed = now.duration_since(*last);
-        let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
-        if elapsed < limit {
-            let retry = (limit - elapsed).as_secs().max(1);
-            return Err(AgentRestartError::RateLimited {
-                retry_after_secs: retry,
-            });
-        }
-    }
-    guard.insert(tab_id.to_string(), now);
+    drop(claim_restart_attempt(tracker, tab_id, false)?);
     Ok(())
 }
 
@@ -51,8 +39,46 @@ fn rate_limit_independent_tabs() {
 fn rate_limit_resets_after_window() {
     let tracker = fresh_tracker();
     let past = Instant::now() - Duration::from_secs(RESTART_RATE_LIMIT_SECS + 1);
-    tracker.lock().insert("tab-1".to_string(), past);
+    tracker.lock().last_restart.insert("tab-1".to_string(), past);
     assert!(check(&tracker, "tab-1").is_ok());
+}
+
+#[test]
+fn automatic_and_manual_restart_claims_are_mutually_exclusive() {
+    let tracker = fresh_tracker();
+    let automatic = claim_restart_attempt(&tracker, "tab-1", true).unwrap();
+    assert!(matches!(
+        claim_restart_attempt(&tracker, "tab-1", false),
+        Err(AgentRestartError::BadRequest(message)) if message.contains("already in progress")
+    ));
+    drop(automatic);
+    assert!(matches!(
+        claim_restart_attempt(&tracker, "tab-1", false),
+        Err(AgentRestartError::RateLimited { .. })
+    ));
+}
+
+#[test]
+fn concurrent_manual_and_automatic_restart_claims_admit_exactly_one() {
+    let tracker = fresh_tracker();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let admitted = Arc::new(Mutex::new(Vec::new()));
+    std::thread::scope(|scope| {
+        for automatic in [false, true] {
+            let tracker = tracker.clone();
+            let barrier = barrier.clone();
+            let admitted = admitted.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                let claim = claim_restart_attempt(&tracker, "tab-concurrent", automatic);
+                admitted.lock().push(claim.is_ok());
+                barrier.wait();
+                drop(claim);
+            });
+        }
+    });
+    let results = admitted.lock();
+    assert_eq!(results.iter().filter(|admitted| **admitted).count(), 1);
 }
 
 #[test]

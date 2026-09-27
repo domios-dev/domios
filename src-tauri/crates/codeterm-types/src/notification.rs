@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::pty::PromptIdentity;
+
 /// What a notification is, on the single axis a caller may name. Progress is a
 /// nameable level here rather than an unnameable absence; whether a level
 /// interrupts is destination configuration, not membership in this set.
@@ -71,6 +73,13 @@ pub enum NotificationAction {
     /// One offered choice. The label is its entire payload, so answering can
     /// only ever carry the label back to the tab recorded on the notification.
     Answer { label: String },
+    /// A structured prompt choice resolved against the current prompt on the
+    /// captured asking tab, without routing text through the agent's chat.
+    RespondPromptOption {
+        label: String,
+        value: String,
+        identity: PromptIdentity,
+    },
 }
 
 /// What a CALLER may ask a notification button to do.
@@ -210,14 +219,17 @@ impl<'de> Deserialize<'de> for CallerAction {
 impl NotificationAction {
     pub fn label(&self) -> &str {
         match self {
-            Self::Url { label, .. } | Self::Dismiss { label } | Self::Answer { label } => label,
+            Self::Url { label, .. }
+            | Self::Dismiss { label }
+            | Self::Answer { label }
+            | Self::RespondPromptOption { label, .. } => label,
         }
     }
 
     /// The label of an offered choice, and nothing for any other kind.
     pub fn answer_label(&self) -> Option<&str> {
         match self {
-            Self::Answer { label } => Some(label),
+            Self::Answer { label } | Self::RespondPromptOption { label, .. } => Some(label),
             _ => None,
         }
     }

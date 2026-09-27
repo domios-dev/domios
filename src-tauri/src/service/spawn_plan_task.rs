@@ -378,7 +378,13 @@ impl ServiceContext {
         );
         let binding = match binding {
             Ok(binding) => binding,
-            Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
+            Err(error) => {
+                return Err(self.rollback_failed_agent_spawn_if_created(
+                    tab_id,
+                    &error,
+                    params.existing_tab_id.is_none(),
+                ))
+            }
         };
         self.persist_current_attempt_session_model(tab_id);
         crate::api::events::emit_everywhere(
@@ -692,6 +698,17 @@ mod tests {
             ..verifier(&[])
         })
         .expect("a task-bound mutating Worker is unchanged");
+    }
+
+    #[test]
+    fn mutating_worker_without_task_still_refused_without_unplanned() {
+        let error = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+            ..Default::default()
+        })
+        .expect_err("plain mutating Worker spawn must not create a loose agent");
+        assert!(error.contains("--plan-task"), "{error}");
     }
 
     /// The mesh Worker: it changes source on a peer, but the origin plan store

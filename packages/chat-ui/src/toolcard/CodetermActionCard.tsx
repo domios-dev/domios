@@ -123,9 +123,10 @@ function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undef
   const isTabList = inv?.path.join(" ") === "tab list";
   const tabListJson = isTabList && inv?.flags.json === true;
   const sendSucceeded = sent?.status?.ok === true;
-  const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || (event.status === "error" && !sendSucceeded)));
+  const sendPending = sent?.status?.pending === true;
+  const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || !sendSucceeded));
   const hasBody = Boolean(sent || (isTabList && !tabListJson) || descriptor.fields?.length || descriptor.detail || descriptor.bullets?.length || showResult || canNavigate);
-  return { inv, sent, sendSucceeded, target, descriptor, canNavigate, isTabList, tabListJson, showResult, hasBody };
+  return { inv, sent, sendSucceeded, sendPending, target, descriptor, canNavigate, isTabList, tabListJson, showResult, hasBody };
 }
 
 type CodetermAction = ReturnType<typeof codetermAction>;
@@ -193,11 +194,11 @@ export function CodetermActionDetail({ event, invocation, fallback, ...navigatio
 
 export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
   const action = codetermAction(event, invocation, navigation);
-  const { inv, descriptor, target, canNavigate, sendSucceeded } = action;
+  const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const displayEvent: ToolEvent = {
     ...event,
-    status: sendSucceeded ? "success" : event.status,
+    status: sendSucceeded ? "success" : sendPending ? "pending" : event.status,
     summary: descriptor.object ?? descriptor.lead,
     detail: undefined,
   };

@@ -24,7 +24,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   const [expanded, setExpanded] = useState(false);
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
-  const runnable = notification.actions?.filter((action) => action.type !== "answer") ?? [];
+  const runnable = notification.actions?.filter((action) =>
+    action.type !== "answer" && action.type !== "respond_prompt_option",
+  ) ?? [];
   const compactRunnable = embedded ? runnable.slice(0, 1) : runnable;
   const hasActions = compactRunnable.length > 0;
   const sticky = notification.sticky || hasActions || expanded;

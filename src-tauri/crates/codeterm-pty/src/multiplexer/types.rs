@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+mod restorable_launch;
+pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
@@ -50,20 +54,6 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReasoningEffortIdentity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planned: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<String>,
-    #[serde(default)]
-    pub actual: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actual_source: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionModelIdentity {
     pub session_id: String,
@@ -75,16 +65,6 @@ pub struct ContextEpochArchive {
     pub provider: String,
     pub cwd: String,
     pub session_id: String,
-}
-
-impl ReasoningEffortIdentity {
-    pub fn is_empty(&self) -> bool {
-        self.planned.is_none()
-            && self.requested.is_none()
-            && self.resolved.is_none()
-            && self.actual.is_none()
-            && self.actual_source.is_none()
-    }
 }
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
@@ -591,6 +571,8 @@ pub struct Tab {
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(skip, default)]
+    pub restorable_launch: RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
@@ -679,6 +661,8 @@ pub struct Tab {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
     /// the chat view. Persisted only with the tab-owned session identity.
@@ -721,6 +705,12 @@ pub struct Tab {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// Restored plain-shell history still needs to be prepended before its PTY is linked.
+    #[serde(skip, default)]
+    pub scrollback_seed_pending: bool,
+    /// Sidecar bytes loaded once during startup and consumed before the first PTY link.
+    #[serde(skip, default)]
+    pub pending_scrollback_tail: Option<Arc<[u8]>>,
     /// In-memory only — when true, this tab is excluded from the session
     /// snapshot. Set for ephemeral picker/onboarding tabs that must not
     /// survive a daemon restart and reappear as ghost tabs.
@@ -770,6 +760,11 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
+        let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
+        Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))
+    }
+
     /// True when this tab is backed by a plugin `chatBackend` rather than a PTY.
     /// The one helper the I/O seam and frontend branch on instead of probing
     /// `pty_id`.
@@ -898,6 +893,7 @@ mod tests {
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            restorable_launch: RestorableLaunchParameters::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
@@ -922,6 +918,7 @@ mod tests {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,
@@ -936,6 +933,8 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
