@@ -12,7 +12,10 @@ fn fixture(provider: &str, name: &str) -> String {
 #[test]
 fn trust_candidate_prefilter_covers_codex_and_claude_dialog_frames() {
     let codex = fixture("codex", "directory-trust/trust-folder-access-0.157.1.txt");
-    let live_codex = fixture("codex", "directory-trust/trust-frame-live-user-dir-0.157.1.txt");
+    let live_codex = fixture(
+        "codex",
+        "directory-trust/trust-frame-live-user-dir-0.157.1.txt",
+    );
     let claude_fixtures = [
         "folder-trust/quick-safety-yes-focused.txt",
         "folder-trust/trust-rule-focus-affirmative.txt",

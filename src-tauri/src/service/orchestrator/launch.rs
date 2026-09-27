@@ -445,8 +445,12 @@ pub(crate) fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
-    let resumes_on_first_turn =
-        startup_readiness::resume_waits_for_first_turn(&svc, &tab_id, &agent_cmd, origin);
+    let has_startup_task_turn = task.is_some() || fallback_spec.is_some();
+    let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
+        &svc,
+        &agent_cmd,
+        has_startup_task_turn,
+    );
     let launch_started = std::time::Instant::now();
     let (role, role_profile) = svc
         .mux
@@ -850,6 +854,20 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
             return;
         }
+        if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
+            log::info!(
+                "[launch-readiness] observed verdict_source=launch-written tree_evidence={} tab={} pty={}",
+                tree.evidence(),
+                tab_id,
+                pty_id,
+            );
+        } else {
+            log::info!(
+                "[launch-readiness] observed verdict_source=launch-written tree_evidence=provider_tree_unavailable tab={} pty={}",
+                tab_id,
+                pty_id,
+            );
+        }
 
         if reader_monitor.closed() {
             let error = LaunchFailure::PtyEof.reason();
@@ -876,10 +894,12 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &readiness_attempt.binding_nonce,
             );
         }
+        let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
+        let launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
-            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
-            resumes_on_first_turn,
+            startup_binding_deadline,
+            session_starts_on_first_turn,
         );
 
         let provider_readiness = svc
@@ -889,10 +909,6 @@ pub(crate) fn launch_agent_in_background_with_env(
             })
             .unwrap_or_default();
         let input_readiness_timeout = provider_readiness.timeout();
-        let provider_up_readiness = startup_readiness::provider_readiness_with_timeout(
-            &provider_readiness,
-            crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
-        );
         log::info!(
             "[provider-readiness-stage] tab={} pty={} strategy={:?} require_composer={}",
             tab_id,
@@ -900,12 +916,26 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let launch_input_readiness = if fallback_spec.is_some() {
-            match svc.await_launch_input_readiness(
-                &readiness_attempt,
-                &agent_cmd,
-                input_readiness_timeout,
-            ) {
+        let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
+            let readiness = if session_starts_on_first_turn {
+                let _ = svc.await_provider_readiness_on_screen(
+                    &pty_id,
+                    &agent_cmd,
+                    provider_readiness.clone(),
+                );
+                svc.await_lazy_session_input_readiness(
+                    &readiness_attempt,
+                    &agent_cmd,
+                    launch_input_deadline.saturating_duration_since(std::time::Instant::now()),
+                )
+            } else {
+                svc.await_launch_input_readiness(
+                    &readiness_attempt,
+                    &agent_cmd,
+                    input_readiness_timeout,
+                )
+            };
+            match readiness {
                 Ok(readiness) => Some(readiness),
                 Err(refusal) => {
                     let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
@@ -928,15 +958,9 @@ pub(crate) fn launch_agent_in_background_with_env(
                 readiness,
             );
         }
-        let composer_ready = launch_input_readiness.is_some_and(|readiness| {
-            readiness == crate::service::launch_input_gate::LaunchInputEvidence::ProviderComposer
-        });
-        if resumes_on_first_turn
-            && !composer_ready
-            && !svc.await_provider_readiness_on_screen(&pty_id, &agent_cmd, provider_up_readiness)
-        {
+        if session_starts_on_first_turn && launch_input_readiness.is_none() {
             let failure = LaunchFailure::ProviderInputNotReady(
-                "provider-up evidence was not observed before the readiness deadline".into(),
+                "provider composer evidence was not observed before the readiness deadline".into(),
             );
             launch.fail(&svc, failure.clone());
             set_booting(false);
@@ -946,12 +970,12 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         let input_ready_stage =
-            startup_readiness::input_ready_stage_after_provider_ready(resumes_on_first_turn);
-        if resumes_on_first_turn {
+            startup_readiness::input_ready_stage_after_provider_ready(session_starts_on_first_turn);
+        if session_starts_on_first_turn {
             set_booting(false);
         }
-        let input_ready = if resumes_on_first_turn {
-            launch.emit_resume_first_turn_input_ready(&svc)
+        let input_ready = if session_starts_on_first_turn {
+            launch.emit_first_turn_input_ready(&svc)
         } else {
             launch.emit(&svc, input_ready_stage)
         };

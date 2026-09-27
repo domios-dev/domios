@@ -1,4 +1,37 @@
+use super::pair_headers::pair_params_from_headers;
 use super::*;
+
+// WHAT: REST pair calls use the tab identity carried by the authenticated client context.
+// WHY: A body-supplied or omitted caller must not bypass the pair hierarchy guard.
+// ORACLE: the service params contain the header tab, and never a body-only tab id.
+#[test]
+fn orchestration_pair_rest_uses_tab_header_for_hierarchy_context() {
+    let mut headers = HeaderMap::new();
+    headers.insert("X-CodeTerm-Tab-Id", "worker-tab".parse().unwrap());
+    let params = crate::service::OrchestrationPairParams {
+        spawned_by_tab_id: Some("forged-root-tab".into()),
+        ..Default::default()
+    };
+
+    let params = pair_params_from_headers(&headers, params);
+
+    assert_eq!(params.spawned_by_tab_id.as_deref(), Some("worker-tab"));
+}
+
+// WHAT: REST pair calls without caller context remain caller-less.
+// WHY: The body is not an authority source for hierarchy identity.
+// ORACLE: a body-only spawned_by_tab_id is discarded when the header is absent.
+#[test]
+fn orchestration_pair_rest_discards_body_only_hierarchy_context() {
+    let params = crate::service::OrchestrationPairParams {
+        spawned_by_tab_id: Some("forged-worker-tab".into()),
+        ..Default::default()
+    };
+
+    let params = pair_params_from_headers(&HeaderMap::new(), params);
+
+    assert!(params.spawned_by_tab_id.is_none());
+}
 
 #[test]
 fn spawn_body_minimal() {

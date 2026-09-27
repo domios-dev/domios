@@ -56,7 +56,9 @@ fn restored_resume_command_preserves_exact_session_model_and_effort() {
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: SES_ID.into(),
             skip_permissions: false,
+            agent_name: None,
             system_prompt: None,
+            instance_id: None,
             args: vec![
                 "-m".into(),
                 "big-pickle".into(),
@@ -86,7 +88,9 @@ fn resume_with_context_restages_the_session_config() {
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: SES_ID.into(),
             skip_permissions: false,
+            agent_name: None,
             system_prompt: Some(prompt.into()),
+            instance_id: None,
             args: vec![
                 "-m".into(),
                 "big-pickle".into(),

@@ -403,7 +403,7 @@ pub async fn output_stream(
         let mut activity = svc.output_stream_activity.subscribe();
         let mut dirty_pty_ids = HashSet::new();
         let mut read_all = true;
-        let mut refresh_tabs = true;
+        let mut sweep_now = true;
         let mut diagnostics = build_stream_diagnostics(
             diagnostic_level,
             session_id,
@@ -437,17 +437,14 @@ pub async fn output_stream(
             yield Ok(data_frame(bf));
         }
         loop {
-            if !read_all && !refresh_tabs && dirty_pty_ids.is_empty() {
+            if !read_all && !sweep_now && dirty_pty_ids.is_empty() {
                 match activity.recv().await {
                     Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
                         dirty_pty_ids.insert(pty);
                     }
-                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {
-                        refresh_tabs = true;
-                    }
+                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         read_all = true;
-                        refresh_tabs = true;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         if let Some(diagnostics) = diagnostics.as_mut() {
@@ -461,12 +458,9 @@ pub async fn output_stream(
                         Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
                             dirty_pty_ids.insert(pty);
                         }
-                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {
-                            refresh_tabs = true;
-                        }
+                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {}
                         Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
                             read_all = true;
-                            refresh_tabs = true;
                             break;
                         }
                         Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
@@ -481,7 +475,7 @@ pub async fn output_stream(
             }
             let dirty_for_sweep = std::mem::take(&mut dirty_pty_ids);
             let read_all_for_sweep = std::mem::replace(&mut read_all, false);
-            refresh_tabs = false;
+            sweep_now = false;
             let svc1 = svc.clone();
             let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);

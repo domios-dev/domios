@@ -41,12 +41,15 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
+#[path = "spawn_reasoning_effort.rs"]
+mod spawn_reasoning_effort;
 #[cfg(test)]
 pub(crate) use spawn_identity::task_spawn_handle;
 pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
+pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -250,46 +253,6 @@ impl ServiceContext {
     }
 }
 
-/// Validate against model levels when present and use the provider fallback otherwise.
-pub(crate) fn validate_agent_reasoning_effort(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Result<(), String> {
-    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
-        return Ok(());
-    };
-    match registry.with_provider(provider_id, |p| {
-        if let Some(model) = model {
-            let supported = p.reasoning_efforts_for_model(Some(model));
-            if supported.iter().any(|level| level.id == effort) {
-                return Ok(());
-            }
-            let levels = supported
-                .iter()
-                .map(|level| level.id.as_str())
-                .collect::<Vec<_>>();
-            let levels = if levels.is_empty() {
-                "none".to_string()
-            } else {
-                levels.join(", ")
-            };
-            return Err(format!(
-                "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
-            ));
-        }
-        p.validate_reasoning_effort(Some(effort))
-            .map_err(|rejection| rejection.to_string())
-    }) {
-        Some(Ok(())) => Ok(()),
-        Some(Err(rejection)) => Err(rejection.to_string()),
-        None => Err(format!(
-            "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
-        )),
-    }
-}
-
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -381,6 +344,7 @@ impl ServiceContext {
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
+        let tab_created_by_spawn = agent.existing_tab_id.is_none();
 
         let tab_id = {
             let mut mux = self.mux.write();
@@ -468,7 +432,9 @@ impl ServiceContext {
             task_identity.clone(),
         );
         if task_identity.is_some() && !startup_supervised {
-            self.rollback_provisional_tab_via_close(&tab_id);
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab_via_close(&tab_id);
+            }
             self.emit_state_changed();
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
@@ -484,14 +450,18 @@ impl ServiceContext {
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {
-                self.rollback_provisional_tab_via_close(&tab_id);
+                if tab_created_by_spawn {
+                    self.rollback_provisional_tab_via_close(&tab_id);
+                }
                 self.emit_state_changed();
                 return Err(e);
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
                     if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
-                        self.rollback_provisional_tab_via_close(&tab_id);
+                        if tab_created_by_spawn {
+                            self.rollback_provisional_tab_via_close(&tab_id);
+                        }
                         self.emit_state_changed();
                         return Err(e);
                     }
@@ -535,10 +505,12 @@ impl ServiceContext {
                 super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
-                let _ = self
-                    .mux
-                    .write()
-                    .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self
+                        .mux
+                        .write()
+                        .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 self.emit_state_changed();
                 return Err(error);
             }
@@ -546,9 +518,12 @@ impl ServiceContext {
         if let Some(binding) = task_binding_from_spawn(&agent) {
             let _ = self.mux.write().set_task_binding_once(&tab_id, binding);
         }
-        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.rollback_provisional_tab(&ws_id, &tab_id);
-        })?;
+        if let Err(error) = self.ensure_agent_pad(&tab_id) {
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+            }
+            return Err(error);
+        }
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
             super::reasoning_effort::persist_launch_identity(
@@ -603,6 +578,23 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
+        super::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            super::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: launch_model.clone(),
+                reasoning_effort: agent.reasoning_effort.clone(),
+                args: (!agent.extra_args.is_empty()).then(|| agent.extra_args.clone()),
+                agent_name: agent.agent_name.clone(),
+                task: agent.task.as_deref(),
+                role: agent.role.as_deref(),
+                role_profile: agent.role_profile.as_deref(),
+                permission_bypass_requested: permission_bypass,
+            },
+        );
         let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
             startup_supervised,
             task_identity.is_some(),
@@ -689,7 +681,9 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 return Err(error.to_string());
             }
         }
@@ -703,7 +697,11 @@ impl ServiceContext {
             &self.agent_registry,
         );
         if launch_cmd.trim().is_empty() {
-            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+            return Err(self.rollback_empty_agent_launch_if_created(
+                &tab_id,
+                &agent_cmd,
+                tab_created_by_spawn,
+            ));
         }
         launch_agent_in_background_with_env(
             self.clone(),

@@ -79,7 +79,10 @@ pub fn start_watchdog(
                     );
                     let pid = mux.write().resolve_tab_id(GENERAL_ALIAS);
                     if let Some(pid) = pid {
-                        svc.clear_tab_agent_identity_for_lifecycle_exit(&pid);
+                        svc.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+                            &pid,
+                            "General Agent PTY is no longer live",
+                        );
                     }
                     std::thread::sleep(std::time::Duration::from_secs(
                         general_config.restart_delay_s as u64,

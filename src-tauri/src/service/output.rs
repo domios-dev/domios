@@ -17,6 +17,8 @@ use crate::agent::status::TabStatus;
 mod launch_exit;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
+#[path = "output/shell_markers.rs"]
+mod shell_markers;
 #[cfg(test)]
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
@@ -643,46 +645,6 @@ impl ServiceContext {
                     crate::service::hierarchy::WorkerTurnSignal::IdleTransition,
                 );
             }
-        }
-    }
-
-    /// Feed a raw chunk into the tab's shell-integration accumulators and emit
-    /// command-lifecycle changes on the unified frontend event path (same
-    /// `emit_everywhere` channel `tab-status-changed` uses). OSC4 renders these.
-    fn process_shell_markers(
-        &self,
-        pty_id: &str,
-        tab_id: Option<&str>,
-        nonce: Option<String>,
-        data: &[u8],
-    ) {
-        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
-        if events.is_empty() {
-            return;
-        }
-        // nothing to surface to a chat view yet.
-        let Some(tab_id) = tab_id else {
-            return;
-        };
-        for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
-            {
-                if self.command_finished_proves_provider_exit(tab_id, pty_id, event) {
-                    self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                    let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
-                    self.note_provider_exit_in_surviving_shell(tab_id);
-                    if let Some(exited) = exited {
-                        self.publish_launch_exit(&exited);
-                    }
-                }
-            }
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "shell-command-changed",
-                serde_json::json!({ "tab_id": tab_id, "event": event }),
-            );
         }
     }
 
