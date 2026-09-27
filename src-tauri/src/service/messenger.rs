@@ -39,6 +39,9 @@ pub struct MessageEnvelope {
     pub fire_at: Option<u64>,
     pub id: Option<String>,
     pub context: Option<String>,
+    pub every_ms: Option<u64>,
+    pub next_at_ms: Option<u64>,
+    pub skipped_ticks: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -172,6 +175,18 @@ impl MessageEnvelope {
 
     pub fn id(mut self, id: Option<String>) -> Self {
         self.id = id.filter(|s| !s.trim().is_empty());
+        self
+    }
+
+    pub fn recurrence(
+        mut self,
+        every_ms: u64,
+        next_at_ms: Option<u64>,
+        skipped_ticks: u64,
+    ) -> Self {
+        self.every_ms = Some(every_ms);
+        self.next_at_ms = next_at_ms;
+        self.skipped_ticks = Some(skipped_ticks);
         self
     }
 }
@@ -549,6 +564,9 @@ impl Messenger {
         let tab = short_id(&self.envelope.from_tab);
         let set_at = self.envelope.set_at.map(|v| v.to_string());
         let fire_at = self.envelope.fire_at.map(|v| v.to_string());
+        let every_ms = self.envelope.every_ms.map(|v| v.to_string());
+        let next_at = self.envelope.next_at_ms.map(|v| v.to_string());
+        let skipped_ticks = self.envelope.skipped_ticks.map(|v| v.to_string());
         crate::message_markers::Marker::new("reminder")
             .attr_opt("from", Some(label.as_str()).filter(|s| !s.is_empty()))
             .attr_opt("tab", Some(tab).filter(|s| !s.is_empty()))
@@ -556,6 +574,9 @@ impl Messenger {
             .attr_opt("set_at", set_at.as_deref())
             .attr_opt("fire_at", fire_at.as_deref())
             .attr_opt("id", self.envelope.id.as_deref())
+            .attr_opt("every_ms", every_ms.as_deref())
+            .attr_opt("next_at", next_at.as_deref())
+            .attr_opt("skipped", skipped_ticks.as_deref())
             .build()
     }
 

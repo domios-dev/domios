@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::service::ServiceState;
 
+pub mod recurrence;
+use recurrence::RecurrenceRule;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DelayedMessageState {
@@ -37,6 +40,18 @@ pub struct DelayedMessage {
     pub created_by_label: Option<String>,
     #[serde(default)]
     pub created_by_model: Option<String>,
+    #[serde(default)]
+    pub recurrence: Option<RecurrenceRule>,
+    #[serde(default)]
+    pub series_start_at_ms: Option<u64>,
+    #[serde(default)]
+    pub tick_index: u64,
+    #[serde(default)]
+    pub skipped_ticks: u64,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub last_tick_unconfirmed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +71,7 @@ pub struct ReminderCreator {
     pub model: Option<String>,
 }
 
-const QUEUE_VERSION: u32 = 2;
+const QUEUE_VERSION: u32 = 3;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,8 +111,22 @@ impl DelayedSendQueue {
             Vec::new()
         };
         for msg in &mut messages {
+            let start = msg.series_start_at_ms.unwrap_or(msg.scheduled_at_ms);
+            let invalid_rule = msg
+                .recurrence
+                .as_ref()
+                .and_then(|rule| recurrence::validate(rule, start).err());
+            if let Some(error) = invalid_rule {
+                msg.recurrence = None;
+                msg.state = DelayedMessageState::Failed;
+                msg.error = Some(error);
+                continue;
+            }
             if msg.state == DelayedMessageState::Sending {
                 msg.state = DelayedMessageState::Queued;
+                if msg.recurrence.is_some() {
+                    msg.last_tick_unconfirmed = true;
+                }
             }
         }
         sort_messages(&mut messages);
@@ -130,6 +159,30 @@ impl DelayedSendQueue {
         scheduled_at_ms: Option<u64>,
         creator: ReminderCreator,
     ) -> Result<DelayedMessage, String> {
+        self.enqueue_with_recurrence(
+            tab_id,
+            workspace_id,
+            session_id_at_create,
+            text,
+            scheduled_at_ms,
+            creator,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_with_recurrence(
+        &self,
+        tab_id: String,
+        workspace_id: Option<String>,
+        session_id_at_create: Option<String>,
+        text: String,
+        scheduled_at_ms: Option<u64>,
+        creator: ReminderCreator,
+        recurrence: Option<RecurrenceRule>,
+        team_id: Option<String>,
+    ) -> Result<DelayedMessage, String> {
         if text.trim().is_empty() {
             return Err("Message text is empty".into());
         }
@@ -137,6 +190,12 @@ impl DelayedSendQueue {
             Some(ms) => (DelayedMessageState::Queued, ms),
             None => (DelayedMessageState::Stashed, now_ms()),
         };
+        if let Some(rule) = &recurrence {
+            if state != DelayedMessageState::Queued {
+                return Err("recurring messages require a scheduled fire time".into());
+            }
+            recurrence::validate(rule, scheduled_at_ms)?;
+        }
         let msg = DelayedMessage {
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
             tab_id,
@@ -150,6 +209,12 @@ impl DelayedSendQueue {
             created_by_tab: creator.tab,
             created_by_label: creator.label,
             created_by_model: creator.model,
+            recurrence: recurrence.clone(),
+            series_start_at_ms: recurrence.map(|_| scheduled_at_ms),
+            tick_index: 0,
+            skipped_ticks: 0,
+            team_id,
+            last_tick_unconfirmed: false,
         };
         {
             let mut inner = self.inner.lock();
@@ -167,6 +232,18 @@ impl DelayedSendQueue {
         scheduled_at_ms: Option<u64>,
         stash: Option<bool>,
     ) -> Result<DelayedMessage, String> {
+        self.update_with_recurrence(id, text, scheduled_at_ms, stash, None)
+    }
+
+    pub fn update_with_recurrence(
+        &self,
+        id: &str,
+        text: Option<String>,
+        scheduled_at_ms: Option<u64>,
+        stash: Option<bool>,
+        recurrence: Option<RecurrenceRule>,
+    ) -> Result<DelayedMessage, String> {
+        let recurrence_changed = recurrence.is_some();
         let updated = {
             let mut inner = self.inner.lock();
             let msg = inner
@@ -183,8 +260,19 @@ impl DelayedSendQueue {
                 }
                 msg.text = text;
             }
+            let schedule_changed = scheduled_at_ms.is_some();
             if let Some(scheduled_at_ms) = scheduled_at_ms {
                 msg.scheduled_at_ms = scheduled_at_ms;
+            }
+            if let Some(rule) = recurrence {
+                recurrence::validate(&rule, msg.scheduled_at_ms)?;
+                msg.recurrence = Some(rule);
+            }
+            if schedule_changed || recurrence_changed {
+                msg.series_start_at_ms = msg.recurrence.as_ref().map(|_| msg.scheduled_at_ms);
+                msg.tick_index = 0;
+                msg.skipped_ticks = 0;
+                msg.last_tick_unconfirmed = false;
             }
             msg.state = if stash == Some(true) {
                 if scheduled_at_ms.is_none() {
@@ -268,6 +356,83 @@ impl DelayedSendQueue {
         };
         self.persist()?;
         Ok(Some(removed))
+    }
+
+    pub fn finish_tick(
+        &self,
+        id: &str,
+        now_ms: u64,
+        error: Option<String>,
+        skipped: bool,
+    ) -> Result<Option<DelayedMessage>, String> {
+        let updated = {
+            let mut inner = self.inner.lock();
+            let Some(index) = inner.messages.iter().position(|msg| msg.id == id) else {
+                return Ok(None);
+            };
+            if inner.messages[index].recurrence.is_none() {
+                if error.is_none() {
+                    inner.messages.remove(index);
+                    None
+                } else {
+                    let msg = &mut inner.messages[index];
+                    msg.state = DelayedMessageState::Failed;
+                    msg.error = error;
+                    Some(msg.clone())
+                }
+            } else {
+                let rule = inner.messages[index]
+                    .recurrence
+                    .clone()
+                    .ok_or_else(|| "Recurring message lost its recurrence rule".to_string())?;
+                let msg = &mut inner.messages[index];
+                let start = msg.series_start_at_ms.unwrap_or(msg.scheduled_at_ms);
+                let next = recurrence::after_tick(
+                    start,
+                    &rule,
+                    msg.tick_index,
+                    now_ms,
+                    skipped || error.is_some(),
+                );
+                if let Some(next_at) = next.scheduled_at_ms {
+                    msg.scheduled_at_ms = next_at;
+                    msg.tick_index = next.tick_index;
+                    msg.skipped_ticks = msg.skipped_ticks.saturating_add(next.skipped_ticks);
+                    msg.state = DelayedMessageState::Queued;
+                    msg.error = error.clone();
+                    if let Some(error) = error.as_deref() {
+                        msg.last_tick_unconfirmed = error.contains("submit_unconfirmed");
+                    } else {
+                        msg.last_tick_unconfirmed = false;
+                    }
+                    Some(msg.clone())
+                } else {
+                    inner.messages.remove(index);
+                    None
+                }
+            }
+        };
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn delete_team_series(&self, team_id: &str) -> Result<Vec<DelayedMessage>, String> {
+        let removed = {
+            let mut inner = self.inner.lock();
+            let mut removed = Vec::new();
+            inner.messages.retain(|msg| {
+                let matches = msg.recurrence.is_some() && msg.team_id.as_deref() == Some(team_id);
+                if matches {
+                    removed.push(msg.clone());
+                }
+                !matches
+            });
+            removed
+        };
+        if !removed.is_empty() {
+            self.persist()?;
+        }
+        Ok(removed)
     }
 
     pub fn mark_failed(&self, id: &str, error: String) -> Result<Option<DelayedMessage>, String> {
@@ -421,17 +586,29 @@ pub fn create_message(
     text: String,
     scheduled_at_ms: Option<u64>,
     created_by_tab: Option<String>,
+    recurrence: Option<RecurrenceRule>,
 ) -> Result<DelayedMessageView, String> {
     let resolved = resolve_tab_id(svc, &tab_id)?;
     let (workspace_id, session_id_at_create) = tab_context(svc, &resolved);
+    let team_source = created_by_tab
+        .as_deref()
+        .and_then(|creator| resolve_tab_id(svc, creator).ok())
+        .unwrap_or_else(|| resolved.clone());
+    let team_id = svc
+        .mux
+        .write()
+        .get_tab(&team_source)
+        .and_then(|tab| tab.team_id.clone());
     let creator = resolve_creator(svc, created_by_tab);
-    let msg = svc.delayed_send.enqueue(
+    let msg = svc.delayed_send.enqueue_with_recurrence(
         resolved.clone(),
         workspace_id,
         session_id_at_create,
         text,
         scheduled_at_ms,
         creator,
+        recurrence,
+        team_id,
     )?;
     emit_changed(svc, &resolved);
     Ok(to_view(svc, msg))
@@ -460,8 +637,11 @@ pub fn update_message(
     text: Option<String>,
     scheduled_at_ms: Option<u64>,
     stash: Option<bool>,
+    recurrence: Option<RecurrenceRule>,
 ) -> Result<DelayedMessageView, String> {
-    let msg = svc.delayed_send.update(&id, text, scheduled_at_ms, stash)?;
+    let msg = svc
+        .delayed_send
+        .update_with_recurrence(&id, text, scheduled_at_ms, stash, recurrence)?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -470,6 +650,16 @@ pub fn delete_message(svc: &ServiceState, id: String) -> Result<DelayedMessageVi
     let msg = svc.delayed_send.delete(&id)?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
+}
+
+pub fn delete_team_series(
+    svc: &crate::service::ServiceContext,
+    team_id: &str,
+) -> Result<(), String> {
+    for msg in svc.delayed_send.delete_team_series(team_id)? {
+        emit_changed(svc, &msg.tab_id);
+    }
+    Ok(())
 }
 
 pub async fn send_message_now(svc: ServiceState, id: String) -> Result<(), String> {
@@ -493,6 +683,39 @@ pub fn start_scheduler(svc: ServiceState) {
             };
             for msg in due {
                 let tab_id = msg.tab_id.clone();
+                if msg.recurrence.is_some() && target_has_unprocessed_tick(&svc, &msg) {
+                    let now = now_ms();
+                    let skipped_total = msg
+                        .recurrence
+                        .as_ref()
+                        .map(|rule| {
+                            recurrence::after_tick(
+                                msg.series_start_at_ms.unwrap_or(msg.scheduled_at_ms),
+                                rule,
+                                msg.tick_index,
+                                now,
+                                true,
+                            )
+                            .skipped_ticks
+                        })
+                        .unwrap_or(1)
+                        .saturating_add(msg.skipped_ticks);
+                    match svc.delayed_send.finish_tick(&msg.id, now, None, true) {
+                        Ok(_) => log::info!(
+                            "[delayed_send] skipped recurring tick id={} tab={} skipped={}",
+                            msg.id,
+                            tab_id,
+                            skipped_total
+                        ),
+                        Err(error) => log::warn!(
+                            "[delayed_send] recurring tick skip failed id={}: {}",
+                            msg.id,
+                            error
+                        ),
+                    }
+                    emit_changed(&svc, &tab_id);
+                    continue;
+                }
                 if let Err(e) = deliver_claimed(&svc, msg).await {
                     log::warn!("[delayed_send] delivery failed for Tab {}: {}", tab_id, e);
                 }
@@ -525,25 +748,79 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     .and_then(|res| res);
     match result {
         Ok(_) => {
-            svc.delayed_send.mark_sent(&msg.id)?;
+            svc.delayed_send.finish_tick(&msg.id, now_ms(), None, false)?;
             Ok(())
         }
         Err(e) => {
-            let _ = svc.delayed_send.mark_failed(&msg.id, e.clone())?;
+            svc.delayed_send
+                .finish_tick(&msg.id, now_ms(), Some(e.clone()), false)?;
             Err(e)
         }
     }
 }
 
+fn target_has_unprocessed_tick(svc: &ServiceState, msg: &DelayedMessage) -> bool {
+    let unresolved_send = svc
+        .chat_send_ledger
+        .reconcile(&msg.tab_id)
+        .iter()
+        .any(|send| {
+            matches!(
+                send.state,
+                crate::service::chat_send_transaction::ChatSendState::Pending
+                    | crate::service::chat_send_transaction::ChatSendState::Unknown
+                    | crate::service::chat_send_transaction::ChatSendState::Failed
+            )
+        });
+    let (pty_id, pending_delivery) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(&msg.tab_id) else {
+            return false;
+        };
+        (
+            tab.pty_id.clone(),
+            tab.pending_delivery
+                .as_ref()
+                .is_some_and(|pending| pending.state().needs_delivery()),
+        )
+    };
+    let tab_busy = pty_id.is_some_and(|pty_id| {
+        svc.agent_tracker
+            .lock()
+            .get_status_if_tracked(&pty_id)
+            .is_some_and(|status| status != crate::agent::status::TabStatus::Idle)
+    });
+    recurrence::should_skip_tick(
+        msg.last_tick_unconfirmed,
+        pending_delivery,
+        unresolved_send,
+        tab_busy,
+    )
+}
+
 fn reminder_envelope(msg: &DelayedMessage) -> crate::service::messenger::MessageEnvelope {
-    crate::service::messenger::MessageEnvelope::reminder(
+    let envelope = crate::service::messenger::MessageEnvelope::reminder(
         msg.created_by_label.clone().unwrap_or_default(),
         msg.created_by_tab.clone().unwrap_or_default(),
     )
     .model(msg.created_by_model.clone())
     .set_at(msg.created_at_ms)
     .fire_at(msg.scheduled_at_ms)
-    .id(Some(msg.id.clone()))
+    .id(Some(msg.id.clone()));
+    let Some(rule) = &msg.recurrence else {
+        return envelope;
+    };
+    let start = msg.series_start_at_ms.unwrap_or(msg.scheduled_at_ms);
+    let next = recurrence::after_tick(start, rule, msg.tick_index, now_ms(), false);
+    if next.scheduled_at_ms.is_some() {
+        envelope.recurrence(
+            rule.every_ms,
+            next.scheduled_at_ms,
+            msg.skipped_ticks.saturating_add(next.skipped_ticks),
+        )
+    } else {
+        envelope
+    }
 }
 
 fn resolve_tab_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
@@ -619,240 +896,4 @@ fn sort_messages(messages: &mut [DelayedMessage]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn queue() -> (tempfile::TempDir, DelayedSendQueue) {
-        let dir = tempfile::tempdir().unwrap();
-        let queue = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
-        (dir, queue)
-    }
-
-    #[test]
-    fn reminder_envelope_carries_creator_metadata() {
-        let msg = DelayedMessage {
-            id: "dmsg-7".into(),
-            tab_id: "target-tab".into(),
-            workspace_id: None,
-            text: "hi".into(),
-            scheduled_at_ms: 2000,
-            created_at_ms: 1000,
-            state: DelayedMessageState::Sending,
-            error: None,
-            session_id_at_create: None,
-            created_by_tab: Some("e8a0ac20-aaaa".into()),
-            created_by_label: Some("Main".into()),
-            created_by_model: Some("opus".into()),
-        };
-        let envelope = reminder_envelope(&msg);
-        assert_eq!(
-            format!(
-                "{}{}",
-                crate::service::messenger::Messenger::pty_prefix(&envelope),
-                msg.text
-            ),
-            "-=-codeterm:reminder from=Main tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
-        );
-    }
-
-    #[test]
-    fn persists_and_restores_messages() {
-        let (dir, queue) = queue();
-        let msg = queue
-            .enqueue(
-                "tab-a".into(),
-                Some("ws".into()),
-                Some("sid-1".into()),
-                "hello".into(),
-                Some(100),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        drop(queue);
-
-        let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
-        let messages = reopened.list(Some("tab-a"));
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].id, msg.id);
-        assert_eq!(messages[0].text, "hello");
-        assert_eq!(messages[0].state, DelayedMessageState::Queued);
-    }
-
-    #[test]
-    fn claim_due_uses_schedule_then_creation_order() {
-        let (_dir, queue) = queue();
-        let second = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "second".into(),
-                Some(100),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        let first = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "first".into(),
-                Some(50),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        let due = queue.claim_due(100).unwrap();
-        assert_eq!(
-            due.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
-            vec![first.id.as_str(), second.id.as_str(),]
-        );
-        assert!(queue
-            .list(Some("tab"))
-            .iter()
-            .all(|msg| msg.state == DelayedMessageState::Sending));
-    }
-
-    #[test]
-    fn failed_message_can_be_updated_back_to_queued() {
-        let (_dir, queue) = queue();
-        let msg = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "old".into(),
-                Some(100),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        queue.mark_failed(&msg.id, "missing Tab".into()).unwrap();
-        let updated = queue
-            .update(&msg.id, Some("new".into()), Some(200), None)
-            .unwrap();
-        assert_eq!(updated.text, "new");
-        assert_eq!(updated.scheduled_at_ms, 200);
-        assert_eq!(updated.state, DelayedMessageState::Queued);
-        assert_eq!(updated.error, None);
-    }
-
-    #[test]
-    fn stashed_messages_are_never_claimed_by_scheduler() {
-        let (_dir, queue) = queue();
-        let stashed = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "park me".into(),
-                None,
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        assert_eq!(stashed.state, DelayedMessageState::Stashed);
-        let due = queue.claim_due(now_ms() + 60_000).unwrap();
-        assert!(due.is_empty());
-        assert_eq!(
-            queue.list(Some("tab"))[0].state,
-            DelayedMessageState::Stashed
-        );
-    }
-
-    #[test]
-    fn stashed_message_reschedules_into_queue() {
-        let (_dir, queue) = queue();
-        let stashed = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "later".into(),
-                None,
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        let queued = queue.update(&stashed.id, None, Some(500), None).unwrap();
-        assert_eq!(queued.state, DelayedMessageState::Queued);
-        assert_eq!(queued.scheduled_at_ms, 500);
-    }
-
-    #[test]
-    fn queued_message_can_be_stashed() {
-        let (_dir, queue) = queue();
-        let msg = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "hold".into(),
-                Some(500),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        let stashed = queue.update(&msg.id, None, None, Some(true)).unwrap();
-        assert_eq!(stashed.state, DelayedMessageState::Stashed);
-        let due = queue.claim_due(now_ms() + 60_000).unwrap();
-        assert!(due.is_empty());
-    }
-
-    #[test]
-    fn sending_messages_reset_to_queued_on_open() {
-        let (dir, queue) = queue();
-        let msg = queue
-            .enqueue(
-                "tab".into(),
-                None,
-                None,
-                "hello".into(),
-                Some(100),
-                ReminderCreator::default(),
-            )
-            .unwrap();
-        queue.claim_now(&msg.id).unwrap();
-        drop(queue);
-
-        let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
-        assert_eq!(
-            reopened.list(Some("tab"))[0].state,
-            DelayedMessageState::Queued
-        );
-    }
-
-    #[test]
-    fn open_normalizes_pane_era_records_and_isolates_malformed_siblings() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("delayed_send.json");
-        let fixture = serde_json::json!({
-            "version": 2,
-            "messages": [
-                {
-                    "id": "dmsg-pane-era",
-                    "paneId": "target-tab",
-                    "workspaceId": "workspace",
-                    "text": "resume",
-                    "scheduledAtMs": 200,
-                    "createdAtMs": 100,
-                    "state": "queued",
-                    "error": null,
-                    "sessionIdAtCreate": "session",
-                    "createdByPane": "creator-tab",
-                    "createdByLabel": "Creator",
-                    "createdByModel": "model"
-                },
-                {
-                    "id": "dmsg-malformed",
-                    "paneId": 42,
-                    "text": ["not", "a", "message"]
-                }
-            ]
-        })
-        .to_string();
-        fs::write(&path, &fixture).unwrap();
-
-        let queue = DelayedSendQueue::open(path.clone()).unwrap();
-        let messages = queue.list(None);
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].tab_id, "target-tab");
-        assert_eq!(messages[0].created_by_tab.as_deref(), Some("creator-tab"));
-        assert_eq!(fs::read_to_string(path).unwrap(), fixture);
-    }
-}
+mod tests;

@@ -26,6 +26,18 @@ pub enum DelayedAction {
         #[arg(long, conflicts_with = "delay")]
         at: Option<String>,
 
+        /// Repeat delivery at an anchored interval (minimum 1m)
+        #[arg(long)]
+        every: Option<String>,
+
+        /// Stop recurring delivery at an absolute time
+        #[arg(long, conflicts_with = "count")]
+        until: Option<String>,
+
+        /// Stop after this many delivered or skipped ticks
+        #[arg(long, conflicts_with = "until")]
+        count: Option<u32>,
+
         /// Read text from a file instead of the positional arg
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
@@ -54,6 +66,18 @@ pub enum DelayedAction {
         /// Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
         #[arg(long, conflicts_with = "delay")]
         at: Option<String>,
+
+        /// Replace the recurrence interval (minimum 1m)
+        #[arg(long)]
+        every: Option<String>,
+
+        /// Replace the recurrence end time
+        #[arg(long, conflicts_with = "count")]
+        until: Option<String>,
+
+        /// Replace the recurrence tick limit
+        #[arg(long, conflicts_with = "until")]
+        count: Option<u32>,
 
         /// Read replacement text from a file
         #[arg(long, value_name = "PATH")]

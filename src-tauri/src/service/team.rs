@@ -360,6 +360,9 @@ impl ServiceContext {
             self.revoke_agent_pad(tab_id)?;
         }
         self.delete_team_crons(team_id);
+        if let Err(error) = crate::delayed_send::delete_team_series(self, team_id) {
+            log::error!("Failed to delete Team delayed series {team_id}: {error}");
+        }
         self.emit_state_changed_after_bus_publish();
         lane_cleanup?;
         Ok(team)
