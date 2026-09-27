@@ -75,6 +75,10 @@ pub trait AgentProvider: Send + Sync {
         }
     }
 
+    fn turn_evidence_normalization(&self) -> TurnEvidenceNormalization {
+        TurnEvidenceNormalization::default()
+    }
+
     fn busy_submit_strategy(&self) -> BusySubmitStrategy {
         BusySubmitStrategy::SubmitNormally
     }

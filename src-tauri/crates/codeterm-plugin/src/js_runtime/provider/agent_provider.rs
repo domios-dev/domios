@@ -112,6 +112,10 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.verify_submit).into()
     }
 
+    fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
+        self.manifest.spawn.turn_evidence_normalization
+    }
+
     fn busy_submit_strategy(&self) -> BusySubmitStrategy {
         (&self.manifest.spawn.busy_submit).into()
     }
