@@ -986,7 +986,16 @@ mod model_refresh_tests {
                 .and_then(|fallback| fallback.actual_model.as_deref()),
             Some("opus")
         );
-        assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+        drop(mux);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        let notifications = fixture.service.notif.lock().list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(
+            notifications[0].title,
+            "model fallback: requested sonnet, actual opus"
+        );
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
