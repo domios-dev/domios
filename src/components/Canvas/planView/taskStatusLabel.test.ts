@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Canvas/planView/taskStatusLabel.test.ts
 
 import { FIXTURE_MILESTONE, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import type { Plan } from "../types";
 import { canonicalTaskStatusLabel, latestTaskNote } from "./taskStatusLabel";
 
 type TestFn = () => void;
@@ -17,6 +18,23 @@ test("canonicalTaskStatusLabel ignores status_label", () => {
     canonicalTaskStatusLabel({ ...FIXTURE_TASK, status: "in_review", status_label: "In QA · queued #1" }) === "in review",
     "status from task.status only",
   );
+});
+
+test("parent status rolls up open children and clears when all are terminal", () => {
+  const parent = { ...FIXTURE_TASK, id: "parent", status: "in_progress" as const };
+  const child = { ...FIXTURE_TASK, id: "child", parent_task_id: "parent", status: "pending" as const };
+  const plan = { tasks: [parent, child] } as Plan;
+  assert(canonicalTaskStatusLabel(parent, plan) === "blocked on subtasks", "open child blocks parent presentation");
+  plan.tasks[1] = { ...child, status: "done" };
+  assert(canonicalTaskStatusLabel(parent, plan) === "in progress", "terminal children clear parent presentation");
+});
+
+test("open children preserve review and terminal parent statuses", () => {
+  const child = { ...FIXTURE_TASK, parent_task_id: "parent", status: "pending" as const };
+  const plan = { tasks: [{ ...FIXTURE_TASK, id: "parent", status: "in_review" as const }, child] } as Plan;
+  assert(canonicalTaskStatusLabel(plan.tasks[0], plan) === "in review", "review presentation stays visible");
+  plan.tasks[0] = { ...plan.tasks[0], status: "cancelled" };
+  assert(canonicalTaskStatusLabel(plan.tasks[0], plan) === "cancelled", "terminal presentation stays visible");
 });
 
 test("latestTaskNote picks newest milestone and truncates", () => {

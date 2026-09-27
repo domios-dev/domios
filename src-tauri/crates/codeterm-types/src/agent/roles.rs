@@ -91,6 +91,7 @@ pub enum ReportOutcomeClass {
     StaleBindingConflict,
     StructurallyNotAttachable,
     DeliveredUnattached,
+    MissingReviewEvidence,
 }
 
 impl ReportStatus {

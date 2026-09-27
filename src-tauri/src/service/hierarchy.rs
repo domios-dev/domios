@@ -631,11 +631,13 @@ impl ServiceContext {
                 let persistence = eff_task_id
                     .as_deref()
                     .ok_or_else(|| {
-                        report_persistence::report_persistence_incident(
-                            tab_id,
-                            plan_id,
-                            None,
-                            "the report resolved a plan but no exact task",
+                        report_persistence::stale_failure(
+                            report_persistence::report_persistence_incident(
+                                tab_id,
+                                plan_id,
+                                None,
+                                "the report resolved a plan but no exact task",
+                            ),
                         )
                     })
                     .and_then(|task_id| {
@@ -664,12 +666,13 @@ impl ServiceContext {
                         );
                     }
                     Err(cause) => {
-                        report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
+                        let outcome = cause.report_outcome;
+                        report_outcome = Some(outcome);
                         rejected_task_transition = Some(RejectedTaskTransition {
                             plan_id: Some(plan_id.clone()),
                             task_id: eff_task_id.clone(),
-                            cause,
-                            report_outcome: Some(ReportOutcomeClass::StaleBindingConflict),
+                            cause: cause.cause,
+                            report_outcome: Some(outcome),
                         });
                     }
                 }
@@ -687,7 +690,15 @@ impl ServiceContext {
         let storage_key = target.storage_key();
         let delivered_message = rejected_task_transition.as_ref().map_or_else(
             || message.to_string(),
-            |rejection| rejected_report_delivery_message(&rejection.cause, message),
+            |rejection| {
+                rejected_report_delivery_message(
+                    rejection
+                        .report_outcome
+                        .unwrap_or(ReportOutcomeClass::StaleBindingConflict),
+                    &rejection.cause,
+                    message,
+                )
+            },
         );
         if rejected_task_transition.is_some() {
             notices.push(format!(

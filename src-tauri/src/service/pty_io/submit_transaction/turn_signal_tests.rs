@@ -130,7 +130,7 @@ fn three_acceptance_axes_confirm_the_submission_through_the_turn_signal() {
 
     assert!(result.submit_observed);
     assert_eq!(transport.payload_writes.get(), 1);
-    assert_eq!(transport.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
+    assert_eq!(transport.submit_key_writes.get(), 1);
     assert!(!transport.draft_visible.get(), "composer back to baseline");
     assert!(transport
         .observe()

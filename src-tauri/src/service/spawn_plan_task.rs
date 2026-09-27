@@ -700,6 +700,17 @@ mod tests {
         .expect("a task-bound mutating Worker is unchanged");
     }
 
+    #[test]
+    fn mutating_worker_without_task_still_refused_without_unplanned() {
+        let error = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+            ..Default::default()
+        })
+        .expect_err("plain mutating Worker spawn must not create a loose agent");
+        assert!(error.contains("--plan-task"), "{error}");
+    }
+
     /// The mesh Worker: it changes source on a peer, but the origin plan store
     /// is on another machine, so it declares no intent and owns no task. The
     /// daemon a mesh spawn lands on is where that shape is finally admitted.

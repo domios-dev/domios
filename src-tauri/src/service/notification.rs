@@ -667,6 +667,37 @@ impl ServiceContext {
         resolved
     }
 
+    pub(crate) fn answer_prompt_notifications(
+        &self,
+        tab_id: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+        option_index: usize,
+        answered_via: &str,
+    ) -> Vec<String> {
+        let answered = self.notif.lock().answer_prompt_notifications(
+            tab_id,
+            identity,
+            option_index,
+            answered_via,
+        );
+        for id in &answered {
+            let spent = { self.notif.lock().spent_question(id) };
+            if let Some(spent) = spent {
+                self.spend_on_channels(id, &spent);
+            }
+            self.notify_event(
+                "notification-answered",
+                serde_json::json!({
+                    "id": id,
+                    "answered_via": answered_via,
+                    "resolved": true,
+                }),
+            );
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
+        answered
+    }
+
     pub(crate) fn record_channel_placement(&self, id: &str, service: &str, locator: &str) {
         let spent = {
             self.notif

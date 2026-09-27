@@ -1,127 +1,29 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock, Weak};
-use std::thread::Thread;
+use std::cell::RefCell;
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
-
-use crate::agent::provider::VerifySubmitStrategy;
+use crate::agent::provider::{VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
 use crate::agent::status::TabStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
     screen_echo_evidence_count, InjectionError, InjectionResult, VerifyOpts,
 };
 use crate::service::ServiceContext;
+mod cycle;
+mod evidence_watcher;
+pub(crate) use cycle::{claim_submit_cycle, wake_submit_cycle, SubmitCycleClaim};
+use cycle::{retire_submit_cycle, SubmitCycle};
+use evidence_watcher::watch_session_evidence;
 
 const TAIL_ROWS: usize = 8;
 /// Offsets from the first submit key at which to press again, dense early and
 /// sparse later, until the composer takes it or a newer send supersedes us.
 /// Pressing a key an empty composer ignores costs nothing; leaving a message
 /// unsent costs everything.
-const SUBMIT_RETRY_OFFSETS_MS: [u64; 6] = [200, 500, 900, 1500, 2200, 3000];
-const MAX_SUBMIT_KEY_WRITES: usize = SUBMIT_RETRY_OFFSETS_MS.len() + 1;
+const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
-
-struct SubmitCycle {
-    generation: AtomicU64,
-    waiter: Mutex<Option<Thread>>,
-}
-
-impl SubmitCycle {
-    fn new() -> Self {
-        Self {
-            generation: AtomicU64::new(0),
-            waiter: Mutex::new(None),
-        }
-    }
-
-    fn reset(&self) -> u64 {
-        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        if let Some(waiter) = self.waiter.lock().take() {
-            waiter.unpark();
-        }
-        generation
-    }
-
-    fn is_current(&self, generation: u64) -> bool {
-        self.generation.load(Ordering::Acquire) == generation
-    }
-
-    fn wait_until(&self, generation: u64, deadline: Instant) -> bool {
-        if !self.is_current(generation) {
-            return false;
-        }
-        *self.waiter.lock() = Some(std::thread::current());
-        while self.is_current(generation) {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
-            std::thread::park_timeout(remaining);
-        }
-        self.waiter.lock().take();
-        self.is_current(generation)
-    }
-}
-
-fn submit_cycles() -> &'static Mutex<HashMap<String, Weak<SubmitCycle>>> {
-    static CYCLES: OnceLock<Mutex<HashMap<String, Weak<SubmitCycle>>>> = OnceLock::new();
-    CYCLES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[derive(Clone)]
-pub(crate) struct SubmitCycleClaim {
-    pty_id: String,
-    cycle: Arc<SubmitCycle>,
-    generation: u64,
-}
-
-impl SubmitCycleClaim {
-    pub(crate) fn pty_id(&self) -> &str {
-        &self.pty_id
-    }
-
-    #[cfg(test)]
-    fn is_current(&self) -> bool {
-        self.cycle.is_current(self.generation)
-    }
-}
-
-pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
-    let cycle = {
-        let mut cycles = submit_cycles().lock();
-        if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
-            cycle
-        } else {
-            let cycle = Arc::new(SubmitCycle::new());
-            cycles.insert(pty_id.to_string(), Arc::downgrade(&cycle));
-            cycle
-        }
-    };
-    let generation = cycle.reset();
-    log::info!(
-        "[submit-cycle] claim pty={} generation={}",
-        pty_id,
-        generation
-    );
-    SubmitCycleClaim {
-        pty_id: pty_id.to_string(),
-        cycle,
-        generation,
-    }
-}
-
-fn retire_submit_cycle(pty_id: &str, cycle: &Arc<SubmitCycle>) {
-    let mut cycles = submit_cycles().lock();
-    let current_is_cycle = cycles
-        .get(pty_id)
-        .and_then(Weak::upgrade)
-        .is_some_and(|current| Arc::ptr_eq(&current, cycle));
-    if current_is_cycle && Arc::strong_count(cycle) == 1 {
-        cycles.remove(pty_id);
-    }
-}
 
 fn framed_composer_row(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
@@ -198,6 +100,12 @@ trait SubmitTransport {
     fn wait_change(&self, generation: u64, deadline: Instant) -> bool;
     /// The provider's own turn state left Idle — a real turn is running.
     fn turn_started(&self) -> bool;
+    fn has_exact_user_turn_evidence(&self) -> bool {
+        true
+    }
+    fn exact_user_turn_present(&self, _text: &str) -> bool {
+        self.turn_started()
+    }
     fn turn_generation(&self) -> u64 {
         0
     }
@@ -209,6 +117,10 @@ trait SubmitTransport {
     }
     fn wait_retry_deadline(&self, deadline: Instant) {
         let _ = deadline;
+    }
+    fn wait_retry_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        self.wait_retry_deadline(deadline);
+        self.exact_user_turn_present(text)
     }
     fn retry_active(&self) -> bool {
         true
@@ -235,6 +147,14 @@ struct PtySubmitTransport<'a> {
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
     paste_capability: PasteEncodingCapability,
+    evidence_anchor: Option<crate::service::chat_send_transaction::SendEvidenceAnchor>,
+    evidence_tab_id: Option<String>,
+    evidence_binding_nonce: Option<String>,
+    evidence_pty_generation: Option<u64>,
+    require_exact_session_turn: bool,
+    turn_evidence_cursor: RefCell<crate::service::chat_send_evidence::ExactTurnCursor>,
+    wake_rx: Receiver<()>,
+    _session_evidence_watcher: Option<notify::RecommendedWatcher>,
     /// Stream-preview turn signal fires once per transaction, at the first
     /// successful submit-key enqueue. Signal only — never gates delivery.
     turn_signaled: std::cell::Cell<bool>,
@@ -327,8 +247,44 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         )
     }
 
+    fn exact_user_turn_present(&self, text: &str) -> bool {
+        if !self.require_exact_session_turn {
+            return false;
+        }
+        self.evidence_anchor.as_ref().is_some_and(|anchor| {
+            let Some(tab_id) = self.evidence_tab_id.as_deref() else {
+                return false;
+            };
+            let current_binding = self
+                .svc
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| {
+                    tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
+                        && tab.session_binding_nonce.as_deref()
+                            == self.evidence_binding_nonce.as_deref()
+                        && tab.pty_id.as_deref() == Some(self.pty_id)
+                });
+            let current_generation = self.svc.screen_state.lock().pty_generation(self.pty_id);
+            if !current_binding || current_generation != self.evidence_pty_generation {
+                return false;
+            }
+            crate::service::chat_send_evidence::contains_exact_user_turn_since(
+                &self.svc.agent_registry,
+                anchor,
+                text,
+                &mut self.turn_evidence_cursor.borrow_mut(),
+            )
+        })
+    }
+
     fn turn_generation(&self) -> u64 {
         self.status_signal.generation()
+    }
+
+    fn has_exact_user_turn_evidence(&self) -> bool {
+        self.require_exact_session_turn
     }
 
     fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
@@ -337,9 +293,25 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .is_some_and(|remaining| self.status_signal.wait_after(turn_generation, remaining))
     }
 
-    fn wait_retry_deadline(&self, deadline: Instant) {
-        self.submit_cycle
-            .wait_until(self.submit_generation, deadline);
+    fn wait_retry_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        while self.retry_active() {
+            if self.require_exact_session_turn && self.exact_user_turn_present(text) {
+                return true;
+            }
+            if !self
+                .submit_cycle
+                .wait_for_wake(self.submit_generation, deadline, &self.wake_rx)
+            {
+                return false;
+            }
+            if self.require_exact_session_turn && self.exact_user_turn_present(text) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+        }
+        false
     }
 
     fn retry_active(&self) -> bool {
@@ -549,7 +521,11 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
     let drained = draft_left_composer(transport, text, baseline_evidence, echo_observed, armed);
     if matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. }) {
-        return fresh_turn;
+        return if transport.has_exact_user_turn_evidence() {
+            transport.exact_user_turn_present(text)
+        } else {
+            fresh_turn
+        };
     }
     drained || fresh_turn
 }
@@ -577,6 +553,10 @@ fn run_with_submit_key<T: SubmitTransport>(
     let started = Instant::now();
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
+    let exact_turn_evidence = matches!(
+        &strategy,
+        VerifySubmitStrategy::TuiInputDrained { .. }
+    ) && transport.has_exact_user_turn_evidence();
     let initial_key_delay = if enter && !text.is_empty() {
         strategy.initial_key_delay()
     } else {
@@ -612,6 +592,7 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let turn_was_started = turn_was_started.unwrap_or(false);
     let submit_started = Instant::now();
+    let mut first_submit_key_at = (submit_key_writes > 0).then_some(submit_started);
     let mut submit_observed = !two_phase;
     if submit_key_writes == 1 && !two_phase {
         return Ok(InjectionResult {
@@ -633,11 +614,23 @@ fn run_with_submit_key<T: SubmitTransport>(
             initial_enter_armed,
             &strategy,
         );
+        submit_observed |= exact_turn_evidence && transport.exact_user_turn_present(text);
     }
     while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
+        if (submit_key_writes > 0 && submit_observed)
+            || (exact_turn_evidence && transport.exact_user_turn_present(text))
+        {
+            submit_observed = true;
+            break;
+        }
         if submit_key_writes == 0 && !initial_key_delay.is_zero() {
             let first_key_deadline = submit_started + initial_key_delay;
-            transport.wait_retry_deadline(first_key_deadline.min(turn_deadline));
+            if transport
+                .wait_retry_deadline_for_turn(first_key_deadline.min(turn_deadline), text)
+            {
+                submit_observed = true;
+                break;
+            }
             if !transport.retry_active() || Instant::now() >= turn_deadline {
                 break;
             }
@@ -645,15 +638,25 @@ fn run_with_submit_key<T: SubmitTransport>(
             if !transport.retry_active() {
                 break;
             }
-            let offset = SUBMIT_RETRY_OFFSETS_MS
+            let retry_offsets = strategy.retry_offsets();
+            let offset = retry_offsets
                 .get(submit_key_writes - 1)
                 .copied()
-                .unwrap_or(*SUBMIT_RETRY_OFFSETS_MS.last().expect("non-empty"));
-            let retry_deadline = submit_started + Duration::from_millis(offset);
-            transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
+                .unwrap_or(*retry_offsets.last().expect("non-empty"));
+            let retry_deadline = first_submit_key_at
+                .unwrap_or(submit_started)
+                + offset;
+            if transport.wait_retry_deadline_for_turn(retry_deadline.min(turn_deadline), text) {
+                submit_observed = true;
+                break;
+            }
             if !transport.retry_active() || Instant::now() >= turn_deadline {
                 break;
             }
+        }
+        if exact_turn_evidence && transport.exact_user_turn_present(text) {
+            submit_observed = true;
+            break;
         }
         let allow_initial_key = submit_key_writes == 0;
         if let Err(error) = key_guard(allow_initial_key) {
@@ -671,6 +674,10 @@ fn run_with_submit_key<T: SubmitTransport>(
                 waited: started.elapsed(),
                 screen_tail,
             });
+        }
+        if exact_turn_evidence && transport.exact_user_turn_present(text) {
+            submit_observed = true;
+            break;
         }
         let enter_armed = transport.generation();
         // A prior payload or submit key makes this failure submission uncertainty.
@@ -691,6 +698,7 @@ fn run_with_submit_key<T: SubmitTransport>(
             });
         }
         submit_key_writes += 1;
+        first_submit_key_at.get_or_insert_with(Instant::now);
         if !two_phase {
             break;
         }
@@ -704,6 +712,10 @@ fn run_with_submit_key<T: SubmitTransport>(
             enter_armed,
             &strategy,
         );
+        submit_observed |= exact_turn_evidence && transport.exact_user_turn_present(text);
+        if submit_observed {
+            break;
+        }
     }
 
     Ok(InjectionResult {
@@ -724,7 +736,9 @@ pub(crate) fn submit_text(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key(svc, pty_id, text, enter, b"\r", strategy, opts, None)
+    submit_text_with_key(
+        svc, pty_id, text, enter, b"\r", strategy, opts, None, false,
+    )
 }
 
 pub(crate) fn submit_text_with_key(
@@ -736,10 +750,20 @@ pub(crate) fn submit_text_with_key(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
 ) -> Result<InjectionResult, InjectionError> {
     let claim = claim_submit_cycle(pty_id);
     submit_text_with_key_claimed(
-        svc, pty_id, text, enter, submit_key, strategy, opts, permit, claim,
+        svc,
+        pty_id,
+        text,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
     )
 }
 
@@ -760,6 +784,7 @@ pub(crate) fn submit_text_with_key_claimed(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
     claim: SubmitCycleClaim,
 ) -> Result<InjectionResult, InjectionError> {
     if claim.pty_id() != pty_id {
@@ -770,12 +795,37 @@ pub(crate) fn submit_text_with_key_claimed(
     let submit_cycle = Arc::clone(&claim.cycle);
     let submit_generation = claim.generation;
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
-    let initial_agent_id = {
+    let (initial_tab_id, initial_agent_id) = {
         let mux = svc.mux.read();
-        mux.tab_id_for_pty(pty_id)
-            .and_then(|tab_id| mux.get_tab(&tab_id))
-            .and_then(|tab| tab.agent_type.clone())
+        let tab_id = mux.tab_id_for_pty(pty_id);
+        let agent_id = tab_id
+            .as_deref()
+            .and_then(|tab_id| mux.get_tab(tab_id))
+            .and_then(|tab| tab.agent_type.clone());
+        (tab_id, agent_id)
     };
+    let evidence = track_exact_session_turn
+        .then(|| {
+            initial_tab_id
+                .as_deref()
+                .map(|tab_id| svc.chat_send_anchor(tab_id))
+        })
+        .flatten();
+    let evidence_anchor = evidence
+        .as_ref()
+        .and_then(|evidence| evidence.anchor.clone());
+    let evidence_binding_nonce = evidence
+        .as_ref()
+        .and_then(|evidence| evidence.live_binding.as_ref())
+        .and_then(|binding| binding.binding_nonce.clone());
+    let evidence_pty_generation = svc.screen_state.lock().pty_generation(pty_id);
+    let (wake_tx, wake_rx) = mpsc::channel();
+    submit_cycle.install_waiter(submit_generation, wake_tx.clone());
+    let session_evidence_watcher = (track_exact_session_turn && enter)
+        .then(|| {
+            watch_session_evidence(&svc.agent_registry, evidence_anchor.as_ref(), wake_tx)
+        })
+        .flatten();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
@@ -788,6 +838,18 @@ pub(crate) fn submit_text_with_key_claimed(
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
         paste_capability,
+        evidence_anchor: evidence_anchor.clone(),
+        evidence_tab_id: initial_tab_id.clone(),
+        evidence_binding_nonce: evidence_binding_nonce.clone(),
+        evidence_pty_generation,
+        require_exact_session_turn: track_exact_session_turn,
+        turn_evidence_cursor: RefCell::new(
+            crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(
+                evidence_anchor.as_ref(),
+            ),
+        ),
+        wake_rx,
+        _session_evidence_watcher: session_evidence_watcher,
         turn_signaled: std::cell::Cell::new(false),
     };
     let mut key_guard = |allow_initial_key: bool| {
@@ -902,7 +964,7 @@ pub(crate) fn submit_text_with_key_claimed(
             })
         }
     };
-    let result = run_with_submit_key(
+    let mut result = run_with_submit_key(
         &transport,
         text,
         enter,
@@ -931,6 +993,15 @@ pub(crate) fn submit_text_with_key_claimed(
                 );
             }
         });
+    let exact_turn_present = track_exact_session_turn
+        && evidence_anchor.is_some()
+        && transport.exact_user_turn_present(text);
+    if exact_turn_present {
+        if let Ok(result) = &mut result {
+            result.submit_observed = true;
+            result.submit_anomaly = false;
+        }
+    }
     if let Err(ref error) = result {
         let tab_current_pty = {
             let mux = svc.mux.read();
@@ -947,6 +1018,7 @@ pub(crate) fn submit_text_with_key_claimed(
             error
         );
     }
+    submit_cycle.clear_waiter(submit_generation);
     retire_submit_cycle(pty_id, &submit_cycle);
     result
 }
@@ -973,3 +1045,6 @@ mod submission_matrix;
 mod tests;
 #[cfg(test)]
 mod turn_signal_tests;
+
+#[cfg(test)]
+mod submission_reporting_tests;

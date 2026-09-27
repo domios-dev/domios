@@ -703,6 +703,93 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 }
 
 #[test]
+fn compaction_preserves_latest_verified_session_per_tab() {
+    let (journal, _dir) = new_journal();
+    let original = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &original, "session-old");
+    let latest = key("tab-a", 2, "op-b");
+    commit_full_launch(&journal, &latest, "session-a");
+    let restored = key("tab-a", 3, "op-c");
+    journal
+        .append(restored.clone(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    journal
+        .append(
+            restored.clone(),
+            LifecycleTransition::RolledBack {
+                reason: "restored without a live agent".into(),
+            },
+        )
+        .unwrap();
+    journal
+        .append(
+            restored,
+            LifecycleTransition::RestoreAwaitingAgentRestart {
+                session_id: "session-a".into(),
+            },
+        )
+        .unwrap();
+
+    // The journal API cannot emit a sessionless checkpoint, so seed the reducer
+    // input with the reported compacted shape.
+    let mut history = journal.load().records;
+    let checkpoint_seq = journal.load().last_seq() + 1;
+    history.push(JournalRecord::Checkpoint {
+        checkpoint: LifecycleCheckpoint {
+            key: key("tab-a", 4, "identity-cleared"),
+            committed_through: checkpoint_seq,
+            authority: CommittedAuthority {
+                provider: "codex".into(),
+                session_id: String::new(),
+                binding_nonce: String::new(),
+                role: None,
+                role_profile: None,
+                team_id: None,
+                parent_tab_id: None,
+                can_spawn: false,
+                depth: 0,
+            },
+            agent_type_write: None,
+            prior_checkpoints: Vec::new(),
+            sealed_at: String::new(),
+        },
+    });
+    history.sort_by_key(JournalRecord::seq);
+
+    let compacted = super::reduce::compact_records(&history);
+    assert!(compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id.is_empty()
+    )));
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id == "session-a"
+                || checkpoint.authority.session_id == "session-old"
+    )));
+    assert!(compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Transition { entry }
+            if entry.key.tab_id == "tab-a"
+                && matches!(
+                    &entry.transition,
+                    LifecycleTransition::SessionBound { session_id, binding_nonce, .. }
+                        if session_id == "session-a" && binding_nonce == "nonce-1"
+                )
+    )));
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Transition { entry }
+            if matches!(
+                &entry.transition,
+                LifecycleTransition::SessionBound { session_id, .. }
+                    if session_id == "session-old"
+            )
+    )));
+}
+
+#[test]
 fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
     let (journal, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");

@@ -43,15 +43,28 @@ def request_json(path, method="GET", body=None):
         raise RuntimeError(f"{path}: {error}") from error
 
 
-def chat_snapshot():
+def chat_snapshot(initial):
     encoded_tab = quote(TAB_ID, safe="")
-    if MODE.startswith("chat_start") or MODE == "idle":
+    if initial and MODE == "idle":
         return request_json(
             f"/api/tabs/{encoded_tab}/chat-raw/start",
             method="POST",
             body={"subscriptionId": SUBSCRIPTION_ID},
         )
     return request_json(f"/api/tabs/{encoded_tab}/chat?since=0")
+
+
+def session_binding_ready():
+    global LAST_SNAPSHOT
+    LAST_SNAPSHOT = request_json("/api/tabs")
+    rows = LAST_SNAPSHOT if isinstance(LAST_SNAPSHOT, list) else LAST_SNAPSHOT.get("tabs", [])
+    tab = next((row for row in rows if row.get("id") == TAB_ID), None)
+    if tab is None:
+        return False
+    session_id = tab.get("agent_session_id")
+    nonce = tab.get("session_binding_nonce")
+    reported_nonce = tab.get("reported_session_binding_nonce")
+    return bool(session_id and nonce and reported_nonce == nonce)
 
 
 def tool_stats(value):
@@ -75,11 +88,18 @@ def tool_stats(value):
     return len(names), len(reads)
 
 
-def inspect_snapshot():
+def inspect_snapshot(initial=False):
     global LAST_SNAPSHOT
     if time.monotonic() >= DEADLINE:
         raise TimeoutError("wait deadline expired while reading a chat snapshot")
-    LAST_SNAPSHOT = chat_snapshot()
+    if MODE == "session_binding":
+        ready = session_binding_ready()
+        if time.monotonic() >= DEADLINE:
+            raise TimeoutError("wait deadline expired while reading the Tab session binding")
+        if not ready:
+            return False
+        return True
+    LAST_SNAPSHOT = chat_snapshot(initial)
     if time.monotonic() >= DEADLINE:
         raise TimeoutError("wait deadline expired while reading a chat snapshot")
     serialized = json.dumps(LAST_SNAPSHOT, ensure_ascii=False)
@@ -91,8 +111,6 @@ def inspect_snapshot():
                 f"snapshot={serialized}"
             )
         return False
-    if MODE == "chat_start_all":
-        return all(needle in serialized for needle in NEEDLES)
     return any(needle in serialized for needle in NEEDLES)
 
 
@@ -129,8 +147,8 @@ def event_blocks():
 def main():
     try:
         read_response_headers()
-        if inspect_snapshot():
-            print("MATCH: initial chat snapshot", flush=True)
+        if inspect_snapshot(initial=True):
+            print(f"MATCH: initial {MODE} snapshot", flush=True)
             return 0
         for payload in event_blocks():
             if time.monotonic() >= DEADLINE:
@@ -139,6 +157,18 @@ def main():
             if event.get("event_type") == "overflow":
                 raise RuntimeError(f"event stream reported lost events: {payload}")
             data = event.get("data") or {}
+            if MODE == "session_binding":
+                if (
+                    event.get("event_type") != "session-binding-state-changed"
+                    or data.get("tab_id") != TAB_ID
+                    or data.get("kind") != "healthy"
+                    or not data.get("current_session_id")
+                ):
+                    continue
+                if inspect_snapshot():
+                    print("MATCH: verified session-binding event", flush=True)
+                    return 0
+                continue
             is_tab_event = data.get("tab_id") == TAB_ID or str(
                 event.get("event_type", "")
             ).endswith(f"-{TAB_ID}")

@@ -14,17 +14,18 @@ bash evals/orchestrator-creation-matrix/run.sh
 ```
 
 Exit 0 = no hard FAIL. Exit 1 = at least one FAIL. Exit 7 = dev not up.
-The script self-cleans (closes every tab/plan/workspace it created) via an
-`EXIT` trap, so scenarios stay independent across reruns.
+The script removes each scenario's new Plans with `plan delete --yes`, closes
+the scratch workspace with `workspace close --force`, and asserts all
+matrix-created Tabs are gone. Refused cleanup commands print their error body.
 
 ## Routes
 
 | Route | Command under test | Core observable |
 |-------|--------------------|-----------------|
-| **B** CLI pair | `team pair --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns two tab ids with no `plan_id`; no Plan exists before a first goal; `tab list` shows both; orchestrator chat carries the peer greeting; **B.IDLE** verifies the Planner remains idle and no Plan appears before the first goal; a Plan created as the Orchestrator binds owner **and** paired Planner ref |
-| **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | onboarding carries the peer-pairing mandate block with a pre-filled planner spawn command; unpaired nudge fires next cycle |
-| **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
-| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent <orch>` | plan planner ref binds to the new tab; planner onboarding names the orch tab; **nudge stops** |
+| **B** CLI pair | `team pair --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns two tab ids with no `plan_id`; no Plan exists before a first goal; `tab list` shows both; launch diagnostics confirm the Orchestrator prompt was supplied; **B.IDLE** verifies the Planner remains idle and no Plan appears before the first goal; the first Plan binds to the paired Planner |
+| **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | launch diagnostics confirm the Orchestrator prompt was supplied; exact prompt composition is covered by source tests; unpaired nudge fires next cycle |
+| **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role becomes Manager with `role_profile=orchestrator`; **session survives**; launch diagnostics confirm the system prompt was supplied; unpaired nudge next cycle |
+| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent-tab <orch>` | plan planner ref binds to the new tab; launch diagnostics confirm the Planner system prompt was supplied; **nudge stops** |
 | **F** waiver | `plan update <plan> --planner none --note "solo test"` | waiver recorded (`planner.kind=waived` + note); nudge stops; `--planner none` **without** `--note` refused |
 | **G** doctor ladder | `plan doctor <plan> --kind quality` | `planner_unpaired` = WARNING while unpaired+planning; `plan approve` renders it as ERROR; a Planner waiver makes it silent |
 | **H** negatives | see below | actionable CLI error + **zero object leak** on every failure path |
@@ -36,10 +37,13 @@ The script self-cleans (closes every tab/plan/workspace it created) via an
    clean fail before any Tab or Plan is created.
 
 The matrix invokes the CLI only through `dc` from `evals/_lib/lib.sh`. Plan
-creation and mutations carry the real Orchestrator via `dc --as-tab`. The
-`chat-raw/start` HTTP helper sends a fresh `subscriptionId` and always stops
-that subscription after reading the snapshot. Every failed row prints its
-captured CLI or JSON body.
+creation and mutations carry the real Orchestrator via `dc --as-tab`. Each
+event wait holds one long-lived dev SSE stream and re-reads chat only after a
+matching Tab event. B.IDLE opens one `chat-raw` subscription and stops it once
+at the end. Promotion waits for the verified session-binding event before
+calling Make-Orchestrator. D/E check launch diagnostics for prompt presence.
+Every failed row prints its captured CLI or JSON body, and each scenario
+deletes its own Plans with `--yes`.
 
 Route **I** (in-place picker UI: pair confirm transforms the same tab) is the
 Playwright picker spec's job (scenario 7 of `task_234c14f04d9f4dbfb5a743d50486617d`),
@@ -74,9 +78,15 @@ GATED. A live end-to-end nudge assertion would require overriding
 
 - **B pair output has no `plan_id` until the Orchestrator creates its first
   goal/Plan.** The matrix now checks the unbound response and first-Plan binding.
-- **C/D onboarding uses the literal `PLAN_ID` placeholder** because no Plan is
-  claimed at role-spawn/promotion time. The C prefill oracle accepts that
-  contract.
+- **C onboarding rides the system prompt.** Chat-raw contains only the task
+  envelope, so C checks launch diagnostics for `prompt_present=true`. Prompt
+  composition tests cover the mandate and the `--parent-tab`/`--plan` command
+  fragments; the bench does not infer prompt contents from chat.
+- **B's peer introduction also rides the launch prompt.** The pair payload
+  composes both counterpart tab ids into the one bootstrap prompt. B checks the
+  prompt-presence diagnostic; source tests cover the coordination composition.
+- **D promotion waits for a live binding.** The session-binding event and the
+  matching binding nonces must be visible before the REST promotion request.
 - **No `codeterm orchestrator promote` CLI.** Make-Orchestrator is only the REST
   RPC `POST /api/tabs/{id}/make-orchestrator`. Route D uses `dev_post`.
 - **`team pair` refuses Worker and Manager callers unless they pass
@@ -89,6 +99,10 @@ GATED. A live end-to-end nudge assertion would require overriding
   older “absent” result came from creating the Plan without `--as-tab`, leaving
   it without an owner Tab. `inspect_planner_pairing` returns no finding when
   `owner.tab_id` is absent (quality doctor, `quality.rs:484-491`).
+- **A paired Orchestrator's first CLI-created Plan must bind its paired Planner.**
+  The REST plan route already did this; the socket route did not. The shared
+  service path now binds the pending Planner for both callers, and B.refs checks
+  the persisted Plan returned by the CLI.
 
 ## Wiring into the FINAL acceptance gate
 

@@ -186,6 +186,26 @@ fn plan_task_show_json_returns_raw_rpc_value() {
 }
 
 #[test]
+fn split_creates_children_with_parent_and_inherited_routing() {
+    let mut client = FakeRpc::scripted([json!({
+        "parent_task_id": "parent",
+        "children": [{"task_id": "child_a"}, {"task_id": "child_b"}]
+    })]);
+    let response = run_task(&mut client, true, PlanTaskAction::Split {
+        plan_id: "pl_1".into(), task_id: "parent".into(),
+        children: vec!["Part A".into(), "Part B".into()], from_file: None,
+    }).unwrap().unwrap();
+
+    assert_eq!(client.methods(), ["plan.task.split"]);
+    let params = client.calls[0].1.as_ref().unwrap();
+    assert_eq!(params["task_id"], "parent");
+    assert_eq!(params["children"][0]["name"], "Part A");
+    assert_eq!(params["children"][1]["name"], "Part B");
+    assert_eq!(response["parent_task_id"], "parent");
+    assert_eq!(response["children"].as_array().unwrap().len(), 2);
+}
+
+#[test]
 fn criterion_file_parses_json_array_form() {
     let items = parse_criteria_file("[\"first\", \"second bullet\"]");
     assert_eq!(items, vec!["first", "second bullet"]);
