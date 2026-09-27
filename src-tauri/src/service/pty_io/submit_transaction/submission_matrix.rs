@@ -134,6 +134,7 @@ fn strategy(capabilities: &SpawnCapabilities) -> VerifySubmitStrategy {
     assert_eq!(capabilities.verify_submit.kind, "tui_input_drained");
     VerifySubmitStrategy::TuiInputDrained {
         initial_key_delay: Duration::ZERO,
+        retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
     }
 }
 
@@ -181,7 +182,7 @@ fn exact_payload(
     assert_eq!(transport.payload_writes.get(), 1);
     assert_eq!(
         transport.submit_key_writes.get(),
-        if submit { MAX_SUBMIT_KEY_WRITES } else { 0 }
+        if submit { 1 } else { 0 }
     );
     assert_eq!(transport.turns.get(), usize::from(submit));
     assert_eq!(result.submit_observed, submit);
@@ -309,7 +310,7 @@ fn swallowed_enter(provider: &str, capabilities: &SpawnCapabilities) {
     assert!(result.submit_observed);
     assert_eq!(transport.payload_writes.get(), 1);
     assert!(transport.submit_key_writes.get() <= MAX_SUBMIT_KEY_WRITES);
-    assert_eq!(transport.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
+    assert_eq!(transport.submit_key_writes.get(), 2);
     pass(provider, "bounded_key_only_swallowed_enter_retry");
 }
 

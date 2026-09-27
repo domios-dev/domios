@@ -49,6 +49,7 @@ impl ServiceContext {
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         permit: crate::pty::write_queue::GuardedInputPermit,
         opts: crate::service::inject_verify::VerifyOpts,
+        track_exact_session_turn: bool,
     ) -> Result<
         crate::service::inject_verify::InjectionResult,
         crate::service::inject_verify::InjectionError,
@@ -62,6 +63,7 @@ impl ServiceContext {
             submit_strategy,
             opts,
             Some(permit),
+            track_exact_session_turn,
         )
     }
 

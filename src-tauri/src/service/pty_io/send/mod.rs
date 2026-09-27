@@ -191,6 +191,16 @@ fn delivery_is_unknown(error: &str) -> bool {
     error.starts_with("submit_unconfirmed:")
 }
 
+fn require_submission_result(
+    result: crate::service::inject_verify::InjectionResult,
+    required: bool,
+) -> Result<(), crate::service::inject_verify::InjectionError> {
+    let elapsed = result.elapsed;
+    result
+        .require_submission(required, elapsed, String::new())
+        .map(|_| ())
+}
+
 fn public_agent_input_readiness(
     tab: &crate::multiplexer::types::Tab,
 ) -> Option<Result<(), String>> {
@@ -349,6 +359,12 @@ impl ServiceContext {
                 provider.verify_submit_strategy()
             })
             .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
+        let track_exact_session_turn = !text.is_empty()
+            && matches!(
+                &strategy,
+                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+            );
+        let require_provider_turn = verify_submit && track_exact_session_turn;
         super::submit_transaction::submit_entry(entry, text, |text| {
             self.send_text_verified_guarded(
                 &delivery.pty_id,
@@ -362,8 +378,9 @@ impl ServiceContext {
                     verify_submit,
                     ..Default::default()
                 },
+                track_exact_session_turn,
             )
-            .map(|_| ())
+            .and_then(|result| require_submission_result(result, require_provider_turn))
             .map_err(|error| {
                 DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
             })
@@ -493,6 +510,12 @@ impl ServiceContext {
             })
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         let submit_key: &[u8] = b"\r";
+        let track_exact_session_turn = !text.is_empty()
+            && matches!(
+                &strategy,
+                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+            );
+        let require_provider_turn = submit && track_exact_session_turn;
         super::submit_transaction::submit_text_with_key_claimed(
             self,
             pty_id,
@@ -507,9 +530,10 @@ impl ServiceContext {
                 ..Default::default()
             },
             None,
+            track_exact_session_turn,
             claim,
         )
-        .map(|_| ())
+        .and_then(|result| require_submission_result(result, require_provider_turn))
         .map_err(|error| match error {
             crate::service::inject_verify::InjectionError::AgentTuiPresent { .. } => {
                 DeliveryError::TabBusyRefused {

@@ -117,6 +117,7 @@ fn superseded_pre_paste_claim_has_no_parser_side_effects_on_real_transport() {
             VerifySubmitStrategy::None,
             VerifyOpts::default(),
             None,
+            false,
             old_claim,
         )
     });

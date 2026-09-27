@@ -219,7 +219,9 @@ impl DeliveryError {
             // Verification gates that run BEFORE the paste — nothing was written.
             InjectionError::PromptNeverReady { .. }
             | InjectionError::AgentTuiPresent { .. }
-            | InjectionError::AgentInputUnavailable { .. } => Self::TabBusyRefused { tab, detail },
+            | InjectionError::AgentInputUnavailable { .. } => {
+                Self::TabBusyRefused { tab, detail }
+            }
             InjectionError::PtyClosed { .. } => Self::PtyUnavailable { tab, detail },
             // Both fire only after the paste reached the PTY.
             InjectionError::EchoMismatch { .. } | InjectionError::SubmitNeverConfirmed { .. } => {

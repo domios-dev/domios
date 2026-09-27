@@ -358,6 +358,7 @@ fn recovery_keys_require_same_pty_proof() {
         b"\r",
         VerifySubmitStrategy::TuiInputDrained {
             initial_key_delay: Duration::from_millis(1),
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
         },
         opts(),
         |allow_initial_key| {
@@ -443,7 +444,7 @@ fn parked_draft_after_dropped_enter_recovers_before_turn_deadline() {
         result.submit_anomaly
     );
     assert!(io.turn.get(), "the recovered Enter starts a real turn");
-    assert_eq!(io.submit_key_writes.get(), MAX_SUBMIT_KEY_WRITES);
+    assert_eq!(io.submit_key_writes.get(), 2);
 }
 
 #[test]
