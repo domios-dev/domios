@@ -101,7 +101,7 @@ fn provider_tree_witnesses_reject_live_restored_provider() {
         live_child.state(),
         crate::service::process_tree::ProviderTreeState::Present
     );
-    assert!(LaunchExitProof::from_finished_marker(&attempt, &live_child).is_none());
+    assert!(LaunchExitProof::from_finished_marker(&attempt, &live_child, Some(3), None).is_none());
     assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &live_child).is_none());
 }
 
@@ -122,8 +122,16 @@ fn provider_absent_before_first_seen_is_not_exit_evidence() {
         let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
         assert_eq!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
         assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &absent).is_none());
-        assert!(LaunchExitProof::from_finished_marker(&attempt, &absent).is_none());
+        assert!(LaunchExitProof::from_finished_marker(&attempt, &absent, None, None).is_none());
     }
+    let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    let explicit_failure = LaunchExitProof::from_finished_marker(&attempt, &absent, Some(3), None);
+    assert!(explicit_failure.is_some());
+    assert!(LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), None).is_none());
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), Some("opencode"))
+            .is_some()
+    );
 
     witnesses.record_for_test(
         &key,
@@ -137,11 +145,9 @@ fn provider_absent_before_first_seen_is_not_exit_evidence() {
         ),
     );
     let one_absence = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
-    assert_eq!(one_absence.state(), ProviderTreeState::AbsentOnceAfterSeen);
-    assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &one_absence).is_none());
-    assert!(LaunchExitProof::from_finished_marker(&attempt, &one_absence).is_none());
-    let gone = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
-    assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &gone).is_some());
+    assert_eq!(one_absence.state(), ProviderTreeState::GoneAfterSeen);
+    assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &one_absence).is_some());
+    assert!(LaunchExitProof::from_finished_marker(&attempt, &one_absence, None, None).is_some());
 }
 
 #[test]

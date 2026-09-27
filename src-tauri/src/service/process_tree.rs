@@ -49,7 +49,6 @@ pub(crate) enum ProviderTreeState {
     Present,
     Unknown,
     AbsentBeforeSeen,
-    AbsentOnceAfterSeen,
     GoneAfterSeen,
 }
 
@@ -90,8 +89,7 @@ impl ProviderTreeObservation {
             ProviderTreeState::Present => "provider_present_in_tab_tree",
             ProviderTreeState::Unknown => "tab_tree_unavailable_or_incomplete",
             ProviderTreeState::AbsentBeforeSeen => "provider_not_seen_before_absence",
-            ProviderTreeState::AbsentOnceAfterSeen => "provider_seen_then_one_absent_snapshot",
-            ProviderTreeState::GoneAfterSeen => "provider_seen_then_two_absent_snapshots",
+            ProviderTreeState::GoneAfterSeen => "provider_seen_then_absent_snapshot",
         }
     }
 }
@@ -99,7 +97,6 @@ impl ProviderTreeObservation {
 #[derive(Default)]
 struct ProviderTreeHistory {
     seen_processes: HashSet<ProcessIdentity>,
-    absent_snapshots: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -170,25 +167,13 @@ impl ProviderTreeWitnesses {
         let state = match observation {
             ProviderProcessTreeSnapshot::Present(processes) => {
                 history.seen_processes.extend(processes);
-                history.absent_snapshots = 0;
                 ProviderTreeState::Present
             }
             ProviderProcessTreeSnapshot::Absent if !provider_seen_before => {
-                history.absent_snapshots = 0;
                 ProviderTreeState::AbsentBeforeSeen
             }
-            ProviderProcessTreeSnapshot::Absent => {
-                history.absent_snapshots = history.absent_snapshots.saturating_add(1);
-                if history.absent_snapshots >= 2 {
-                    ProviderTreeState::GoneAfterSeen
-                } else {
-                    ProviderTreeState::AbsentOnceAfterSeen
-                }
-            }
-            ProviderProcessTreeSnapshot::Unknown => {
-                history.absent_snapshots = 0;
-                ProviderTreeState::Unknown
-            }
+            ProviderProcessTreeSnapshot::Absent => ProviderTreeState::GoneAfterSeen,
+            ProviderProcessTreeSnapshot::Unknown => ProviderTreeState::Unknown,
         };
         ProviderTreeObservation {
             key: key.clone(),
@@ -604,14 +589,9 @@ mod tests {
         assert!(!live.proves_exit_from_lifecycle_clear());
 
         let one_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
-        assert_eq!(one_absence.state, ProviderTreeState::AbsentOnceAfterSeen);
-        assert!(!one_absence.proves_exit_from_finished_marker());
-        assert!(!one_absence.proves_exit_from_lifecycle_clear());
-
-        let two_absences = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
-        assert_eq!(two_absences.state, ProviderTreeState::GoneAfterSeen);
-        assert!(two_absences.proves_exit_from_finished_marker());
-        assert!(two_absences.proves_exit_from_lifecycle_clear());
+        assert_eq!(one_absence.state, ProviderTreeState::GoneAfterSeen);
+        assert!(one_absence.proves_exit_from_finished_marker());
+        assert!(one_absence.proves_exit_from_lifecycle_clear());
     }
 
     #[test]
