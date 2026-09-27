@@ -381,6 +381,7 @@ impl ServiceContext {
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
+        let tab_created_by_spawn = agent.existing_tab_id.is_none();
 
         let tab_id = {
             let mut mux = self.mux.write();
@@ -468,7 +469,9 @@ impl ServiceContext {
             task_identity.clone(),
         );
         if task_identity.is_some() && !startup_supervised {
-            self.rollback_provisional_tab_via_close(&tab_id);
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab_via_close(&tab_id);
+            }
             self.emit_state_changed();
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
@@ -484,14 +487,18 @@ impl ServiceContext {
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {
-                self.rollback_provisional_tab_via_close(&tab_id);
+                if tab_created_by_spawn {
+                    self.rollback_provisional_tab_via_close(&tab_id);
+                }
                 self.emit_state_changed();
                 return Err(e);
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
                     if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
-                        self.rollback_provisional_tab_via_close(&tab_id);
+                        if tab_created_by_spawn {
+                            self.rollback_provisional_tab_via_close(&tab_id);
+                        }
                         self.emit_state_changed();
                         return Err(e);
                     }
@@ -535,10 +542,12 @@ impl ServiceContext {
                 super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
-                let _ = self
-                    .mux
-                    .write()
-                    .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self
+                        .mux
+                        .write()
+                        .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 self.emit_state_changed();
                 return Err(error);
             }
@@ -546,9 +555,12 @@ impl ServiceContext {
         if let Some(binding) = task_binding_from_spawn(&agent) {
             let _ = self.mux.write().set_task_binding_once(&tab_id, binding);
         }
-        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.rollback_provisional_tab(&ws_id, &tab_id);
-        })?;
+        if let Err(error) = self.ensure_agent_pad(&tab_id) {
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+            }
+            return Err(error);
+        }
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
             super::reasoning_effort::persist_launch_identity(
@@ -689,7 +701,9 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 return Err(error.to_string());
             }
         }
@@ -703,7 +717,11 @@ impl ServiceContext {
             &self.agent_registry,
         );
         if launch_cmd.trim().is_empty() {
-            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+            return Err(self.rollback_empty_agent_launch_if_created(
+                &tab_id,
+                &agent_cmd,
+                tab_created_by_spawn,
+            ));
         }
         launch_agent_in_background_with_env(
             self.clone(),
