@@ -341,8 +341,8 @@ console.log("\n--- discoverModels ---\n");
   );
   eq(
     p.buildResumeCommand("sess 2"),
-    "opencode --mini --session Q(windows:sess 2)",
-    "buildResumeCommand selects direct interactive mode for session resume",
+    "opencode --session Q(windows:sess 2)",
+    "buildResumeCommand selects the full TUI for session resume",
   );
   eq(
     p.buildLaunchCommand({ skipPermissions: true }),
@@ -351,12 +351,12 @@ console.log("\n--- discoverModels ---\n");
   );
   eq(
     p.buildResumeCommand("sess 2", true),
-    "opencode --mini --session Q(windows:sess 2) --dangerously-skip-permissions",
+    "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
     "buildResumeCommand applies the centralized full-access policy",
   );
 }
 
-console.log("\n--- restored direct-mode command keeps the saved project, session, and model ---\n");
+console.log("\n--- restored full-TUI command keeps the saved project, session, and model ---\n");
 {
   const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
   const savedSession = "ses_saved";
@@ -391,8 +391,8 @@ console.log("\n--- restored direct-mode command keeps the saved project, session
       sessionId: savedSession,
       args: ["-m", "big-pickle", "--variant", "high"],
     }),
-    "opencode Q(windows:D:/Developer/codeterm-livetest) --mini --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
-    "resume selects the saved project and exact session through direct interactive mode",
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
+    "resume selects the saved project and exact session in the full TUI",
   );
   eq(
     queries,
@@ -417,9 +417,21 @@ console.log("\n--- restored direct-mode command keeps the saved project, session
     "resume stops if it cannot enter the saved project directory before staging configuration",
   );
   assert(
-    configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --mini --session Q(windows:ses_saved)"),
-    "session-config wrapper preserves the explicit interactive resume argv",
+    configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    "session-config wrapper preserves the explicit full-TUI resume argv",
   );
+  assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
+}
+
+console.log("\n--- captured full-TUI resume screen matches provider readiness fingerprints ---\n");
+{
+  const fixture = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "resume-full-tui-screen.txt"),
+    "utf8",
+  );
+  const p = loadOpencodeWithHost(ocHost({}));
+  eq(p.screenHasTui(fixture), true, "captured full TUI exposes provider readiness footer fingerprints");
+  eq(p.detectFromOutput(fixture), true, "captured full TUI remains identifiable as OpenCode output");
 }
 
 {
