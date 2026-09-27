@@ -106,6 +106,7 @@ pub(super) fn dispatch(
                 "plan.kinds.set",
                 "plan.tag_facets.set",
                 "plan.task.add",
+                "plan.task.split",
                 "plan.review.authorize-reporter",
                 "plan.task.update",
                 "plan.task.attach",

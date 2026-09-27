@@ -77,6 +77,11 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("task status field uses status_label", c.fields.find((f) => f.label === "status")?.value === "90% done");
 }
 
+{
+  const c = buildCardContent("task", { task: FIXTURE_TASK, tagFacets: [...FIXTURE_TAG_FACETS], childCount: 2, childDone: 1 })!;
+  ok("parent card rolls up open subtasks", c.fields.find((f) => f.label === "status")?.value === "blocked on subtasks");
+}
+
 // Level: FAR when small; NEAR only when the card fits ALL near content with no scroll.
 {
   const c = buildCardContent("task", { task: FIXTURE_TASK, tagFacets: [...FIXTURE_TAG_FACETS] })!;
