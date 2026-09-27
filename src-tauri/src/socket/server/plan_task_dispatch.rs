@@ -123,6 +123,76 @@ fn set_dispatch_task_brief(spawn_params: &mut SpawnAgentParams, brief: String) {
     spawn_params.task = Some(brief);
 }
 
+pub(super) fn dispatch_unplanned(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+) -> Result<Value, JsonRpcError> {
+    let p = params.as_ref();
+    let reason = owned_str(p, "reason")
+        .map(|reason| reason.trim().to_string())
+        .filter(|reason| !reason.is_empty())
+        .ok_or_else(|| invalid_dispatch("--unplanned requires a non-empty --reason"))?;
+    let plan_id = super::plan_refs::resolve_plan(&svc.plan_store, params).map_err(|_| {
+        invalid_dispatch("unplanned Worker dispatch requires a bound Team Plan; set the Team goal first")
+    })?;
+    let caller = crate::service::AuthenticatedPlanCaller {
+        tab_id: owned_str(p, "caller_tab_id"),
+        session_id: owned_str(p, "session_id"),
+        binding_nonce: owned_str(p, "session_binding_nonce"),
+    };
+    svc.authorize_plan_orchestrator(&plan_id, &caller)
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            message,
+            data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
+        })?;
+    let parent_task_id = caller
+        .tab_id
+        .as_deref()
+        .and_then(|tab| svc.plan_store.task_binding_for_tab(tab))
+        .filter(|(bound_plan, _)| bound_plan == &plan_id)
+        .map(|(_, task)| task);
+    let task_id = svc
+        .plan_store
+        .add_task(
+            &plan_id,
+            crate::service::plan::NewTask {
+                name: format!("unplanned: {reason}"),
+                kind: "unplanned".into(),
+                body: owned_str(p, "brief").unwrap_or_default(),
+                executor_role: Some("Worker".into()),
+                parent_task_id,
+                tags: vec!["unplanned".into()],
+                ..Default::default()
+            },
+            now,
+        )
+        .map_err(plan_rpc_err)?;
+    let mut dispatch_params = p.cloned().unwrap_or_default();
+    dispatch_params["plan_id"] = json!(plan_id.clone());
+    dispatch_params["task_id"] = json!(task_id.clone());
+    dispatch_params["execution_intent"] = json!("mutating");
+    let task_id_for_dispatch = task_id.clone();
+    let dispatched = dispatch_with_spawn_approval_exemption(
+        &Some(dispatch_params),
+        app,
+        svc,
+        now,
+        Some(&task_id_for_dispatch),
+        |svc, spawn_params, ready_tx| svc.spawn_agent_sync_with_ready(spawn_params, ready_tx),
+        || {},
+    );
+    if let Err(error) = &dispatched {
+        if !startup_wait_is_recoverable(error) {
+            let _ = svc.plan_store.rm_task(&plan_id, &task_id, now);
+        }
+    }
+    emit_plan_changed(app, &plan_id);
+    dispatched
+}
+
 pub(super) fn await_agent_ready(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     deadline: Instant,
@@ -404,6 +474,34 @@ where
     ) -> Result<crate::service::SpawnResult, String>,
     O: FnOnce(),
 {
+    dispatch_with_spawn_approval_exemption(
+        params,
+        app,
+        svc,
+        now,
+        None,
+        spawn_agent,
+        after_startup_owner_observation,
+    )
+}
+
+fn dispatch_with_spawn_approval_exemption<S, O>(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+    approval_exempt_task_id: Option<&str>,
+    spawn_agent: S,
+    after_startup_owner_observation: O,
+) -> Result<Value, JsonRpcError>
+where
+    S: FnOnce(
+        &ServiceState,
+        SpawnAgentParams,
+        Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<crate::service::SpawnResult, String>,
+    O: FnOnce(),
+{
     let store = &svc.plan_store;
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
@@ -418,14 +516,19 @@ where
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-    svc.authorize_execution_action(
-        &plan_id,
-        &crate::service::AuthenticatedPlanCaller {
-            tab_id: owned_str(p, "caller_tab_id"),
-            session_id: owned_str(p, "session_id"),
-            binding_nonce: owned_str(p, "session_binding_nonce"),
-        },
-    )
+    let caller = crate::service::AuthenticatedPlanCaller {
+        tab_id: owned_str(p, "caller_tab_id"),
+        session_id: owned_str(p, "session_id"),
+        binding_nonce: owned_str(p, "session_binding_nonce"),
+    };
+    let unplanned_dispatch = approval_exempt_task_id == Some(task_id.as_str())
+        && detail.task.tags.iter().any(|tag| tag == "unplanned")
+        && detail.task.kind == "unplanned";
+    (if unplanned_dispatch {
+        svc.authorize_plan_orchestrator(&plan_id, &caller)
+    } else {
+        svc.authorize_execution_action(&plan_id, &caller)
+    })
     .map_err(|message| JsonRpcError {
         code: -32003,
         message,

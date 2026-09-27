@@ -94,7 +94,7 @@ function buildTaskRow(
     depth: kind === "subtask" ? 3 : 2,
     title: task.name,
     status: task.status,
-    statusLabel: statusText(task),
+    statusLabel: task.tags?.includes("unplanned") ? task.name : statusText(task),
     sectionTitle: sectionTitle(task, sectionById),
     tabLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
