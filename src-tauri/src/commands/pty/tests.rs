@@ -303,17 +303,10 @@ mod spawn_pty_restore_tests {
                 .with_resume_context_log(resume_context.clone()),
         ));
 
-        let pty_id = spawn_pty_core(
-            &fixture.service,
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id.clone()),
-        )
-        .await
-        .expect("restore PTY spawn succeeds");
+        let service = Arc::new(fixture.service.clone());
+        let pty_id = spawn_pty_core(&service, None, None, 80, 24, None, Some(tab_id.clone()))
+            .await
+            .expect("restore PTY spawn succeeds");
         let built = resume_context
             .lock()
             .first()
