@@ -840,6 +840,18 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        false
+    }
+
+    fn classified_prompt_auto_response(
+        &self,
+        _state: crate::tab_state::TabState,
+        _screen: &str,
+    ) -> Option<crate::provider::ClassifiedPromptOptionRole> {
+        None
+    }
+
     /// Build the STRUCTURED pending prompt for an interactive tab, if one is
     /// active and unanswered, from this provider's structured source. `cwd` /
     /// `session_id` identify the tab's own session (detection keys off the
