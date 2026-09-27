@@ -42,7 +42,14 @@
     "verifySubmit": {
       "kind": "tui_input_drained",
       "initialKeyDelayMs": 300,
-      "retryOffsetsMs": [200, 500, 1200, 2200, 4000, 5800]
+      "retryOffsetsMs": [
+        200,
+        500,
+        1200,
+        2200,
+        4000,
+        5800
+      ]
     },
     "turnEvidenceNormalization": {
       "dropSupplementaryCharacters": true
