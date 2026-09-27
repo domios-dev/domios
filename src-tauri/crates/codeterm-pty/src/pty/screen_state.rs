@@ -153,9 +153,8 @@ impl ShellReadySignal {
     }
 }
 
-/// Per-PTY VT100 screen parser state — tracks what the user sees on screen.
-/// Separated from OutputBuffer to avoid lock contention: output processing
-/// (which reads screen state) doesn't block chat view (which reads full history).
+/// Current VT100 screen grid per PTY; historical output remains in `OutputBuffer`.
+/// Lines that scroll beyond the visible grid are not available through this state.
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
