@@ -121,9 +121,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     assert_eq!(response, Some(crate::service::tab::RespondPromptOutcome::Sent));
     assert!(fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt.is_none());
 
-    let notifications = fixture.service.notif.lock().list(false);
-    assert_eq!(notifications.len(), 1);
-    assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+    {
+        let notif = fixture.service.notif.lock();
+        let notifications = notif.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+    }
 
     let second_render = resolve_classified_manual_update_prompt(
         &fixture.service,
