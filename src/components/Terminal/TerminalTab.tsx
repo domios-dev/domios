@@ -39,6 +39,7 @@ import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership"
 import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
 import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
+import { TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
 
 interface TerminalTabProps {
   tabId: string;
@@ -74,9 +75,26 @@ export const TerminalTab = memo(function TerminalTab({
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { updateTabStatus } = useMultiplexer();
+  const { addNotification, updateTabStatus } = useMultiplexer();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  useEffect(() => {
+    const onInputWriteFailure = (event: Event) => {
+      const detail = (event as CustomEvent<{ ptyId?: string }>).detail;
+      if (!detail?.ptyId || detail.ptyId !== connectedPtyRef.current) return;
+      addNotification({
+        tab_id: tabId,
+        workspace_id: null,
+        title: "Terminal input failed",
+        body: "The terminal could not receive input. Check the connection before continuing.",
+        severity: "Error",
+        level: "failure",
+      });
+    };
+    window.addEventListener(TERMINAL_INPUT_WRITE_FAILED_EVENT, onInputWriteFailure);
+    return () =>
+      window.removeEventListener(TERMINAL_INPUT_WRITE_FAILED_EVENT, onInputWriteFailure);
+  }, [addNotification, tabId]);
   const agentType = tab?.agent_type;
   // tabs and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);

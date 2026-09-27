@@ -1,5 +1,15 @@
 # Orchestrator-creation matrix — run transcript & verdicts
 
+> **Historical, pre-refresh evidence.** These live verdicts were produced by
+> the older harness against build `905e2d00`; the old G parser/expectation was
+> invalid, and the old H2/H3 scenarios did not prove the current contracts.
+> The refreshed source now expects an unbound pair until first Plan creation,
+> checks planner pairing at doctor/approval/waiver surfaces, exercises Worker
+> attribution, and checks provider validation leaves no Tab. This Worker lane
+> is source-only, so no post-refresh run has been executed. The Orchestrator
+> must run `bash evals/orchestrator-creation-matrix/run.sh` against the real CLI
+> and replace these historical verdicts after a green run.
+
 Run context: dev daemon on 7686, builds observed **ea2e30e9 → 905e2d00**
 (orchestrator restarted dev several times mid-session; DB write contention and
 load spikes to **15–23** on this 10-core weak machine while it built other lanes).
@@ -12,7 +22,7 @@ Two classes of result below:
    charter), spawning a fleet of agents would risk a 40+ spike. These must be
    run by the orchestrator in a low-load window: `bash evals/orchestrator-creation-matrix/run.sh`.
 
-## Live verdicts (this session, zero/low-agent scenarios)
+## Historical live verdicts (old harness, zero/low-agent scenarios)
 
 | Check | Verdict | Evidence |
 |-------|---------|----------|
@@ -23,7 +33,7 @@ Two classes of result below:
 | **G.planning / G.approval** | **FINDING** | `plan doctor <p> --kind quality --json` on an unpaired planning plan → findings `missing_goal` (error), `missing_spec_source` (error). **No `planner_unpaired` rule at any state.** The pinned WARNING→ERROR→silent planner ladder is **not wired** in dev build 905e2d00. Bounce to doctor/QA-enforcement lane `task_084e2148`. |
 | **G.silent** | n/a | trivially "silent" only because the rule never fires; the ladder is untestable until the rule exists. |
 
-## Structural findings (source-confirmed; confirmed by CLI probes)
+## Historical structural findings (old harness/source snapshot)
 
 | Route | Finding | Bounce target |
 |-------|---------|---------------|
@@ -32,7 +42,7 @@ Two classes of result below:
 | **H2** | No **backend** hierarchy guard on `orchestration new` / `spawn --role Orchestrator` keyed off caller role. "Worker never spawns" is a prompt-level charter only. Promotion *does* reject tabs with a parent (`validate_make_orchestrator`). Harness attributes `orchestration new` to a Worker via `spawned_by_tab_id` and expects refusal; likely a FINDING (not enforced). | hierarchy-guard lane |
 | **B/C/D/E** | `plan create --json` returns the id at `.plan_id`; `plan get --json` returns the plan object at top level (`.planner`, `.owner`). `plan claim` has no explicit `--tab` (it claims for the caller tab), so `dc` cannot set ownership; E binds the planner owner-independently. `orchestration new` result = `{plan_id, orchestrator_tab_id, planner_tab_id, warning?}`. | (harness notes) |
 
-## Harness / dogfood friction (bugs in the system we are building)
+## Historical harness / dogfood friction
 
 - **`plan create` intermittently fails `database is locked`** under concurrent
   daemon load — the plan store serializes writes. `mk_plan` retries 5×. Bounce

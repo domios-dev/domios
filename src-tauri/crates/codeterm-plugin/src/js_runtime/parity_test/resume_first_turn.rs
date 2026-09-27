@@ -51,13 +51,13 @@ impl AgentProvider for ResumeFirstTurnNative {
         None
     }
 
-    fn resume_binds_on_first_user_turn(&self) -> bool {
+    fn session_starts_on_first_user_turn(&self) -> bool {
         true
     }
 }
 
 #[test]
-fn resume_binds_on_first_turn_capability_native_js_parity() {
+fn lazy_session_start_capability_native_js_parity() {
     let manifest_json = r#"{
         "id": "resume-first-turn-fixture",
         "version": "0.1.0",
@@ -66,7 +66,7 @@ fn resume_binds_on_first_turn_capability_native_js_parity() {
             "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
             "taskDelivery": "pty_input",
             "verifySubmit": {"kind": "none"},
-            "resumeBindsOnFirstUserTurn": true
+            "sessionStartsOnFirstUserTurn": true
         }
     }"#;
     let manifest: super::super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
@@ -79,17 +79,17 @@ fn resume_binds_on_first_turn_capability_native_js_parity() {
     let js = JsProvider::new(manifest, std::sync::Arc::new(vm));
     let native = ResumeFirstTurnNative;
 
-    assert!(native.resume_binds_on_first_user_turn());
+    assert!(native.session_starts_on_first_user_turn());
     assert_eq!(
-        js.resume_binds_on_first_user_turn(),
-        native.resume_binds_on_first_user_turn()
+        js.session_starts_on_first_user_turn(),
+        native.session_starts_on_first_user_turn()
     );
 
     if require_plugins().is_some() {
         for id in ["codex", "opencode"] {
             assert!(
-                load_js(id).resume_binds_on_first_user_turn(),
-                "{id} manifest declares first-turn resume binding"
+                load_js(id).session_starts_on_first_user_turn(),
+                "{id} manifest declares lazy session start"
             );
         }
     }

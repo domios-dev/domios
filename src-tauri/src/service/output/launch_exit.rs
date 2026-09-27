@@ -8,24 +8,34 @@ pub(super) fn finished_event_proves_provider_exit(
     may_have_named_process: Option<bool>,
 ) -> bool {
     match event {
-        CommandLifecycle::Finished {
-            command_line,
-            exit_code,
-            ..
-        } => {
-            let finished_command = exit_code.as_ref().is_some_and(|code| *code != 0)
-                || (exit_code.is_some()
-                    && command_line
-                        .as_deref()
-                        .is_some_and(|line| !line.trim().is_empty()));
+        CommandLifecycle::Finished { .. } => {
+            let finished_event_proves_exit_before_first_seen =
+                finished_marker_has_explicit_exit_evidence(event);
             tree.proves_exit_from_finished_marker()
-                || (finished_command && tree.state() == ProviderTreeState::AbsentBeforeSeen)
+                || (finished_event_proves_exit_before_first_seen
+                    && tree.state() == ProviderTreeState::AbsentBeforeSeen)
                 || (tree.state() == ProviderTreeState::AbsentBeforeSeen
                     && tree.has_distinct_absence_observations()
                     && may_have_named_process == Some(false))
         }
-        CommandLifecycle::Started { .. } => false,
+        CommandLifecycle::Started { .. } | CommandLifecycle::CwdChanged { .. } => false,
     }
+}
+
+fn finished_marker_has_explicit_exit_evidence(event: &CommandLifecycle) -> bool {
+    let CommandLifecycle::Finished {
+        command_line,
+        exit_code,
+        ..
+    } = event
+    else {
+        return false;
+    };
+    exit_code.is_some_and(|code| code != 0)
+        || (exit_code.is_some()
+            && command_line
+                .as_deref()
+                .is_some_and(|line| !line.trim().is_empty()))
 }
 
 impl super::super::ServiceContext {
@@ -109,14 +119,11 @@ impl super::super::ServiceContext {
         else {
             return None;
         };
-        let shell_exit_is_explicit = exit_code.is_some_and(|code| code != 0)
-            || (exit_code.is_some()
-                && command_line
-                    .as_deref()
-                    .is_some_and(|line| !line.trim().is_empty()));
+        let finished_event_proves_exit_before_first_seen =
+            finished_marker_has_explicit_exit_evidence(event);
         let may_have_named_process = (tree.state() == ProviderTreeState::AbsentBeforeSeen
             && tree.has_distinct_absence_observations()
-            && !shell_exit_is_explicit)
+            && !finished_event_proves_exit_before_first_seen)
             .then(|| self.provider_may_have_named_process(tree.key()))
             .flatten();
         if !finished_event_proves_provider_exit(event, tree, may_have_named_process) {
@@ -148,7 +155,7 @@ impl super::super::ServiceContext {
             &attempt,
             tree,
             *exit_code,
-            command_line.as_deref(),
+            finished_event_proves_exit_before_first_seen,
             may_have_named_process,
         );
         if proof.is_none() {
