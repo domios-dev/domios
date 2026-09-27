@@ -133,7 +133,11 @@ pub(crate) fn restorable_identity_task(
     {
         let identity = task
             .and_then(|task| crate::service::plan::worker_identity::split_worker_identity(task).0);
-        Some(worker_agent_system_prompt_from_identity(identity, "", role_profile))
+        Some(worker_agent_system_prompt_from_identity(
+            identity,
+            "",
+            role_profile,
+        ))
     } else {
         role_onboarding_task(None, role, role_profile)
     }

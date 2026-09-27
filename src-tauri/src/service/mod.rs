@@ -109,10 +109,10 @@ mod status_reconciliation;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
+pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
-pub(crate) mod restored_launch;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;

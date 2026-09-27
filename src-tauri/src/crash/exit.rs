@@ -105,22 +105,28 @@ fn shutdown_sidecar_log_records(
     report: &crate::session::scrollback_sync::SidecarSyncReport,
 ) -> Vec<ShutdownSidecarLogRecord> {
     let mut records = Vec::with_capacity(report.written.len() + report.skipped.len() + 1);
-    records.extend(report.written.iter().map(|(tab_id, bytes)| {
-        ShutdownSidecarLogRecord {
-            level: ShutdownSidecarLogLevel::Info,
-            message: format!(
-                "[shutdown] scrollback sidecar tab={tab_id} result=written bytes={bytes}"
-            ),
-        }
-    }));
-    records.extend(report.skipped.iter().map(|(tab_id, reason)| {
-        ShutdownSidecarLogRecord {
-            level: ShutdownSidecarLogLevel::Warn,
-            message: format!(
-                "[shutdown] scrollback sidecar tab={tab_id} result=skipped reason={reason}"
-            ),
-        }
-    }));
+    records.extend(
+        report
+            .written
+            .iter()
+            .map(|(tab_id, bytes)| ShutdownSidecarLogRecord {
+                level: ShutdownSidecarLogLevel::Info,
+                message: format!(
+                    "[shutdown] scrollback sidecar tab={tab_id} result=written bytes={bytes}"
+                ),
+            }),
+    );
+    records.extend(
+        report
+            .skipped
+            .iter()
+            .map(|(tab_id, reason)| ShutdownSidecarLogRecord {
+                level: ShutdownSidecarLogLevel::Warn,
+                message: format!(
+                    "[shutdown] scrollback sidecar tab={tab_id} result=skipped reason={reason}"
+                ),
+            }),
+    );
     let level = if report.skipped.is_empty() {
         ShutdownSidecarLogLevel::Info
     } else {
