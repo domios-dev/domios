@@ -167,9 +167,11 @@ impl PlanStore {
             if plan.status != PlanStatus::Active {
                 continue;
             }
-            for task in plan.tasks.iter().filter(|task| {
-                !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled)
-            }) {
+            for task in plan
+                .tasks
+                .iter()
+                .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+            {
                 for attempt in task.execution_attempts.iter().filter(|attempt| {
                     attempt.executor_tab_id == tab_id
                         && attempt.closed_at.is_none()

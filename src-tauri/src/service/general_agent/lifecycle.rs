@@ -559,11 +559,8 @@ pub fn start_general_agent(
             .unwrap_or(crate::agent::provider::SystemPromptDelivery::External);
         let bootstrap_message =
             compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md"));
-        let launch_instructions = compose_launch_instructions(
-            system_prompt,
-            bootstrap_message,
-            &system_prompt_delivery,
-        );
+        let launch_instructions =
+            compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
         startup_message = launch_instructions.startup_message;
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(

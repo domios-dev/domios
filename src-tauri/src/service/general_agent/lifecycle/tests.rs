@@ -238,8 +238,9 @@ fn tab_after_unconfirmed_launch_delivery() -> crate::multiplexer::types::Tab {
 fn record_missing_binding(tab: &mut crate::multiplexer::types::Tab) -> (BootStage, String) {
     let delivery = tab.pending_delivery.as_ref().map(|record| record.state());
     let (stage, reason) = super::missing_binding_provisional(delivery);
-    let latch = crate::service::boot_stage::provisional_launch_for(tab, "pty-a", &reason)
-        .expect("a current launch is latchable while it is unresolved");
+    let latch =
+        crate::service::boot_stage::provisional_launch_for(tab, "pty-a", "nonce-a", &reason)
+            .expect("a current launch is latchable while it is unresolved");
     crate::service::boot_stage::apply_boot_stage(tab, stage, Some(&reason));
     tab.provisional_launch = Some(latch);
     (stage, reason)
@@ -395,11 +396,9 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
         ..AgentLaunchParams::default()
     };
 
-    assert!(params
-        .task
-        .as_deref()
-        .is_some_and(|task| task.contains("GA_INSTRUCTIONS_SENTINEL")
-            && task.contains("BOOTSTRAP_SENTINEL")));
+    assert!(params.task.as_deref().is_some_and(
+        |task| task.contains("GA_INSTRUCTIONS_SENTINEL") && task.contains("BOOTSTRAP_SENTINEL")
+    ));
     assert_eq!(params.starter_prompt, StarterPrompt::AssignedTask);
     assert!(native.startup_message.is_none());
     assert_eq!(native.prompt_delivery, "cli_flag");

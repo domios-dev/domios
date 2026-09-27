@@ -75,7 +75,11 @@ pub(super) fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
     match serde_json::to_string_pretty(&payload) {
         Ok(json) => {
             if let Err(error) = std::fs::write(&path, json) {
-                log::warn!("[model_catalog] could not write {}: {}", path.display(), error);
+                log::warn!(
+                    "[model_catalog] could not write {}: {}",
+                    path.display(),
+                    error
+                );
             }
         }
         Err(error) => log::warn!(
@@ -124,17 +128,22 @@ pub(super) fn override_cache() -> &'static RwLock<HashMap<String, CachedOverride
 
 pub(super) fn load_override(provider_id: &str) -> Option<ProviderOverride> {
     let path = override_path(provider_id);
-    let current_mtime = std::fs::metadata(&path).and_then(|metadata| metadata.modified()).ok();
+    let current_mtime = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
 
     if let Some(cached) = override_cache().read().get(provider_id) {
         if cached.mtime == current_mtime {
-            return cached.parsed.as_ref().map(|override_model| ProviderOverride {
-                default: override_model.default.clone(),
-                replace: override_model.replace,
-                models: override_model.models.clone(),
-                default_effort: override_model.default_effort.clone(),
-                efforts: override_model.efforts.clone(),
-            });
+            return cached
+                .parsed
+                .as_ref()
+                .map(|override_model| ProviderOverride {
+                    default: override_model.default.clone(),
+                    replace: override_model.replace,
+                    models: override_model.models.clone(),
+                    default_effort: override_model.default_effort.clone(),
+                    efforts: override_model.efforts.clone(),
+                });
         }
     }
 
@@ -193,7 +202,9 @@ pub(super) fn load_override(provider_id: &str) -> Option<ProviderOverride> {
         }
     };
 
-    let cached_mtime = std::fs::metadata(&path).and_then(|metadata| metadata.modified()).ok();
+    let cached_mtime = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
     override_cache().write().insert(
         provider_id.to_string(),
         CachedOverride {

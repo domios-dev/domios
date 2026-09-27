@@ -4,10 +4,10 @@ use crate::plan::{
 };
 use codeterm_types::agent::ReportStatus;
 
+mod blocked_dispatch_tests;
 mod plan_skill_evidence;
 mod session_model_replay;
 mod task_attempt_respawn_tests;
-mod blocked_dispatch_tests;
 
 pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -153,12 +153,7 @@ fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
         )
         .unwrap();
     let ack = store
-        .acknowledge_live_task_attempt_for_tab(
-            "worker-next",
-            Some(&plan_id),
-            Some(&task_id),
-            7,
-        )
+        .acknowledge_live_task_attempt_for_tab("worker-next", Some(&plan_id), Some(&task_id), 7)
         .unwrap();
     assert_eq!(ack.attempt.id, attempt_id);
     assert_eq!(ack.attempt.acknowledged_at, Some(7));

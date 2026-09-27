@@ -16,9 +16,7 @@ use crate::service::ServiceState;
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
-pub(crate) fn is_manual_update_prompt(
-    classification: Option<&TabStateClassification>,
-) -> bool {
+pub(crate) fn is_manual_update_prompt(classification: Option<&TabStateClassification>) -> bool {
     classification.is_some_and(|value| {
         value.state == TabState::UpdatePrompt && value.confidence >= GLOBAL_THRESHOLD
     })

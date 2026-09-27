@@ -600,7 +600,6 @@ impl AgentProvider for ClassifyNativeStub {
     ) -> Option<crate::tab_state::TabStateClassification> {
         Some(classify_tab_state_fixture())
     }
-
 }
 
 #[test]
@@ -1038,8 +1037,8 @@ mod cursor;
 mod find_session;
 mod manifest_launch_template;
 mod model_groups;
-mod reasoning_efforts;
 mod opencode;
+mod reasoning_efforts;
 mod record_identity;
 mod resume_first_turn;
 mod trust_grant;

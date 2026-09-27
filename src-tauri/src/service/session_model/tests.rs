@@ -312,7 +312,9 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id).as_deref(),
@@ -354,14 +356,14 @@ mod model_refresh_tests {
             .refresh_session_model_for_current_tab(&tab_id);
         assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
 
-        models.lock().unwrap().insert(
-            "claude-worker-own".into(),
-            "claude-opus-5".into(),
-        );
-        models.lock().unwrap().insert(
-            "claude-foreign-newest".into(),
-            "claude-sonnet-5".into(),
-        );
+        models
+            .lock()
+            .unwrap()
+            .insert("claude-worker-own".into(), "claude-opus-5".into());
+        models
+            .lock()
+            .unwrap()
+            .insert("claude-foreign-newest".into(), "claude-sonnet-5".into());
         fixture
             .service
             .refresh_session_model_for_current_tab(&tab_id);
@@ -395,12 +397,10 @@ mod model_refresh_tests {
         tab.session_binding_nonce = Some("nonce-known".into());
         tab.reported_session_binding_nonce = Some("nonce-known".into());
         tab.agent_session_model = Some("opus".into());
-        tab.agent_session_model_identity = Some(
-            crate::multiplexer::types::SessionModelIdentity {
-                session_id: "session-known".into(),
-                session_binding_nonce: "nonce-known".into(),
-            },
-        );
+        tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
+            session_id: "session-known".into(),
+            session_binding_nonce: "nonce-known".into(),
+        });
         let (provider, detection_calls) =
             SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
         let fixture = ServiceFixture::new(mux);
@@ -591,7 +591,9 @@ mod model_refresh_tests {
         fixture
             .service
             .refresh_session_model_for_current_tab(&foreign_tab);
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
         fixture
             .service
             .refresh_session_model_for_current_tab(&unknown_tab);
@@ -651,12 +653,10 @@ mod model_refresh_tests {
         tab.session_binding_nonce = Some("nonce-replay".into());
         tab.reported_session_binding_nonce = Some("nonce-replay".into());
         tab.agent_session_model = Some("gpt-6-luna".into());
-        tab.agent_session_model_identity = Some(
-            crate::multiplexer::types::SessionModelIdentity {
-                session_id: "session-replay".into(),
-                session_binding_nonce: "nonce-replay".into(),
-            },
-        );
+        tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
+            session_id: "session-replay".into(),
+            session_binding_nonce: "nonce-replay".into(),
+        });
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(
             "model replay".into(),
@@ -772,7 +772,9 @@ mod model_refresh_tests {
             .unwrap();
         let before = fixture.service.plan_store.get(&plan.id).unwrap();
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         let after = fixture.service.plan_store.get(&plan.id).unwrap();
         assert_eq!(after.updated_at, before.updated_at);
@@ -800,7 +802,9 @@ mod model_refresh_tests {
                 },
             )));
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
@@ -840,7 +844,9 @@ mod model_refresh_tests {
                 },
             )));
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
@@ -865,7 +871,9 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id),
             None,
@@ -887,7 +895,9 @@ mod model_refresh_tests {
             "the binding commit itself carries no model evidence"
         );
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         assert_eq!(
             session_model(&fixture.service.mux, &tab_id).as_deref(),
@@ -914,7 +924,9 @@ mod model_refresh_tests {
                 "claude-opus-5",
             )])));
 
-        fixture.service.refresh_session_model_for_current_tab(&tab_id);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
 
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
