@@ -38,6 +38,16 @@ const uuid = "11111111-1111-1111-1111-111111111111";
 const instructions = "opaque-restored-instructions-d83a";
 const args = ["-m", "gpt-6-luna", "-c", 'model_reasoning_effort="xhigh"'];
 const resume = context.module.exports.default.buildResumeCommandWithContext;
+const launch = context.module.exports.default.buildLaunchCommand;
+const simpleResume = context.module.exports.default.buildResumeCommand;
+for (const command of [
+  launch({}),
+  launch({ task: "task", instanceId: "instance-test" }),
+  simpleResume("session-test"),
+  resume({ sessionId: "session-test" }),
+]) {
+  assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+}
 const parsedArguments = (command: string) =>
   Array.from(command.matchAll(/ARG\(([^()]*)\)/g), ([, argument]) => argument);
 const windowsCommand = resume({
@@ -50,7 +60,8 @@ const windowsCommand = resume({
 });
 
 assert.equal(instructionFile, "");
-assert(windowsCommand.includes("codex resume"));
+assert(windowsCommand.includes(" resume"));
+assert.equal((windowsCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
 assert(windowsCommand.includes("--profile $ctProfileName"));
 assert(windowsCommand.includes("launch-artifacts/release"));
 assert(windowsCommand.includes("instance-restored-test"));
@@ -75,7 +86,8 @@ for (const argument of args) {
 platform = "linux";
 quoted.length = 0;
 const unixCommand = resume({ sessionId: uuid, args, systemPrompt: instructions });
-assert(unixCommand.startsWith("codex resume"));
+assert(unixCommand.includes(" resume"));
+assert.equal((unixCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
 assert(unixCommand.includes("--no-daemon"));
 assert(!unixCommand.includes("--profile"));
 assert(!unixCommand.includes(instructions));

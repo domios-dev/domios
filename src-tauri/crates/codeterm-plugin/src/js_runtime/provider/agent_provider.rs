@@ -701,6 +701,30 @@ impl AgentProvider for JsProvider {
         self.has_js("permissionPromptResponse")
     }
 
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        self.has_js("classifiedPromptAutoResponse")
+            || self
+                .native()
+                .is_some_and(|native| native.supports_classified_prompt_auto_response())
+    }
+
+    fn classified_prompt_auto_response(
+        &self,
+        state: crate::tab_state::TabState,
+        screen: &str,
+    ) -> Option<crate::provider::ClassifiedPromptOptionRole> {
+        if self.has_js("classifiedPromptAutoResponse") {
+            self.try_call::<Option<crate::provider::ClassifiedPromptOptionRole>>(
+                "classifiedPromptAutoResponse",
+                &[json!(state), json!(screen)],
+            )
+            .flatten()
+        } else {
+            self.native()
+                .and_then(|native| native.classified_prompt_auto_response(state, screen))
+        }
+    }
+
     fn supports_structured_prompts(&self) -> bool {
         self.manifest.spawn.supports_structured_prompts
             || self
