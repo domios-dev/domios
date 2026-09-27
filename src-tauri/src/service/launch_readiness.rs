@@ -225,6 +225,10 @@ pub(crate) fn attempt_owns_tab(tab: &Tab, attempt: &LaunchAttempt) -> bool {
         && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
 }
 
+pub(crate) fn surviving_shell_exit_is_after_launch_ack(tab: &Tab) -> bool {
+    tab.launch_session_authenticated() && !tab.agent_booting && tab.agent_type.is_some()
+}
+
 fn launch_attempt_is_waiting_for_first_turn(tab: &Tab, attempt: &LaunchAttempt) -> bool {
     attempt_owns_tab(tab, attempt)
         && tab.boot_stage == Some(BootStage::AgentReady)

@@ -67,6 +67,21 @@ mod model_identity_tests {
     }
 
     #[test]
+    fn fallback_without_provider_resolution_uses_observed_model() {
+        let update = model_identity_update(None, None, Some("sonnet"), None, None, "opus");
+
+        assert_eq!(
+            update.mismatch.as_ref().unwrap().provider_resolved_model,
+            None
+        );
+        assert_eq!(
+            update.fallback.unwrap().provider_resolved_model,
+            "opus",
+            "a fallback must not label the request as the provider-resolved model"
+        );
+    }
+
+    #[test]
     fn session_change_clears_stale_actual_but_keeps_launch_provenance() {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -481,6 +496,8 @@ mod model_refresh_tests {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.session_binding_nonce = Some("nonce-owned".into());
         tab.reported_session_binding_nonce = Some("nonce-owned".into());
+        tab.agent_requested_model = Some("sonnet".into());
+        tab.agent_provider_resolved_model = Some("sonnet".into());
         let fixture = ServiceFixture::new(mux);
         let workspace_id = fixture
             .service
@@ -632,6 +649,30 @@ mod model_refresh_tests {
             own_attempt.attempt.session_model.as_deref(),
             Some("opus"),
             "a newer foreign session must not replace the tab's own model"
+        );
+        assert_eq!(
+            own_attempt.attempt.requested_model.as_deref(),
+            Some("sonnet")
+        );
+        assert_eq!(
+            own_attempt.attempt.provider_resolved_model.as_deref(),
+            Some("opus")
+        );
+        let mismatch = own_attempt
+            .attempt
+            .model_identity_mismatch
+            .as_ref()
+            .unwrap();
+        assert_eq!(mismatch.requested_model, "sonnet");
+        assert_eq!(mismatch.provider_resolved_model.as_deref(), Some("sonnet"));
+        assert_eq!(mismatch.actual_model, "opus");
+        let serialized = serde_json::to_value(&own_attempt.attempt).unwrap();
+        assert_eq!(serialized["requested_model"], "sonnet");
+        assert_eq!(serialized["provider_resolved_model"], "opus");
+        assert_eq!(serialized["session_model"], "opus");
+        assert_eq!(
+            serialized["model_identity_mismatch"]["actual_model"],
+            "opus"
         );
         assert_eq!(foreign_session_attempt.attempt.session_model, None);
         assert_eq!(nonce_mismatch_attempt.attempt.session_model, None);
@@ -910,7 +951,7 @@ mod model_refresh_tests {
     /// from the launch request still records both, with the model committed.
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn model_badge_keeps_fallback_and_mismatch_for_current_session() {
+    fn session_model_mismatch_is_recorded_and_surfaced() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_requested_model = Some("sonnet".into());
@@ -931,6 +972,7 @@ mod model_refresh_tests {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert_eq!(tab.agent_session_model.as_deref(), Some("opus"));
+        assert_eq!(tab.agent_provider_resolved_model.as_deref(), Some("opus"));
         let mismatch = tab
             .model_identity_mismatch
             .as_ref()
@@ -944,5 +986,43 @@ mod model_refresh_tests {
                 .and_then(|fallback| fallback.actual_model.as_deref()),
             Some("opus")
         );
+        drop(mux);
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        let notif = fixture.service.notif.lock();
+        let notifications = notif.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(
+            notifications[0].title,
+            "model fallback: requested sonnet, actual opus"
+        );
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn provider_resolved_model_reports_actual_not_requested() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_requested_model = Some("sonnet".into());
+        tab.agent_provider_resolved_model = Some("sonnet".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(SessionModelProvider::new(&[(
+                "session-live",
+                "claude-opus-5",
+            )])));
+
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_requested_model.as_deref(), Some("sonnet"));
+        assert_eq!(tab.agent_provider_resolved_model.as_deref(), Some("opus"));
+        assert_eq!(tab.agent_session_model.as_deref(), Some("opus"));
     }
 }

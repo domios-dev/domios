@@ -191,10 +191,18 @@ fn split_creates_children_with_parent_and_inherited_routing() {
         "parent_task_id": "parent",
         "children": [{"task_id": "child_a"}, {"task_id": "child_b"}]
     })]);
-    let response = run_task(&mut client, true, PlanTaskAction::Split {
-        plan_id: "pl_1".into(), task_id: "parent".into(),
-        children: vec!["Part A".into(), "Part B".into()], from_file: None,
-    }).unwrap().unwrap();
+    let response = run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Split {
+            plan_id: "pl_1".into(),
+            task_id: "parent".into(),
+            children: vec!["Part A".into(), "Part B".into()],
+            from_file: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
 
     assert_eq!(client.methods(), ["plan.task.split"]);
     let params = client.calls[0].1.as_ref().unwrap();
@@ -419,7 +427,7 @@ fn assigned_only_attempt_labels_each_timestamp() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
+        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
     );
 }
 
@@ -437,7 +445,7 @@ fn acknowledged_in_progress_attempt_separates_ack_from_assignment() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
+        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
     );
 }
 
@@ -455,7 +463,7 @@ fn reported_partial_attempt_separates_report_from_ack() {
             "reported_at": 120,
             "closed_at": null,
         }),
-        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
+        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
     );
 }
 
@@ -473,7 +481,7 @@ fn closed_attempt_labels_its_closure_separately() {
             "reported_at": 120,
             "closed_at": 130,
         }),
-        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
+        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
     );
 }
 
@@ -484,8 +492,16 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
             "attempt_id": "attempt-json",
             "provider": "codex",
             "model": "gpt-6-luna",
+            "requested_model": "gpt-6-luna",
+            "provider_resolved_model": "gpt-6-luna",
             "reasoning_effort": "xhigh",
-            "session_model": null,
+            "session_model": "gpt-6-luna",
+            "model_identity_mismatch": {
+                "requested_model": "gpt-6-luna",
+                "provider_resolved_model": "gpt-6-luna",
+                "actual_model": "other-model",
+                "reason": "runtime_session_model_mismatch",
+            },
             "assigned_at": 100,
             "acknowledged_at": 110,
             "reported_at": null,
@@ -522,13 +538,33 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         "attempt": {
             "provider": "codex",
             "model": "gpt-6-luna",
+            "requested_model": "gpt-6-luna",
+            "provider_resolved_model": "gpt-6-luna",
             "reasoning_effort": "xhigh",
-            "session_model": null,
+            "session_model": "other-model",
+            "model_identity_mismatch": {
+                "requested_model": "gpt-6-luna",
+                "provider_resolved_model": "gpt-6-luna",
+                "actual_model": "other-model",
+                "reason": "runtime_session_model_mismatch",
+            },
         }
     }));
 
     assert!(rendered.contains("provider: codex\n"), "{rendered}");
     assert!(rendered.contains("model: gpt-6-luna\n"), "{rendered}");
+    assert!(
+        rendered.contains("requested_model: gpt-6-luna\n"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("provider_resolved_model: gpt-6-luna\n"),
+        "{rendered}"
+    );
     assert!(rendered.contains("reasoning_effort: xhigh\n"), "{rendered}");
-    assert!(rendered.contains("session_model: -\n"), "{rendered}");
+    assert!(
+        rendered.contains("session_model: other-model\n"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
 }

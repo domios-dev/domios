@@ -89,6 +89,14 @@ fn render_attempts(value: &Value) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let model = attempt.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+        let requested_model = attempt
+            .get("requested_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let provider_resolved_model = attempt
+            .get("provider_resolved_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
         let reasoning_effort = attempt
             .get("reasoning_effort")
             .and_then(|v| v.as_str())
@@ -102,7 +110,7 @@ fn render_attempts(value: &Value) -> String {
         let reported_at = render_attempt_timestamp(&attempt, "reported_at");
         let closed_at = render_attempt_timestamp(&attempt, "closed_at");
         out.push_str(&format!(
-            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
+            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
         ));
     }
     out
@@ -146,9 +154,26 @@ fn render_attempt(value: &Value) -> String {
             out.push_str(&format!("{key}: {rendered}\n"));
         }
     }
-    for key in ["provider", "model", "reasoning_effort", "session_model"] {
-        let value = attempt.get(key).and_then(Value::as_str).unwrap_or("-");
-        out.push_str(&format!("{key}: {value}\n"));
+    for key in [
+        "provider",
+        "model",
+        "requested_model",
+        "provider_resolved_model",
+        "reasoning_effort",
+        "session_model",
+        "model_identity_mismatch",
+    ] {
+        let rendered = attempt
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .unwrap_or_else(|| "-".into());
+        out.push_str(&format!("{key}: {rendered}\n"));
     }
     if let Some(command) = attempt.get("report_command").and_then(|v| v.as_str()) {
         out.push_str("\nreport_command:\n");

@@ -46,6 +46,8 @@ fn attempt_records_resolved_reasoning_effort() {
             Some(vec![]),
             crate::plan::WorkerPlacement::IsolatedLane,
             None,
+            None,
+            None,
             Some("medium".into()),
             None,
             false,

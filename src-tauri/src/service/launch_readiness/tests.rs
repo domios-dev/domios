@@ -574,6 +574,18 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
 }
 
 #[test]
+fn provider_composer_exit_before_launch_ack_is_still_pre_ready() {
+    let mut tab = launching_tab("pty-composer-before-ack", "nonce-composer-before-ack");
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.agent_booting = false;
+
+    assert!(!surviving_shell_exit_is_after_launch_ack(&tab));
+
+    report_own_launch(&mut tab);
+    assert!(surviving_shell_exit_is_after_launch_ack(&tab));
+}
+
+#[test]
 fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
     use crate::service::launch_diagnostics::AgentLaunchOrigin as Origin;
 
@@ -839,7 +851,12 @@ fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
     }
 
     let owner = include_str!("../launch_readiness.rs");
-    assert!(!owner.contains("agent_booting"));
+    let exit_settlement = owner
+        .split("fn settle_proven_exit(")
+        .nth(1)
+        .and_then(|remaining| remaining.split("\nstruct Armed").next())
+        .expect("the exit settlement function remains present");
+    assert!(!exit_settlement.contains("agent_booting"));
 }
 
 /// End to end on a real ServiceContext, through the exact byte shape the live

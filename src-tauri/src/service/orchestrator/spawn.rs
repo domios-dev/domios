@@ -917,7 +917,7 @@ impl ServiceContext {
             model: model_resolution.model.clone(),
             planned_model: params.planned_model,
             requested_model: model_resolution.requested_model,
-            provider_resolved_model: model_resolution.model,
+            provider_resolved_model: model_resolution.provider_resolved_model,
             actual_model: None,
             reasoning_effort: reasoning_effort.clone(),
             reasoning_effort_provenance: resolved_effort_provenance(
