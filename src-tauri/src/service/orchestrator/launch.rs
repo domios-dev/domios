@@ -250,14 +250,21 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .then_some(pty_id)
 }
 
-/// The screen gate misses a prompt drawn beneath an exited provider's frame, so
-/// recovery on its own PTY reads the shell's command lifecycle as a level instead.
-fn shell_prompt_already_idle(
-    recovers_exited_provider: bool,
+fn exited_provider_recovery_has_shell_ready_evidence(
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     reused_live_pty: bool,
     prompt_idle_after_command: impl FnOnce() -> bool,
 ) -> bool {
-    recovers_exited_provider && reused_live_pty && prompt_idle_after_command()
+    if !reused_live_pty {
+        return false;
+    }
+    match origin {
+        crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery => true,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery => {
+            prompt_idle_after_command()
+        }
+        _ => false,
+    }
 }
 
 fn start_backend_reader(
@@ -632,11 +639,12 @@ pub(crate) fn launch_agent_in_background_with_env(
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
         // An exited provider's frame can outlive it on screen; recovery still writes its command.
-        let recovers_exited_provider = matches!(
+        let exited_provider_recovery = matches!(
             origin,
             crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
+                | crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
         );
-        if !recovers_exited_provider
+        if !exited_provider_recovery
             && startup_readiness::reused_provider_tui_owns_launch(
                 reused_live_pty,
                 existing_binding_nonce.is_some(),
@@ -720,18 +728,19 @@ pub(crate) fn launch_agent_in_background_with_env(
             &launch.pty_id,
         );
 
-        let shell_already_idle =
-            shell_prompt_already_idle(recovers_exited_provider, reused_live_pty, || {
-                svc.shell_caps.lock().prompt_idle_after_command(&pty_id)
-            });
-        if shell_already_idle {
+        let shell_ready_from_exit = exited_provider_recovery_has_shell_ready_evidence(
+            origin,
+            reused_live_pty,
+            || svc.shell_caps.lock().prompt_idle_after_command(&pty_id),
+        );
+        if shell_ready_from_exit {
             log::info!(
-                "launch_agent: Tab {} exit recovery reuses the idle shell prompt on PTY {}",
+                "launch_agent: Tab {} exit recovery reuses the shell proven available by provider exit on PTY {}",
                 tab_id,
                 pty_id
             );
         }
-        if !shell_already_idle
+        if !shell_ready_from_exit
             && !crate::service::pty_io::await_bare_shell_prompt(
                 &svc.screen_state,
                 &pty_id,
