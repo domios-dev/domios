@@ -15,6 +15,7 @@ pub(super) struct SpawnContext<'a> {
     pub has_plan: bool,
     pub has_bound_task: bool,
     pub has_plan_task: bool,
+    pub unplanned: bool,
     pub execution_intent: Option<&'a str>,
     pub has_authorized_gates: bool,
 }
@@ -80,7 +81,7 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
     }
     // Read-only intent is the exit both refusals below name, so it has to be
     // the exit both of them honour.
-    if ctx.is_worker() && !ctx.task_bound() && !ctx.read_only() {
+    if ctx.is_worker() && !ctx.task_bound() && !ctx.read_only() && !ctx.unplanned {
         if ctx.execution_intent == Some(MUTATING) {
             return Err(format!(
                 "--execution-intent mutating requires a task binding: {WORKER_SHAPES}"
@@ -174,6 +175,8 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         max_actions,
         bound_task,
         plan_task,
+        unplanned,
+        reason,
         team,
         execution_intent,
         authorized_gates,
@@ -191,12 +194,33 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         has_plan: plan.is_some(),
         has_bound_task: bound_task.is_some(),
         has_plan_task: plan_task.is_some(),
+        unplanned,
         execution_intent: execution_intent.as_deref(),
         has_authorized_gates: !authorized_gates.is_empty(),
     };
     if let Err(error) = validate_spawn_context(&context) {
         eprintln!("Error: {error}");
         std::process::exit(1);
+    }
+    if unplanned {
+        let reason = reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty());
+        if !matches!(role.as_ref(), Some(SpawnRole::Worker))
+            || reason.is_none()
+            || execution_intent.as_deref().is_some_and(|intent| intent != MUTATING)
+            || bound_task.is_some()
+            || plan_task.is_some()
+            || team.is_some()
+            || !authorized_gates.is_empty()
+        {
+            eprintln!("Error: --unplanned requires --role Worker and a non-empty --reason, and cannot combine with task bindings, --team, or --authorized-gate");
+            std::process::exit(2);
+        }
+    } else if reason.is_some() {
+        eprintln!("Error: --reason requires --unplanned");
+        std::process::exit(2);
     }
     let verification_worker = context.is_verification_worker();
     if team.is_some() {
@@ -271,6 +295,41 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             std::process::exit(1);
         }
     };
+    if unplanned {
+        let mut params = serde_json::json!({
+            "agent": agent,
+            "role": "Worker",
+            "reason": reason.expect("validated above"),
+            "brief": task.unwrap_or_default(),
+            "execution_intent": "mutating",
+            "caller_tab_id": std::env::var("CODETERM_TAB_ID").ok(),
+            "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
+            "session_binding_nonce": std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+        });
+        if let Some(plan) = plan.or_else(|| std::env::var("CODETERM_PLAN_ID").ok()) {
+            params["plan_id"] = serde_json::json!(plan);
+        }
+        if let Some(parent) = parent {
+            params["parent_tab_id"] = serde_json::json!(parent);
+        }
+        if let Some(workspace) = workspace {
+            params["workspace_id"] = serde_json::json!(workspace);
+        }
+        if let Some(model) = model {
+            params["model"] = serde_json::json!(model);
+        }
+        match client.call_detailed("plan.task.dispatch_unplanned", Some(params)) {
+            Ok(value) => {
+                if json {
+                    crate::cmd::print::print_json(&value);
+                } else {
+                    println!("Dispatched unplanned Worker task {}", value["task_id"]);
+                }
+            }
+            Err(error) => crate::cmd::model_error::exit_with_socket_error(json, error),
+        }
+        return;
+    }
     let charter = match crate::cmd::agent::resolve_spawn_charter(
         charter,
         charter_file,

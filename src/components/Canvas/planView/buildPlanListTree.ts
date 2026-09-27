@@ -22,6 +22,7 @@ export interface PlanListRow {
   title: string;
   status?: TaskStatus;
   statusLabel?: string;
+  unplannedLabel?: string;
   taskCount?: number;
   doneCount?: number;
   allTasksDone?: boolean;
@@ -95,6 +96,7 @@ function buildTaskRow(
     title: task.name,
     status: task.status,
     statusLabel: statusText(task),
+    unplannedLabel: task.tags?.includes("unplanned") ? task.name : undefined,
     sectionTitle: sectionTitle(task, sectionById),
     tabLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
