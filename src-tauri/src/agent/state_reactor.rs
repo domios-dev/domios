@@ -198,7 +198,11 @@ fn surface_classified_prompt(
         .with_provider(agent_type, |provider| provider.parse_prompt(screen))
         .flatten();
     let Some(prompt) = prompt else {
-        return false;
+        let surface = classification
+            .and_then(|value| value.action.as_ref())
+            .and_then(|action| action.surface.clone());
+        surface_to_user(svc, tab_id, surface);
+        return true;
     };
     let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
         tab_id,

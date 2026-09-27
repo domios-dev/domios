@@ -181,7 +181,7 @@ fn garbage_reset_time_is_rejected() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt");
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
     let screen = std::fs::read_to_string(fixture_path).expect("captured Codex folder trust frame");
     let options = screen
         .lines()
@@ -196,6 +196,11 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
             })
         })
         .collect::<Vec<_>>();
+    assert_eq!(options.len(), 2, "the live frame exposes both trust choices");
+    assert_eq!(
+        options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        vec!["1", "2"]
+    );
     let prompt = PendingPrompt {
         question: "folder access choice".into(),
         options,
