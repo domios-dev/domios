@@ -79,6 +79,39 @@ fn verified(ids: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn moved_on_tab_fails_the_atomic_pre_ready_recovery_guard() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("pty-old".into());
+    tab.prior_session_binding_nonces = vec![PriorBindingNonce {
+        session_id: Some("session-a".into()),
+        nonce: "nonce-a".into(),
+    }];
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-old".into(),
+        binding_nonce: "nonce-a".into(),
+    };
+    assert!(launch_exit_tab_matches(tab, &attempt, false));
+
+    tab.prior_session_binding_nonces.push(PriorBindingNonce {
+        session_id: Some("session-b".into()),
+        nonce: "nonce-b".into(),
+    });
+    assert!(!launch_exit_tab_matches(tab, &attempt, false));
+    tab.prior_session_binding_nonces.pop();
+    tab.pty_id = Some("pty-new".into());
+    assert!(!launch_exit_tab_matches(tab, &attempt, false));
+    tab.pty_id = Some("pty-old".into());
+    tab.agent_booting = true;
+    assert!(launch_exit_tab_matches(tab, &attempt, true));
+    assert!(!launch_exit_tab_matches(tab, &attempt, false));
+    tab.agent_booting = false;
+    tab.agent_type = Some("codex".into());
+    assert!(!launch_exit_tab_matches(tab, &attempt, false));
+}
+
+#[test]
 fn journal_proves_only_this_tabs_verified_bindings() {
     let records = [
         bound(1, "tab-a", "s1"),
@@ -95,26 +128,71 @@ fn journal_proves_only_this_tabs_verified_bindings() {
 
 #[test]
 fn compacted_journal_with_restore_awaiting_recovers_via_agent_restart() {
-    let records = [
-        bound(4, "tab-a", "session-a"),
-        sealed(8, "tab-a", "session-a"),
-        JournalRecord::Transition {
-            entry: LifecycleEntry {
-                seq: 9,
-                key: key("tab-a"),
-                transition: LifecycleTransition::RestoreAwaitingAgentRestart {
-                    session_id: "session-a".into(),
-                },
-                recorded_at: String::new(),
-            },
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let first = LifecycleKey::new("tab-a", LifecycleEpoch(1), "restore-1");
+    for transition in [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ProviderIdentityCommitted {
+            provider: "codex".into(),
         },
-    ];
-    let verified_ids = verified_session_ids(&records, "tab-a");
+        LifecycleTransition::SessionBound {
+            session_id: "session-a".into(),
+            binding_nonce: "nonce-a".into(),
+            source: Default::default(),
+        },
+        LifecycleTransition::RoleBinding {
+            role: None,
+            role_profile: None,
+            can_spawn: false,
+            depth: 0,
+        },
+        LifecycleTransition::TeamBinding {
+            team_id: None,
+            parent_tab_id: None,
+        },
+        LifecycleTransition::LaunchReady,
+    ] {
+        journal.append(first.clone(), transition).unwrap();
+    }
+    let cleared = LifecycleKey::new("tab-a", LifecycleEpoch(2), "restore-2");
+    journal
+        .append(cleared.clone(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    journal
+        .append(
+            cleared.clone(),
+            LifecycleTransition::RolledBack {
+                reason: "restored without a live agent".into(),
+            },
+        )
+        .unwrap();
+    journal
+        .append(
+            cleared,
+            LifecycleTransition::RestoreAwaitingAgentRestart {
+                session_id: "session-a".into(),
+            },
+        )
+        .unwrap();
+    journal.compact().unwrap();
+    let compacted = journal.load().records;
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id == "session-a"
+    )));
+    let verified_ids = verified_session_ids(&compacted, "tab-a");
 
     assert!(verified_ids.iter().any(|id| id == "session-a"));
     assert_eq!(
         select_recovery_session(&lineage(&[Some("session-a")]), &verified_ids).unwrap(),
         "session-a"
+    );
+    assert_eq!(
+        recovery_provider(&registry(&[("codex", Some("session-a"))]), Some("D:/repo"), "session-a")
+            .unwrap(),
+        "codex"
     );
 }
 
@@ -317,6 +395,7 @@ fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
             .service
             .restart_tracker
             .lock()
+            .last_restart
             .get(&tab_id)
             .is_none(),
         "a refused recovery must not consume the restart rate limit"

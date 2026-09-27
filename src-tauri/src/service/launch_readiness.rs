@@ -308,6 +308,28 @@ pub(crate) fn arm(attempt: LaunchAttempt) {
     arm_inner(attempt, None);
 }
 
+fn route_pre_ready_exit(
+    origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+    source: LaunchExitSource,
+    resume: impl FnOnce(),
+    notify: impl FnOnce(),
+) {
+    if source == LaunchExitSource::ConfirmedPtyExit {
+        return;
+    }
+    match origin {
+        Some(
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
+            | crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
+            | crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery,
+        ) => resume(),
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery) => {
+            notify()
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn arm_with_origin(
     attempt: LaunchAttempt,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
@@ -559,6 +581,9 @@ impl ServiceContext {
             failure.source.label(),
             &failure.tree_evidence,
         );
+    }
+
+    pub(crate) fn handoff_launch_exit_after_teardown(&self, failure: &LaunchExitFailure) {
         self.recover_pre_ready_exit(failure);
     }
 
@@ -575,18 +600,12 @@ impl ServiceContext {
         {
             return;
         }
-        if failure.source == LaunchExitSource::ConfirmedPtyExit {
-            return;
-        }
-        let Some(origin) = failure.origin else {
-            return;
-        };
         let tab_id = failure.attempt.tab_id.clone();
         let attempt_id = failure.attempt.pty_id.clone();
-        match origin {
-            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
-            | crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
-            | crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery => {
+        route_pre_ready_exit(
+            failure.origin,
+            failure.source,
+            || {
                 log::warn!(
                     "[launch-recovery] attempt=started tab={} launch={} reason=pre_ready_exit",
                     tab_id,
@@ -594,29 +613,53 @@ impl ServiceContext {
                 );
                 let svc = self.clone();
                 let attempt = failure.attempt.clone();
+                let recovery_tab_id = tab_id.clone();
+                let recovery_attempt_id = attempt_id.clone();
                 std::thread::spawn(move || {
                     match svc.recover_exited_provider_after_launch_exit(&attempt) {
                         Ok(outcome) => log::info!(
                             "[launch-recovery] attempt=completed tab={} launch={} session={} ready={} recovered_in_place={}",
-                            tab_id,
-                            attempt_id,
+                            recovery_tab_id,
+                            recovery_attempt_id,
                             outcome.session_id.as_deref().unwrap_or("unknown"),
                             outcome.agent_ready,
                             outcome.recovered_in_place,
                         ),
                         Err(error) => log::error!(
                             "[launch-recovery] attempt=failed tab={} launch={} error={error:?}",
-                            tab_id,
-                            attempt_id,
+                            recovery_tab_id,
+                            recovery_attempt_id,
                         ),
                     }
                 });
-            }
-            crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery => {
+            },
+            || {
                 self.notify_pre_ready_recovery_stopped(&tab_id, &attempt_id);
-            }
-            _ => {}
-        }
+            },
+        );
+    }
+
+    pub(crate) fn notify_surviving_shell_restart_required(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) {
+        let command = recovery_command(tab_id);
+        self.create_notification_ext(
+            "Agent process exited".into(),
+            Some(format!(
+                "The agent process exited and its shell is available. Restart this Tab with `{command}`."
+            )),
+            Some("warning"),
+            None,
+            Some(true),
+            crate::service::notification::NotificationOrigin::claimed(Some(tab_id.to_string())),
+            crate::service::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some(format!("surviving-shell-restart:{tab_id}:{attempt_id}")),
+            },
+            None,
+        );
     }
 
     fn notify_pre_ready_recovery_stopped(&self, tab_id: &str, attempt_id: &str) {

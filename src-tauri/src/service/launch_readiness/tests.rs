@@ -556,6 +556,13 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
         origin,
         Some(crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot)
     ));
+    let starts = std::cell::Cell::new(0);
+    route_pre_ready_exit(
+        origin,
+        LaunchExitSource::LifecycleClear,
+        || starts.set(starts.get() + 1),
+        || panic!("restore must resume rather than notify"),
+    );
     assert!(claim_exit(
         &attempt.tab_id,
         Some(&attempt.pty_id),
@@ -563,6 +570,49 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
         &exit_proof(&attempt),
     )
     .is_none());
+    assert_eq!(starts.get(), 1);
+}
+
+#[test]
+fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
+    use crate::service::launch_diagnostics::AgentLaunchOrigin as Origin;
+
+    let recovery_count = std::cell::Cell::new(0);
+    let notification_count = std::cell::Cell::new(0);
+    for origin in [Origin::RestoredSnapshot, Origin::Resume, Origin::ExitRecovery] {
+        route_pre_ready_exit(
+            Some(origin),
+            LaunchExitSource::LifecycleClear,
+            || recovery_count.set(recovery_count.get() + 1),
+            || notification_count.set(notification_count.get() + 1),
+        );
+    }
+    assert_eq!(recovery_count.get(), 3);
+    assert_eq!(notification_count.get(), 0);
+
+    route_pre_ready_exit(
+        Some(Origin::VisibleSpawn),
+        LaunchExitSource::LifecycleClear,
+        || recovery_count.set(recovery_count.get() + 1),
+        || notification_count.set(notification_count.get() + 1),
+    );
+    route_pre_ready_exit(
+        Some(Origin::RestoredSnapshot),
+        LaunchExitSource::ConfirmedPtyExit,
+        || recovery_count.set(recovery_count.get() + 1),
+        || notification_count.set(notification_count.get() + 1),
+    );
+    assert_eq!(recovery_count.get(), 3);
+    assert_eq!(notification_count.get(), 0);
+
+    route_pre_ready_exit(
+        Some(Origin::AutomaticExitRecovery),
+        LaunchExitSource::LifecycleClear,
+        || recovery_count.set(recovery_count.get() + 1),
+        || notification_count.set(notification_count.get() + 1),
+    );
+    assert_eq!(recovery_count.get(), 3);
+    assert_eq!(notification_count.get(), 1);
 }
 
 #[test]
@@ -585,6 +635,14 @@ fn pre_ready_exit_in_resume_auto_resumes_once() {
         origin,
         Some(crate::service::launch_diagnostics::AgentLaunchOrigin::Resume)
     );
+    let starts = std::cell::Cell::new(0);
+    route_pre_ready_exit(
+        origin,
+        LaunchExitSource::LifecycleClear,
+        || starts.set(starts.get() + 1),
+        || panic!("resume must resume rather than notify"),
+    );
+    assert_eq!(starts.get(), 1);
 }
 
 #[test]
@@ -703,7 +761,7 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
         ),
         (
             include_str!("../tab/lifecycle_exit.rs"),
-            "is_some_and(clear_agent_identity_for_lifecycle_exit)",
+            "let finished = self.finish_agent_identity_clear",
         ),
     ] {
         let claim = source
@@ -715,8 +773,12 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
         let publish = source
             .find("publish_launch_exit")
             .expect("the exit source publishes the verdict");
+        let handoff = source
+            .find("handoff_launch_exit_after_teardown")
+            .expect("recovery starts at the explicit post-teardown handoff");
         assert!(claim < teardown, "the claim must precede the teardown");
         assert!(teardown < publish, "the verdict must be published after it");
+        assert!(publish < handoff, "recovery must follow verdict publication");
     }
 }
 
@@ -730,7 +792,7 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
 
     let tab_source = include_str!("../tab/lifecycle_exit.rs");
     let clear = tab_source
-        .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
+        .find("let finished = self.finish_agent_identity_clear")
         .expect("the funnel clears identity");
     let publish = tab_source
         .find("publish_launch_exit")
@@ -739,6 +801,10 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
         clear < publish,
         "the verdict must be published after the clear"
     );
+    let handoff = tab_source
+        .find("handoff_launch_exit_after_teardown")
+        .expect("recovery starts at the explicit post-teardown handoff");
+    assert!(publish < handoff, "recovery follows teardown publication");
 
     let output = include_str!("../output/shell_markers.rs");
     let teardown = output

@@ -10,7 +10,7 @@ use super::{
     RestartOutcome, TabRestartSnapshot, RESTART_READY_TIMEOUT_SECS,
 };
 use crate::agent::provider_identity::provider_for_claimed_session;
-use crate::multiplexer::types::{PriorBindingNonce, TabBacking};
+use crate::multiplexer::types::{PriorBindingNonce, Tab, TabBacking};
 use crate::service::ServiceContext;
 use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 
@@ -28,6 +28,21 @@ struct ExitedShell {
 
 fn refusal(code: &str, detail: String) -> AgentRestartError {
     AgentRestartError::BadRequest(format!("{code}: {detail}"))
+}
+
+fn launch_exit_tab_matches(
+    tab: &Tab,
+    attempt: &crate::service::launch_readiness::LaunchAttempt,
+    claim_active: bool,
+) -> bool {
+    tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
+        && tab.agent_type.is_none()
+        && tab.session_binding_nonce.is_none()
+        && tab.agent_booting == claim_active
+        && tab
+            .prior_session_binding_nonces
+            .last()
+            .is_some_and(|binding| binding.nonce == attempt.binding_nonce)
 }
 
 /// The journal records `session_bound` and checkpoint authority only for
@@ -140,6 +155,7 @@ impl ServiceContext {
         automatic: bool,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        let restart_claim = self.claim_restart(tab_id, automatic)?;
         let shell = self.exited_shell(tab_id, attempt)?;
         let verified = verified_session_ids(&TabLifecycleJournal::shared().load().records, tab_id);
         let session_id = select_recovery_session(&shell.lineage, &verified)?;
@@ -164,9 +180,6 @@ impl ServiceContext {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
 
-        if !automatic {
-            self.check_and_record_restart(&snap.tab_id)?;
-        }
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -182,7 +195,13 @@ impl ServiceContext {
                 timed_out: false,
             });
         };
-        if let Err(reason) = self.retire_exited_shell_stage(&snap) {
+        if let Some(attempt) = attempt {
+            self.claim_exited_shell_for_recovery(attempt)?;
+        }
+        if let Err(reason) = self.retire_exited_shell_stage(&snap, attempt) {
+            if let Some(attempt) = attempt {
+                self.release_exited_shell_recovery_claim(&snap, attempt);
+            }
             return Err(RestartAttemptError::Failed {
                 outcome,
                 reason,
@@ -211,6 +230,7 @@ impl ServiceContext {
             None,
             None,
         );
+        drop(restart_claim);
 
         let ready = self.finish_observed_restart(
             outcome,
@@ -236,15 +256,7 @@ impl ServiceContext {
                         .to_string(),
                 ));
             }
-            if attempt.is_some_and(|attempt| {
-                tab.pty_id.as_deref() != Some(attempt.pty_id.as_str())
-                    || tab.agent_type.is_some()
-                    || tab.session_binding_nonce.is_some()
-                    || !tab
-                        .prior_session_binding_nonces
-                        .last()
-                        .is_some_and(|binding| binding.nonce == attempt.binding_nonce)
-            }) {
+            if attempt.is_some_and(|attempt| !launch_exit_tab_matches(tab, attempt, false)) {
                 return Err(refusal(
                     EXIT_RECOVERY_NO_LIVE_SHELL,
                     "the Tab moved on from the exited launch before automatic recovery".into(),
@@ -276,8 +288,53 @@ impl ServiceContext {
         })
     }
 
+    fn claim_exited_shell_for_recovery(
+        &self,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+    ) -> Result<(), AgentRestartError> {
+        let mut mux = self.mux.write();
+        let tab = mux.get_tab_mut(&attempt.tab_id).ok_or_else(|| {
+            refusal(
+                EXIT_RECOVERY_NO_LIVE_SHELL,
+                "the Tab disappeared before automatic recovery could claim it".into(),
+            )
+        })?;
+        if !launch_exit_tab_matches(tab, attempt, false) {
+            return Err(refusal(
+                EXIT_RECOVERY_NO_LIVE_SHELL,
+                "the Tab moved on from the exited launch before automatic recovery".into(),
+            ));
+        }
+        tab.agent_booting = true;
+        Ok(())
+    }
+
+    fn release_exited_shell_recovery_claim(
+        &self,
+        snap: &TabRestartSnapshot,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+    ) {
+        let mut mux = self.mux.write();
+        if let Some(tab) = mux.get_tab_mut(&snap.tab_id) {
+            if tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
+                && tab.agent_type.is_none()
+                && tab.session_binding_nonce.is_none()
+                && tab
+                    .prior_session_binding_nonces
+                    .last()
+                    .is_some_and(|binding| binding.nonce == attempt.binding_nonce)
+            {
+                tab.agent_booting = false;
+            }
+        }
+    }
+
     /// The exited shell's own stage must never satisfy the in-place readiness wait.
-    fn retire_exited_shell_stage(&self, snap: &TabRestartSnapshot) -> Result<(), String> {
+    fn retire_exited_shell_stage(
+        &self,
+        snap: &TabRestartSnapshot,
+        attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
+    ) -> Result<(), String> {
         {
             let mut mux = self.mux.write();
             let tab = mux
@@ -286,6 +343,12 @@ impl ServiceContext {
             if tab.pty_id.as_deref() != Some(snap.pty_id.as_str()) {
                 return Err(format!(
                     "Tab {} changed its shell during recovery",
+                    snap.tab_id
+                ));
+            }
+            if attempt.is_some_and(|attempt| !launch_exit_tab_matches(tab, attempt, true)) {
+                return Err(format!(
+                    "Tab {} moved on from the exited launch during recovery",
                     snap.tab_id
                 ));
             }
