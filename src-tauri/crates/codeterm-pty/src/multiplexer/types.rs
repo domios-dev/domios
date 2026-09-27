@@ -661,6 +661,8 @@ pub struct Tab {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
     /// the chat view. Persisted only with the tab-owned session identity.
@@ -911,6 +913,7 @@ mod tests {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,

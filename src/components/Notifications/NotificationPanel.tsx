@@ -215,13 +215,15 @@ export function NotificationPanel({
                           type="button"
                           key={`${action.label}-${index}`}
                           className={
-                            action.type === "answer" && index === 0
+                            (action.type === "answer" || action.type === "respond_prompt_option") && index === 0
                               ? "rounded border border-[var(--ct-accent)] px-2 py-1 text-[10px] text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
                               : "rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
                           }
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (action.type === "answer") onAnswer?.(notif.id, action.label);
+                            if (action.type === "answer" || action.type === "respond_prompt_option") {
+                              onAnswer?.(notif.id, action.label);
+                            }
                             else void runNotificationAction(action);
                           }}
                         >

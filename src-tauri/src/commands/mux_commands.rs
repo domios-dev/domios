@@ -777,6 +777,9 @@ pub fn mux_respond_prompt(
         | crate::service::tab::RespondPromptOutcome::Structured
         | crate::service::tab::RespondPromptOutcome::PromptNotOnScreen
         | crate::service::tab::RespondPromptOutcome::NoPty => Ok(()),
+        crate::service::tab::RespondPromptOutcome::StalePrompt => {
+            Err("Prompt is no longer current".into())
+        }
         crate::service::tab::RespondPromptOutcome::InvalidOption => {
             Err("Invalid prompt option".into())
         }

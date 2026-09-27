@@ -153,6 +153,7 @@ impl ServiceContext {
                         || tab.pending_prompt.is_some();
                     tab.agent_state = Some(idle_state);
                     tab.pending_prompt = None;
+                    tab.pending_prompt_kind = None;
                     changed
                 }
                 _ => false,
@@ -360,28 +361,30 @@ impl ServiceContext {
                     };
                     self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
                 }
-                let (provider_prompt, directory_trust_prompt) =
+                let default_prompt_kind = if structured.is_some() {
+                    codeterm_types::pty::PromptKind::Structured
+                } else if manual_update_candidate {
+                    codeterm_types::pty::PromptKind::ManualUpdate
+                } else {
+                    codeterm_types::pty::PromptKind::Provider
+                };
+                let (provider_prompt, directory_trust_prompt, prompt_kind) =
                     if structured.is_none() && !manual_update_candidate {
                         clean_text
                             .as_deref()
-                            .map(|screen| {
-                                if trust_prompt_candidate {
-                                    let prompt = crate::agent::prompt::parse_prompt_safely(|| {
-                                        self.agent_registry
-                                            .with_provider(at, |provider| {
-                                                parse_directory_trust_prompt(provider, screen)
-                                            })
-                                            .flatten()
-                                    });
-                                    let parsed_trust_prompt = prompt.is_some();
-                                    (prompt, parsed_trust_prompt)
-                                } else {
-                                    (None, false)
-                                }
+                            .and_then(|screen| {
+                                crate::agent::prompt::parse_prompt_safely(|| {
+                                    self.agent_registry.parse_interactive_prompt(at, screen)
+                                })
                             })
-                            .unwrap_or((None, false))
+                            .map(|(prompt, kind)| {
+                                let is_directory_trust =
+                                    kind == codeterm_types::pty::PromptKind::DirectoryTrust;
+                                (Some(prompt), is_directory_trust, kind)
+                            })
+                            .unwrap_or((None, false, default_prompt_kind))
                     } else {
-                        (None, false)
+                        (None, false, default_prompt_kind)
                     };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
@@ -411,10 +414,14 @@ impl ServiceContext {
                     )
                 };
 
-                self.apply_prompt_decision_with_screen(
+                self.apply_prompt_decision_with_kind(
                     &decision,
                     clean_text.as_deref(),
-                    trust_candidate || directory_trust_prompt,
+                    if trust_candidate || directory_trust_prompt {
+                        codeterm_types::pty::PromptKind::DirectoryTrust
+                    } else {
+                        prompt_kind
+                    },
                     manual_update_candidate,
                 );
 
@@ -789,6 +796,9 @@ impl ServiceContext {
                 return;
             }
             tab.pending_prompt = prompt.clone();
+            tab.pending_prompt_kind = prompt
+                .as_ref()
+                .map(|_| codeterm_types::pty::PromptKind::Structured);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -805,6 +815,27 @@ impl ServiceContext {
         directory_trust_prompt: bool,
         require_user_confirmation: bool,
     ) {
+        let prompt_kind = if directory_trust_prompt {
+            codeterm_types::pty::PromptKind::DirectoryTrust
+        } else {
+            codeterm_types::pty::PromptKind::Provider
+        };
+        self.apply_prompt_decision_with_kind(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+        );
+    }
+
+    pub(crate) fn apply_prompt_decision_with_kind(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+    ) {
+        let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust;
         match decision {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { tab_id, prompt }
@@ -924,8 +955,14 @@ impl ServiceContext {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
                         let notify =
-                            should_notify_pending_prompt(decision, tab.pending_prompt.as_ref());
+                            should_notify_pending_prompt(
+                                decision,
+                                tab.pending_prompt.as_ref(),
+                                tab.pending_prompt_kind,
+                                prompt_kind,
+                            );
                         tab.pending_prompt = Some(prompt.clone());
+                        tab.pending_prompt_kind = Some(prompt_kind);
                         Some(notify)
                     } else {
                         None
@@ -944,13 +981,14 @@ impl ServiceContext {
                 );
                 self.emit_state_changed();
                 if notify_prompt {
-                    self.notify_pending_prompt(tab_id, prompt);
+                    self.notify_pending_prompt(tab_id, prompt, prompt_kind);
                 }
             }
             PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();
                 if let Some(tab) = mux.get_tab_mut(tab_id) {
                     tab.pending_prompt = None;
+                    tab.pending_prompt_kind = None;
                 }
                 drop(mux);
                 crate::api::events::emit_everywhere(
