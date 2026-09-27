@@ -19,16 +19,17 @@ well-meaning "one more heuristic" changes. Read this before touching
 1. **The payload is written at most once.** One bracketed paste to the exact
    PTY the caller resolved. Nothing may ever re-write the payload — not a
    retry loop, not a recovery path, not a watchdog.
-2. **Submission is a bounded blind key-only burst.** Write CR immediately by
-   default, then at one and two seconds. A provider capability may declare a
-   bounded first-key offset for a proven TUI ingestion window; elapsed time
-   triggers the key and never claims readiness. Never gate writes on screen,
-   composer, status, or provider identity; never repeat the payload. Each PTY
-   owns one resettable burst: a new send cancels the old burst immediately
-   instead of waiting behind a CodeTerm message queue.
-3. **Verification classifies; it never controls key delivery.** Only an exact
-   attributable session user turn confirms delivery. Missing evidence remains
-   uncertainty, never a fabricated success or a zero-write claim.
+2. **Submission uses a bounded key-only schedule.** Write the payload once. A
+   provider capability may declare a bounded first-key offset; elapsed time
+   triggers an attempt and never claims readiness. After a key, exact normalized
+   user-turn evidence in this tab's bound-session append window stops remaining
+   keys. Never use screen/composer text as acknowledgement or branch on provider
+   identity. Each PTY owns one resettable cycle: a new send cancels the old cycle
+   instead of queueing messages.
+3. **Exact turn evidence confirms delivery.** Missing evidence remains
+   uncertainty, never a fabricated success or a zero-write claim. Once a paste
+   reaches the write queue, an unconfirmed send is `submit_unconfirmed` with
+   `bytes_written = true`.
 
 ## Classification invariants (`DeliveryError`)
 
@@ -112,9 +113,9 @@ refusal never re-writes the payload: the single write already happened upstream.
 - No sleeps, polling intervals, or timer-driven "success" anywhere in the
   path — deadlines are failure bounds around event waits only.
 - No provider-id branches; capability descriptors only.
-- No new acknowledgement heuristics on the send path. If evidence quality is
-  the problem, improve the *evidence source* (session transcript correlation),
-  not the screen-scraping.
+- Do not add screen/composer acknowledgement, guessed readiness, payload
+  retries, or provider-id branches. Use exact claimed-session transcript
+  evidence to stop recovery and to reconcile later sends.
 - Do not "fix" a delivery bug by adding a retry that re-writes the payload.
 - Launch/bootstrap input never routes through the public post-ready send gate
   (see AGENTS.md "Agent launch delivery").

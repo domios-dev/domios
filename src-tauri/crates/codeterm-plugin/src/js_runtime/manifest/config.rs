@@ -203,6 +203,8 @@ pub enum SerdeVerifySubmit {
     TuiInputDrained {
         #[serde(default)]
         initial_key_delay_ms: u64,
+        #[serde(default = "default_submit_retry_offsets_ms")]
+        retry_offsets_ms: [u64; 6],
     },
     None,
 }
@@ -213,6 +215,10 @@ impl Default for SerdeVerifySubmit {
     }
 }
 
+fn default_submit_retry_offsets_ms() -> [u64; 6] {
+    crate::provider::DEFAULT_SUBMIT_RETRY_OFFSETS.map(|offset| offset.as_millis() as u64)
+}
+
 impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
     fn from(s: &SerdeVerifySubmit) -> Self {
         match s {
@@ -221,8 +227,10 @@ impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
             },
             SerdeVerifySubmit::TuiInputDrained {
                 initial_key_delay_ms,
+                retry_offsets_ms,
             } => Self::TuiInputDrained {
                 initial_key_delay: std::time::Duration::from_millis(*initial_key_delay_ms),
+                retry_offsets: retry_offsets_ms.map(std::time::Duration::from_millis),
             },
             SerdeVerifySubmit::None => Self::None,
         }
