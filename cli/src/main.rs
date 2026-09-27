@@ -785,7 +785,7 @@ mod plan_cli_error_tests {
                         title, task, agent, ..
                     },
             } => {
-                assert_eq!(agent, "claude");
+                assert_eq!(agent.as_deref(), Some("claude"));
                 assert_eq!(
                     title.map(|parts| parts.join(" ")).as_deref(),
                     Some("perf brainstorm opus")

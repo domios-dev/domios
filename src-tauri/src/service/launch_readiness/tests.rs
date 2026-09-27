@@ -574,6 +574,18 @@ fn pre_ready_exit_in_restore_auto_resumes_once() {
 }
 
 #[test]
+fn provider_composer_exit_before_launch_ack_is_still_pre_ready() {
+    let mut tab = launching_tab("pty-composer-before-ack", "nonce-composer-before-ack");
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.agent_booting = false;
+
+    assert!(!surviving_shell_exit_is_after_launch_ack(&tab));
+
+    report_own_launch(&mut tab);
+    assert!(surviving_shell_exit_is_after_launch_ack(&tab));
+}
+
+#[test]
 fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
     use crate::service::launch_diagnostics::AgentLaunchOrigin as Origin;
 
