@@ -564,12 +564,11 @@ pub async fn mesh_remote_tab_action(
             delivery_id: None,
         };
         let pty_id = if suffix == "/pty/write" {
-            let lookup_client = client.clone();
+            let lookup_client = client.as_ref();
             let lookup_tab = encoded_tab.clone();
             REMOTE_PTY_IDS
                 .get_or_resolve(cache_key.clone(), || async move {
                     let inspected = lookup_client
-                        .as_ref()
                         .ok_or_else(|| "remote tab unavailable".to_string())?
                         .send_relay(&crate::mesh::types::RelayCommand {
                             method: "GET".into(),
@@ -637,17 +636,13 @@ pub async fn mesh_remote_tab_action(
     let response = match client.send_relay(&command).await {
         Ok(response) => response,
         Err(error) => {
-            if suffix == "/pty/write" {
-                REMOTE_PTY_IDS.invalidate(&cache_key);
-            }
             return Err(error);
         }
     };
-    let outcome = remote_tab_action_outcome(&suffix, response);
-    if suffix == "/pty/write" && outcome.is_err() {
+    if remote_pty_cache::is_missing_pty_write(&suffix, response.status) {
         REMOTE_PTY_IDS.invalidate(&cache_key);
     }
-    outcome
+    remote_tab_action_outcome(&suffix, response)
 }
 
 fn remote_tab_action_outcome(

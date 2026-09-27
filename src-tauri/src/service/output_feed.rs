@@ -29,7 +29,7 @@ impl ServiceContext {
         let trace = std::env::var("CODETERM_RD_TRACE").is_ok();
         let stage = std::time::Instant::now();
         self.output_buf.lock().append(pty_id, data);
-        self.output_stream_wake.notify_waiters();
+        self.output_stream_pty_changed(pty_id);
         let output_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let accepted = match generation {
@@ -71,7 +71,7 @@ impl ServiceContext {
         if now == prev {
             return;
         }
-        self.output_stream_wake.notify_waiters();
+        self.output_stream_pty_changed(pty_id);
         let tab_id = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(ref pid) = tab_id {
             crate::api::events::emit_everywhere(

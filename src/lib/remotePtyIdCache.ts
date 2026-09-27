@@ -31,3 +31,25 @@ export class RemotePtyIdCache {
     this.lookups.delete(tabId);
   }
 }
+
+export interface RemotePtyWriteResponse<T> {
+  ok?: boolean;
+  status?: number;
+  data?: T;
+  error?: string | null;
+}
+
+export async function writeRemotePty<T>(
+  cache: RemotePtyIdCache,
+  tabId: string,
+  resolve: () => Promise<string>,
+  write: (ptyId: string) => Promise<RemotePtyWriteResponse<T>>,
+): Promise<T | undefined> {
+  const ptyId = await cache.resolve(tabId, resolve);
+  const response = await write(ptyId);
+  if (!response.ok) {
+    if (response.status === 404) cache.invalidate(tabId);
+    throw new Error(response.error ?? "Remote tab unavailable");
+  }
+  return response.data;
+}

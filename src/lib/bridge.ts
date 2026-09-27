@@ -32,7 +32,11 @@ import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
 import { subscribeRemoteTabEvent } from "./remoteTabEvents";
-import { RemotePtyIdCache } from "./remotePtyIdCache";
+import {
+  RemotePtyIdCache,
+  writeRemotePty,
+  type RemotePtyWriteResponse,
+} from "./remotePtyIdCache";
 
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
@@ -415,25 +419,32 @@ const HTTP_MAP: Record<string, Mapper> = {
     }
     const remoteTab = ordinary.slice(prefix.length);
     const suffix = s(a, "suffix");
+    const resolvePtyId = async () => {
+      const inspected = await webJson<{ ok?: boolean; data?: Array<{ pty_id?: string }> }>("POST", "/api/mesh/relay-to", {
+        target_peer_id: peer,
+        method: "GET",
+        path: `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`,
+        body: null,
+      });
+      return inspected.ok ? inspected.data?.[0]?.pty_id ?? "" : "";
+    };
+    if (suffix === "/pty/write") {
+      return writeRemotePty<unknown>(remotePtyIds, ordinary, resolvePtyId, (ptyId) =>
+        webJson<RemotePtyWriteResponse<unknown>>("POST", "/api/mesh/relay-to", {
+          target_peer_id: peer,
+          method: s(a, "method"),
+          path: `/api/pty/${enc(ptyId)}/write`,
+          body: a.body ?? null,
+        }),
+      );
+    }
     let path = suffix === "/inspect"
       ? `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`
       : `/api/tabs/${enc(remoteTab)}${suffix}`;
     if (suffix.startsWith("/pty/")) {
-      const resolvePtyId = async () => {
-        const inspected = await webJson<{ ok?: boolean; data?: Array<{ pty_id?: string }> }>("POST", "/api/mesh/relay-to", {
-          target_peer_id: peer,
-          method: "GET",
-          path: `/api/tabs/inspect?tab_ids=${enc(remoteTab)}`,
-          body: null,
-        });
-        return inspected.ok ? inspected.data?.[0]?.pty_id ?? "" : "";
-      };
-      const ptyId = suffix === "/pty/write"
-        ? await remotePtyIds.resolve(ordinary, resolvePtyId)
-        : await resolvePtyId();
+      const ptyId = await resolvePtyId();
       if (!ptyId) throw new Error("Remote tab PTY unavailable");
-      if (suffix === "/pty/write") path = `/api/pty/${enc(ptyId)}/write`;
-      else if (suffix === "/pty/resize") path = `/api/pty/${enc(ptyId)}/resize`;
+      if (suffix === "/pty/resize") path = `/api/pty/${enc(ptyId)}/resize`;
       else if (suffix === "/pty/claim-resize") {
         path = `/api/tabs/${enc(remoteTab)}/resize-owner`;
         a.body = { ...(a.body as Record<string, unknown>), pty_id: ptyId };
@@ -441,25 +452,20 @@ const HTTP_MAP: Record<string, Mapper> = {
       else if (suffix.startsWith("/pty/read")) path = `/api/pty/${enc(ptyId)}/read${suffix.slice("/pty/read".length)}`;
       else throw new Error("Unsupported remote PTY action");
     }
-    try {
-      const response = await webJson("POST", "/api/mesh/relay-to", {
-        target_peer_id: peer,
-        method: s(a, "method"),
-        path,
-        body: a.body ?? null,
-      });
-      const relay = response as { ok?: boolean; status?: number; data?: unknown; error?: string | null };
-      if (suffix === "/prompt/respond" && relay.status === 409 && isPromptNotOnScreenResponse(relay.data)) {
-        return relay.data;
-      }
-      if (!relay.ok) {
-        throw new Error(relay.error ?? "Remote tab unavailable");
-      }
+    const response = await webJson("POST", "/api/mesh/relay-to", {
+      target_peer_id: peer,
+      method: s(a, "method"),
+      path,
+      body: a.body ?? null,
+    });
+    const relay = response as { ok?: boolean; status?: number; data?: unknown; error?: string | null };
+    if (suffix === "/prompt/respond" && relay.status === 409 && isPromptNotOnScreenResponse(relay.data)) {
       return relay.data;
-    } catch (error) {
-      if (suffix === "/pty/write") remotePtyIds.invalidate(ordinary);
-      throw error;
     }
+    if (!relay.ok) {
+      throw new Error(relay.error ?? "Remote tab unavailable");
+    }
+    return relay.data;
   },
   // The serving daemon holds the uploaded bytes, so the handoff never rides a relay target.
   mesh_transfer_attachment: (a) =>

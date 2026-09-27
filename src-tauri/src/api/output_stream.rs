@@ -13,7 +13,6 @@ use base64::Engine;
 use futures_core::Stream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
 
 use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
@@ -50,12 +49,6 @@ pub(crate) fn parse_cursor(raw: &str) -> Option<Cursor> {
 
 fn data_frame(v: serde_json::Value) -> Event {
     Event::default().data(v.to_string())
-}
-
-fn arm_output_wake(wake: &tokio::sync::Notify) -> impl Future<Output = ()> + '_ {
-    let mut notified = Box::pin(wake.notified());
-    notified.as_mut().enable();
-    async move { notified.await }
 }
 
 fn build_stream_diagnostics(
@@ -120,6 +113,7 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
 /// Per-tab cursor + whether an `ended` frame was already emitted (emit once).
 #[derive(Clone)]
 struct Tracked {
+    pty_id: String,
     offset: u64,
     ended: bool,
 }
@@ -219,6 +213,7 @@ fn seed_initial_state(
         tracked.insert(
             tab.clone(),
             Tracked {
+                pty_id: pty.clone(),
                 offset: resume_offset,
                 ended: false,
             },
@@ -238,14 +233,31 @@ fn seed_initial_state(
     (boot_frame, tracked, starts)
 }
 
-/// One blocking sweep across every PTY-backed tab. Pure sync — safe for
+fn selected_tabs(
+    live: &HashMap<String, String>,
+    dirty_pty_ids: &HashSet<String>,
+    changed_tabs: &HashSet<String>,
+    read_all: bool,
+) -> Vec<(String, String)> {
+    live.iter()
+        .filter(|(tab, pty)| {
+            read_all || dirty_pty_ids.contains(pty.as_str()) || changed_tabs.contains(*tab)
+        })
+        .map(|(tab, pty)| (tab.clone(), pty.clone()))
+        .collect()
+}
+
+/// One blocking sweep over changed PTYs. Pure sync — safe for
 /// `spawn_blocking`; locks are acquired in order mux > output_buf >
 /// agent_tracker and each is dropped before the next, none held across `.await`.
 fn sweep(
     svc: &ServiceState,
     tracked: &mut HashMap<String, Tracked>,
     tab_id: Option<&str>,
-) -> (Vec<serde_json::Value>, Vec<StreamTabStart>, bool) {
+    dirty_pty_ids: &HashSet<String>,
+    read_all: bool,
+    refresh_tabs: bool,
+) -> (Vec<serde_json::Value>, Vec<StreamTabStart>, Vec<String>) {
     let live: HashMap<String, String> = svc
         .mux
         .read()
@@ -256,15 +268,23 @@ fn sweep(
     // Disposed tabs (gone from mux) are dropped silently.
     tracked.retain(|tab, _| live.contains_key(tab));
     // Tabs created mid-stream full-replay from the start of the retained ring.
-    let new_tabs: Vec<String> = live
-        .keys()
-        .filter(|tab| !tracked.contains_key(*tab))
-        .cloned()
-        .collect();
+    let new_tabs: Vec<String> = if refresh_tabs || read_all {
+        live.keys()
+            .filter(|tab| {
+                tracked
+                    .get(*tab)
+                    .is_none_or(|existing| existing.pty_id.as_str() != live[*tab].as_str())
+            })
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     for tab in &new_tabs {
         tracked.insert(
             tab.clone(),
             Tracked {
+                pty_id: live[tab].clone(),
                 offset: 0,
                 ended: false,
             },
@@ -274,8 +294,10 @@ fn sweep(
     let mut frames = Vec::new();
     let mut starts = Vec::with_capacity(new_tabs.len());
     let mut silent: Vec<String> = Vec::new();
-    let mut has_more_output = false;
+    let mut more_pty_ids = Vec::new();
     let boot = svc.events.boot_id().to_string();
+    let changed_tab_ids: HashSet<String> = new_tabs.iter().cloned().collect();
+    let selected = selected_tabs(&live, dirty_pty_ids, &changed_tab_ids, read_all);
     {
         let buf = svc.output_buf.lock();
         for tab in &new_tabs {
@@ -299,7 +321,7 @@ fn sweep(
                 boot_changed: false,
             });
         }
-        for (tab, pty) in &live {
+        for (tab, pty) in &selected {
             let t = tracked.get_mut(tab).expect("seeded above");
             if t.ended {
                 silent.push(tab.clone());
@@ -307,7 +329,9 @@ fn sweep(
             }
             let (chunk, total) = buf.read_since(pty, t.offset);
             let read = plan_emit(t.offset, &chunk, total, PER_TAB_SWEEP_CAP);
-            has_more_output |= read.has_more;
+            if read.has_more {
+                more_pty_ids.push(pty.clone());
+            }
             if let Some(from) = read.truncated_from {
                 frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
             }
@@ -343,7 +367,7 @@ fn sweep(
             }
         }
     }
-    (frames, starts, has_more_output)
+    (frames, starts, more_pty_ids)
 }
 
 /// `GET /api/output/stream?since=<b64url cursor>` — all tabs' PTY output over
@@ -370,6 +394,10 @@ pub async fn output_stream(
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
     let stream = async_stream::stream! {
+        let mut activity = svc.output_stream_activity.subscribe();
+        let mut dirty_pty_ids = HashSet::new();
+        let mut read_all = true;
+        let mut refresh_tabs = true;
         let mut diagnostics = build_stream_diagnostics(
             diagnostic_level,
             session_id,
@@ -403,16 +431,62 @@ pub async fn output_stream(
             yield Ok(data_frame(bf));
         }
         loop {
-            let output_ready = arm_output_wake(&svc.output_stream_wake);
+            if !read_all && !refresh_tabs && dirty_pty_ids.is_empty() {
+                match activity.recv().await {
+                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
+                        dirty_pty_ids.insert(pty);
+                    }
+                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {
+                        refresh_tabs = true;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        read_all = true;
+                        refresh_tabs = true;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        if let Some(diagnostics) = diagnostics.as_mut() {
+                            diagnostics.finish("activity_closed");
+                        }
+                        return;
+                    }
+                }
+                loop {
+                    match activity.try_recv() {
+                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
+                            dirty_pty_ids.insert(pty);
+                        }
+                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {
+                            refresh_tabs = true;
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                            read_all = true;
+                            refresh_tabs = true;
+                            break;
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => return,
+                    }
+                }
+            }
+            let dirty_for_sweep = std::mem::take(&mut dirty_pty_ids);
+            let read_all_for_sweep = std::mem::replace(&mut read_all, false);
+            let refresh_tabs_for_sweep = std::mem::replace(&mut refresh_tabs, false);
             let svc1 = svc.clone();
             let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);
             let result = tokio::task::spawn_blocking(move || {
-                let (frames, starts, has_more) = sweep(&svc1, &mut owned, tab_id.as_deref());
-                (frames, starts, has_more, owned)
+                let (frames, starts, more_pty_ids) = sweep(
+                    &svc1,
+                    &mut owned,
+                    tab_id.as_deref(),
+                    &dirty_for_sweep,
+                    read_all_for_sweep,
+                    refresh_tabs_for_sweep,
+                );
+                (frames, starts, more_pty_ids, owned)
             })
             .await;
-            let (frames, starts, has_more_output, owned) = match result {
+            let (frames, starts, more_pty_ids, owned) = match result {
                 Ok(v) => v,
                 Err(_) => {
                     if let Some(diagnostics) = diagnostics.as_mut() {
@@ -421,6 +495,7 @@ pub async fn output_stream(
                     return;
                 },
             };
+            dirty_pty_ids.extend(more_pty_ids);
             tracked = owned;
             for start in starts {
                 if let Some(diagnostics) = diagnostics.as_mut() {
@@ -433,10 +508,6 @@ pub async fn output_stream(
                 }
                 yield Ok(data_frame(f));
             }
-            if has_more_output {
-                continue;
-            }
-            output_ready.await;
         }
     };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
