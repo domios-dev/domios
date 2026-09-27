@@ -836,6 +836,7 @@ pub fn run() {
                 )),
                 prompt_detector,
                 pty_ownership: Default::default(),
+                provider_tree_witnesses: Arc::new(Default::default()),
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 remote_workers: Arc::new(remote_workers),
