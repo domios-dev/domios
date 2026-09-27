@@ -128,13 +128,9 @@ impl ServiceContext {
         {
             return Ok(None);
         }
-        let spawn_failed = self
-            .mux
-            .read()
-            .get_tab(&resolved)
-            .is_some_and(|tab| {
-                tab.boot_stage == Some(BootStage::SpawnFailed) && !tab.agent_booting
-            });
+        let spawn_failed = self.mux.read().get_tab(&resolved).is_some_and(|tab| {
+            tab.boot_stage == Some(BootStage::SpawnFailed) && !tab.agent_booting
+        });
         if spawn_failed {
             self.clear_tab_spawn_failed_identity_if_absent(&resolved, "provider launch failed");
             return Ok(Some(resolved));

@@ -1,7 +1,7 @@
 use super::exited_provider_recovery_has_shell_ready_evidence;
-use crate::service::launch_diagnostics::AgentLaunchOrigin;
 use crate::agent::command_detection::CommandDetection;
 use crate::agent::semantic_marker::SemanticEvent;
+use crate::service::launch_diagnostics::AgentLaunchOrigin;
 
 fn detection(events: Vec<SemanticEvent>) -> CommandDetection {
     let mut detection = CommandDetection::new();

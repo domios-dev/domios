@@ -159,8 +159,10 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
         )
     };
     let presentation = if has_open_subtasks
-        && matches!(&base_presentation, TaskPresentation::ActionablePending | TaskPresentation::InProgress)
-    {
+        && matches!(
+            &base_presentation,
+            TaskPresentation::ActionablePending | TaskPresentation::InProgress
+        ) {
         TaskPresentation::BlockedOnSubtasks
     } else {
         base_presentation
@@ -528,7 +530,17 @@ pub fn build_plan_state_snapshot(
                 task_id: t.id.clone(),
                 name: t.name.clone(),
                 parent_task_id: t.parent_task_id.clone(),
-                subtasks: plan.tasks.iter().filter(|child| child.parent_task_id.as_deref() == Some(&t.id)).map(|child| super::task_queries::TaskLabel { id: child.id.clone(), display_key: child.display_key(), name: child.name.clone(), status: child.status.clone() }).collect(),
+                subtasks: plan
+                    .tasks
+                    .iter()
+                    .filter(|child| child.parent_task_id.as_deref() == Some(&t.id))
+                    .map(|child| super::task_queries::TaskLabel {
+                        id: child.id.clone(),
+                        display_key: child.display_key(),
+                        name: child.name.clone(),
+                        status: child.status.clone(),
+                    })
+                    .collect(),
                 status: t.status.clone(),
                 executor_role: t.executor_role.clone(),
                 competition: super::competition::competition_summary(t),
@@ -555,7 +567,17 @@ pub fn build_plan_state_snapshot(
                 task_id: t.id.clone(),
                 name: t.name.clone(),
                 parent_task_id: t.parent_task_id.clone(),
-                subtasks: plan.tasks.iter().filter(|child| child.parent_task_id.as_deref() == Some(&t.id)).map(|child| super::task_queries::TaskLabel { id: child.id.clone(), display_key: child.display_key(), name: child.name.clone(), status: child.status.clone() }).collect(),
+                subtasks: plan
+                    .tasks
+                    .iter()
+                    .filter(|child| child.parent_task_id.as_deref() == Some(&t.id))
+                    .map(|child| super::task_queries::TaskLabel {
+                        id: child.id.clone(),
+                        display_key: child.display_key(),
+                        name: child.name.clone(),
+                        status: child.status.clone(),
+                    })
+                    .collect(),
                 status: t.status.clone(),
                 executor_role: t.executor_role.clone(),
                 competition: super::competition::competition_summary(t),

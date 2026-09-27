@@ -293,7 +293,10 @@ fn observed_initial_enter_stops_before_recovery_guard() {
     let mut guard_checks = 0;
     let result = run_with_submit_key(&io, "codex", true, b"\r", tui(), opts(), |initial_key| {
         guard_checks += 1;
-        assert!(initial_key, "an observed initial Enter suppresses recovery keys");
+        assert!(
+            initial_key,
+            "an observed initial Enter suppresses recovery keys"
+        );
         Ok(())
     })
     .unwrap();

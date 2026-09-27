@@ -369,10 +369,8 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
             &entry.transition,
             LifecycleTransition::PermissionAutoConfirm { .. }
         );
-        let is_verified_session = matches!(
-            &entry.transition,
-            LifecycleTransition::SessionBound { .. }
-        );
+        let is_verified_session =
+            matches!(&entry.transition, LifecycleTransition::SessionBound { .. });
         if is_verified_session {
             continue;
         }
@@ -387,9 +385,7 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     compacted
 }
 
-fn retained_verified_session_records(
-    records: &[JournalRecord],
-) -> HashMap<&str, &JournalRecord> {
+fn retained_verified_session_records(records: &[JournalRecord]) -> HashMap<&str, &JournalRecord> {
     let mut latest = HashMap::<&str, &JournalRecord>::new();
     for record in records {
         let JournalRecord::Transition { entry } = record else {

@@ -23,10 +23,13 @@ mod status_reason_render_tests {
 
     #[test]
     fn task_show_includes_child_identity_and_status_tokens() {
-        let line = crate::cmd::task::label_list_line("subtasks", Some(&json!([
-            {"id": "child_a", "name": "Part A", "status": "in_progress"},
-            {"id": "child_b", "name": "Part B", "status": "done"}
-        ])));
+        let line = crate::cmd::task::label_list_line(
+            "subtasks",
+            Some(&json!([
+                {"id": "child_a", "name": "Part A", "status": "in_progress"},
+                {"id": "child_b", "name": "Part B", "status": "done"}
+            ])),
+        );
         for token in ["child_a", "in_progress", "child_b", "done"] {
             assert!(line.contains(token), "missing {token} in {line}");
         }

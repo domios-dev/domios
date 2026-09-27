@@ -523,8 +523,9 @@ fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
     let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, exit_code, _, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof)
-        .expect("an exit with no shell-reported detail still claims the launch");
+    let (claimed, exit_code, _, _) =
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof)
+            .expect("an exit with no shell-reported detail still claims the launch");
     assert_eq!(claimed, attempt);
     assert_eq!(exit_code, None);
     assert!(matches!(
@@ -591,7 +592,11 @@ fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
 
     let recovery_count = std::cell::Cell::new(0);
     let notification_count = std::cell::Cell::new(0);
-    for origin in [Origin::RestoredSnapshot, Origin::Resume, Origin::ExitRecovery] {
+    for origin in [
+        Origin::RestoredSnapshot,
+        Origin::Resume,
+        Origin::ExitRecovery,
+    ] {
         route_pre_ready_exit(
             Some(origin),
             LaunchExitSource::LifecycleClear,
@@ -629,7 +634,9 @@ fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
 
 #[test]
 fn recovery_failure_notifies_unless_the_exit_path_already_notifies() {
-    assert!(recovery_failure_needs_notification(Some("ShellReadyTimeout")));
+    assert!(recovery_failure_needs_notification(Some(
+        "ShellReadyTimeout"
+    )));
     assert!(recovery_failure_needs_notification(None));
     let attempt = LaunchAttempt {
         tab_id: "tab-exit-already-notified".into(),
@@ -828,7 +835,10 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
             .expect("recovery starts at the explicit post-teardown handoff");
         assert!(claim < teardown, "the claim must precede the teardown");
         assert!(teardown < publish, "the verdict must be published after it");
-        assert!(publish < handoff, "recovery must follow verdict publication");
+        assert!(
+            publish < handoff,
+            "recovery must follow verdict publication"
+        );
     }
 }
 

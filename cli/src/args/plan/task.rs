@@ -26,7 +26,11 @@ pub enum PlanTaskAction {
     Split {
         plan_id: String,
         task_id: String,
-        #[arg(long = "child", allow_hyphen_values = true, conflicts_with = "from_file")]
+        #[arg(
+            long = "child",
+            allow_hyphen_values = true,
+            conflicts_with = "from_file"
+        )]
         children: Vec<String>,
         #[arg(long = "from-file", value_name = "PATH", conflicts_with = "children")]
         from_file: Option<String>,
@@ -499,12 +503,30 @@ mod tests {
     fn plan_task_split_parses_children_and_file() {
         use clap::Parser;
         for argv in [
-            vec!["codeterm", "plan", "task", "split", "pl", "parent", "--child", "alpha", "--child", "beta"],
-            vec!["codeterm", "plan", "task", "split", "pl", "parent", "--from-file", "children.json"],
+            vec![
+                "codeterm", "plan", "task", "split", "pl", "parent", "--child", "alpha", "--child",
+                "beta",
+            ],
+            vec![
+                "codeterm",
+                "plan",
+                "task",
+                "split",
+                "pl",
+                "parent",
+                "--from-file",
+                "children.json",
+            ],
         ] {
             assert!(matches!(
-                Cli::try_parse_from(argv).expect("split syntax parses").command,
-                crate::Commands::Plan { action: crate::PlanAction::Task { action: super::PlanTaskAction::Split { .. } } }
+                Cli::try_parse_from(argv)
+                    .expect("split syntax parses")
+                    .command,
+                crate::Commands::Plan {
+                    action: crate::PlanAction::Task {
+                        action: super::PlanTaskAction::Split { .. }
+                    }
+                }
             ));
         }
     }

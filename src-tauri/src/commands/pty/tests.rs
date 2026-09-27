@@ -66,7 +66,9 @@ fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
         .and_then(|remaining| remaining.split("pub async fn read_pty(").next())
         .expect("the frontend spawn command remains present");
     let call_sites = spawn.matches("dispatch_restored_snapshot_launch(").count()
-        - spawn.matches("fn dispatch_restored_snapshot_launch(").count();
+        - spawn
+            .matches("fn dispatch_restored_snapshot_launch(")
+            .count();
     assert_eq!(call_sites, 2);
     assert!(!spawn.contains("poll_bare_shell_prompt"));
     assert!(!spawn.contains("await_agent_tui_frame_on_screen"));
@@ -463,8 +465,7 @@ mod spawn_pty_restore_tests {
         let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
         assert!(!tab.restored_from_snapshot);
         let mut pty = fixture.service.pty.lock();
-        kill_pty_idempotent(&mut pty, tab.pty_id.as_deref().unwrap())
-            .expect("test PTY cleanup");
+        kill_pty_idempotent(&mut pty, tab.pty_id.as_deref().unwrap()).expect("test PTY cleanup");
     }
 
     #[tokio::test]
@@ -490,17 +491,9 @@ mod spawn_pty_restore_tests {
             mux.link_pty(&tab_id, backend_pty_id.into());
         }
         let service = Arc::new(fixture.service.clone());
-        let pty_id = spawn_pty_core(
-            &service,
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id.clone()),
-        )
-        .await
-        .expect("frontend materialization activates and resumes the restored tab");
+        let pty_id = spawn_pty_core(&service, None, None, 80, 24, None, Some(tab_id.clone()))
+            .await
+            .expect("frontend materialization activates and resumes the restored tab");
         assert_eq!(resume_context.lock().len(), 1);
         assert_eq!(pty_id, backend_pty_id);
 
@@ -523,14 +516,7 @@ mod spawn_pty_restore_tests {
             .service
             .pty
             .lock()
-            .spawn_with_id(
-                Some(pty_id.into()),
-                None,
-                None,
-                80,
-                24,
-                Default::default(),
-            )
+            .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
             .expect("manual restart owns a live PTY");
         {
             let mut mux = fixture.service.mux.write();
@@ -568,24 +554,16 @@ mod spawn_pty_restore_tests {
             .service
             .pty
             .lock()
-            .spawn_with_id(
-                Some(pty_id.into()),
-                None,
-                None,
-                80,
-                24,
-                Default::default(),
-            )
+            .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
             .expect("backend already owns a live PTY");
         {
             let mut mux = fixture.service.mux.write();
             mux.link_pty(&tab_id, pty_id.into());
-            mux.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(
-                crate::multiplexer::types::PendingDeliveryRecord::new(
+            mux.get_tab_mut(&tab_id).unwrap().pending_delivery =
+                Some(crate::multiplexer::types::PendingDeliveryRecord::new(
                     "missing-payload-digest".into(),
                     crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                ),
-            );
+                ));
         }
 
         let attached = spawn_pty_core(

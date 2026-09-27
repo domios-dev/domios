@@ -27,8 +27,7 @@ pub(super) fn watch_session_evidence(
         if event.paths.iter().any(|changed| {
             changed.parent() == Some(watched_parent.as_path())
                 && changed.file_name() == Some(watched_name.as_os_str())
-        })
-        {
+        }) {
             let _ = wake_sender.send(());
         }
     })

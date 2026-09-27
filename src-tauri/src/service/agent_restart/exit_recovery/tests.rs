@@ -190,8 +190,12 @@ fn compacted_journal_with_restore_awaiting_recovers_via_agent_restart() {
         "session-a"
     );
     assert_eq!(
-        recovery_provider(&registry(&[("codex", Some("session-a"))]), Some("D:/repo"), "session-a")
-            .unwrap(),
+        recovery_provider(
+            &registry(&[("codex", Some("session-a"))]),
+            Some("D:/repo"),
+            "session-a"
+        )
+        .unwrap(),
         "codex"
     );
 }
@@ -390,8 +394,16 @@ fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
         }
         other => panic!("expected a refusal before acceptance, got {other:?}"),
     }
-    assert!(fixture.service.restart_tracker.lock().last_restart.get(&tab_id).is_none(),
-        "a refused recovery must not consume the restart rate limit");
+    assert!(
+        fixture
+            .service
+            .restart_tracker
+            .lock()
+            .last_restart
+            .get(&tab_id)
+            .is_none(),
+        "a refused recovery must not consume the restart rate limit"
+    );
     let tab = fixture
         .service
         .mux
