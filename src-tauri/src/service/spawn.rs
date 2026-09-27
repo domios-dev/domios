@@ -578,6 +578,23 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
+        super::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            super::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: launch_model.clone(),
+                reasoning_effort: agent.reasoning_effort.clone(),
+                args: (!agent.extra_args.is_empty()).then(|| agent.extra_args.clone()),
+                agent_name: agent.agent_name.clone(),
+                task: agent.task.as_deref(),
+                role: agent.role.as_deref(),
+                role_profile: agent.role_profile.as_deref(),
+                permission_bypass_requested: permission_bypass,
+            },
+        );
         let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
             startup_supervised,
             task_identity.is_some(),

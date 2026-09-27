@@ -10,8 +10,9 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use super::provider::{
-    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
-    LaunchArtifactSweepRequest, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
+    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, AgentResumeParams,
+    LaunchArtifactSweepReport, LaunchArtifactSweepRequest, ModelInfo, ProviderReadinessStrategy,
+    ReadinessStrategy,
     ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
@@ -39,6 +40,7 @@ pub struct MockProvider {
     provider_readiness_strategy: ProviderReadinessStrategy,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
+    resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
 }
 
 impl MockProvider {
@@ -67,6 +69,7 @@ impl MockProvider {
             provider_readiness_strategy: ProviderReadinessStrategy::default(),
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
+            resume_context_log: None,
         }
     }
 
@@ -77,6 +80,11 @@ impl MockProvider {
     ) -> Self {
         self.launch_artifact_sweep_log = Some(sweep_log);
         self.launch_artifact_release_log = Some(release_log);
+        self
+    }
+
+    pub fn with_resume_context_log(mut self, log: Arc<Mutex<Vec<AgentResumeParams>>>) -> Self {
+        self.resume_context_log = Some(log);
         self
     }
 
@@ -137,6 +145,11 @@ impl MockProvider {
             system_prompt_delivery: SystemPromptDelivery::CliFlag(flag.to_string()),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_session_config_delivery(mut self) -> Self {
+        self.system_prompt_delivery = SystemPromptDelivery::SessionConfig;
+        self
     }
 
     /// Fixture with declared reasoning-effort levels and a scriptable launch flag.
@@ -364,6 +377,16 @@ impl AgentProvider for MockProvider {
     }
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))
+    }
+    fn build_resume_command_with_context(&self, params: &AgentResumeParams) -> Option<String> {
+        if let Some(log) = &self.resume_context_log {
+            log.lock().push(params.clone());
+        }
+        let base = self.build_resume_command(&params.session_id, params.skip_permissions)?;
+        Some(codeterm_plugin::provider::append_launch_args(
+            base,
+            &params.args,
+        ))
     }
     fn detect_session_id(
         &self,
