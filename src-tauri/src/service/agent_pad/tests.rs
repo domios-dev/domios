@@ -34,14 +34,24 @@ fn revoke_is_exact_and_reconciliation_preserves_only_live_tabs() {
     let live = AgentPad::create(temp.path(), "tab-live", AgentPadRole::Planner).unwrap();
     let gone = AgentPad::create(temp.path(), "tab-gone", AgentPadRole::Orchestrator).unwrap();
     gone.revoke().unwrap();
-    assert!(!temp.path().join(PAD_SUBDIR).join("tab-gone").exists());
+    assert!(!temp
+        .path()
+        .join("runtime")
+        .join("agent-pads")
+        .join("tab-gone")
+        .exists());
     let orphan = AgentPad::create(temp.path(), "tab-orphan", AgentPadRole::General).unwrap();
     drop(orphan);
     reconcile(temp.path(), &HashSet::from(["tab-live".to_string()])).unwrap();
     assert!(live.path().is_dir());
-    assert!(!temp.path().join(PAD_SUBDIR).join("tab-orphan").exists());
-    revoke(&temp.path().join(PAD_SUBDIR), "tab-live").unwrap();
-    revoke(&temp.path().join(PAD_SUBDIR), "tab-live").unwrap();
+    assert!(!temp
+        .path()
+        .join("runtime")
+        .join("agent-pads")
+        .join("tab-orphan")
+        .exists());
+    revoke(&temp.path().join("runtime").join("agent-pads"), "tab-live").unwrap();
+    revoke(&temp.path().join("runtime").join("agent-pads"), "tab-live").unwrap();
 }
 
 #[test]
@@ -149,7 +159,7 @@ fn restore_reuses_existing_pad_and_creates_only_when_missing() {
 #[test]
 fn startup_reconciliation_removes_prior_tombstones() {
     let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join(PAD_SUBDIR);
+    let root = temp.path().join("runtime").join("agent-pads");
     fs::create_dir_all(root.join(".revoked-tab-old-token")).unwrap();
     fs::write(root.join(".revoked-tab-old-token/report.md"), "old").unwrap();
     reconcile(temp.path(), &HashSet::new()).unwrap();
