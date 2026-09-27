@@ -52,6 +52,8 @@ pub struct DelayedMessage {
     pub team_id: Option<String>,
     #[serde(default)]
     pub last_tick_unconfirmed: bool,
+    #[serde(skip)]
+    pub last_tick_send_sequence: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +113,7 @@ impl DelayedSendQueue {
             Vec::new()
         };
         for msg in &mut messages {
+            msg.last_tick_send_sequence = 0;
             let start = msg.series_start_at_ms.unwrap_or(msg.scheduled_at_ms);
             let invalid_rule = msg
                 .recurrence
@@ -183,6 +186,32 @@ impl DelayedSendQueue {
         recurrence: Option<RecurrenceRule>,
         team_id: Option<String>,
     ) -> Result<DelayedMessage, String> {
+        self.enqueue_with_recurrence_at_sequence(
+            tab_id,
+            workspace_id,
+            session_id_at_create,
+            text,
+            scheduled_at_ms,
+            creator,
+            recurrence,
+            team_id,
+            0,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_with_recurrence_at_sequence(
+        &self,
+        tab_id: String,
+        workspace_id: Option<String>,
+        session_id_at_create: Option<String>,
+        text: String,
+        scheduled_at_ms: Option<u64>,
+        creator: ReminderCreator,
+        recurrence: Option<RecurrenceRule>,
+        team_id: Option<String>,
+        last_tick_send_sequence: u64,
+    ) -> Result<DelayedMessage, String> {
         if text.trim().is_empty() {
             return Err("Message text is empty".into());
         }
@@ -215,6 +244,7 @@ impl DelayedSendQueue {
             skipped_ticks: 0,
             team_id,
             last_tick_unconfirmed: false,
+            last_tick_send_sequence,
         };
         {
             let mut inner = self.inner.lock();
@@ -243,47 +273,65 @@ impl DelayedSendQueue {
         stash: Option<bool>,
         recurrence: Option<RecurrenceRule>,
     ) -> Result<DelayedMessage, String> {
+        self.update_with_recurrence_at_sequence(id, text, scheduled_at_ms, stash, recurrence, None)
+    }
+
+    pub fn update_with_recurrence_at_sequence(
+        &self,
+        id: &str,
+        text: Option<String>,
+        scheduled_at_ms: Option<u64>,
+        stash: Option<bool>,
+        recurrence: Option<RecurrenceRule>,
+        last_tick_send_sequence: Option<u64>,
+    ) -> Result<DelayedMessage, String> {
         let recurrence_changed = recurrence.is_some();
         let updated = {
             let mut inner = self.inner.lock();
-            let msg = inner
+            let index = inner
                 .messages
-                .iter_mut()
-                .find(|msg| msg.id == id)
+                .iter()
+                .position(|msg| msg.id == id)
                 .ok_or_else(|| "Delayed message not found".to_string())?;
-            if msg.state == DelayedMessageState::Sending {
+            if inner.messages[index].state == DelayedMessageState::Sending {
                 return Err("Message is currently sending".into());
             }
+            let mut updated = inner.messages[index].clone();
             if let Some(text) = text {
                 if text.trim().is_empty() {
                     return Err("Message text is empty".into());
                 }
-                msg.text = text;
+                updated.text = text;
             }
-            let schedule_changed = scheduled_at_ms.is_some();
             if let Some(scheduled_at_ms) = scheduled_at_ms {
-                msg.scheduled_at_ms = scheduled_at_ms;
+                updated.scheduled_at_ms = scheduled_at_ms;
             }
             if let Some(rule) = recurrence {
-                recurrence::validate(&rule, msg.scheduled_at_ms)?;
-                msg.recurrence = Some(rule);
+                updated.recurrence = Some(rule);
             }
+            if stash == Some(true) && scheduled_at_ms.is_none() {
+                updated.scheduled_at_ms = now_ms();
+            }
+            let schedule_changed = scheduled_at_ms.is_some()
+                || (stash == Some(true) && scheduled_at_ms.is_none());
             if schedule_changed || recurrence_changed {
-                msg.series_start_at_ms = msg.recurrence.as_ref().map(|_| msg.scheduled_at_ms);
-                msg.tick_index = 0;
-                msg.skipped_ticks = 0;
-                msg.last_tick_unconfirmed = false;
-            }
-            msg.state = if stash == Some(true) {
-                if scheduled_at_ms.is_none() {
-                    msg.scheduled_at_ms = now_ms();
+                if let Some(rule) = &updated.recurrence {
+                    recurrence::validate(rule, updated.scheduled_at_ms)?;
                 }
+                updated.series_start_at_ms =
+                    updated.recurrence.as_ref().map(|_| updated.scheduled_at_ms);
+                updated.tick_index = 0;
+                updated.skipped_ticks = 0;
+                updated.last_tick_unconfirmed = false;
+                updated.last_tick_send_sequence = last_tick_send_sequence.unwrap_or_default();
+            }
+            updated.state = if stash == Some(true) {
                 DelayedMessageState::Stashed
             } else {
                 DelayedMessageState::Queued
             };
-            msg.error = None;
-            let updated = msg.clone();
+            updated.error = None;
+            inner.messages[index] = updated.clone();
             sort_messages(&mut inner.messages);
             updated
         };
@@ -365,6 +413,17 @@ impl DelayedSendQueue {
         error: Option<String>,
         skipped: bool,
     ) -> Result<Option<DelayedMessage>, String> {
+        self.finish_tick_at_sequence(id, now_ms, error, skipped, None)
+    }
+
+    pub fn finish_tick_at_sequence(
+        &self,
+        id: &str,
+        now_ms: u64,
+        error: Option<String>,
+        skipped: bool,
+        last_tick_send_sequence: Option<u64>,
+    ) -> Result<Option<DelayedMessage>, String> {
         let updated = {
             let mut inner = self.inner.lock();
             let Some(index) = inner.messages.iter().position(|msg| msg.id == id) else {
@@ -398,6 +457,9 @@ impl DelayedSendQueue {
                     msg.scheduled_at_ms = next_at;
                     msg.tick_index = next.tick_index;
                     msg.skipped_ticks = msg.skipped_ticks.saturating_add(next.skipped_ticks);
+                    if let Some(sequence) = last_tick_send_sequence {
+                        msg.last_tick_send_sequence = sequence;
+                    }
                     msg.state = DelayedMessageState::Queued;
                     msg.error = error.clone();
                     if let Some(error) = error.as_deref() {
@@ -443,6 +505,27 @@ impl DelayedSendQueue {
             };
             msg.state = DelayedMessageState::Failed;
             msg.error = Some(error);
+            msg.clone()
+        };
+        self.persist()?;
+        Ok(Some(updated))
+    }
+
+    pub fn stop_recurring_for_missing_target(
+        &self,
+        id: &str,
+    ) -> Result<Option<DelayedMessage>, String> {
+        let updated = {
+            let mut inner = self.inner.lock();
+            let Some(msg) = inner.messages.iter_mut().find(|msg| msg.id == id) else {
+                return Ok(None);
+            };
+            if msg.recurrence.is_none() {
+                return Ok(None);
+            }
+            msg.state = DelayedMessageState::Failed;
+            msg.error = Some("target tab no longer exists; recurring series stopped".into());
+            msg.last_tick_unconfirmed = false;
             msg.clone()
         };
         self.persist()?;
@@ -600,7 +683,8 @@ pub fn create_message(
         .get_tab(&team_source)
         .and_then(|tab| tab.team_id.clone());
     let creator = resolve_creator(svc, created_by_tab);
-    let msg = svc.delayed_send.enqueue_with_recurrence(
+    let last_tick_send_sequence = latest_ledger_sequence(svc, &resolved);
+    let msg = svc.delayed_send.enqueue_with_recurrence_at_sequence(
         resolved.clone(),
         workspace_id,
         session_id_at_create,
@@ -609,6 +693,7 @@ pub fn create_message(
         creator,
         recurrence,
         team_id,
+        last_tick_send_sequence,
     )?;
     emit_changed(svc, &resolved);
     Ok(to_view(svc, msg))
@@ -639,9 +724,22 @@ pub fn update_message(
     stash: Option<bool>,
     recurrence: Option<RecurrenceRule>,
 ) -> Result<DelayedMessageView, String> {
+    let last_tick_send_sequence = svc
+        .delayed_send
+        .list(None)
+        .iter()
+        .find(|message| message.id == id)
+        .map(|message| latest_ledger_sequence(svc, &message.tab_id));
     let msg = svc
         .delayed_send
-        .update_with_recurrence(&id, text, scheduled_at_ms, stash, recurrence)?;
+        .update_with_recurrence_at_sequence(
+            &id,
+            text,
+            scheduled_at_ms,
+            stash,
+            recurrence,
+            last_tick_send_sequence,
+        )?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -660,6 +758,30 @@ pub fn delete_team_series(
         emit_changed(svc, &msg.tab_id);
     }
     Ok(())
+}
+
+fn latest_ledger_sequence(svc: &ServiceState, tab_id: &str) -> u64 {
+    svc.chat_send_ledger
+        .reconcile(tab_id)
+        .iter()
+        .map(|send| send.sequence)
+        .max()
+        .unwrap_or_default()
+}
+
+fn has_unprocessed_send_after_tick(
+    sends: &[crate::service::chat_send_transaction::ChatSendStatus],
+    last_tick_send_sequence: u64,
+) -> bool {
+    sends.iter().any(|send| {
+        send.sequence > last_tick_send_sequence
+            && matches!(
+                send.state,
+                crate::service::chat_send_transaction::ChatSendState::Pending
+                    | crate::service::chat_send_transaction::ChatSendState::Unknown
+                    | crate::service::chat_send_transaction::ChatSendState::Failed
+            )
+    })
 }
 
 pub async fn send_message_now(svc: ServiceState, id: String) -> Result<(), String> {
@@ -683,8 +805,29 @@ pub fn start_scheduler(svc: ServiceState) {
             };
             for msg in due {
                 let tab_id = msg.tab_id.clone();
+                if msg.recurrence.is_some() && !target_tab_exists(&svc, &tab_id) {
+                    match svc
+                        .delayed_send
+                        .stop_recurring_for_missing_target(&msg.id)
+                    {
+                        Ok(Some(_)) => log::warn!(
+                            "[delayed_send] stopped recurring series id={} tab={}: target tab no longer exists",
+                            msg.id,
+                            tab_id
+                        ),
+                        Ok(None) => {}
+                        Err(error) => log::warn!(
+                            "[delayed_send] failed to stop recurring series id={}: {}",
+                            msg.id,
+                            error
+                        ),
+                    }
+                    emit_changed(&svc, &tab_id);
+                    continue;
+                }
                 if msg.recurrence.is_some() && target_has_unprocessed_tick(&svc, &msg) {
                     let now = now_ms();
+                    let last_tick_send_sequence = latest_ledger_sequence(&svc, &tab_id);
                     let skipped_total = msg
                         .recurrence
                         .as_ref()
@@ -700,7 +843,13 @@ pub fn start_scheduler(svc: ServiceState) {
                         })
                         .unwrap_or(1)
                         .saturating_add(msg.skipped_ticks);
-                    match svc.delayed_send.finish_tick(&msg.id, now, None, true) {
+                    match svc.delayed_send.finish_tick_at_sequence(
+                        &msg.id,
+                        now,
+                        None,
+                        true,
+                        Some(last_tick_send_sequence),
+                    ) {
                         Ok(_) => log::info!(
                             "[delayed_send] skipped recurring tick id={} tab={} skipped={}",
                             msg.id,
@@ -729,6 +878,7 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
     let tab_id = msg.tab_id.clone();
+    let last_tick_send_sequence = latest_ledger_sequence(svc, &tab_id);
     let body = svc
         .plan_store
         .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text);
@@ -748,30 +898,45 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     .and_then(|res| res);
     match result {
         Ok(_) => {
-            svc.delayed_send.finish_tick(&msg.id, now_ms(), None, false)?;
+            svc.delayed_send.finish_tick_at_sequence(
+                &msg.id,
+                now_ms(),
+                None,
+                false,
+                Some(last_tick_send_sequence),
+            )?;
             Ok(())
         }
         Err(e) => {
-            svc.delayed_send
-                .finish_tick(&msg.id, now_ms(), Some(e.clone()), false)?;
+            if msg.recurrence.is_some() && !target_tab_exists(svc, &tab_id) {
+                svc.delayed_send
+                    .stop_recurring_for_missing_target(&msg.id)?;
+                log::warn!(
+                    "[delayed_send] stopped recurring series id={} tab={}: target tab no longer exists",
+                    msg.id,
+                    tab_id
+                );
+            } else {
+                svc.delayed_send.finish_tick_at_sequence(
+                    &msg.id,
+                    now_ms(),
+                    Some(e.clone()),
+                    false,
+                    Some(last_tick_send_sequence),
+                )?;
+            }
             Err(e)
         }
     }
 }
 
+fn target_tab_exists(svc: &ServiceState, tab_id: &str) -> bool {
+    svc.mux.read().get_tab(tab_id).is_some()
+}
+
 fn target_has_unprocessed_tick(svc: &ServiceState, msg: &DelayedMessage) -> bool {
-    let unresolved_send = svc
-        .chat_send_ledger
-        .reconcile(&msg.tab_id)
-        .iter()
-        .any(|send| {
-            matches!(
-                send.state,
-                crate::service::chat_send_transaction::ChatSendState::Pending
-                    | crate::service::chat_send_transaction::ChatSendState::Unknown
-                    | crate::service::chat_send_transaction::ChatSendState::Failed
-            )
-        });
+    let sends = svc.chat_send_ledger.reconcile(&msg.tab_id);
+    let unresolved_send = has_unprocessed_send_after_tick(&sends, msg.last_tick_send_sequence);
     let (pty_id, pending_delivery) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(&msg.tab_id) else {
@@ -857,7 +1022,7 @@ fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
     }
 }
 
-fn emit_changed(svc: &ServiceState, tab_id: &str) {
+fn emit_changed(svc: &crate::service::ServiceContext, tab_id: &str) {
     crate::api::events::emit_everywhere(
         &svc.app_handle,
         "delayed-send-changed",

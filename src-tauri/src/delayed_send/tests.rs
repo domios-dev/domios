@@ -27,6 +27,7 @@
             skipped_ticks: 0,
             team_id: None,
             last_tick_unconfirmed: false,
+            last_tick_send_sequence: 0,
         };
         let envelope = reminder_envelope(&msg);
         assert_eq!(
@@ -66,7 +67,7 @@
     fn recurring_series_survives_queue_reload() {
         let (dir, queue) = queue();
         let msg = queue
-            .enqueue_with_recurrence(
+            .enqueue_with_recurrence_at_sequence(
                 "tab-a".into(),
                 Some("ws".into()),
                 Some("sid-1".into()),
@@ -79,9 +80,12 @@
                     count: Some(3),
                 }),
                 Some("team-a".into()),
+                4,
             )
             .unwrap();
-        queue.finish_tick(&msg.id, 100_000, None, true).unwrap();
+        queue
+            .finish_tick_at_sequence(&msg.id, 100_000, None, true, Some(7))
+            .unwrap();
         drop(queue);
 
         let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
@@ -92,6 +96,7 @@
         assert_eq!(restored.tick_index, 1);
         assert_eq!(restored.skipped_ticks, 1);
         assert_eq!(restored.team_id.as_deref(), Some("team-a"));
+        assert_eq!(restored.last_tick_send_sequence, 0);
     }
 
     #[test]
@@ -120,6 +125,95 @@
         assert_eq!(next.scheduled_at_ms, 160_000);
         assert_eq!(next.skipped_ticks, 1);
         assert!(queue.claim_due(159_999).unwrap().is_empty());
+    }
+
+    #[test]
+    fn old_failed_send_does_not_suppress_recurring_ticks() {
+        let ledger = crate::service::chat_send_transaction::ChatSendLedger::default();
+        let old = ledger.try_start("tab", "old failure", None).unwrap();
+        let old = ledger
+            .finish(&old.send_id, Err("old failed send".into()))
+            .unwrap();
+        assert_eq!(old.state, crate::service::chat_send_transaction::ChatSendState::Failed);
+        assert!(!has_unprocessed_send_after_tick(
+            &ledger.reconcile("tab"),
+            old.sequence
+        ));
+
+        let current = ledger.try_start("tab", "current failure", None).unwrap();
+        let current = ledger
+            .finish(&current.send_id, Err("current failed send".into()))
+            .unwrap();
+        let history = ledger.reconcile("tab");
+        assert!(has_unprocessed_send_after_tick(&history, old.sequence));
+        assert!(!has_unprocessed_send_after_tick(&history, current.sequence));
+    }
+
+    #[test]
+    fn invalid_recurrence_edit_is_atomic_and_schedule_edits_recheck_until() {
+        let (_dir, queue) = queue();
+        let rule = RecurrenceRule {
+            every_ms: 60_000,
+            until_ms: Some(160_000),
+            count: None,
+        };
+        let msg = queue
+            .enqueue_with_recurrence(
+                "tab".into(),
+                None,
+                None,
+                "original".into(),
+                Some(100_000),
+                ReminderCreator::default(),
+                Some(rule),
+                None,
+            )
+            .unwrap();
+
+        assert!(queue
+            .update_with_recurrence(&msg.id, Some("mutated".into()), Some(200_000), None, None)
+            .is_err());
+        let unchanged = queue.list(Some("tab")).pop().unwrap();
+        assert_eq!(unchanged.text, "original");
+        assert_eq!(unchanged.scheduled_at_ms, 100_000);
+        assert_eq!(unchanged.recurrence.as_ref().unwrap().until_ms, Some(160_000));
+        assert!(queue
+            .update_with_recurrence(&msg.id, None, Some(170_000), None, None)
+            .is_err());
+    }
+
+    #[test]
+    fn missing_target_stops_series_and_records_reason() {
+        let (_dir, queue) = queue();
+        let msg = queue
+            .enqueue_with_recurrence(
+                "closed-tab".into(),
+                None,
+                None,
+                "tick".into(),
+                Some(100_000),
+                ReminderCreator::default(),
+                Some(RecurrenceRule {
+                    every_ms: 60_000,
+                    until_ms: None,
+                    count: None,
+                }),
+                None,
+            )
+            .unwrap();
+        queue.claim_due(100_000).unwrap();
+
+        let stopped = queue
+            .stop_recurring_for_missing_target(&msg.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stopped.state, DelayedMessageState::Failed);
+        assert_eq!(
+            stopped.error.as_deref(),
+            Some("target tab no longer exists; recurring series stopped")
+        );
+        assert!(stopped.recurrence.is_some());
+        assert!(queue.claim_due(u64::MAX).unwrap().is_empty());
     }
 
     #[test]
@@ -380,4 +474,5 @@
         assert_eq!(old.series_start_at_ms, None);
         assert_eq!(old.skipped_ticks, 0);
         assert_eq!(old.team_id, None);
+        assert_eq!(old.last_tick_send_sequence, 0);
     }

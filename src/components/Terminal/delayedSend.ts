@@ -43,7 +43,6 @@ export function createDelayedMessage(
     tabId,
     text,
     scheduledAtMs: scheduledAtMs ?? undefined,
-    createdByTab: tabId,
     recurrence,
   });
 }
@@ -121,9 +120,26 @@ export interface QuickPreset {
   resolve: (nowMs: number) => number;
 }
 
+function atHour(nowMs: number, hour: number, dayOffset: number): number {
+  const date = new Date(nowMs);
+  date.setDate(date.getDate() + dayOffset);
+  date.setHours(hour, 0, 0, 0);
+  return date.getTime();
+}
+
 export const QUICK_PRESETS: QuickPreset[] = [
   { label: "5m", resolve: (now) => now + 5 * 60_000 },
   { label: "10m", resolve: (now) => now + 10 * 60_000 },
+  { label: "15m", resolve: (now) => now + 15 * 60_000 },
   { label: "30m", resolve: (now) => now + 30 * 60_000 },
   { label: "1h", resolve: (now) => now + 60 * 60_000 },
+  { label: "3h", resolve: (now) => now + 3 * 60 * 60_000 },
+  {
+    label: "Tonight",
+    resolve: (now) => {
+      const at = atHour(now, 20, 0);
+      return at > now ? at : atHour(now, 20, 1);
+    },
+  },
+  { label: "Tomorrow", resolve: (now) => atHour(now, 9, 1) },
 ];
