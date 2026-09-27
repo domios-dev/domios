@@ -21,7 +21,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
 
 function visibleNumberedChoices(screen: string): [string, string][] {
   return screen
-    .split(/\r?\n/)
+    .split(/\r*\n/)
     .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/.exec(line))
     .filter((match): match is RegExpExecArray => match !== null)
     .map((match): [string, string] => [match[2], match[1]]);

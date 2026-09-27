@@ -271,13 +271,13 @@ const plugin: PluginModule = {
           + "$ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
           + "$ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
           + "$ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; "
-          + "if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; "
+          + "if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; "
           + "if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); "
           + "$ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; "
           + "if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; "
           + "if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
           + "Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; "
-          + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); "
+          + "[System.IO.File]::WriteAllText($ctProfilePath, ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson), [System.Text.UTF8Encoding]::new($false)); "
           + "$ctProfileReleased = $false; try { try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");
