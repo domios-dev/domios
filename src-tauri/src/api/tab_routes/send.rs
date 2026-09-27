@@ -43,11 +43,10 @@ pub async fn chat_send_text(
     .await
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
     .map_err(|detail| {
-        DeliveryError::TabBusyRefused {
+        SendRejection::from(DeliveryError::TabBusyRefused {
             tab: tab_id,
             detail,
-        }
-        .into()
+        })
     })?;
     Ok(Json(crate::service::agent_pad::ChatSendResult::new(
         status, pad_file,
@@ -675,7 +674,7 @@ pub async fn send_text(
                 });
             } else {
                 items.push(crate::service::pty_io::SendBatchItem {
-                    text: prepend(&stage(text)),
+                    text: prepend(&text),
                     delay_ms: chunk.delay_ms,
                 });
             }

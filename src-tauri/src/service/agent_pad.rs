@@ -139,13 +139,16 @@ impl AgentPad {
         let pad = self.clone();
         let body = body.to_vec();
         let write = move || pad.write_inbox_body_inner(&body);
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => tokio::task::block_in_place(|| {
+        match tokio::runtime::Handle::try_current()
+            .ok()
+            .filter(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
+        {
+            Some(handle) => tokio::task::block_in_place(|| {
                 handle
                     .block_on(tokio::task::spawn_blocking(write))
                     .map_err(|e| format!("AgentPad inbox writer failed: {e}"))?
             }),
-            Err(_) => write(),
+            None => write(),
         }
     }
 
@@ -166,7 +169,8 @@ impl AgentPad {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| format!("read AgentPad inbox clock: {e}"))?;
-        let path = inbox.join(format!("{}-{}.md", now.as_millis(), uuid::Uuid::new_v4()));
+        let name = format!("{}-{}.md", now.as_millis(), uuid::Uuid::new_v4());
+        let path = inbox.join(&name);
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -174,7 +178,8 @@ impl AgentPad {
             .map_err(|e| format!("create AgentPad inbox body: {e}"))?;
         file.write_all(body)
             .map_err(|e| format!("write AgentPad inbox body: {e}"))?;
-        Ok(path)
+        // canonicalize() adds a Windows \?\ prefix that agent file tools mishandle.
+        Ok(self.path.join("inbox").join(name))
     }
 
     pub fn env_value(&self) -> String {
