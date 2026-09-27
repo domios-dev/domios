@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Orchestrator-creation test matrix (routes B-H) — task_1800fa9977ea418094bb4ab291b2e3f2.
-#
-# Every orchestrator-creation route, executable: exact command + observable
-# pass condition. DEV-LOCKED via evals/_lib/lib.sh `dc` wrapper (a bare
-# `codeterm` here would hit prod 7685 — forbidden). Route I (in-place picker
-# UI) is the Playwright suite's job, not this bash matrix.
+# WHAT: exercise orchestrator-creation routes B-H against the dev CLI and API.
+# WHY: catch current CLI and pairing contract drift without mutating prod.
+# ORACLE: each row checks CLI/error output and observable Tab, Plan, or chat state.
+# Task: task_1800fa9977ea418094bb4ab291b2e3f2. All CLI calls use the `dc` wrapper.
+# Route I (in-place picker UI) is covered by the Playwright suite, not this matrix.
 #
 # Verdicts:
 #   PASS     observable pass condition met on dev.
@@ -318,6 +317,8 @@ wait_for_chat_start_has() {
     [ "$found" -eq 0 ] && return 0
     [ -n "${FAILURE_ERROR_BODY:-}" ] && return 1
     (( SECONDS >= deadline )) && break
+    # The next chat snapshot, not elapsed time, decides whether the condition holds.
+    sleep 1
   done
   return 1
 }
@@ -331,6 +332,8 @@ wait_for_chat_transcript_has() {
       if tab_chat_has "$tab" "$needle"; then return 0; fi
     done
     (( SECONDS >= deadline )) && break
+    # The next transcript read, not elapsed time, decides whether the condition holds.
+    sleep 1
   done
   return 1
 }
@@ -425,6 +428,8 @@ $CHAT_RAW_JSON}"
       fail B.idle "fresh Planner acted before a goal: tool_calls=${tool_count:-?} file_reads=${file_read_count:-?}"
       return
     fi
+    # This one-second sample cadence observes the explicit 60s idle interval.
+    sleep 1
   done
   plan_count_now=$(plan_count)
   if [ -n "$plan_count_now" ] && [ "$plan_count_now" = "$SCENARIO_B_PLAN_COUNT" ] && [ -z "$SCENARIO_B_PLAN" ]; then

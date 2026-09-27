@@ -488,6 +488,7 @@ pub async fn create_orchestration_pair(
     Json(body): Json<crate::service::OrchestrationPairParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let body = pair_params_from_headers(&headers, body);
     let result = state
         .svc
         .create_orchestration_pair(body)
@@ -496,6 +497,14 @@ pub async fn create_orchestration_pair(
     Ok(Json(serde_json::to_value(result).map_err(|e| {
         (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
     })?))
+}
+
+fn pair_params_from_headers(
+    headers: &HeaderMap,
+    mut params: crate::service::OrchestrationPairParams,
+) -> crate::service::OrchestrationPairParams {
+    params.spawned_by_tab_id = crate::api::tab_routes::caller_tab_header(headers);
+    params
 }
 
 #[derive(Deserialize)]

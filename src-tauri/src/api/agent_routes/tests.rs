@@ -1,5 +1,79 @@
 use super::*;
 
+// WHAT: REST pair calls use the tab identity carried by the authenticated client context.
+// WHY: A body-supplied or omitted caller must not bypass the pair hierarchy guard.
+// ORACLE: the service params contain the header tab, and never a body-only tab id.
+#[test]
+fn orchestration_pair_rest_uses_tab_header_for_hierarchy_context() {
+    let mut headers = HeaderMap::new();
+    headers.insert("X-CodeTerm-Tab-Id", "worker-tab".parse().unwrap());
+    let params = crate::service::OrchestrationPairParams {
+        spawned_by_tab_id: Some("forged-root-tab".into()),
+        ..Default::default()
+    };
+
+    let params = pair_params_from_headers(&headers, params);
+
+    assert_eq!(params.spawned_by_tab_id.as_deref(), Some("worker-tab"));
+}
+
+// WHAT: REST pair calls without caller context remain caller-less.
+// WHY: The body is not an authority source for hierarchy identity.
+// ORACLE: a body-only spawned_by_tab_id is discarded when the header is absent.
+#[test]
+fn orchestration_pair_rest_discards_body_only_hierarchy_context() {
+    let params = crate::service::OrchestrationPairParams {
+        spawned_by_tab_id: Some("forged-worker-tab".into()),
+        ..Default::default()
+    };
+
+    let params = pair_params_from_headers(&HeaderMap::new(), params);
+
+    assert!(params.spawned_by_tab_id.is_none());
+}
+
+// WHAT: an HTTP pair request carries the authenticated Worker tab into service validation.
+// WHY: REST must enforce the same Team-leaf rule as the local CLI path.
+// ORACLE: the request returns the leaf acknowledgement error and creates no pair state.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let worker = mux.get_tab_mut(&worker_tab_id).unwrap();
+    worker.role = Some(AgentRole::Worker);
+    worker.agent_type = Some("provider".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+    let mut headers = HeaderMap::new();
+    headers.insert("X-CodeTerm-Tab-Id", worker_tab_id.parse().unwrap());
+    let params = pair_params_from_headers(
+        &headers,
+        crate::service::OrchestrationPairParams {
+            orchestrator_agent: "unknown-orchestrator".into(),
+            planner_agent: "unknown-planner".into(),
+            workspace_id: Some(workspace_id),
+            ..Default::default()
+        },
+    );
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(fixture.service.create_orchestration_pair(params))
+        .expect_err("the HTTP caller is a Worker Team leaf");
+
+    assert!(error.contains("--acknowledge-leaf"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
 #[test]
 fn spawn_body_minimal() {
     let body: SpawnAgentBody = serde_json::from_str(r#"{"agent":"claude"}"#).unwrap();
