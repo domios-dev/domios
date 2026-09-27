@@ -124,7 +124,7 @@ pub fn start(svc: ServiceState) {
 /// scoped, never held across the provider call or a thread spawn.
 fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     // mux (1): resolve the tab's OWN identity + provider + session/cwd.
-    let (tab_id, agent_type, session_id, cwd, auto_approve) = {
+    let (tab_id, agent_type, session_id, cwd, auto_approve, permission_auto_confirm) = {
         let mux = svc.mux.read();
         let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
             return;
@@ -141,6 +141,7 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
             tab.agent_session_id.clone(),
             tab.cwd.clone(),
             tab.auto_approve,
+            tab.permission_auto_confirm,
         )
     };
 
@@ -178,6 +179,7 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
                 &snapshot.screen_text,
                 classification.as_ref(),
                 auto_approve,
+                permission_auto_confirm,
             ) {
                 execute_action(svc, &tab_id, action);
             }
@@ -192,29 +194,31 @@ fn route_classified_prompt(
     screen: &str,
     classification: Option<&TabStateClassification>,
     auto_approve: bool,
+    permission_auto_confirm: bool,
 ) -> bool {
     if !classification.is_some_and(|value| value.state == TabState::ClarifyingQuestion) {
         return false;
     }
-    let prompt = svc
-        .agent_registry
-        .with_provider(agent_type, |provider| provider.parse_prompt(screen))
-        .flatten();
-    let Some(prompt) = prompt else {
+    let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+        svc.agent_registry.parse_interactive_prompt(agent_type, screen)
+    });
+    let Some((prompt, prompt_kind)) = parsed else {
         let surface = classification
             .and_then(|value| value.action.as_ref())
             .and_then(|action| action.surface.clone());
         surface_to_user(svc, tab_id, surface);
         return true;
     };
-    if auto_approve {
-        let directory_trust_prompt = svc
-            .agent_registry
-            .with_provider(agent_type, |provider| {
-                provider.directory_trust_prompt_response(screen)
-            })
-            .flatten()
-            .is_some();
+    if auto_approve || permission_auto_confirm {
+        let directory_trust_prompt = prompt_kind
+            == codeterm_types::pty::PromptKind::DirectoryTrust
+            || svc
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.directory_trust_prompt_response(screen)
+                })
+                .flatten()
+                .is_some();
         if !directory_trust_prompt {
             return true;
         }
@@ -228,7 +232,7 @@ fn route_classified_prompt(
             explicit: false,
         }),
     );
-    svc.apply_prompt_decision_with_screen(&decision, Some(screen), true, true);
+    svc.apply_prompt_decision_with_kind(&decision, Some(screen), prompt_kind, true);
     true
 }
 

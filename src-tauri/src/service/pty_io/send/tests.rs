@@ -360,6 +360,7 @@ fn inferred_question_and_prompt_never_block_ready_agent_input() {
         submit_available: None,
         selected_values: None,
     });
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
 
     assert_eq!(public_agent_input_readiness(tab), Some(Ok(())));
 }

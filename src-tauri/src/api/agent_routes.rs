@@ -953,6 +953,10 @@ pub(crate) fn respond_prompt_response(
         | crate::service::tab::RespondPromptOutcome::Structured => {
             (StatusCode::OK, serde_json::json!({"ok": true}))
         }
+        crate::service::tab::RespondPromptOutcome::StalePrompt => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "stale_prompt"}),
+        ),
         crate::service::tab::RespondPromptOutcome::PromptNotOnScreen => (
             StatusCode::CONFLICT,
             serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}),

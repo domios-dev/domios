@@ -628,6 +628,7 @@ fn install_leaf(
             title_level: restored_level,
             chat_view: chat_view.unwrap_or(false),
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
             auto_approve: false,
             permission_auto_confirm: *permission_auto_confirm,

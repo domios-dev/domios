@@ -164,7 +164,19 @@ export function parseMenuOptions(screen: string): MenuOption[] {
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
     if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
+    const indent = leadingIndent(lines[i]);
+    const wrapped: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
+      if (leadingIndent(lines[j]) <= indent) break;
+      wrapped.push(lines[j].trim());
+    }
+    options.push({
+      highlighted: !!m[1],
+      label: [m[3].trim(), ...wrapped].join(" "),
+      value: m[2],
+      line: i,
+    });
   }
   return options;
 }
@@ -220,12 +232,17 @@ function parseCodexNumberedMenu(screen: string): PromptShape | null {
 }
 
 function activeMenuOptions(screen: string): MenuOption[] {
+  const lines = normalizeLines(screen);
   const all = parseMenuOptions(screen);
   if (all.length < 2) return [];
   const cluster: MenuOption[] = [];
   let prev = all[all.length - 1].line;
   for (let i = all.length - 1; i >= 0; i--) {
-    if (prev - all[i].line <= 2 || cluster.length === 0) {
+    const between = lines.slice(all[i].line + 1, prev);
+    const wrapsPreviousOption = between.every((line) =>
+      line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line]),
+    );
+    if (wrapsPreviousOption || cluster.length === 0) {
       cluster.unshift(all[i]);
       prev = all[i].line;
     } else {
@@ -248,13 +265,24 @@ function promptFooterNear(lines: string[], lastLine: number): boolean {
   return false;
 }
 
+function isPromptFooter(line: string): boolean {
+  const text = line.toLowerCase();
+  return isActiveChoiceEnterFooter(text)
+    || ((text.includes("esc") || text.includes("enter")) &&
+      (text.includes("confirm") || text.includes("cancel") || text.includes("continue")));
+}
+
+function leadingIndent(line: string): number {
+  return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+
 function isActiveChoiceEnterFooter(line: string): boolean {
   return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line)
     || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
 }
 
 function questionForMenu(lines: string[], firstLine: number): string {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
     const t = lines[i].trim();
     if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
   }

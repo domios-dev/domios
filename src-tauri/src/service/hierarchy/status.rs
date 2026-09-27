@@ -83,6 +83,8 @@ mod tests {
             submit_available: Some(false),
             selected_values: None,
         });
+        mux.get_tab_mut(&tab_id).unwrap().pending_prompt_kind =
+            Some(codeterm_types::pty::PromptKind::Provider);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
         let status = fixture.service.get_tab_status(&tab_id).unwrap();

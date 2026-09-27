@@ -636,8 +636,10 @@ impl ServiceContext {
             .mux
             .write()
             .get_tab_mut(tab_id)
-            .and_then(|tab| tab.pending_prompt.take())
-            .is_some();
+            .is_some_and(|tab| {
+                tab.pending_prompt_kind = None;
+                tab.pending_prompt.take().is_some()
+            });
         if retracted {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
@@ -652,6 +654,7 @@ impl ServiceContext {
         let surfaced = match self.mux.write().get_tab_mut(tab_id) {
             Some(tab) => {
                 tab.pending_prompt = Some(prompt.clone());
+                tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
                 true
             }
             None => false,

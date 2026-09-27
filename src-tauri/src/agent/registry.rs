@@ -286,6 +286,26 @@ impl AgentRegistry {
         guard.get(agent_type).and_then(|p| p.parse_prompt(text))
     }
 
+    pub fn parse_interactive_prompt(
+        &self,
+        agent_type: &str,
+        text: &str,
+    ) -> Option<(
+        crate::multiplexer::types::PendingPrompt,
+        codeterm_types::pty::PromptKind,
+    )> {
+        let guard = self.providers.read();
+        let provider = guard.get(agent_type)?;
+        provider
+            .parse_directory_trust_prompt(text)
+            .map(|prompt| (prompt, codeterm_types::pty::PromptKind::DirectoryTrust))
+            .or_else(|| {
+                provider
+                    .parse_prompt(text)
+                    .map(|prompt| (prompt, codeterm_types::pty::PromptKind::Provider))
+            })
+    }
+
     pub fn is_output_noise(&self, agent_type: &str, text: &str) -> bool {
         let guard = self.providers.read();
         guard
