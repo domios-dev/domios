@@ -13,6 +13,14 @@ const NO_TAB_IDENTITY: &str =
      There is no focused-tab fallback: a caller that cannot prove which tab it is \
      refuses rather than acting on another tab's behalf";
 
+fn workspace_close_params(workspace_id: &str, force: bool) -> serde_json::Value {
+    serde_json::json!({
+        "workspace_id": workspace_id,
+        "force": force,
+        "confirm": workspace_id,
+    })
+}
+
 pub(crate) fn workspace_create_cwd_hint() -> String {
     "hint: no --cwd — agents in this workspace inherit the daemon working directory; pass --cwd <project dir> for project work".to_string()
 }
@@ -199,7 +207,7 @@ pub(crate) fn handle_workspace_action(
             Some(serde_json::json!({ "workspace_id": id, "name": name })),
         )),
         WorkspaceAction::Close { id, force } => {
-            let mut params = serde_json::json!({ "workspace_id": id, "force": force });
+            let mut params = workspace_close_params(&id, force);
             crate::cmd::plan::caller_context::CallerContext::from_env()
                 .apply_caller_tab(&mut params);
             Some(client.call("workspace.close", Some(params)))
@@ -499,6 +507,18 @@ mod tests {
     fn caller_tab_identity_is_absent_when_no_rung_proves_it() {
         assert_eq!(caller_tab_identity(None, None), None);
         assert_eq!(caller_tab_identity(Some(" "), Some("")), None);
+    }
+
+    #[test]
+    fn workspace_close_params_echo_the_target_without_changing_force_semantics() {
+        assert_eq!(
+            workspace_close_params("workspace-1", false),
+            serde_json::json!({
+                "workspace_id": "workspace-1",
+                "force": false,
+                "confirm": "workspace-1",
+            })
+        );
     }
 
     #[test]

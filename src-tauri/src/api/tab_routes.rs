@@ -626,10 +626,13 @@ pub(crate) fn authenticated_plan_caller(
 pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
     let status = if e.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX)
         || e.starts_with(crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX)
+        || e.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX)
         || e.starts_with("Cannot close protected workspace")
     {
         StatusCode::FORBIDDEN
-    } else if e.starts_with("Workspace not found:") {
+    } else if e.starts_with("Workspace not found:")
+        || (e.starts_with("Team ") && e.contains(" not found"))
+    {
         StatusCode::NOT_FOUND
     } else if e.starts_with("Workspace is closing:")
         || e.starts_with("Workspace close reservation lost:")

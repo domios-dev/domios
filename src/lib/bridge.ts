@@ -212,7 +212,10 @@ const HTTP_MAP: Record<string, Mapper> = {
       activate: a.activate,
     }),
   mux_close_workspace: (a) =>
-    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/close`),
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/close`, {
+      force: a.force === true,
+      confirm: s(a, "workspaceId"),
+    }),
   mux_rename_workspace: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
       name: a.name,
@@ -228,7 +231,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJsonWithCallerTab(
       "POST",
       `/api/teams/${enc(s(a, "teamId"))}/close`,
-      {},
+      { force: true, confirm: s(a, "teamId") },
       a.callerTabId,
     ),
   mux_add_team_member: (a) =>
