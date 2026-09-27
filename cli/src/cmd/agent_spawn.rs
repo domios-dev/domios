@@ -209,7 +209,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             .filter(|reason| !reason.is_empty());
         if !matches!(role.as_ref(), Some(SpawnRole::Worker))
             || reason.is_none()
-            || execution_intent.as_deref().is_some_and(|intent| intent != MUTATING)
+            || execution_intent
+                .as_deref()
+                .is_some_and(|intent| intent != MUTATING)
             || bound_task.is_some()
             || plan_task.is_some()
             || team.is_some()
@@ -275,7 +277,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         add_team_orchestrator(
             client,
             json,
-            &agent,
+            agent.as_deref().unwrap_or("claude"),
             team_id,
             crate::cmd::agent::join_cli_words(title),
             task,
