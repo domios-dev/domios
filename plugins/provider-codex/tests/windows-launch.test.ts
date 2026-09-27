@@ -27,6 +27,7 @@ if (process.platform !== "win32") {
     };
     vm.runInNewContext(fs.readFileSync("plugins/provider-codex/plugin.js", "utf8"), context);
     const command = context.module.exports.default.buildLaunchCommand({ task: token, silent: true, instanceId: "instance-launch-test" });
+    assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
     const script = `$ErrorActionPreference = 'Stop'
 $env:USERPROFILE = ${quote(root)}
 $env:CODETERM_TAB_ID = 'owned-launch-fixture'
