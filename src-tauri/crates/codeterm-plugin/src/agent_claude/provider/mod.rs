@@ -29,7 +29,8 @@ use std::time::Duration;
 use crate::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
     SessionIdInjection, SessionMessage, SessionMetadata, SettingField, StarterPrompt,
-    SystemPromptDelivery, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
+    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
+    VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -140,6 +141,14 @@ impl AgentProvider for ClaudeProvider {
             // ingesting, which leaves the text sitting unsent.
             initial_key_delay: Duration::from_millis(100),
             retry_offsets: crate::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
+        }
+    }
+
+    fn turn_evidence_normalization(&self) -> TurnEvidenceNormalization {
+        TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
         }
     }
 
