@@ -341,8 +341,8 @@ console.log("\n--- discoverModels ---\n");
   );
   eq(
     p.buildResumeCommand("sess 2"),
-    "opencode --session Q(windows:sess 2)",
-    "buildResumeCommand quotes --session with quoteFor(platform)",
+    "opencode --mini --session Q(windows:sess 2)",
+    "buildResumeCommand selects direct interactive mode for session resume",
   );
   eq(
     p.buildLaunchCommand({ skipPermissions: true }),
@@ -351,12 +351,12 @@ console.log("\n--- discoverModels ---\n");
   );
   eq(
     p.buildResumeCommand("sess 2", true),
-    "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
+    "opencode --mini --session Q(windows:sess 2) --dangerously-skip-permissions",
     "buildResumeCommand applies the centralized full-access policy",
   );
 }
 
-console.log("\n--- restored TUI command keeps its session model and supported options ---\n");
+console.log("\n--- restored direct-mode command keeps the saved project, session, and model ---\n");
 {
   const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
   const savedSession = "ses_saved";
@@ -366,8 +366,15 @@ console.log("\n--- restored TUI command keeps its session model and supported op
     envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
     fs: {
       fileExists: (candidate: string) => candidate === dbPath,
+      writeTempFile: () => "C:\\Temp\\restored-context.md",
       sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
         queries.push({ sql, params });
+        if (sql.startsWith("SELECT id, directory FROM session") && params[0] === savedSession) {
+          return [
+            { id: "ses_sibling", directory: "D:/other/project" },
+            { id: savedSession, directory: "D:/Developer/codeterm-livetest" },
+          ];
+        }
         if (sql.startsWith("SELECT data FROM message") && params[0] === savedSession) {
           return [{ data: JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "big-pickle" }) }];
         }
@@ -384,16 +391,34 @@ console.log("\n--- restored TUI command keeps its session model and supported op
       sessionId: savedSession,
       args: ["-m", "big-pickle", "--variant", "high"],
     }),
-    "opencode --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
-    "resume uses the exact session's qualified model and omits the unsupported TUI variant flag",
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --mini --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
+    "resume selects the saved project and exact session through direct interactive mode",
   );
   eq(
     queries,
-    [{
-      sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      params: [savedSession],
-    }],
-    "resume model lookup is scoped to the tab's saved session id",
+    [
+      {
+        sql: "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+        params: [savedSession],
+      },
+      {
+        sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+        params: [savedSession],
+      },
+    ],
+    "resume project and model lookups are scoped to the tab's saved session id",
+  );
+  const configured = p.buildResumeCommandWithContext({
+    sessionId: savedSession,
+    systemPrompt: "opaque-context-fragment",
+  });
+  assert(
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest); New-Item"),
+    "resume stages session configuration in the saved project directory",
+  );
+  assert(
+    configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --mini --session Q(windows:ses_saved)"),
+    "session-config wrapper preserves the explicit interactive resume argv",
   );
 }
 

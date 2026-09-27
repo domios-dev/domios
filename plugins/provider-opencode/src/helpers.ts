@@ -786,3 +786,19 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
   }
   return null;
 }
+
+export function scanSessionDirectory(db: string, sessionId: string): string | null {
+  try {
+    const rows = host.fs.sqliteQuery<{ id?: string; directory?: string }>(
+      db,
+      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId],
+    );
+    const session = rows.find((row) => row.id === sessionId);
+    return typeof session?.directory === "string" && session.directory.trim()
+      ? session.directory
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
