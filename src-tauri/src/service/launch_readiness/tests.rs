@@ -751,7 +751,9 @@ fn failed_automatic_recovery_notifies_with_restart_command() {
         Some("ShellReadyTimeout"),
     );
 
-    let notifications = fixture.service.notif.lock().list(false);
+    let notif_guard = fixture.service.notif.lock();
+
+    let notifications = notif_guard.list(false);
     assert_eq!(notifications.len(), 1);
     assert!(notifications[0]
         .body
@@ -1126,7 +1128,9 @@ fn post_readiness_shell_exit_notifies_with_restart_command() {
         b"\x1b]633;E;;shell-nonce\x07\x1b]633;D;3\x07",
     );
 
-    let notifications = harness.service.notif.lock().list(false);
+    let notif_guard = harness.service.notif.lock();
+
+    let notifications = notif_guard.list(false);
     assert_eq!(notifications.len(), 1);
     assert!(notifications[0]
         .body

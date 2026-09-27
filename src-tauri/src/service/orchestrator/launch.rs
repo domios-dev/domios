@@ -22,6 +22,9 @@ mod command;
 mod exit_recovery_shell_tests;
 #[path = "launch/failure.rs"]
 mod failure;
+#[path = "launch/exit_recovery_shell.rs"]
+mod exit_recovery_shell;
+use exit_recovery_shell::exited_provider_recovery_has_shell_ready_evidence;
 #[path = "launch/generation.rs"]
 mod generation;
 mod public_send;
@@ -248,23 +251,6 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .get_session(&pty_id)
         .is_some()
         .then_some(pty_id)
-}
-
-fn exited_provider_recovery_has_shell_ready_evidence(
-    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
-    reused_live_pty: bool,
-    prompt_idle_after_command: impl FnOnce() -> bool,
-) -> bool {
-    if !reused_live_pty {
-        return false;
-    }
-    match origin {
-        crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery => true,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery => {
-            prompt_idle_after_command()
-        }
-        _ => false,
-    }
 }
 
 fn start_backend_reader(
