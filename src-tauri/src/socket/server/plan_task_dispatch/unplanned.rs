@@ -10,19 +10,15 @@ use super::{
     startup_wait_is_recoverable,
 };
 
-pub(super) fn dispatch_unplanned(
+pub(crate) fn dispatch_unplanned(
     params: &Option<Value>,
     app: &AppHandle,
     svc: &ServiceState,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
-    dispatch_unplanned_with_spawn(
-        params,
-        app,
-        svc,
-        now,
-        |svc, spawn_params, ready_tx| svc.spawn_agent_sync_with_ready(spawn_params, ready_tx),
-    )
+    dispatch_unplanned_with_spawn(params, app, svc, now, |svc, spawn_params, ready_tx| {
+        svc.spawn_agent_sync_with_ready(spawn_params, ready_tx)
+    })
 }
 
 pub(super) fn dispatch_unplanned_with_spawn<S>(
@@ -45,11 +41,14 @@ where
         .filter(|reason| !reason.is_empty())
         .ok_or_else(|| invalid_dispatch("--unplanned requires a non-empty --reason"))?;
     if p.is_some_and(|params| {
-        params.get("canonical_writer").and_then(Value::as_bool) == Some(true)
+        params
+            .get("placement")
+            .is_some_and(|placement| !placement.is_null() && placement != "isolated_lane")
+            || params.get("canonical_writer").is_some()
             || params.get("authorized_gates").is_some()
     }) {
         return Err(invalid_dispatch(
-            "unplanned Worker dispatch cannot set canonical_writer or authorized_gates",
+            "unplanned Worker dispatch always uses an isolated lane: placement, canonical_writer and authorized_gates are refused",
         ));
     }
     let plan_id = super::super::plan_refs::resolve_plan(&svc.plan_store, params).map_err(|_| {
