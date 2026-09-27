@@ -45,7 +45,7 @@ def request_json(path, method="GET", body=None):
 
 def chat_snapshot(initial):
     encoded_tab = quote(TAB_ID, safe="")
-    if initial and (MODE.startswith("chat_start") or MODE == "idle"):
+    if initial and MODE == "idle":
         return request_json(
             f"/api/tabs/{encoded_tab}/chat-raw/start",
             method="POST",
@@ -111,8 +111,6 @@ def inspect_snapshot(initial=False):
                 f"snapshot={serialized}"
             )
         return False
-    if MODE == "chat_start_all":
-        return all(needle in serialized for needle in NEEDLES)
     return any(needle in serialized for needle in NEEDLES)
 
 

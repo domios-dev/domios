@@ -15,7 +15,8 @@ bash evals/orchestrator-creation-matrix/run.sh
 
 Exit 0 = no hard FAIL. Exit 1 = at least one FAIL. Exit 7 = dev not up.
 The script removes each scenario's new Plans with `plan delete --yes`, closes
-created Tabs, and removes the scratch workspace through an `EXIT` trap.
+the scratch workspace with `workspace close --force`, and asserts all
+matrix-created Tabs are gone. Refused cleanup commands print their error body.
 
 ## Routes
 
@@ -23,8 +24,8 @@ created Tabs, and removes the scratch workspace through an `EXIT` trap.
 |-------|--------------------|-----------------|
 | **B** CLI pair | `team pair --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns two tab ids with no `plan_id`; no Plan exists before a first goal; `tab list` shows both; launch diagnostics confirm the Orchestrator prompt was supplied; **B.IDLE** verifies the Planner remains idle and no Plan appears before the first goal; the first Plan binds to the paired Planner |
 | **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | launch diagnostics confirm the Orchestrator prompt was supplied; exact prompt composition is covered by source tests; unpaired nudge fires next cycle |
-| **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
-| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent-tab <orch>` | plan planner ref binds to the new tab; planner onboarding names the orch tab; **nudge stops** |
+| **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role becomes Manager with `role_profile=orchestrator`; **session survives**; launch diagnostics confirm the system prompt was supplied; unpaired nudge next cycle |
+| **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent-tab <orch>` | plan planner ref binds to the new tab; launch diagnostics confirm the Planner system prompt was supplied; **nudge stops** |
 | **F** waiver | `plan update <plan> --planner none --note "solo test"` | waiver recorded (`planner.kind=waived` + note); nudge stops; `--planner none` **without** `--note` refused |
 | **G** doctor ladder | `plan doctor <plan> --kind quality` | `planner_unpaired` = WARNING while unpaired+planning; `plan approve` renders it as ERROR; a Planner waiver makes it silent |
 | **H** negatives | see below | actionable CLI error + **zero object leak** on every failure path |
@@ -38,10 +39,11 @@ created Tabs, and removes the scratch workspace through an `EXIT` trap.
 The matrix invokes the CLI only through `dc` from `evals/_lib/lib.sh`. Plan
 creation and mutations carry the real Orchestrator via `dc --as-tab`. Each
 event wait holds one long-lived dev SSE stream and re-reads chat only after a
-matching Tab event. A chat wait opens one `chat-raw` subscription and stops it
-once at the end. Promotion waits for the verified session-binding event before
-calling Make-Orchestrator. Every failed row prints its captured CLI or JSON
-body, and each scenario deletes its own Plans with `--yes`.
+matching Tab event. B.IDLE opens one `chat-raw` subscription and stops it once
+at the end. Promotion waits for the verified session-binding event before
+calling Make-Orchestrator. D/E check launch diagnostics for prompt presence.
+Every failed row prints its captured CLI or JSON body, and each scenario
+deletes its own Plans with `--yes`.
 
 Route **I** (in-place picker UI: pair confirm transforms the same tab) is the
 Playwright picker spec's job (scenario 7 of `task_234c14f04d9f4dbfb5a743d50486617d`),

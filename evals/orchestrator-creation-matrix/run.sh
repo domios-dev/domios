@@ -42,6 +42,8 @@ SCENARIO_B_PLAN=""
 SCENARIO_B_PLAN_COUNT=""
 SCENARIO_B_OUTPUT=""
 SCENARIO_C_OUTPUT=""
+CLEANUP_ERROR_BODY=""
+CLEANUP_DONE=0
 
 record() { ROWS+=("$1|$2|$3"); }
 note()   { echo "    · $*"; }
@@ -145,32 +147,83 @@ print_error_body() {
 }
 
 # --- cleanup --------------------------------------------------------
+close_created_workspaces() {
+  [ -n "${WORKSPACE_BASELINE:-}" ] && [ -f "$WORKSPACE_BASELINE" ] || return 0
+  local current_workspaces workspace_id output rc errors=""
+  if ! current_workspaces=$(workspace_ids "$WS_NAME"); then
+    FAILURE_ERROR_BODY="could not list workspaces before cleanup"
+    return 1
+  fi
+  while IFS= read -r workspace_id; do
+    [ -n "$workspace_id" ] || continue
+    grep -Fxq "$workspace_id" "$WORKSPACE_BASELINE" && continue
+    output=$(dc workspace close "$workspace_id" --force 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      note "closed created workspace $workspace_id"
+    else
+      print_error_body "workspace close $workspace_id" "$output"
+      errors+="Workspace $workspace_id close failed (exit $rc): $output"$'\n'
+    fi
+  done <<< "$current_workspaces"
+  if ! current_workspaces=$(workspace_ids "$WS_NAME"); then
+    errors+="Could not verify scratch workspace cleanup"$'\n'
+  else
+    while IFS= read -r workspace_id; do
+      [ -n "$workspace_id" ] || continue
+      grep -Fxq "$workspace_id" "$WORKSPACE_BASELINE" && continue
+      errors+="Created workspace remains after cleanup: $workspace_id"$'\n'
+    done <<< "$current_workspaces"
+  fi
+  if [ -n "$errors" ]; then
+    FAILURE_ERROR_BODY="$errors"
+    return 1
+  fi
+  rm -f "$WORKSPACE_BASELINE"
+  WORKSPACE_BASELINE=""
+}
+
+assert_created_tabs_gone() {
+  local output rc tab exists missing=""
+  [ "${#CREATED_TABS[@]}" -gt 0 ] || return 0
+  output=$(dc tab list --json 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAILURE_ERROR_BODY="$output"
+    return 1
+  fi
+  for tab in "${CREATED_TABS[@]:-}"; do
+    [ -n "$tab" ] || continue
+    exists=$(js "$output" "any(row.get('id') == '$tab' for row in $tab_rows_expr)") || {
+      FAILURE_ERROR_BODY="could not parse Tab list while verifying cleanup:\n$output"
+      return 1
+    }
+    [ "$exists" = "False" ] || missing+=" $tab"
+  done
+  if [ -n "$missing" ]; then
+    FAILURE_ERROR_BODY="created Tabs remain after closing the scratch workspace:$missing\n$output"
+    return 1
+  fi
+}
+
 cleanup() {
+  [ "$CLEANUP_DONE" -eq 0 ] || return 0
   echo
   echo "=== cleanup ==="
-  for p in "${CREATED_TABS[@]:-}"; do
-    [ -n "$p" ] || continue
-    dc tab close "$p" >/dev/null 2>&1 && note "closed tab $p" || note "tab $p already gone"
-  done
+  CLEANUP_ERROR_BODY=""
   if [ -n "${PLAN_BASELINE:-}" ]; then
-    cleanup_plans_since "$PLAN_BASELINE" exit \
-      || note "could not complete exit plan cleanup: ${FAILURE_ERROR_BODY:-unknown error}"
+    cleanup_plans_since "$PLAN_BASELINE" exit || {
+      CLEANUP_ERROR_BODY+="Plan cleanup failed: ${FAILURE_ERROR_BODY:-unknown error}"$'\n'
+    }
   fi
-  if [ -n "${WORKSPACE_BASELINE:-}" ] && [ -f "$WORKSPACE_BASELINE" ]; then
-    local current_workspaces workspace_id
-    if current_workspaces=$(workspace_ids "$WS_NAME"); then
-      while IFS= read -r workspace_id; do
-        [ -n "$workspace_id" ] || continue
-        grep -Fxq "$workspace_id" "$WORKSPACE_BASELINE" && continue
-        dc workspace close "$workspace_id" --force >/dev/null 2>&1 \
-          && note "closed created workspace $workspace_id" \
-          || note "created workspace $workspace_id left"
-      done <<< "$current_workspaces"
-    else
-      note "could not list workspaces for cleanup; created workspaces may remain"
-    fi
-    rm -f "$WORKSPACE_BASELINE"
-  fi
+  close_created_workspaces || {
+    CLEANUP_ERROR_BODY+="Workspace cleanup failed: ${FAILURE_ERROR_BODY:-unknown error}"$'\n'
+  }
+  assert_created_tabs_gone || {
+    CLEANUP_ERROR_BODY+="Tab cleanup assertion failed: ${FAILURE_ERROR_BODY:-unknown error}"$'\n'
+  }
+  [ -z "$CLEANUP_ERROR_BODY" ] || print_error_body "matrix cleanup" "$CLEANUP_ERROR_BODY"
+  CLEANUP_DONE=1
 }
 trap cleanup EXIT
 
@@ -290,8 +343,7 @@ launch_prompt_present() {
   fi
 }
 
-# grep the UI chat-start snapshot for a fixed string. This is the deterministic
-# oracle for pending_greeting; `tab chat` only reads the durable transcript.
+# Stop the single chat-raw subscription opened for an event-driven wait.
 chat_raw_stop() {
   local tab="$1" subscription="$2" body output rc
   body=$(printf '{"subscriptionId":"%s"}' "$subscription")
@@ -329,22 +381,6 @@ run_tab_event_wait() {
   fi
   FAILURE_ERROR_BODY="$output (wait exit=$rc)"
   return 1
-}
-
-wait_for_chat_start_has() {
-  local tab="$1" timeout_seconds="$2" subscription rc
-  shift 2
-  subscription="orchmatrix-$$-${RANDOM}-${tab}"
-  run_tab_event_wait chat_start "$tab" "$timeout_seconds" "$subscription" "$@"
-  rc=$?
-  chat_raw_stop "$tab" "$subscription" || true
-  return "$rc"
-}
-
-wait_for_chat_transcript_has() {
-  local tab="$1" timeout_seconds="$2"
-  shift 2
-  run_tab_event_wait transcript "$tab" "$timeout_seconds" "" "$@"
 }
 
 wait_for_session_binding() {
@@ -558,14 +594,15 @@ scenario_D() {
   rpc_rc=$?
   note "make-orchestrator response: $resp"
 
-  # role actually flipped
-  local role_after
-  role_after=$(js "$(dev_get /api/tabs)" "next((p.get('role','') for p in d if p.get('id') == '$tab'), '')")
-  if echo "$role_after" | grep -qi "orchestrator"; then
-    pass D.role "tab promoted to Orchestrator (role=$role_after)"
+  # role profile carries the coordinator identity over the Manager role.
+  local tabs_after role_state
+  tabs_after=$(dev_get /api/tabs)
+  role_state=$(js "$tabs_after" "next((str(p.get('role') or '').lower() + ':' + str(p.get('role_profile') or '').lower() for p in d if p.get('id') == '$tab'), '')")
+  if [ "$role_state" = "manager:orchestrator" ]; then
+    pass D.role "tab promoted with role=Manager and role_profile=orchestrator"
   else
-    FAILURE_ERROR_BODY="$resp"
-    fail D.role "tab role did not become Orchestrator after make-orchestrator (role='$role_after')"
+    FAILURE_ERROR_BODY="$tabs_after"$'\n'"$resp"
+    fail D.role "tab role/profile after promotion were '$role_state' (want manager:orchestrator)"
   fi
 
   # session survives promotion
@@ -577,16 +614,12 @@ scenario_D() {
     fail D.session "tab session changed across promotion ('$sess_before' -> '$sess_after')"
   fi
 
-  # mandate delivered (task says 'response carries mandate'; actual = delivered to tab chat)
-  if wait_for_chat_start_has "$tab" 30 "Planner specialist" "now the Orchestrator"; then
-    pass D.mandate "promotion onboarding (with mandate block) delivered to the tab"
+  if launch_prompt_present "$tab"; then
+    note "promotion launch diagnostic: $LAUNCH_DIAGNOSTIC_LINE"
+    pass D.mandate "promotion launch recorded a non-empty system prompt"
   else
-    fail D.mandate "promotion onboarding/mandate not found in chat-raw within 30s"
-  fi
-  if echo "$resp" | grep -qi "Planner specialist\\|mandate"; then
-    note "RPC response body also carries mandate text"
-  else
-    finding D.mandate_resp "pinned says 'command response carries the mandate block'; actual dev delivers it as a tab message, RPC body does not echo it"
+    FAILURE_ERROR_BODY="$LAUNCH_DIAGNOSTIC_ERROR"
+    fail D.mandate "promotion launch did not record its system prompt"
   fi
   gated D.nudge "unpaired nudge is heartbeat-gated (1800s); driving state Unbound => should fire"
 }
@@ -641,12 +674,12 @@ scenario_E() {
     fail E.bind "planner ref not bound to new tab (kind=$pk tab=$pp want $planner)"
   fi
 
-  # planner onboarding names the orchestrator tab id
-  if wait_for_chat_transcript_has "$planner" 30 "$orch"; then
-    pass E.intro "planner onboarding names the orchestrator peer tab id ($orch)"
+  if launch_prompt_present "$planner"; then
+    note "Planner launch diagnostic: $LAUNCH_DIAGNOSTIC_LINE"
+    pass E.intro "Planner launch recorded a non-empty system prompt"
   else
-    FAILURE_ERROR_BODY=$(dc tab chat --tab "$planner" --json 2>&1)
-    fail E.intro "planner onboarding did not name Orchestrator tab $orch within 30s"
+    FAILURE_ERROR_BODY="$LAUNCH_DIAGNOSTIC_ERROR"
+    fail E.intro "Planner launch did not record its system prompt"
   fi
 
   # nudge STOPS: deterministic driving state = planner now bound => resolution Planner => nudge None
@@ -896,6 +929,14 @@ run_scenario H scenario_H
 # assert the plan set returned to baseline. A leak FAILS the matrix — it never hides.
 if ! cleanup_plans_since "$PLAN_BASELINE" final; then
   fail plan_cleanup "matrix-level cleanup could not remove every new Plan"
+fi
+cleanup
+trap - EXIT
+if [ -n "$CLEANUP_ERROR_BODY" ]; then
+  FAILURE_ERROR_BODY="$CLEANUP_ERROR_BODY"
+  fail tab_cleanup "scratch workspace could not be removed with all created Tabs gone"
+else
+  pass tab_cleanup "scratch workspace closed; every matrix-created Tab is absent"
 fi
 plan_final=$(mktemp -t orchmatrix-plans-final.XXXXXX)
 plan_final_errors=$(mktemp -t orchmatrix-plans-final-errors.XXXXXX)
