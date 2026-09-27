@@ -128,6 +128,17 @@ impl ServiceContext {
         {
             return Ok(None);
         }
+        let spawn_failed = self
+            .mux
+            .read()
+            .get_tab(&resolved)
+            .is_some_and(|tab| {
+                tab.boot_stage == Some(BootStage::SpawnFailed) && !tab.agent_booting
+            });
+        if spawn_failed {
+            self.clear_tab_spawn_failed_identity_if_absent(&resolved, "provider launch failed");
+            return Ok(Some(resolved));
+        }
         self.reconcile_tab_restored_without_agent(&resolved);
         Ok(Some(resolved))
     }
@@ -155,8 +166,8 @@ impl ServiceContext {
         automatic: bool,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        let restart_claim = self.claim_restart(tab_id, automatic)?;
         let shell = self.exited_shell(tab_id, attempt)?;
+        let restart_claim = self.claim_restart(tab_id, automatic)?;
         let verified = verified_session_ids(&TabLifecycleJournal::shared().load().records, tab_id);
         let session_id = select_recovery_session(&shell.lineage, &verified)?;
         let provider = recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)?;

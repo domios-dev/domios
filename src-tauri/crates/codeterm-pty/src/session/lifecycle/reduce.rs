@@ -328,8 +328,7 @@ fn apply(
     }
 }
 
-/// Surviving checkpoints plus the transitions no checkpoint covers. Replaying
-/// this yields exactly the checkpoints the full history yields.
+/// Keep checkpoints, each tab's latest verified binding, and uncovered transitions.
 pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let checkpoints = sealed_checkpoints(records);
     let covered: HashMap<&str, JournalSeq> = checkpoints
@@ -340,12 +339,18 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let closed = closed_tabs(records);
     let retained_agent_type_writes = retained_agent_type_write_sequences(records);
     let retained_permission_audits = retained_permission_auto_confirm_sequences(records);
-    let retained_verified_sessions = retained_verified_session_sequences(records);
+    let retained_verified_sessions = retained_verified_session_records(records);
     let mut compacted: Vec<JournalRecord> = checkpoints
         .iter()
         .cloned()
         .map(|checkpoint| JournalRecord::Checkpoint { checkpoint })
         .collect();
+    compacted.extend(
+        retained_verified_sessions
+            .iter()
+            .filter(|(tab_id, _)| !closed.contains(tab_id))
+            .map(|(_, record)| (*record).clone()),
+    );
     for record in records {
         let JournalRecord::Transition { entry } = record else {
             continue;
@@ -368,9 +373,11 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
             &entry.transition,
             LifecycleTransition::SessionBound { .. }
         );
+        if is_verified_session {
+            continue;
+        }
         if (is_agent_type_write && retained_agent_type_writes.contains(&entry.seq))
             || (is_permission_audit && retained_permission_audits.contains(&entry.seq))
-            || (is_verified_session && retained_verified_sessions.contains(&entry.seq))
             || (!is_agent_type_write && !is_permission_audit && !is_covered)
         {
             compacted.push(record.clone());
@@ -380,19 +387,19 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     compacted
 }
 
-fn retained_verified_session_sequences(
+fn retained_verified_session_records(
     records: &[JournalRecord],
-) -> std::collections::HashSet<JournalSeq> {
-    let mut latest = HashMap::<&str, JournalSeq>::new();
+) -> HashMap<&str, &JournalRecord> {
+    let mut latest = HashMap::<&str, &JournalRecord>::new();
     for record in records {
         let JournalRecord::Transition { entry } = record else {
             continue;
         };
         if matches!(&entry.transition, LifecycleTransition::SessionBound { .. }) {
-            latest.insert(entry.key.tab_id.as_str(), entry.seq);
+            latest.insert(entry.key.tab_id.as_str(), record);
         }
     }
-    latest.into_values().collect()
+    latest
 }
 
 /// Per-tab audit rows kept through compaction; older ones are telemetry only.
