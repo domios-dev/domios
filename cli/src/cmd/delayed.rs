@@ -349,7 +349,7 @@ pub fn parse_schedule(
     }
 }
 
-fn parse_start_schedule(
+pub(crate) fn parse_start_schedule(
     delay: Option<String>,
     at: Option<String>,
     every: Option<&str>,
@@ -367,7 +367,7 @@ fn parse_start_schedule(
     parse_schedule(delay, at, now_ms)
 }
 
-fn parse_recurrence(
+pub(crate) fn parse_recurrence(
     every: Option<String>,
     until: Option<String>,
     count: Option<u32>,

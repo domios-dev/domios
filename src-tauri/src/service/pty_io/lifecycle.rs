@@ -73,9 +73,8 @@ fn restored_snapshot_launch_input(
         ..Default::default()
     };
     launch_parameters.captured = true;
-    launch_parameters.identity_instructions = system_prompt_capable
-        .then(|| launch_task.clone())
-        .flatten();
+    launch_parameters.identity_instructions =
+        system_prompt_capable.then(|| launch_task.clone()).flatten();
     launch_parameters.model = model;
     if launch_parameters.requested_model.is_none() {
         launch_parameters.requested_model = params.model.clone();
@@ -551,8 +550,8 @@ impl ServiceContext {
                 tab_id
             )
         })?;
-        let permission_bypass_authorization = crate::service::restored_launch::
-            restore_permission_bypass_authorization(
+        let permission_bypass_authorization =
+            crate::service::restored_launch::restore_permission_bypass_authorization(
                 &self.agent_registry,
                 tab_id,
                 &provider_id,

@@ -5,18 +5,22 @@
 //! so a daemon restart invalidates both cursors consistently.
 
 use axum::{
-    extract::{Query, State as AxumState},
+    extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
 };
 use base64::Engine;
 use futures_core::Stream;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use tokio::sync::broadcast;
 
 use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
 use crate::api::stream_diagnostics::{configured_level, StreamDiagnostics, StreamTabStart};
+use crate::api::tab_routes::resolve_pty_id_with_fallback;
+use crate::service::output_stream_activity::OutputStreamActivity;
 use crate::service::ServiceState;
 
 /// Per-sweep per-tab byte cap: round-robin fairness so one noisy tab can't
@@ -49,6 +53,145 @@ pub(crate) fn parse_cursor(raw: &str) -> Option<Cursor> {
 
 fn data_frame(v: serde_json::Value) -> Event {
     Event::default().data(v.to_string())
+}
+
+#[derive(Default)]
+struct ActivityWake {
+    dirty_pty_ids: HashSet<String>,
+    mux_changed: bool,
+    read_all: bool,
+}
+
+fn record_activity(
+    wake: &mut ActivityWake,
+    activity: OutputStreamActivity,
+    pty_filter: Option<&str>,
+) {
+    match activity {
+        OutputStreamActivity::Pty(pty)
+            if pty_filter.is_none_or(|wanted| wanted == pty.as_str()) =>
+        {
+            wake.dirty_pty_ids.insert(pty);
+        }
+        OutputStreamActivity::Pty(_) => {}
+        OutputStreamActivity::Mux => wake.mux_changed = true,
+    }
+}
+
+async fn wait_for_activity(
+    activity: &mut broadcast::Receiver<OutputStreamActivity>,
+    pty_filter: Option<&str>,
+) -> Option<ActivityWake> {
+    let mut wake = ActivityWake::default();
+    match activity.recv().await {
+        Ok(event) => record_activity(&mut wake, event, pty_filter),
+        Err(broadcast::error::RecvError::Lagged(_)) => wake.read_all = true,
+        Err(broadcast::error::RecvError::Closed) => return None,
+    }
+    loop {
+        match activity.try_recv() {
+            Ok(event) => record_activity(&mut wake, event, pty_filter),
+            Err(broadcast::error::TryRecvError::Lagged(_)) => wake.read_all = true,
+            Err(broadcast::error::TryRecvError::Empty) => break,
+            Err(broadcast::error::TryRecvError::Closed) => return None,
+        }
+    }
+    Some(wake)
+}
+
+#[derive(Debug, PartialEq)]
+struct TabOutputFrame {
+    output: String,
+    offset: u64,
+}
+
+fn drain_tab_output(
+    output_buf: &crate::OutputBufferState,
+    pty_id: &str,
+    offset: &mut u64,
+) -> Vec<TabOutputFrame> {
+    let mut frames = Vec::new();
+    loop {
+        let (chunk, total) = {
+            let buffer = output_buf.lock();
+            buffer.read_since(pty_id, *offset)
+        };
+        if chunk.is_empty() {
+            break;
+        }
+        *offset = total;
+        frames.push(TabOutputFrame {
+            output: String::from_utf8_lossy(&chunk).into_owned(),
+            offset: total,
+        });
+    }
+    frames
+}
+
+fn tab_output_frames(
+    mut activity: broadcast::Receiver<OutputStreamActivity>,
+    output_buf: crate::OutputBufferState,
+    pty_id: Option<String>,
+    initial_offset: u64,
+) -> impl Stream<Item = TabOutputFrame> + Send + 'static {
+    async_stream::stream! {
+        let Some(pty_id) = pty_id else {
+            futures_util::future::pending::<()>().await;
+            return;
+        };
+        let mut offset = initial_offset;
+        loop {
+            for frame in drain_tab_output(&output_buf, &pty_id, &mut offset) {
+                yield frame;
+            }
+            let Some(wake) = wait_for_activity(&mut activity, Some(&pty_id)).await else {
+                return;
+            };
+            if wake.read_all || wake.dirty_pty_ids.contains(&pty_id) {
+                continue;
+            }
+        }
+    }
+}
+
+fn tab_output_start_offset(from: Option<u64>, total: u64) -> u64 {
+    from.map_or(total, |offset| offset.min(total))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct StreamQuery {
+    from: Option<u64>,
+}
+
+pub async fn stream_tab_output(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+    Query(query): Query<StreamQuery>,
+) -> Result<
+    Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>,
+    (StatusCode, &'static str),
+> {
+    check_auth(&state, &headers)?;
+    let activity = state.svc.output_stream_activity.subscribe();
+    let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
+    let pty_id = if chat {
+        None
+    } else {
+        Some(resolve_pty_id_with_fallback(&state, &raw_tab_id)?)
+    };
+    let output_buf = state.svc.output_buf.clone();
+    let initial_total = pty_id.as_ref().map_or(0, |pty_id| {
+        let output = output_buf.lock();
+        output.total_written(pty_id)
+    });
+    let offset = tab_output_start_offset(query.from, initial_total);
+    let frames = tab_output_frames(activity, output_buf, pty_id, offset);
+    let stream = frames.map(|frame| {
+        Ok(Event::default()
+            .data(serde_json::json!({"output": frame.output, "offset": frame.offset}).to_string()))
+    });
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 fn build_stream_diagnostics(
@@ -438,40 +581,14 @@ pub async fn output_stream(
         }
         loop {
             if !read_all && !sweep_now && dirty_pty_ids.is_empty() {
-                match activity.recv().await {
-                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
-                        dirty_pty_ids.insert(pty);
+                let Some(wake) = wait_for_activity(&mut activity, None).await else {
+                    if let Some(diagnostics) = diagnostics.as_mut() {
+                        diagnostics.finish("activity_closed");
                     }
-                    Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        read_all = true;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        if let Some(diagnostics) = diagnostics.as_mut() {
-                            diagnostics.finish("activity_closed");
-                        }
-                        return;
-                    }
-                }
-                loop {
-                    match activity.try_recv() {
-                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Pty(pty)) => {
-                            dirty_pty_ids.insert(pty);
-                        }
-                        Ok(crate::service::output_stream_activity::OutputStreamActivity::Mux) => {}
-                        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
-                            read_all = true;
-                            break;
-                        }
-                        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
-                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
-                            if let Some(diagnostics) = diagnostics.as_mut() {
-                                diagnostics.finish("activity_closed");
-                            }
-                            return;
-                        }
-                    }
-                }
+                    return;
+                };
+                dirty_pty_ids.extend(wake.dirty_pty_ids);
+                read_all |= wake.read_all;
             }
             let dirty_for_sweep = std::mem::take(&mut dirty_pty_ids);
             let read_all_for_sweep = std::mem::replace(&mut read_all, false);

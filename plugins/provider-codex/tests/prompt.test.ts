@@ -177,6 +177,19 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
   eq(plugin.parseDirectoryTrustPrompt?.(ordinaryApproval), null, "source trust parser ignores a generic yes/no approval");
   eq(bundled.parseDirectoryTrustPrompt(ordinaryApproval), null, "bundle trust parser ignores a generic yes/no approval");
 
+  const commandApproval = fixtureText("command-approval/command-approval-0.157.1.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(commandApproval);
+    eq(parsed?.options?.map(([, value]: [string, string]) => value), ["1", "2", "3"],
+      `${label} parser keeps wrapped command-approval options in order`);
+    assert(Boolean(parsed?.question.trim()), `${label} parser extracts a question from the active menu`);
+    assert(parsed?.options?.every(([optionLabel]: [string, string]) => optionLabel.trim().length > 0) ?? false,
+      `${label} parser retains wrapped option labels`);
+    eq(provider.parseDirectoryTrustPrompt?.(commandApproval), null,
+      `${label} trust parser does not classify command approval as directory trust`);
+  }
+  eq(bundled.buildPromptResponse(2, commandApproval), ["G1tC", "G1tC", "DQ=="],
+    "command approval can respond to the third visible choice");
   const offScreen = screen.replace("  Press enter to continue", "  The session is ready");
   eq(plugin.parseDirectoryTrustPrompt?.(offScreen), null, "source trust parser refuses a dialog without its active footer");
   eq(bundled.parseDirectoryTrustPrompt(offScreen), null, "bundle trust parser refuses a dialog without its active footer");

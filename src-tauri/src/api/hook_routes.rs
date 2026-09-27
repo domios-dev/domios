@@ -445,6 +445,7 @@ pub async fn hook_stop(
         let mut mux = state.svc.mux.write();
         if let Some(tab) = mux.get_tab_mut(&tab_id) {
             tab.pending_prompt = None;
+            tab.pending_prompt_kind = None;
         }
     }
     state.svc.emit_state_changed();

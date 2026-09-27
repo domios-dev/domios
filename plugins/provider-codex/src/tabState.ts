@@ -37,7 +37,7 @@ export function classifyCodexTabState(
   snapshot: TabStateSnapshot,
   nowMs: number,
 ): TabStateClassification | null {
-  const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
+  const screen = String((snapshot && snapshot.screenText) || "").replace(/\r*\n|\r/g, "\n");
   if (!screen.trim()) return null;
   if (looksBusy(screen)) return { state: "working", confidence: 0 };
 

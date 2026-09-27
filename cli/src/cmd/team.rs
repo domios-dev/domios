@@ -41,10 +41,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         ),
         TeamAction::Close { team_id } => client.call_detailed(
             "team.close",
-            Some(json!({
-                "team_id": team_id,
-                "caller_tab_id": caller_tab_id,
-            })),
+            Some(close_team_params(&team_id, caller_tab_id.as_deref())),
         ),
         TeamAction::AdoptPlan { team_id, plan_id } => {
             adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
@@ -196,6 +193,15 @@ fn adopt_plan_params(
         "plan_id": plan_id,
         "caller_tab_id": caller_tab_id,
     }))
+}
+
+fn close_team_params(team_id: &str, caller_tab_id: Option<&str>) -> Value {
+    json!({
+        "team_id": team_id,
+        "force": true,
+        "confirm": team_id,
+        "caller_tab_id": caller_tab_id,
+    })
 }
 
 fn adopt_agent_params(
@@ -382,6 +388,23 @@ mod tests {
                 "model": "model-1",
                 "caller_tab_id": "manager-tab",
             })
+        );
+    }
+
+    #[test]
+    fn close_team_params_echo_the_target_for_headerless_human_confirmation() {
+        assert_eq!(
+            close_team_params("team-1", None),
+            json!({
+                "team_id": "team-1",
+                "force": true,
+                "confirm": "team-1",
+                "caller_tab_id": null,
+            })
+        );
+        assert_eq!(
+            close_team_params("team-1", Some("manager-1"))["caller_tab_id"],
+            "manager-1",
         );
     }
 

@@ -94,9 +94,8 @@ pub(crate) fn restore_permission_bypass_authorization(
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
-    let authorization = crate::service::permission_policy::configured_permission_bypass(
-        registry, provider_id,
-    )?;
+    let authorization =
+        crate::service::permission_policy::configured_permission_bypass(registry, provider_id)?;
     if launch.captured && launch.permission_bypass_requested && authorization.is_none() {
         log::warn!(
             "[restore] Tab {tab_id} permission bypass denied by current policy; resuming without it"
@@ -155,9 +154,8 @@ mod tests {
             crate::agent::test_provider::MockProvider::new("capture-provider")
                 .with_session_config_delivery(),
         ));
-        let task = crate::service::plan::worker_identity::attach_worker_identity(
-            IDENTITY, ASSIGNMENT,
-        );
+        let task =
+            crate::service::plan::worker_identity::attach_worker_identity(IDENTITY, ASSIGNMENT);
 
         let launch = capture_tab_launch_parameters(
             &mux,

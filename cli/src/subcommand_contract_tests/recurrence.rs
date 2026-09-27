@@ -35,13 +35,7 @@ fn send_every_parses_until_and_count_exclusively() {
 #[test]
 fn delayed_create_and_edit_parse_recurring_options() {
     let parsed = DelayedOnly::try_parse_from([
-        "delayed",
-        "create",
-        "--every",
-        "10m",
-        "--count",
-        "3",
-        "hello",
+        "delayed", "create", "--every", "10m", "--count", "3", "hello",
     ])
     .expect("delayed create recurrence parses");
     assert!(matches!(

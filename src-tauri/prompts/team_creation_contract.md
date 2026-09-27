@@ -1,5 +1,7 @@
 Team-bound creation contract — every agent, shell, and schedule this Team
-creates stays inside the Team, so Team close owns its cleanup:
+creates stays inside the Team. Team close removes its members, finalizes open
+attempts and lanes, and deletes Team crons; workspace close uses that same path
+for every Team with members in the workspace:
 
 - Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
   which spawns the Worker, assigns the task, and delivers the brief in one call.
