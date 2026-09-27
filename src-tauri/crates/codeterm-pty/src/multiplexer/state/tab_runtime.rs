@@ -77,6 +77,8 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
