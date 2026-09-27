@@ -4,26 +4,41 @@ use crate::service::launch_readiness::LaunchSettlement;
 use crate::service::ServiceContext;
 use std::time::Duration;
 
-pub(super) fn launch_waits_for_first_turn_binding(
+pub(crate) fn launch_waits_for_first_turn_binding(
     svc: &ServiceContext,
+    tab_id: &str,
     agent_cmd: &str,
     has_startup_task_turn: bool,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) -> bool {
     let provider_starts_session_on_first_turn = svc
         .agent_registry
-        .with_provider(agent_cmd, |provider| provider.session_starts_on_first_user_turn())
+        .with_provider(agent_cmd, |provider| {
+            provider.session_starts_on_first_user_turn()
+        })
         .unwrap_or(false);
-    first_turn_binding_without_startup_task(
+    let restored_resume = matches!(
+        origin,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
+    ) && svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.as_deref())
+        .is_some_and(|session_id| !session_id.trim().is_empty());
+    first_turn_binding_required(
         provider_starts_session_on_first_turn,
         has_startup_task_turn,
+        restored_resume,
     )
 }
 
-pub(super) fn first_turn_binding_without_startup_task(
+pub(super) fn first_turn_binding_required(
     provider_starts_session_on_first_turn: bool,
     has_startup_task_turn: bool,
+    restored_resume: bool,
 ) -> bool {
-    provider_starts_session_on_first_turn && !has_startup_task_turn
+    provider_starts_session_on_first_turn && (restored_resume || !has_startup_task_turn)
 }
 
 pub(super) fn input_ready_stage_after_provider_ready(

@@ -3,6 +3,8 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
+mod delayed;
+
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
         action,
@@ -900,6 +902,9 @@ fn send_text_is_fire_and_forget_on_mesh() {
         actions: None,
         delay: None,
         at: None,
+        every: None,
+        until: None,
+        count: None,
         require_agent: false,
         to_shell: false,
     };
@@ -925,6 +930,9 @@ fn send_delay_maps_to_delayed_messages() {
         actions: None,
         delay: Some("1m".into()),
         at: None,
+        every: None,
+        until: None,
+        count: None,
         require_agent: false,
         to_shell: false,
     };

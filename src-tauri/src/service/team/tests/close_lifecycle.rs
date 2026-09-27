@@ -698,6 +698,50 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
         .any(|hint| { hint.contains("keep.txt") && hint.contains("lane/untracked") }));
 }
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+async fn team_close_deletes_team_bound_recurring_series() {
+    let (mut mux, team_id, orchestrator, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let independent_tab = mux.create_tab(&workspace_id).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let rule = crate::delayed_send::recurrence::RecurrenceRule {
+        every_ms: 60_000,
+        until_ms: None,
+        count: Some(3),
+    };
+    for (tab_id, team) in [
+        (orchestrator.as_str(), Some(team_id.as_str())),
+        (independent_tab.as_str(), None),
+    ] {
+        fixture
+            .service
+            .delayed_send
+            .enqueue_with_recurrence(
+                tab_id.into(),
+                None,
+                None,
+                "tick".into(),
+                Some(crate::delayed_send::now_ms() + 600_000),
+                crate::delayed_send::ReminderCreator::default(),
+                Some(rule.clone()),
+                team.map(str::to_string),
+            )
+            .unwrap();
+    }
+
+    fixture
+        .service
+        .close_team(&team_id, TeamMutationCaller::Human)
+        .await
+        .unwrap();
+
+    let remaining = fixture.service.delayed_send.list(None);
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].tab_id, independent_tab);
+    assert_eq!(remaining[0].team_id, None);
+}
+
 fn add_team_lane_task(
     store: &crate::service::plan::PlanStore,
     plan_id: &str,

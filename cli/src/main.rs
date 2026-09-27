@@ -295,6 +295,9 @@ fn main_impl() {
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
             require_agent,
             to_shell,
         } => {
@@ -309,6 +312,9 @@ fn main_impl() {
                 actions,
                 delay,
                 at,
+                every,
+                until,
+                count,
                 require_agent,
                 to_shell,
             );
@@ -681,18 +687,27 @@ fn is_agent_spawn_flag(arg: &str) -> bool {
     if arg == "--" {
         return true;
     }
-    let Some(long) = arg.strip_prefix("--") else {
+    let root = Cli::command();
+    command_defines_flag(&root, arg)
+        || Cli::command()
+            .find_subcommand("agent")
+            .and_then(|agent| agent.find_subcommand("spawn"))
+            .is_some_and(|spawn| command_defines_flag(spawn, arg))
+}
+
+fn command_defines_flag(command: &clap::Command, arg: &str) -> bool {
+    if let Some(long) = arg.strip_prefix("--") {
+        let name = long.split_once('=').map_or(long, |(name, _)| name);
+        return command
+            .get_arguments()
+            .any(|candidate| candidate.get_long() == Some(name));
+    }
+    let Some(short) = arg.strip_prefix('-').and_then(|value| value.chars().next()) else {
         return false;
     };
-    let name = long.split_once('=').map_or(long, |(name, _)| name);
-    Cli::command()
-        .find_subcommand("agent")
-        .and_then(|agent| agent.find_subcommand("spawn"))
-        .is_some_and(|spawn| {
-            spawn
-                .get_arguments()
-                .any(|candidate| candidate.get_long() == Some(name))
-        })
+    command
+        .get_arguments()
+        .any(|candidate| candidate.get_short() == Some(short))
 }
 
 fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
@@ -777,6 +792,53 @@ mod plan_cli_error_tests {
                 );
                 assert_eq!(task.as_deref(), Some("review"));
             }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_title_before_global_json_flag() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm", "agent", "spawn", "claude", "--title", "Scout", "--json",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        let cli = Cli::try_parse_from(args).expect("global json flag after title parses");
+        assert!(cli.json);
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, .. },
+            } => assert_eq!(title.map(|parts| parts.join(" ")).as_deref(), Some("Scout")),
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_quoted_multiword_agent_spawn_title() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "claude",
+                "--title",
+                "Two Words",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        let cli = Cli::try_parse_from(args).expect("quoted multiword title parses");
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, .. },
+            } => assert_eq!(
+                title.map(|parts| parts.join(" ")).as_deref(),
+                Some("Two Words")
+            ),
             _ => panic!("expected agent spawn"),
         }
     }

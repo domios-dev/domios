@@ -287,17 +287,19 @@ fn lazy_composer_readiness_requires_declared_structural_capability() {
 #[test]
 fn codex_update_and_folder_trust_frames_block_lazy_readiness() {
     let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
-    let provider = crate::plugin::js_runtime::load_one(
-        &plugins.join("provider-codex").join("plugin.json"),
-    )
-    .expect("load the bundled Codex provider");
+    let provider =
+        crate::plugin::js_runtime::load_one(&plugins.join("provider-codex").join("plugin.json"))
+            .expect("load the bundled Codex provider");
     let fixtures = plugins
         .join("provider-codex")
         .join("tests")
         .join("fixtures")
         .join("directory-trust");
 
-    for file in ["codex-update-available.txt", "trust-folder-access-0.157.1.txt"] {
+    for file in [
+        "codex-update-available.txt",
+        "trust-folder-access-0.157.1.txt",
+    ] {
         let screen = std::fs::read_to_string(fixtures.join(file)).expect("read captured screen");
         let classification = provider.classify_tab_state(&TabStateSnapshot {
             tab_id: "codex-launch-fixture".into(),

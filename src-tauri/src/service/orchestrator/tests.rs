@@ -247,7 +247,7 @@ fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
 
     assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
     assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-    assert!(orchestrator_spawn.contains("launch_agent_in_background("));
+    assert!(orchestrator_spawn.contains("launch_agent_in_background_with_task_turn("));
     assert!(service_spawn.contains("launch_agent_in_background_with_env("));
     assert!(
         orchestrator_spawn.contains("spawn_onboarding_task")
@@ -265,6 +265,9 @@ fn launch_paths_route_through_seam() {
     .into_iter()
     .map(|source| {
         source.matches("launch_agent_in_background(").count()
+            + source
+                .matches("launch_agent_in_background_with_task_turn(")
+                .count()
             + source
                 .matches("launch_agent_in_background_with_env(")
                 .count()

@@ -9,6 +9,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import "./prompt.test";
+import "./restore-resume.test";
 
 let passed = 0;
 let failed = 0;
@@ -124,6 +125,8 @@ console.log("\n--- task instructions launch ---\n");
   const launch = { instanceId: "instance-test" };
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const cmd = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
+  eq((cmd.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
+    "Windows per-tab profile launch disables startup updates exactly once");
   assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
   assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
   assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
@@ -201,7 +204,7 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
   eq(
     cmd,
-    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    'codex -c check_for_update_on_startup=false --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
     "the macOS/Linux launch line retains TUI animations",
   );
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
@@ -217,11 +220,11 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
-    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts",
+    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(
@@ -1093,12 +1096,14 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex -c check_for_update_on_startup=false resume Q(windows:11111111-1111-1111-1111-111111111111) --no-daemon",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {
     for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
       eq(command.startsWith("codex"), true, "every Codex launch uses the normal TUI");
+      eq((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
+        "every Codex launch disables startup updates exactly once");
       eq(command.includes("tui.animations=false"), false, "every Codex launch retains TUI animations");
       for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
         eq(command.includes(flag), enabled, `full access controls ${flag}`);
