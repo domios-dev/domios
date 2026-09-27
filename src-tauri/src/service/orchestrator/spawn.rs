@@ -872,6 +872,15 @@ impl ServiceContext {
             params.task.as_deref(),
             fallback_spec.as_ref(),
         );
+        let startup_turn_text = crate::service::startup_turn::resolve(
+            &self.agent_registry,
+            &agent_cmd,
+            params.starter_prompt,
+            fallback_spec.as_ref(),
+            bg_task.as_deref(),
+            true,
+            None,
+        );
         launch_agent_in_background_with_task_turn(
             self.clone(),
             tab_id.clone(),
@@ -879,6 +888,7 @@ impl ServiceContext {
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
             has_startup_task_turn,
+            startup_turn_text,
             bg_task,
             fallback_spec,
             task_identity,

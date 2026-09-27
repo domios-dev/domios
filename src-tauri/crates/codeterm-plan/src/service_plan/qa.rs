@@ -1,6 +1,8 @@
 use serde::Serialize;
 
-use super::mutations::{clear_task_assignment, plan_contains_id, reject_done_with_open_subtasks};
+use super::mutations::{
+    clear_task_assignment, plan_contains_id, reject_terminal_with_open_subtasks,
+};
 use super::{PlanError, PlanStore};
 use crate::plan::{
     AgentRef, Milestone, QaState, ReviewEvidence, ReviewStage, ReviewVerdict, Task, TaskStatus,
@@ -341,7 +343,7 @@ impl PlanStore {
             require_running_qa(&p.tasks[idx])?;
             let attempt_index = claimed_attempt_index(&p.tasks[idx])?;
             require_current_claimed_attempt(&p.tasks[idx], attempt_index)?;
-            reject_done_with_open_subtasks(p, &p.tasks[idx].id)?;
+            reject_terminal_with_open_subtasks(p, &p.tasks[idx].id)?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
             super::task_attempts::accept_exact_attempt(

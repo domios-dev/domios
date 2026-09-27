@@ -6,12 +6,10 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
-pub(super) fn visible_spawn_starter_prompt(
-    startup_handshake: Option<crate::agent::provider::StarterPrompt>,
-    provider_starter: Option<crate::agent::provider::StarterPrompt>,
-) -> Option<crate::agent::provider::StarterPrompt> {
-    startup_handshake.or(provider_starter)
-}
+pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
+#[path = "spawn_warnings.rs"]
+mod spawn_warnings;
+pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
 
 pub(crate) use super::spawn_cli::{
     cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
@@ -157,15 +155,6 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default)]
     pub activate: Option<bool>,
-}
-
-pub(crate) fn merge_spawn_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
-    }
 }
 
 /// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
@@ -707,6 +696,15 @@ impl ServiceContext {
             agent.task.as_deref(),
             fallback_spec.as_ref(),
         );
+        let startup_turn_text = crate::service::startup_turn::resolve(
+            &self.agent_registry,
+            &agent_cmd,
+            legacy_params.starter_prompt,
+            fallback_spec.as_ref(),
+            agent.task.as_deref(),
+            false,
+            confirmed_first_turn.as_deref(),
+        );
         launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
@@ -714,6 +712,7 @@ impl ServiceContext {
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
             has_startup_task_turn,
+            startup_turn_text,
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),

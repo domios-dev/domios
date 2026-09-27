@@ -95,6 +95,16 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
         "bad_mode" => Some(format!(
             "✗ invalid plan mode.\nvalid modes: planning|approved|execution|complete\nfix: codeterm plan mode {plan_id} --set planning\nor approve a ready plan with: codeterm plan approve {plan_id}"
         )),
+        "invalid_split_parent" => match data.get("reason").and_then(Value::as_str) {
+            Some("terminal_parent") => Some(
+                "✗ a terminal task cannot be split.\nfix: split an open top-level task instead."
+                    .into(),
+            ),
+            Some("child_parent") => Some(
+                "✗ a child task cannot be split.\nfix: split its top-level parent instead.".into(),
+            ),
+            _ => Some("✗ task split requires an open top-level parent.".into()),
+        },
         "bad_priority" => Some(format!(
             "✗ invalid task priority.\nvalid priorities: p0|p1|p2|p3\nfix: codeterm plan task update {plan_id} {} --priority p2",
             task_id.unwrap_or("<task_id>")
@@ -145,7 +155,12 @@ fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|
                 .unwrap_or("<element_id>")
         )),
         "transition_denied" => render_transition_denied(data, plan_id, task_id),
-        "open_subtasks" => render_open_subtasks(data, plan_id, task_id),
+        "open_subtasks" => render_open_subtasks(
+            data,
+            plan_id,
+            task_id,
+            params.get("status").and_then(Value::as_str),
+        ),
         "task_creation_requires_approval" => Some(format!(
             "✗ this plan is still in planning mode.\n\
 finish planning before generating execution tasks:\n\
@@ -605,7 +620,12 @@ fn render_undeclared_kind(data: &Value, plan_id: &str, task_id: Option<&str>) ->
     ))
 }
 
-fn render_open_subtasks(data: &Value, plan_id: &str, task_id: Option<&str>) -> Option<String> {
+fn render_open_subtasks(
+    data: &Value,
+    plan_id: &str,
+    task_id: Option<&str>,
+    requested_status: Option<&str>,
+) -> Option<String> {
     let subtasks = data
         .get("subtasks")
         .and_then(|v| v.as_array())
@@ -621,10 +641,20 @@ fn render_open_subtasks(data: &Value, plan_id: &str, task_id: Option<&str>) -> O
     } else {
         subtasks.join("\n")
     };
+    let parent_retry = if requested_status == Some("cancelled") {
+        format!(
+            "codeterm plan task update {plan_id} {} --status cancelled",
+            task_id.unwrap_or("<task_id>")
+        )
+    } else {
+        format!(
+            "codeterm plan task close {plan_id} {}",
+            task_id.unwrap_or("<task_id>")
+        )
+    };
     Some(format!(
-        "✗ task '{}' still has open subtasks:\n{listed}\nfix: close or cancel the child tasks first, then retry:\n  codeterm plan task close {plan_id} <child_task_id>\n  codeterm plan task close {plan_id} {}",
+        "✗ task '{}' still has open subtasks:\n{listed}\nfix: close or cancel the child tasks first, then retry:\n  codeterm plan task close {plan_id} <child_task_id>\n  codeterm plan task update {plan_id} <child_task_id> --status cancelled\n  {parent_retry}",
         task_id.unwrap_or("<task_id>"),
-        task_id.unwrap_or("<task_id>")
     ))
 }
 
@@ -692,6 +722,35 @@ mod tests {
         assert!(message.contains("gpt-9-bogus"), "{message}");
         assert!(message.contains("gpt-6-sol"), "{message}");
         assert!(message.contains("codeterm agent models codex"), "{message}");
+    }
+
+    #[test]
+    fn split_parent_error_uses_the_server_reason() {
+        let terminal = render_plan_error(
+            &json!({"type":"invalid_split_parent", "reason":"terminal_parent"}),
+            &json!({"plan_id":"plan_a", "task_id":"task_a"}),
+        )
+        .expect("split parent errors must have a renderer");
+        let child = render_plan_error(
+            &json!({"type":"invalid_split_parent", "reason":"child_parent"}),
+            &json!({"plan_id":"plan_a", "task_id":"task_a"}),
+        )
+        .expect("split parent errors must have a renderer");
+        assert!(terminal.contains("terminal"), "{terminal}");
+        assert!(child.contains("top-level"), "{child}");
+    }
+
+    #[test]
+    fn open_subtasks_cancel_refusal_retries_the_requested_status() {
+        let message = render_plan_error(
+            &json!({"type":"open_subtasks", "subtasks":[{"id":"child_a", "name":"Child A"}]}),
+            &json!({"plan_id":"plan_a", "task_id":"parent_a", "status":"cancelled"}),
+        )
+        .expect("open subtask errors must have a renderer");
+        assert!(
+            message.contains("codeterm plan task update plan_a parent_a --status cancelled"),
+            "{message}"
+        );
     }
 
     /// Selected by `data.type`, and the rendered remedy carries the flag the

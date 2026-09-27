@@ -145,6 +145,11 @@ fn split_invalid_second_child_is_atomic() {
 #[test]
 fn split_rejects_terminal_and_child_parents() {
     for status in [Some(TaskStatus::Done), Some(TaskStatus::Cancelled), None] {
+        let expected_reason = if status.is_some() {
+            "terminal_parent"
+        } else {
+            "child_parent"
+        };
         let (fixture, plan_id, _, _, _, owner) = update_fixture();
         let parent_id = fixture
             .service
@@ -193,15 +198,73 @@ fn split_rejects_terminal_and_child_parents() {
         params["plan_id"] = json!(plan_id);
         params["task_id"] = json!(target_id);
         params["children"] = json!([{"name":"Nested"}]);
-        assert!(dispatch(
+        let error = dispatch(
             "plan.task.split",
             &Some(params),
             &fixture.service.app_handle,
             &service,
-            10
+            10,
         )
-        .is_err());
+        .unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert_eq!(error.data.as_ref().unwrap()["type"], "invalid_split_parent");
+        assert_eq!(error.data.as_ref().unwrap()["reason"], expected_reason);
     }
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
+    let (fixture, plan_id, _, _, _, owner) = update_fixture();
+    let parent_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Parent".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Child".into(),
+                parent_task_id: Some(parent_id.clone()),
+                ..Default::default()
+            },
+            6,
+        )
+        .unwrap();
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id.clone());
+    params["task_id"] = json!(parent_id.clone());
+    params["status"] = json!("cancelled");
+    let service = Arc::new(fixture.service.clone());
+    let error = dispatch(
+        "plan.task.update",
+        &Some(params),
+        &fixture.service.app_handle,
+        &service,
+        10,
+    )
+    .unwrap_err();
+    assert_eq!(error.data.as_ref().unwrap()["type"], "open_subtasks");
+    assert_eq!(
+        fixture
+            .service
+            .plan_store
+            .show_task(&parent_id)
+            .unwrap()
+            .task
+            .status,
+        TaskStatus::Pending
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

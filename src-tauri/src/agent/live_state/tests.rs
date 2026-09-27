@@ -78,6 +78,7 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         let mut mux = fixture.service.mux.write();
         let launching = mux.get_tab_mut(&launching_tab_id).unwrap();
         launching.agent_booting = false;
+        launching.restored_from_snapshot = false;
         launching.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
     }
     fixture.service.settle_restore_report();
@@ -119,4 +120,73 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
         .lock()
         .kill("resume-live-pty")
         .expect("stop live backing PTY");
+}
+
+#[test]
+fn restored_tab_not_cleared_before_relaunch_outcome() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("restore-fixture".into());
+        tab.agent_session_id = Some("saved-session".into());
+        tab.session_binding_nonce = Some("saved-nonce".into());
+        tab.restored_from_snapshot = true;
+        tab.protected = false;
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    assert!(!fixture
+        .service
+        .reconcile_tab_restored_without_agent(&tab_id));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some("restore-fixture")
+            && tab.agent_session_id.as_deref() == Some("saved-session")));
+
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.restored_from_snapshot = false;
+        tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
+    }
+    assert!(fixture
+        .service
+        .reconcile_tab_restored_without_agent(&tab_id));
+    let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+    assert!(tab.agent_type.is_none());
+    assert!(tab.agent_session_id.is_none());
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("saved-session")
+    );
+}
+
+#[test]
+fn unobserved_liveness_pane_remains_relaunchable() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("restore-fixture".into());
+        tab.agent_session_id = Some("saved-session".into());
+        tab.restored_from_snapshot = true;
+        tab.protected = false;
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    assert_eq!(
+        observe_tab_liveness(&fixture.service, &tab_id),
+        AgentLiveness::Unobserved
+    );
+    let claim = crate::service::pty_io::claim_restored_pty_boot(&fixture.service.mux, &tab_id)
+        .unwrap()
+        .expect("unobserved restored tab remains eligible for relaunch");
+    assert_eq!(claim.session_id.as_deref(), Some("saved-session"));
+    assert!(crate::service::pty_io::claim_restored_pty_boot(&fixture.service.mux, &tab_id)
+        .unwrap()
+        .is_none());
 }
