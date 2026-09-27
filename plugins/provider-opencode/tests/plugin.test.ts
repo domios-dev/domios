@@ -335,26 +335,38 @@ console.log("\n--- discoverModels ---\n");
     sessionId: "sess 1",
     structuredPromptServer: { hostname: "127.0.0.1", port: 4567 },
   });
-  eq(
-    launch,
-    "opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)",
-    "buildLaunchCommand quotes --session with quoteFor(platform)",
-  );
-  eq(
-    p.buildResumeCommand("sess 2"),
-    "opencode --session Q(windows:sess 2)",
-    "buildResumeCommand selects the full TUI for session resume",
-  );
-  eq(
-    p.buildLaunchCommand({ skipPermissions: true }),
-    "opencode --dangerously-skip-permissions",
-    "buildLaunchCommand applies the centralized full-access policy",
-  );
-  eq(
-    p.buildResumeCommand("sess 2", true),
-    "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
-    "buildResumeCommand applies the centralized full-access policy",
-  );
+  assert(launch.includes("opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)"), "buildLaunchCommand quotes --session with quoteFor(platform)");
+  assert(p.buildResumeCommand("sess 2").includes("opencode --session Q(windows:sess 2)"), "buildResumeCommand selects the full TUI for session resume");
+  assert(p.buildLaunchCommand({ skipPermissions: true }).includes("opencode --dangerously-skip-permissions"), "buildLaunchCommand applies the centralized full-access policy");
+  assert(p.buildResumeCommand("sess 2", true).includes("opencode --session Q(windows:sess 2) --dangerously-skip-permissions"), "buildResumeCommand applies the centralized full-access policy");
+}
+
+console.log("\n--- per-launch pad-only external directory permission ---\n");
+{
+  const unix = loadOpencodeWithHost(ocHost({ platform: () => "linux" }));
+  const fresh = unix.buildLaunchCommand({});
+  const restored = unix.buildResumeCommand("ses_restore");
+  const resumed = unix.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
+  for (const [name, command] of [["fresh", fresh], ["restore", restored], ["resume", resumed]] as const) {
+    assert(command.includes('"*":"ask"'), `${name} keeps unmatched external paths at ask`);
+    assert(command.includes("CODETERM_PAD_DIR"), `${name} derives the grant from the tab launch environment`);
+    assert(command.includes('\\"$ct_pad_dir/*\\":\\"allow\\"'), `${name} allows only the normalized pad subtree`);
+    assert(command.includes("unset OPENCODE_CONFIG_CONTENT"), `${name} clears the per-launch config after OpenCode exits`);
+    assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `${name} does not write a global config path`);
+  }
+  assert(fresh.includes("tr '\\\\' '/'") && fresh.includes("sed 's/\"/\\\\\\\"/g'"), "Unix launch normalizes Windows separators and JSON-quotes the pad path");
+
+  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` } }));
+  const windowsFresh = windows.buildLaunchCommand({});
+  const windowsRestore = windows.buildResumeCommand("ses_restore");
+  const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume" });
+  for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore], ["resume", windowsResume]] as const) {
+    assert(command.includes("$env:CODETERM_PAD_DIR -replace"), `Windows ${name} normalizes its tab pad path`);
+    assert(command.includes("$ct_pad.TrimEnd('/') + '/*'"), `Windows ${name} grants exactly the pad subtree`);
+    assert(command.includes('"*":"ask"'), `Windows ${name} keeps other external paths at ask`);
+    assert(command.includes("Remove-Item Env:OPENCODE_CONFIG_CONTENT"), `Windows ${name} clears the per-launch config after OpenCode exits`);
+    assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `Windows ${name} does not write a global config path`);
+  }
 }
 
 console.log("\n--- restored full-TUI command keeps the saved project, session, and model ---\n");
