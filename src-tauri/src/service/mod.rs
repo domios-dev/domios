@@ -48,6 +48,7 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
+mod parked_user_delivery;
 mod process_tree;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
@@ -395,6 +396,16 @@ impl ServiceContext {
         channel: crate::multiplexer::types::PendingDeliveryChannel,
         payload: &str,
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
+        self.create_pending_delivery_with_send_id(tab_id, channel, payload, None)
+    }
+
+    pub(crate) fn create_pending_delivery_with_send_id(
+        &self,
+        tab_id: &str,
+        channel: crate::multiplexer::types::PendingDeliveryChannel,
+        payload: &str,
+        send_id: Option<&str>,
+    ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
         use sha2::Digest;
         let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
         let previous_digest = self
@@ -412,10 +423,11 @@ impl ServiceContext {
                 message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        tab.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
-            digest.clone(),
-            channel,
-        ));
+        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
+        tab.pending_delivery = Some(match send_id {
+            Some(send_id) => record.with_send_id(send_id.to_string()),
+            None => record,
+        });
         drop(mux);
         crate::service::session_persist::persist_session_after_mutation(
             self,
@@ -448,59 +460,6 @@ impl ServiceContext {
                     .map(Some)
             }
             _ => Ok(None),
-        }
-    }
-
-    /// Park a user send refused before any byte reached the PTY, so the tab's
-    /// next `AgentReady` transition can deliver it once. The gate lives here and
-    /// not at the call site: `SubmitUnconfirmed` is the only variant whose
-    /// payload may already sit in the PTY, and parking it would risk a second
-    /// write of the same text.
-    pub(crate) fn park_refused_user_send(
-        &self,
-        tab_id: &str,
-        text: &str,
-        error: &delivery_error::DeliveryError,
-    ) {
-        if error.bytes_written() || text.is_empty() {
-            return;
-        }
-        if let Err(store_error) = self.create_pending_delivery(
-            tab_id,
-            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-            text,
-        ) {
-            log::warn!("[chat-send] Tab {tab_id} refused send could not be parked: {store_error}");
-        }
-    }
-
-    /// Deliver a parked user send, once. A send that fails again is reconciled
-    /// and left alone rather than retried, so one park yields at most one write.
-    pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
-        // `Unconfirmed` means the payload already reached the PTY, only its ack is
-        // missing — delivering here would duplicate it; restore replays elsewhere.
-        let already_written = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .is_some_and(|record| {
-                record.state() == crate::multiplexer::types::PendingDeliveryState::Unconfirmed
-            });
-        if already_written {
-            return;
-        }
-        let Ok(Some(text)) = self.resolve_pending_delivery(tab_id) else {
-            return;
-        };
-        let evidence = self
-            .send_chat_text_claimed(tab_id, &text, None)
-            .map(|()| true);
-        if let Err(error) = self.reconcile_pending_delivery(tab_id, evidence) {
-            log::warn!(
-                "[chat-send] parked send for Tab {tab_id} not delivered: {}",
-                error.code()
-            );
         }
     }
 
