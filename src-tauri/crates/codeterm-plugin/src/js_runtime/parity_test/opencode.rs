@@ -68,7 +68,7 @@ fn restored_resume_command_preserves_exact_session_model_and_effort() {
 
     assert_eq!(
         command,
-        format!("opencode --session '{SES_ID}' -m big-pickle --variant high")
+        format!("opencode --session '{SES_ID}' -m 'big-pickle' --variant 'high'")
     );
 }
 
@@ -103,7 +103,7 @@ fn resume_with_context_restages_the_session_config() {
         "{command}"
     );
     assert!(
-        command.contains("opencode --session 'ses_abc' -m big-pickle --variant high"),
+        command.contains("opencode --session 'ses_abc' -m 'big-pickle' --variant 'high'"),
         "{command}"
     );
     assert!(
