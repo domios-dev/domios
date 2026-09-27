@@ -253,7 +253,7 @@ const plugin: PluginModule = {
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = platform === "windows"
-      ? `${project ? `Set-Location -LiteralPath ${project}; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
+      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
       : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
     const epilogue = platform === "windows"
       ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
