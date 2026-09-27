@@ -101,10 +101,11 @@ Skills for Claude Code are in `skills/` directory. Install via Settings → Agen
 
 Choose a model with `codeterm agent models <provider>` and pass its id with
 `codeterm agent spawn <provider> --model <id>`. Providers with an authoritative
-catalogue refuse unknown ids before creating a tab and list close catalogue ids
-in the error. Free-form providers accept provider-owned ids. If a live catalogue
-is unavailable, the requested id is launched unchanged and the response includes
-a warning; CodeTerm does not substitute a default model.
+catalogue refuse unknown ids before creating a tab and list valid catalogue ids
+in the error. Free-form providers also validate ids against a published live
+model list. If no live list is available, the requested id is passed through
+unchanged with a warning. Provider-qualified ids select their provider; an
+unqualified id advertised by one provider routes to that provider.
 
 ### Open agent shells (`chatBackend`)
 

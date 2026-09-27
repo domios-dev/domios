@@ -57,7 +57,7 @@ use lane_safety::{
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;
-use routing::{dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing};
+use routing::{dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing_with_model_owners};
 pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
@@ -500,11 +500,18 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let routing = resolve_dispatch_routing(
+    let model_owners = svc.agent_registry.provider_ids().into_iter().map(|provider_id| {
+        let models = svc.agent_registry.with_provider(&provider_id, |provider| {
+            provider.available_models().into_iter().map(|model| model.id).collect()
+        }).unwrap_or_default();
+        (provider_id, models)
+    }).collect::<Vec<_>>();
+    let routing = resolve_dispatch_routing_with_model_owners(
         owned_str(p, "agent"),
         owned_str(p, "model"),
         detail.task.model.clone(),
         &svc.agent_registry.provider_ids(),
+        &model_owners,
     );
     if let Some(error) = provider_mismatch_error(&routing) {
         return Err(error);
