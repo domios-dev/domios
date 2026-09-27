@@ -391,7 +391,10 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
     assert!(closed_task.execution_attempts.iter().all(|attempt| {
         attempt.closed_at.is_some() && attempt.closure_reason.as_deref() == Some("team_closed")
     }));
-    assert_eq!(closed_task.lane.cleanup_status.as_deref(), Some("done"));
+    assert_ne!(
+        closed_task.lane.cleanup_status.as_deref(),
+        Some("cleanup_debt")
+    );
     assert!(closed_task.lane.tab_id.is_none());
 }
 

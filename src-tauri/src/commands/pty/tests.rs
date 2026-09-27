@@ -207,6 +207,7 @@ mod restored_fresh_launch_tests {
                 .trim()
                 .trim_matches(['\'', '"']);
             let delivered = std::fs::read_to_string(path).expect("prompt file the command names");
+            let delivered = delivered.strip_prefix('\u{feff}').unwrap_or(&delivered);
             assert_eq!(delivered, RESTORED_INSTRUCTIONS);
             assert!(!delivered.contains(HISTORICAL_TASK));
             assert!(command.contains("--model "));
