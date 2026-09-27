@@ -680,7 +680,12 @@ impl ServiceContext {
             let current_identity = provider_prompt
                 .as_ref()
                 .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(*kind, prompt));
-            if current_identity.as_ref() != Some(expected) {
+            let manual_update_identity_matches = expected.kind
+                == codeterm_types::pty::PromptKind::ManualUpdate
+                && current_identity
+                    .as_ref()
+                    .is_some_and(|current| current.options == expected.options);
+            if current_identity.as_ref() != Some(expected) && !manual_update_identity_matches {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
