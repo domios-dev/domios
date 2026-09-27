@@ -313,15 +313,8 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
     let restored = MultiplexerState::from_session_snapshot(&restored_snapshot);
     assert_live_planner_identity(restored.get_tab(&tab_id).unwrap());
 
-    assert!(harness
+    assert!(!harness
         .service
         .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, None));
-    assert!(harness
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .unwrap()
-        .agent_session_id
-        .is_none());
+    assert_live_planner_identity(harness.service.mux.read().get_tab(&tab_id).unwrap());
 }
