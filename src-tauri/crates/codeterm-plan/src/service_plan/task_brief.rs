@@ -121,14 +121,6 @@ pub fn render_task_brief(
         out.push_str(&render_plan_skill_manifest(plan_id, plan_skills));
     }
 
-    if let Some(plan_id) = plan_id {
-        out.push_str("## Worker report\nWhen ready for review, run exactly:\n");
-        out.push_str(&super::task_attempts::task_report_command(
-            plan_id, &task.id,
-        ));
-        out.push_str("\n\n");
-    }
-
     super::worker_identity::attach_worker_identity(&identity, &out)
 }
 
@@ -170,20 +162,5 @@ mod tests {
             assert_eq!(rendered.matches(gate).count(), 1);
         }
         assert!(!rendered.contains("{authorized_gates}"));
-    }
-
-    #[test]
-    fn task_brief_carries_the_shared_report_command() {
-        let task: Task = serde_json::from_value(serde_json::json!({
-            "id": "task_report_contract",
-            "name": "report contract",
-            "type": "unplanned",
-            "status": "pending"
-        }))
-        .unwrap();
-        let brief = render_task_brief(&task, &[], None, None, Some("pl_report"), &[], &[]);
-        let command = super::super::task_attempts::task_report_command("pl_report", &task.id);
-
-        assert!(brief.contains(&command));
     }
 }
