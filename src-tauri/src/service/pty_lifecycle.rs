@@ -337,7 +337,7 @@ fn handle_pty_death_with_cause(
         return PtyDeathOutcome::NoOwningTab;
     };
     {
-        svc.clear_tab_agent_identity_for_lifecycle_exit_with_cause(pid, "pty process died");
+        svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
         svc.settle_restore_report();
         svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
