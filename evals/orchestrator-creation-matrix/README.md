@@ -80,14 +80,15 @@ GATED. A live end-to-end nudge assertion would require overriding
 - **No `codeterm orchestrator promote` CLI.** Make-Orchestrator is only the REST
   RPC `POST /api/tabs/{id}/make-orchestrator`. Route D uses `dev_post`.
 - **`team pair` refuses Worker and Manager callers unless they pass
-  `--acknowledge-leaf`.** H2 exercises the real CLI with a Worker caller.
+  `--acknowledge-leaf`.** H2 exercises the real CLI with a Worker caller; the
+  focused service test exercises both leaf roles with registered providers.
 - **Both providers are checked before pair tabs are reserved.** H3 asserts an
   unknown provider leaves no Tab or Plan.
 - **`planner_unpaired` is present in the quality-doctor finding set.** G checks
   its warning, approval-time error rendering, and silence after waiver; the
-  older “absent” result came from a harness parser that fed Python source on
-  stdin and from expecting approval's transient escalation in a later doctor
-  call.
+  older “absent” result came from creating the Plan without `--as-tab`, leaving
+  it without an owner Tab. `inspect_planner_pairing` returns no finding when
+  `owner.tab_id` is absent (quality doctor, `quality.rs:484-491`).
 
 ## Wiring into the FINAL acceptance gate
 

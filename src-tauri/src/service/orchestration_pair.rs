@@ -200,6 +200,10 @@ fn validate_pair_provider(
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
     planner_tab_id: String,
+    orchestrator_tab_created: bool,
+    planner_tab_created: bool,
+    claimed_orchestrator_before: Option<crate::multiplexer::types::Tab>,
+    claimed_orchestrator_pad_existed: bool,
     planner_name: String,
     team: crate::service::spawn_factory::TeamIdentity,
     team_minted: bool,
@@ -239,10 +243,24 @@ fn reserved_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
     ]
 }
 
+fn created_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
+    [
+        (
+            reserved.orchestrator_tab_created,
+            &reserved.orchestrator_tab_id,
+        ),
+        (reserved.planner_tab_created, &reserved.planner_tab_id),
+    ]
+    .into_iter()
+    .filter_map(|(created, tab_id)| created.then(|| tab_id.clone()))
+    .collect()
+}
+
 fn reserve_pair_tabs(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     workspace_id: &str,
     existing_orchestrator_tab_id: Option<&str>,
+    claimed_orchestrator_pad_existed: bool,
     shape: &CorrectiveShape,
 ) -> Result<ReservedPairTabs, String> {
     // Membership door 1: claiming a Tab as the pair Orchestrator binds a Team
@@ -255,6 +273,9 @@ fn reserve_pair_tabs(
             shape,
         )?;
     }
+    let claimed_orchestrator_before =
+        existing_orchestrator_tab_id.and_then(|tab_id| mux.get_tab(tab_id).cloned());
+    let orchestrator_tab_created = existing_orchestrator_tab_id.is_none();
     let mut created_tab_ids = Vec::new();
     let result = (|| {
         let orchestrator_tab_id = match existing_orchestrator_tab_id {
@@ -303,6 +324,10 @@ fn reserve_pair_tabs(
         Ok(ReservedPairTabs {
             orchestrator_tab_id,
             planner_tab_id,
+            orchestrator_tab_created,
+            planner_tab_created: true,
+            claimed_orchestrator_before: claimed_orchestrator_before.clone(),
+            claimed_orchestrator_pad_existed,
             planner_name,
             team: crate::service::spawn_factory::TeamIdentity::new(
                 reservation.team_id,
@@ -315,13 +340,83 @@ fn reserve_pair_tabs(
         for tab_id in created_tab_ids {
             mux.rollback_spawn_tab(workspace_id, &tab_id);
         }
+        if let (Some(tab_id), Some(previous)) =
+            (existing_orchestrator_tab_id, claimed_orchestrator_before)
+        {
+            if let Some(tab) = mux.get_tab_mut(tab_id) {
+                *tab = previous;
+            }
+        }
     }
     result
 }
 
+fn restore_claimed_pair_tab(
+    service: &ServiceContext,
+    tab_id: &str,
+    previous: &crate::multiplexer::types::Tab,
+    pad_existed: bool,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let (provider_id, pty_id) = service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .map(|tab| (tab.agent_type.clone(), tab.pty_id.clone()))
+        .unwrap_or_default();
+    service.cancel_agent_startup_supervision(tab_id);
+    crate::service::launch_session_detection::clear_launch_marker(tab_id);
+    service.chat_registry.shutdown_tab(tab_id);
+    service.deferred_session_bindings.clear(tab_id);
+    if let Some((plugin_id, session_id)) = service.tab_chat_backing(tab_id) {
+        if let Err(error) = service.chatbackend_close(&plugin_id, &session_id) {
+            errors.push(format!("claimed Tab chat session cleanup failed: {error}"));
+        }
+    }
+    if let Some(provider_id) = provider_id {
+        service.release_tab_launch_artifacts(tab_id, &provider_id);
+    }
+    if let Some(pty_id) = pty_id.filter(|pty_id| Some(pty_id) != previous.pty_id.as_ref()) {
+        service.kill_ptys(&[pty_id]);
+    }
+    if !pad_existed {
+        if let Err(error) = service.revoke_agent_pad(tab_id) {
+            errors.push(format!("claimed Tab AgentPad cleanup failed: {error}"));
+        }
+    }
+    if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+        *tab = previous.clone();
+    } else {
+        errors.push(format!(
+            "claimed Tab {tab_id} disappeared during pair rollback"
+        ));
+    }
+    service.emit_state_changed();
+    errors
+}
+
 fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> Vec<String> {
     let mut cleanup_errors = Vec::new();
-    for tab_id in [&reserved.planner_tab_id, &reserved.orchestrator_tab_id] {
+    for (tab_id, created) in [
+        (&reserved.planner_tab_id, reserved.planner_tab_created),
+        (
+            &reserved.orchestrator_tab_id,
+            reserved.orchestrator_tab_created,
+        ),
+    ] {
+        if !created {
+            if let Some(previous) = reserved.claimed_orchestrator_before.as_ref() {
+                cleanup_errors.extend(restore_claimed_pair_tab(
+                    service,
+                    tab_id,
+                    previous,
+                    reserved.claimed_orchestrator_pad_existed,
+                ));
+            } else {
+                cleanup_errors.push(format!("claimed Tab {tab_id} has no saved pre-pair state"));
+            }
+            continue;
+        }
         if service.mux.read().get_tab(tab_id).is_none() {
             service.cancel_agent_startup_supervision(tab_id);
             continue;
@@ -337,7 +432,7 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
     }
     service.forget_pair_startup_lease(&reserved.team.id);
     let mux = service.mux.read();
-    let remaining_tabs: Vec<_> = reserved_member_tab_ids(reserved)
+    let remaining_tabs: Vec<_> = created_member_tab_ids(reserved)
         .into_iter()
         .filter(|tab_id| mux.get_tab(tab_id).is_some())
         .collect();
@@ -351,6 +446,12 @@ fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> 
         cleanup_errors.push(format!(
             "Team {} remains after pair rollback",
             reserved.team.id
+        ));
+    }
+    if !reserved.orchestrator_tab_created && mux.get_tab(&reserved.orchestrator_tab_id).is_none() {
+        cleanup_errors.push(format!(
+            "claimed Tab {} is missing after pair rollback",
+            reserved.orchestrator_tab_id
         ));
     }
     drop(mux);
@@ -472,6 +573,17 @@ impl ServiceContext {
             planner_model.as_deref(),
             params.planner_reasoning_effort.as_deref(),
         )?;
+        let claimed_orchestrator_pad_existed = if let Some(tab_id) = params.existing_tab_id.clone()
+        {
+            tokio::task::spawn_blocking(move || {
+                crate::service::agent_pad::AgentPad::open(&crate::paths::data_dir(), &tab_id)
+                    .is_ok()
+            })
+            .await
+            .map_err(|error| format!("failed to inspect claimed Tab AgentPad: {error}"))?
+        } else {
+            false
+        };
         let pair_fix_command = pair_retry_command(
             &workspace_id,
             &params.orchestrator_agent,
@@ -490,6 +602,7 @@ impl ServiceContext {
                 &mut mux,
                 &workspace_id,
                 params.existing_tab_id.as_deref(),
+                claimed_orchestrator_pad_existed,
                 &membership_shape,
             )?
         };

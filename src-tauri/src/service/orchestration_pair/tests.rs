@@ -107,8 +107,14 @@ fn planner_name_avoids_all_existing_workspace_titles() {
 fn pair_tabs_are_reserved_before_either_agent_launches() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let reserved =
-        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
+    let reserved = reserve_pair_tabs(
+        &mut mux,
+        &workspace_id,
+        None,
+        false,
+        &CorrectiveShape::default(),
+    )
+    .unwrap();
 
     assert_ne!(reserved.orchestrator_tab_id, reserved.planner_tab_id);
     assert!(mux.get_tab(&reserved.orchestrator_tab_id).is_some());
@@ -141,8 +147,14 @@ fn reserved_pair() -> (
 ) {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let reserved =
-        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
+    let reserved = reserve_pair_tabs(
+        &mut mux,
+        &workspace_id,
+        None,
+        false,
+        &CorrectiveShape::default(),
+    )
+    .unwrap();
     (mux, workspace_id, reserved)
 }
 
@@ -222,6 +234,7 @@ fn pair_startup_lease_covers_only_a_minted_team() {
         &mut mux,
         &workspace_id,
         Some(&claimed),
+        false,
         &CorrectiveShape::default(),
     )
     .unwrap();
@@ -245,6 +258,7 @@ fn failed_pair_launch_keeps_a_team_the_claimed_tab_already_had() {
         &mut mux,
         &workspace_id,
         Some(&claimed),
+        false,
         &CorrectiveShape::default(),
     )
     .unwrap();
@@ -288,6 +302,7 @@ fn general_agent_team_guard_refuses_self_pairing_and_reserves_nothing() {
         &mut mux,
         &workspace_id,
         Some(&general),
+        false,
         &CorrectiveShape::default(),
     )
     .expect_err("the General Agent may not claim the Orchestrator seat of a pair");
@@ -314,6 +329,7 @@ fn general_agent_team_guard_still_lets_the_general_agent_pair_for_other_agents()
         &mut mux,
         &workspace_id,
         None,
+        false,
         &CorrectiveShape::in_workspace(Some(&workspace_id)),
     )
     .expect("creating a pair for OTHER agents is the General Agent's job");
@@ -379,11 +395,11 @@ fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
 }
 
 // WHAT: Worker and Manager callers need explicit leaf acknowledgement.
-// WHY: Team leaf roles cannot create a pair through a caller attribution gap.
+// WHY: Valid providers must not let a Team leaf reach pair reservation.
 // ORACLE: each call returns the acknowledgement refusal without changing Tabs, Teams, or Plans.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
+fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
     use crate::multiplexer::types::AgentRole;
 
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -399,6 +415,12 @@ fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
         tab.agent_type = Some("provider".into());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("pair-orchestrator"),
+    ));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("pair-planner"),
+    ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();
 
@@ -412,8 +434,8 @@ fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
                 fixture
                     .service
                     .create_orchestration_pair(OrchestrationPairParams {
-                        orchestrator_agent: "unknown-orchestrator".into(),
-                        planner_agent: "unknown-planner".into(),
+                        orchestrator_agent: "pair-orchestrator".into(),
+                        planner_agent: "pair-planner".into(),
                         workspace_id: Some(workspace_id.clone()),
                         spawned_by_tab_id: Some(creator_tab_id.clone()),
                         ..Default::default()
@@ -524,8 +546,14 @@ fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let reserved = {
         let mut mux = fixture.service.mux.write();
-        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default())
-            .expect("pair reservation")
+        reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            None,
+            false,
+            &CorrectiveShape::default(),
+        )
+        .expect("pair reservation")
     };
     let tab_ids = reserved_member_tab_ids(&reserved);
     let team_id = reserved.team.id.clone();
@@ -536,6 +564,114 @@ fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
     let mux = fixture.service.mux.read();
     assert!(tab_ids.iter().all(|tab_id| mux.get_tab(tab_id).is_none()));
     assert!(mux.get_team(&team_id).is_none());
+}
+
+// WHAT: an Orchestrator launch error removes every Tab and Team reserved by the pair.
+// WHY: spawn_agent may return before it owns cleanup of the existing pair Tab ids.
+// ORACLE: after the failed call, the workspace has no additional Tabs or Teams.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command(
+            "pair-empty-orchestrator",
+        ),
+    ));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("pair-valid-planner"),
+    ));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(
+            fixture
+                .service
+                .create_orchestration_pair(OrchestrationPairParams {
+                    orchestrator_agent: "pair-empty-orchestrator".into(),
+                    planner_agent: "pair-valid-planner".into(),
+                    workspace_id: Some(workspace_id),
+                    ..Default::default()
+                }),
+        )
+        .expect_err("the provider passes preflight but supplies no launch command");
+
+    assert!(error.contains("Failed to spawn Orchestrator"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
+// WHAT: Planner launch failure restores a claimed picker Tab and removes the created Planner Tab.
+// WHY: rollback owns the new pair member but must preserve a Tab supplied by the user.
+// ORACLE: the original Tab remains blank and no pair-created Tab or Team remains.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let picker_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let picker_before = mux.get_tab(&picker_tab_id).unwrap().clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.chatbackend_registry.register(
+        "pair-successful-chat-orchestrator",
+        std::sync::Arc::new(
+            crate::service::spawn_capability::test_backend::SpawnableTestBackend {
+                id: "pair-successful-chat-orchestrator",
+            },
+        ),
+    );
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command("pair-empty-planner"),
+    ));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(
+            fixture
+                .service
+                .create_orchestration_pair(OrchestrationPairParams {
+                    orchestrator_agent: "pair-successful-chat-orchestrator".into(),
+                    planner_agent: "pair-empty-planner".into(),
+                    workspace_id: Some(workspace_id),
+                    existing_tab_id: Some(picker_tab_id.clone()),
+                    ..Default::default()
+                }),
+        )
+        .expect_err("the Planner provider passes preflight but fails at launch");
+
+    assert!(error.contains("Failed to spawn Planner"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    let restored = mux
+        .get_tab(&picker_tab_id)
+        .expect("the caller's claimed picker Tab must remain");
+    assert_eq!(restored.title, picker_before.title);
+    assert_eq!(restored.cwd, picker_before.cwd);
+    assert_eq!(restored.pty_id, picker_before.pty_id);
+    assert_eq!(restored.backing, picker_before.backing);
+    assert_eq!(restored.agent_type, picker_before.agent_type);
+    assert_eq!(restored.agent_type_locked, picker_before.agent_type_locked);
+    assert_eq!(restored.agent_session_id, picker_before.agent_session_id);
+    assert_eq!(restored.role, picker_before.role);
+    assert_eq!(restored.team_id, picker_before.team_id);
+    assert_eq!(restored.agent_booting, picker_before.agent_booting);
+    assert_eq!(restored.boot_stage, picker_before.boot_stage);
+    assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
 #[test]
@@ -561,8 +697,14 @@ fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
         "a declared leaf must pass the gate"
     );
 
-    let reserved =
-        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
+    let reserved = reserve_pair_tabs(
+        &mut mux,
+        &workspace_id,
+        None,
+        false,
+        &CorrectiveShape::default(),
+    )
+    .unwrap();
     let lease = pair_startup_lease(&leaf_tab_id, &reserved).expect("a minted pair Team is leased");
     assert_eq!(
         lease.creator_tab_id, leaf_tab_id,
@@ -599,6 +741,7 @@ fn general_agent_team_guard_refusal_carries_the_requested_pair_shape() {
         &mut mux,
         &workspace_id,
         Some(&general),
+        false,
         &CorrectiveShape::in_workspace(Some(&workspace_id))
             .with_agents(Some(requested_orchestrator), Some(requested_planner)),
     )
