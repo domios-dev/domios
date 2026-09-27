@@ -123,6 +123,7 @@ fn provider_descriptor_round_trip() {
             supports_structured_prompts: true,
             supports_permission_auto_confirm: true,
             supports_watcher: false,
+            paste_limit_bytes: Some(4096),
             trust: ProviderTrust::System,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
@@ -170,6 +171,9 @@ impl AgentProvider for StubProvider {
     }
     fn display_name(&self) -> &str {
         "Stub"
+    }
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        Some(4096)
     }
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         String::new()
@@ -225,6 +229,12 @@ impl AgentProvider for StubProvider {
             },
         ]
     }
+}
+
+#[test]
+fn native_provider_paste_limit_is_exposed_in_descriptor() {
+    assert_eq!(StubProvider.paste_limit_bytes(), Some(4096));
+    assert_eq!(StubProvider.describe().paste_limit_bytes, Some(4096));
 }
 
 /// `describe()` is contractually I/O-free and runs under the registry read

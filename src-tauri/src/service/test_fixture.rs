@@ -107,6 +107,7 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(temp.path()).unwrap();
         let service = ServiceContext {
+            agent_pad_data_dir: temp.path().to_path_buf(),
             mux: Arc::new(TimedRwLock::new("mux", mux)),
             pty: Arc::new(TimedMutex::new(
                 "pty",

@@ -228,6 +228,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
