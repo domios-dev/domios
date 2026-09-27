@@ -1,5 +1,8 @@
 // ── Mesh commands ───────────────────────────────────────────────────
 
+mod remote_pty_cache;
+use remote_pty_cache::REMOTE_PTY_IDS;
+
 #[tauri::command]
 pub fn mesh_get_status(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
@@ -526,6 +529,10 @@ pub async fn mesh_remote_tab_action(
     suffix: String,
     #[allow(unused_variables)] body: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
+    let cache_key = (peer_id.clone(), ordinary_tab_id.clone());
+    if matches!(suffix.as_str(), "/focus" | "/agent/restart" | "/close") {
+        REMOTE_PTY_IDS.invalidate(&cache_key);
+    }
     let (client, connected) = {
         let manager = mesh.lock();
         let connected = manager
@@ -534,6 +541,9 @@ pub async fn mesh_remote_tab_action(
             .is_some_and(|peer| peer.online);
         (manager.client_for(&peer_id), connected)
     };
+    if !connected {
+        REMOTE_PTY_IDS.invalidate(&cache_key);
+    }
     let mut command = crate::api::mesh_routes::remote_tabs::route_remote_tab_action(
         &ordinary_tab_id,
         &peer_id,
@@ -553,19 +563,48 @@ pub async fn mesh_remote_tab_action(
             body: serde_json::Value::Null,
             delivery_id: None,
         };
-        let inspected = client
-            .as_ref()
-            .ok_or_else(|| "remote tab unavailable".to_string())?
-            .send_relay(&inspect)
-            .await?;
-        let pty_id = inspected
-            .data
-            .as_ref()
-            .and_then(serde_json::Value::as_array)
-            .and_then(|tabs| tabs.first())
-            .and_then(|tab| tab.get("pty_id"))
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| "remote tab PTY unavailable".to_string())?;
+        let pty_id = if suffix == "/pty/write" {
+            let lookup_client = client.clone();
+            let lookup_tab = encoded_tab.clone();
+            REMOTE_PTY_IDS
+                .get_or_resolve(cache_key.clone(), || async move {
+                    let inspected = lookup_client
+                        .as_ref()
+                        .ok_or_else(|| "remote tab unavailable".to_string())?
+                        .send_relay(&crate::mesh::types::RelayCommand {
+                            method: "GET".into(),
+                            path: format!("/api/tabs/inspect?tab_ids={lookup_tab}"),
+                            body: serde_json::Value::Null,
+                            delivery_id: None,
+                        })
+                        .await?;
+                    inspected
+                        .data
+                        .as_ref()
+                        .and_then(serde_json::Value::as_array)
+                        .and_then(|tabs| tabs.first())
+                        .and_then(|tab| tab.get("pty_id"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                        .ok_or_else(|| "remote tab PTY unavailable".to_string())
+                })
+                .await?
+        } else {
+            let inspected = client
+                .as_ref()
+                .ok_or_else(|| "remote tab unavailable".to_string())?
+                .send_relay(&inspect)
+                .await?;
+            inspected
+                .data
+                .as_ref()
+                .and_then(serde_json::Value::as_array)
+                .and_then(|tabs| tabs.first())
+                .and_then(|tab| tab.get("pty_id"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "remote tab PTY unavailable".to_string())?
+                .to_string()
+        };
         command.path = match suffix.as_str() {
             "/pty/write" => format!("/api/pty/{pty_id}/write"),
             "/pty/resize" => format!("/api/pty/{pty_id}/resize"),
@@ -595,8 +634,20 @@ pub async fn mesh_remote_tab_action(
     )
     .await?;
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
-    let response = client.send_relay(&command).await?;
-    remote_tab_action_outcome(&suffix, response)
+    let response = match client.send_relay(&command).await {
+        Ok(response) => response,
+        Err(error) => {
+            if suffix == "/pty/write" {
+                REMOTE_PTY_IDS.invalidate(&cache_key);
+            }
+            return Err(error);
+        }
+    };
+    let outcome = remote_tab_action_outcome(&suffix, response);
+    if suffix == "/pty/write" && outcome.is_err() {
+        REMOTE_PTY_IDS.invalidate(&cache_key);
+    }
+    outcome
 }
 
 fn remote_tab_action_outcome(

@@ -96,6 +96,7 @@ fn apply_output_chunk(state: &AppState, pty_id: &str, bytes: &[u8], classify: bo
         state.svc.emit_tab_status_if_changed(pty_id, prev, now);
     } else {
         state.svc.output_buf.lock().append(pty_id, bytes);
+        state.svc.output_stream_wake.notify_waiters();
     }
 }
 
@@ -172,6 +173,7 @@ pub async fn inject_cast(
                 format!("inject join: {e}"),
             )
         })?;
+        state.svc.output_stream_wake.notify_waiters();
         return Ok(Json(serde_json::json!({
             "ok": true,
             "mode": "instant",
