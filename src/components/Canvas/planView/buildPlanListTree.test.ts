@@ -123,7 +123,8 @@ test("unplanned task badge carries its reason label", () => {
   };
   const plan = { ...FIXTURE_PLAN, tasks: [task] };
   const row = buildPlanListRows(plan, { tabs }).find((candidate) => candidate.taskId === task.id);
-  assert(row?.statusLabel === "unplanned: urgent probe", "unplanned badge includes its reason");
+  assert(row?.statusLabel === "in progress", "unplanned task keeps its status label");
+  assert(row?.unplannedLabel === "unplanned: urgent probe", "unplanned badge includes its reason");
 });
 
 test("done task surfaces historical executor instead of active tab label", () => {
