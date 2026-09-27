@@ -3199,6 +3199,14 @@ function starterPrompt(params) {
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
 }
+function windowsProfileCommand(parts, taskPath, instanceId) {
+  const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
+  const taskSetup = taskPath ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); ` : "$ctTaskJson = $null; ";
+  const profileValue = taskPath ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)" : "('# codeterm-instance: ' + $ctInstanceId)";
+  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; " + taskSetup + `$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + $PID + '-' + [DateTime]::UtcNow.Ticks + '.config.toml'); try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ${profileValue}; $ctProfileReleased = $false; try { try { `;
+  const suffix = " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
+  return prefix + parts.join(" ") + suffix;
+}
 function hasPromptAndStatusFooter(screen) {
   if (screen.indexOf("\u203A") === -1) return false;
   return screen.split(/\r?\n/).some((line) => {
@@ -3310,8 +3318,6 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
-        prefix = `$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; $ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved-' + $PID + '-' + [DateTime]::UtcNow.Ticks + '.config.toml'); try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; $ctInstanceId = ${quotedInstanceId}; Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson); $ctProfileReleased = $false; try { try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -3324,7 +3330,7 @@ var plugin = {
         parts.push(host.shell.quoteFor(prompt, host.platform()));
       }
       if (host.platform() === "windows") {
-        return prefix + parts.join(" ") + " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
+        return windowsProfileCommand(parts, taskPath, instanceId);
       }
     }
     return prefix + parts.join(" ");
@@ -3337,6 +3343,38 @@ var plugin = {
     }
     const uuid = extractSessionUuid(sessionId) || sessionId;
     parts.push(host.shell.quoteFor(uuid, host.platform()));
+    return parts.join(" ");
+  },
+  buildResumeCommandWithContext(params) {
+    const p = params || {};
+    const platform = host.platform();
+    const parts = ["codex", "resume"];
+    if (p.skipPermissions) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
+      parts.push("--dangerously-bypass-hook-trust");
+    }
+    const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
+    parts.push(host.shell.quoteFor(uuid, platform));
+    if (Array.isArray(p.args)) {
+      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+    }
+    let taskPath = null;
+    if (typeof p.systemPrompt === "string" && p.systemPrompt.trim()) {
+      taskPath = host.fs.writeTempFile(p.systemPrompt, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write Codex resume instructions");
+    }
+    if (platform === "windows") {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
+      if (!instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex resume: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
+      parts.push("--profile", "$ctProfileName");
+      return windowsProfileCommand(parts, taskPath, instanceId);
+    }
+    if (taskPath) {
+      const quotedPath = host.shell.quoteFor(taskPath, platform);
+      parts.push("-c", `"developer_instructions=$(cat ${quotedPath})"`);
+    }
     return parts.join(" ");
   },
   sessionFilePath(_cwd, sessionId) {

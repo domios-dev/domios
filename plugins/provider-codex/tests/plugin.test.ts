@@ -9,6 +9,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import "./prompt.test";
+import "./restore-resume.test";
 
 let passed = 0;
 let failed = 0;
@@ -216,7 +217,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",

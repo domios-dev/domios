@@ -159,7 +159,9 @@ fn build_agent_command_inner(
         let resume = crate::agent::provider::AgentResumeParams {
             session_id: session_id.clone(),
             skip_permissions: params.permission_bypass_requested(agent_cmd),
+            agent_name: params.agent_name.clone(),
             system_prompt: system_prompt.clone(),
+            instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             args: args.clone(),
         };
         if let Some(command) = registry

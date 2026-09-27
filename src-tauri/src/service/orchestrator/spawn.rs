@@ -794,6 +794,18 @@ impl ServiceContext {
                 None => t,
             })
         };
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+                requested_model: model_resolution.requested_model.clone(),
+                model: params.model.clone(),
+                requested_reasoning_effort: params.reasoning_effort.clone(),
+                resolved_reasoning_effort: params.reasoning_effort.clone(),
+                args: params.args.clone(),
+                agent_name: params.agent_name.clone(),
+                system_prompt: system_prompt_capable.then(|| bg_task.clone()).flatten(),
+                permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
+            };
+        }
         let launch_cmd = build_or_refuse_orchestrated_launch_command(
             self,
             &tab_id,
