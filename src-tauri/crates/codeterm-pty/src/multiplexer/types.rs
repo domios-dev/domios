@@ -87,6 +87,39 @@ impl ReasoningEffortIdentity {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestorableLaunchParameters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub permission_bypass_requested: bool,
+}
+
+impl RestorableLaunchParameters {
+    pub fn is_empty(&self) -> bool {
+        self.requested_model.is_none()
+            && self.model.is_none()
+            && self.requested_reasoning_effort.is_none()
+            && self.resolved_reasoning_effort.is_none()
+            && self.args.is_none()
+            && self.agent_name.is_none()
+            && self.system_prompt.is_none()
+            && !self.permission_bypass_requested
+    }
+}
+
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
 /// task-owning worker overrides the hidden-skip so it lands in recently-closed.
 /// Every variant other than `User` names a close CodeTerm issued on its own
@@ -591,6 +624,8 @@ pub struct Tab {
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(skip, default)]
+    pub restorable_launch: RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
@@ -898,6 +933,7 @@ mod tests {
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            restorable_launch: RestorableLaunchParameters::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,

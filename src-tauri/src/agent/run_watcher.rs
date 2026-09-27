@@ -617,7 +617,9 @@ fn hidden_recovery_resume_command(
             p.build_resume_command_with_context(&crate::agent::provider::AgentResumeParams {
                 session_id: session_id.to_string(),
                 skip_permissions: full_access,
+                agent_name: None,
                 system_prompt: system_prompt.map(str::to_string),
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
                 args: Vec::new(),
             })
         })
