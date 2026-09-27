@@ -841,14 +841,19 @@ fn remote_team_origin(mux: &MultiplexerState, team_id: &str) -> Option<String> {
     mux.snapshot().tabs.values().find_map(|tab| {
         let ownership = tab.ownership.as_ref()?;
         let team = ownership.team.as_ref()?;
-        (team.id == team_id).then(|| ownership.peer_name.clone())
+        let qualified_id = format!("mesh:{}/{}", ownership.peer_id, team.id);
+        (team.id == team_id || qualified_id == team_id).then(|| ownership.peer_name.clone())
     })
+}
+
+pub(super) fn is_remote_team(mux: &MultiplexerState, team_id: &str) -> bool {
+    local_team_anchors(mux, team_id).is_empty() && remote_team_origin(mux, team_id).is_some()
 }
 
 /// A Team whose anchor lives on another peer is mirrored here for visibility
 /// only; mutating it locally would fork it from the authority that owns it.
 fn reject_remote_team_mutation(mux: &MultiplexerState, team_id: &str) -> Result<(), String> {
-    if !local_team_anchors(mux, team_id).is_empty() {
+    if !is_remote_team(mux, team_id) {
         return Ok(());
     }
     match remote_team_origin(mux, team_id) {
@@ -914,11 +919,13 @@ pub(super) fn authorize_team_close(
     if mux.get_team(team_id).is_none() {
         return Err(format!("Team {team_id} not found"));
     }
-    reject_remote_team_mutation(mux, team_id)?;
+    reject_remote_team_mutation(mux, team_id)
+        .map_err(|error| format!("{}: {error}", crate::service::TEAM_CLOSE_REFUSAL_PREFIX))?;
     match caller {
         TeamMutationCaller::Unattributed => {
             return Err(format!(
-                "Unattributed caller cannot close Team {team_id}; explicit human confirmation is required"
+                "{}: Unattributed caller cannot close Team {team_id}; explicit human confirmation is required",
+                crate::service::TEAM_CLOSE_REFUSAL_PREFIX
             ));
         }
         TeamMutationCaller::AuthenticatedMeshPeer(_) => return Ok(()),
@@ -930,6 +937,7 @@ pub(super) fn authorize_team_close(
         return Ok(());
     }
     authorize_team_manager(mux, team_id, caller)
+        .map_err(|error| format!("{}: {error}", crate::service::TEAM_CLOSE_REFUSAL_PREFIX))
 }
 
 fn authorize_team_mutation(

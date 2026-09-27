@@ -75,15 +75,13 @@ pub(super) fn dispatch(
                         crate::service::TeamMutationCaller::Unattributed
                     }
                 });
-            let team = tauri::async_runtime::block_on(svc.close_team(
-                &team_id,
-                caller,
-            ))
-            .map_err(|message| JsonRpcError {
-                code: -32602,
-                message,
-                data: None,
-            })?;
+            let team = tauri::async_runtime::block_on(svc.close_team(&team_id, caller)).map_err(
+                |message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                },
+            )?;
             Ok(serde_json::json!({ "team": team }))
         }
         "team.adopt_plan" => {

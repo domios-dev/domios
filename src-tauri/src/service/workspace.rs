@@ -304,19 +304,40 @@ impl ServiceContext {
         }
 
         let mut team_close_errors = Vec::new();
+        let mut team_close_refusals_only = true;
+        let mut partial_team_teardown = false;
         for team_id in self.workspace_team_ids(workspace_id) {
+            let team_existed = { self.mux.read().get_team(&team_id).is_some() };
             if let Err(error) = self.close_team(&team_id, caller.team_caller()).await {
+                team_close_refusals_only &=
+                    error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
+                let team_remains = { self.mux.read().get_team(&team_id).is_some() };
+                partial_team_teardown |= team_existed && !team_remains;
                 team_close_errors.push(format!("{team_id}: {error}"));
             }
         }
         if !team_close_errors.is_empty() {
-            return Err(format!(
-                "workspace close refused because Team cleanup did not finish: {}",
-                team_close_errors.join("; ")
-            ));
+            let details = team_close_errors.join("; ");
+            if partial_team_teardown {
+                return Err(format!(
+                    "{}: {details}",
+                    crate::service::WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX
+                ));
+            }
+            if team_close_refusals_only {
+                return Err(format!(
+                    "{}: {details}",
+                    crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+                ));
+            }
+            return Err(format!("workspace Team cleanup failed: {details}"));
         }
 
-        self.close_workspace(workspace_id)
+        let service = (*self).clone();
+        let workspace_id = workspace_id.to_string();
+        tokio::task::spawn_blocking(move || service.close_workspace(&workspace_id))
+            .await
+            .map_err(|error| format!("workspace close teardown task failed: {error}"))?
     }
 
     fn workspace_team_ids(&self, workspace_id: &str) -> Vec<String> {
@@ -345,6 +366,7 @@ impl ServiceContext {
                 .map(|team| team.id),
         );
         let mut team_ids: Vec<_> = team_ids.into_iter().collect();
+        team_ids.retain(|team_id| !super::team::is_remote_team(&mux, team_id));
         team_ids.sort();
         team_ids
     }

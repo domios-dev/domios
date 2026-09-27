@@ -8,6 +8,14 @@ use crate::service::ServiceState;
 
 use super::{get_string_param, opt_string_param, JsonRpcError};
 
+fn has_confirmed_headerless_workspace_close(
+    force: bool,
+    confirm: Option<&str>,
+    workspace_id: &str,
+) -> bool {
+    force && confirm == Some(workspace_id)
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -151,7 +159,12 @@ pub(super) fn dispatch(
                         )
                         .await
                     }
-                    None if confirm == Some(workspace_id.as_str()) => {
+                    None if has_confirmed_headerless_workspace_close(
+                        force,
+                        confirm,
+                        &workspace_id,
+                    ) =>
+                    {
                         svc.close_workspace_as_confirmed_headerless_human(&workspace_id, force)
                             .await
                     }
@@ -162,12 +175,12 @@ pub(super) fn dispatch(
                 }
             });
             result
-            .map(|()| serde_json::json!({ "ok": true }))
-            .map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })
+                .map(|()| serde_json::json!({ "ok": true }))
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })
         }
 
         "workspace.recently_closed" => {
@@ -238,5 +251,29 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_confirmed_headerless_workspace_close;
+
+    #[test]
+    fn headerless_workspace_close_requires_force_and_matching_target() {
+        assert!(has_confirmed_headerless_workspace_close(
+            true,
+            Some("workspace-1"),
+            "workspace-1"
+        ));
+        assert!(!has_confirmed_headerless_workspace_close(
+            false,
+            Some("workspace-1"),
+            "workspace-1"
+        ));
+        assert!(!has_confirmed_headerless_workspace_close(
+            true,
+            Some("workspace-2"),
+            "workspace-1"
+        ));
     }
 }

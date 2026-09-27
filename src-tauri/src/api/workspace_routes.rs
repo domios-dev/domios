@@ -159,11 +159,7 @@ pub async fn close_workspace(
         WorkspaceCloseCaller::AgentTab(caller_tab_id) => {
             state
                 .svc
-                .close_workspace_guarded_async(
-                    Some(&caller_tab_id),
-                    &id,
-                    body.force,
-                )
+                .close_workspace_guarded_async(Some(&caller_tab_id), &id, body.force)
                 .await
         }
         WorkspaceCloseCaller::HumanConfirmedHeaderless => {

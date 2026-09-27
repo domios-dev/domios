@@ -53,6 +53,17 @@ fn map_rename_error(error: String) -> (StatusCode, String) {
     }
 }
 
+fn map_close_team_error(error: String) -> (StatusCode, String) {
+    let status = if error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX) {
+        StatusCode::FORBIDDEN
+    } else if error.starts_with("Team ") && error.contains(" not found") {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    (status, error)
+}
+
 fn require_caller_tab_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     crate::api::tab_routes::caller_tab_header(headers).ok_or_else(|| {
         (
@@ -101,9 +112,7 @@ async fn close_team_adapter(
     ) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
     let caller = close_team_caller(headers, &team_id, &body);
-    close(team_id, caller)
-        .await
-        .map_err(map_rename_error)
+    close(team_id, caller).await.map_err(map_close_team_error)
 }
 
 fn close_team_caller(
@@ -127,14 +136,17 @@ pub async fn close_team(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(team_id): Path<String>,
-    crate::api::optional_json::OptionalJson(body): crate::api::optional_json::OptionalJson<CloseTeamBody>,
+    crate::api::optional_json::OptionalJson(body): crate::api::optional_json::OptionalJson<
+        CloseTeamBody,
+    >,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let service = state.svc.clone();
     let team = close_team_adapter(
         &headers,
         team_id,
         body.unwrap_or_default(),
-        |team_id, caller| async { state.svc.close_team(&team_id, caller).await },
+        |team_id, caller| async move { service.close_team(&team_id, caller).await },
     )
     .await?;
     Ok(Json(team))
@@ -215,6 +227,22 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         assert_eq!(validate_name("   ").unwrap_err().0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn team_close_errors_keep_authorization_and_cleanup_statuses() {
+        assert_eq!(
+            map_close_team_error(format!(
+                "{}: caller lacks Team authority",
+                crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+            ))
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            map_close_team_error("Team lane cleanup failed: disk unavailable".into()).0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]
@@ -496,14 +524,8 @@ mod tests {
                 confirm: Some(team_id.into()),
             },
         );
-        assert_eq!(
-            confirmed,
-            TeamMutationCaller::HumanConfirmedHeaderless,
-        );
-        assert_eq!(
-            confirmed.kind(),
-            "human-attributed (headerless, confirmed)",
-        );
+        assert_eq!(confirmed, TeamMutationCaller::HumanConfirmedHeaderless,);
+        assert_eq!(confirmed.kind(), "human-attributed (headerless, confirmed)",);
     }
 
     /// codeterm#418: the recovery add is the one Team verb a headless Team can

@@ -1,9 +1,9 @@
+use super::WorkspaceCloseCaller;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::plan::{OrchestratorRef, Plan};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
-use super::WorkspaceCloseCaller;
 
 #[test]
 fn workspace_close_log_caller_distinguishes_confirmed_headerless_humans() {
@@ -12,6 +12,38 @@ fn workspace_close_log_caller_distinguishes_confirmed_headerless_humans() {
         "human-attributed (headerless, confirmed)",
     );
     assert_eq!(WorkspaceCloseCaller::Unattributed.kind(), "Unattributed");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_skips_peer_anchored_team_ids() {
+    let (mut mux, root_tab_id) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&root_tab_id).unwrap();
+    let remote_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let remote_team = codeterm_types::team::Team::new(workspace_id.clone(), 0);
+    let remote_team_id = remote_team.id.clone();
+    let qualified_remote_team_id = format!("mesh:peer-123/{remote_team_id}");
+    mux.upsert_team(remote_team);
+    let remote_tab = mux.get_tab_mut(&remote_tab_id).unwrap();
+    remote_tab.team_id = Some(qualified_remote_team_id.clone());
+    remote_tab.ownership = Some(codeterm_types::pty::RemoteOwnership {
+        controller_title: "Remote coordinator".into(),
+        controller_tab_id: None,
+        peer_id: "peer-123".into(),
+        peer_name: "Remote peer".into(),
+        team: Some(codeterm_types::pty::RemoteOwnershipTeam {
+            id: remote_team_id.clone(),
+            title: None,
+        }),
+    });
+    let fixture = ServiceFixture::new(mux);
+
+    let team_ids = fixture.service.workspace_team_ids(&workspace_id);
+    assert!(!team_ids.contains(&remote_team_id));
+    assert!(!team_ids.contains(&qualified_remote_team_id));
 }
 
 fn prompt(question: &str) -> PendingPrompt {
@@ -293,11 +325,13 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
         .find(|task| task.id == task_id)
         .unwrap();
     assigned_task.status = crate::plan::TaskStatus::InProgress;
-    assigned_task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
-        id: "attempt_workspace_close".into(),
-        executor_tab_id: worker.clone(),
-        ..Default::default()
-    });
+    assigned_task
+        .execution_attempts
+        .push(crate::plan::TaskExecutionAttempt {
+            id: "attempt_workspace_close".into(),
+            executor_tab_id: worker.clone(),
+            ..Default::default()
+        });
     plan_store.save(&mut plan_with_open_attempt, 4).unwrap();
 
     let cron = Arc::new(Mutex::new(CronStore::new_with_path(
