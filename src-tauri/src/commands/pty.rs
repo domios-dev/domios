@@ -429,7 +429,7 @@ pub async fn spawn_pty_core(
                         }
                     })
                     .unwrap_or("unknown");
-                crate::service::launch_diagnostics::log_launch(
+                crate::service::launch_diagnostics::log_launch_with_parameters(
                     crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
                     pid,
                     &provider_id,
@@ -438,6 +438,8 @@ pub async fn spawn_pty_core(
                     tab_role.as_deref(),
                     tab_role_profile.as_deref(),
                     prompt_delivery,
+                    input.params.model.as_deref(),
+                    input.params.reasoning_effort.as_deref(),
                 );
                 let pty_id_for_poll = pty_id.clone();
                 let pty_id_for_launch = pty_id.clone();

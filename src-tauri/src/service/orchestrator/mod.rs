@@ -19,6 +19,8 @@ pub(crate) use launch::{
     launch_agent_in_background_with_env, record_provider_session, record_reader_termination,
     ProviderSessionBinding,
 };
+#[cfg(test)]
+pub(crate) use launch::launch_waits_for_first_turn_binding;
 pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task, role_launch_task};
 #[cfg(test)]
 pub(crate) use prompt_compose::{role_onboarding_task, spawn_onboarding_task};
