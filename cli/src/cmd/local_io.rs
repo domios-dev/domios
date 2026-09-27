@@ -440,6 +440,9 @@ pub(crate) fn handle_send_text(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
     require_agent: bool,
     to_shell: bool,
 ) {
@@ -454,6 +457,9 @@ pub(crate) fn handle_send_text(
         actions,
         delay,
         at,
+        every,
+        until,
+        count,
         require_agent,
         to_shell,
     );

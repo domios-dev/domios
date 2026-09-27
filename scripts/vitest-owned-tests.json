@@ -1,4 +1,5 @@
 [
+  "packages/chat-ui/src/codeterm/ReminderCard.test.tsx",
   "packages/chat-ui/src/timelineMarkers.test.tsx",
   "packages/chat-ui/src/toolcard/commandFacts.test.tsx",
   "packages/chat-ui/src/toolcard/commandGroup.test.tsx",

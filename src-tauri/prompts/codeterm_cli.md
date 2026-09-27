@@ -18,7 +18,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 - WORKSPACE INHERITANCE IS AUTOMATIC. `tab new`, `agent spawn`, and `cron create` land in YOUR workspace — the one that owns your tab — never in the workspace the user happens to have selected in the UI. Pass `--workspace <id>` only to place work in a different workspace on purpose.
 - TEAM CONTAINMENT IS AUTOMATIC. From a live Team tab, ordinary `tab new` shells and `cron create` jobs inherit that Team. Use `--no-team` only when the work must deliberately outlive Team cleanup; `--team <id>` remains the explicit cross-check for a named Team.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
-- DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
+- DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are for user-requested future delivery. `send --every` repeats into an EXISTING tab (monitor/watcher); cron spawns a FRESH agent per scheduled run.
 - NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`.
 - MODEL SELECTION: `--model` is validated through each provider's catalogue capability. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers keep provider-owned ids. If a required live catalogue is unavailable, the requested id is preserved and the response carries a warning.
 - Version/quota questions: `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).

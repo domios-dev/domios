@@ -15,8 +15,16 @@ pub fn delayed_send_create(
     text: String,
     scheduled_at_ms: Option<u64>,
     created_by_tab: Option<String>,
+    recurrence: Option<delayed_send::recurrence::RecurrenceRule>,
 ) -> Result<delayed_send::DelayedMessageView, String> {
-    delayed_send::create_message(&svc, tab_id, text, scheduled_at_ms, created_by_tab)
+    delayed_send::create_message(
+        &svc,
+        tab_id,
+        text,
+        scheduled_at_ms,
+        created_by_tab,
+        recurrence,
+    )
 }
 
 #[tauri::command]
@@ -26,8 +34,9 @@ pub fn delayed_send_update(
     text: Option<String>,
     scheduled_at_ms: Option<u64>,
     stash: Option<bool>,
+    recurrence: Option<delayed_send::recurrence::RecurrenceRule>,
 ) -> Result<delayed_send::DelayedMessageView, String> {
-    delayed_send::update_message(&svc, id, text, scheduled_at_ms, stash)
+    delayed_send::update_message(&svc, id, text, scheduled_at_ms, stash, recurrence)
 }
 
 #[tauri::command]
