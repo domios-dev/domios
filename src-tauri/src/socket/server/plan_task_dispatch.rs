@@ -57,9 +57,7 @@ use lane_safety::{
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;
-use routing::{
-    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing_with_model_owners,
-};
+use routing::dispatch_worker_identity;
 pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
@@ -502,40 +500,16 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let model_owners = svc
-        .agent_registry
-        .provider_ids()
-        .into_iter()
-        .map(|provider_id| {
-            let models = svc
-                .agent_registry
-                .with_provider(&provider_id, |provider| {
-                    provider
-                        .available_models()
-                        .into_iter()
-                        .map(|model| model.id)
-                        .collect()
-                })
-                .unwrap_or_default();
-            (provider_id, models)
-        })
-        .collect::<Vec<_>>();
-    let routing = resolve_dispatch_routing_with_model_owners(
-        owned_str(p, "agent"),
-        owned_str(p, "model"),
-        detail.task.model.clone(),
-        &svc.agent_registry.provider_ids(),
-        &model_owners,
-    );
-    if let Some(error) = provider_mismatch_error(&routing) {
-        return Err(error);
-    }
-
-    // Surface an unknown-model fallback loudly instead of silently downgrading.
-    let resolved_provider = routing
-        .agent
-        .clone()
-        .unwrap_or_else(crate::config::default_agent_provider);
+    let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
+    let model_selection = crate::service::spawn::resolve_agent_model_selection(
+        &svc.agent_registry,
+        owned_str(p, "agent").as_deref(),
+        requested_model.as_deref(),
+        &crate::config::default_agent_provider(),
+    )
+    .map_err(super::model_errors::invalid_model_rpc_error)?;
+    let resolved_provider = model_selection.provider_id;
+    let selected_model = model_selection.model;
     let execution_intent = match owned_str(p, "execution_intent").as_deref() {
         Some("read_only") => crate::plan::ExecutionIntent::ReadOnly,
         Some("mutating") => crate::plan::ExecutionIntent::Mutating,
@@ -591,16 +565,10 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
-    crate::service::spawn::validate_agent_model(
-        &svc.agent_registry,
-        &resolved_provider,
-        routing.model.as_deref(),
-    )
-    .map_err(super::model_errors::invalid_model_rpc_error)?;
     let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
-        routing.model.clone(),
+        selected_model.clone(),
         None,
     );
     let dispatched_model = model_resolution.model.clone();
@@ -740,7 +708,7 @@ where
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
     let dispatched_reasoning_effort = reasoning_effort.clone();
     let mut spawn_params = SpawnAgentParams {
-        agent: routing.agent.clone(),
+        agent: Some(resolved_provider.clone()),
         cwd: Some(spawn_cwd),
         title: explicit_persona,
         title_provenance,
@@ -752,7 +720,7 @@ where
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
-        model: routing.model.clone(),
+        model: selected_model.clone(),
         planned_model: detail.task.model.clone(),
         planned_reasoning_effort,
         reasoning_effort,
@@ -934,7 +902,7 @@ where
             Some(authorized_gates.clone()),
             placement,
             dispatched_model,
-            routing.model.clone(),
+            selected_model.clone(),
             dispatched_provider_resolved_model,
             dispatched_reasoning_effort,
             begin_owner,

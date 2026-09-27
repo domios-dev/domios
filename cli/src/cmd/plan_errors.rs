@@ -121,7 +121,7 @@ fix: codeterm plan task update {plan_id} {} --tag work:<frontend|backend|design|
             task_id.unwrap_or("<task_id>")
         )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
-        "invalid_model" => {
+        "invalid_model" | "ambiguous_model" => {
             let render = crate::cmd::model_error::render_model_catalogue_error(data)
                 .unwrap_or_else(|| {
                     format!(

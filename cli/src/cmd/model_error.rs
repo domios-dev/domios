@@ -2,14 +2,32 @@ use crate::client::{RpcError, SocketCallError};
 use crate::cmd::print::{exit_with_cli_error, CliError};
 
 pub(crate) fn render_model_catalogue_error(data: &serde_json::Value) -> Option<String> {
-    if data.get("type")?.as_str()? != "invalid_model" {
-        return None;
-    }
+    let error_type = data.get("type")?.as_str()?;
     let provider = data.get("provider")?.as_str()?;
     let message = data
         .get("message")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("invalid model selection");
+    if error_type == "ambiguous_model" {
+        let providers = data
+            .get("ambiguous_providers")
+            .and_then(serde_json::Value::as_array)
+            .map(|providers| {
+                providers
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .filter(|providers| !providers.is_empty())
+            .unwrap_or_else(|| "provider id".into());
+        return Some(format!(
+            "✗ {message}\nfix: choose a provider explicitly (use --agent on dispatch or a positional provider on spawn): {providers}"
+        ));
+    }
+    if error_type != "invalid_model" {
+        return None;
+    }
     let refresh = data
         .get("refresh_command")
         .and_then(serde_json::Value::as_str)
@@ -67,6 +85,21 @@ mod tests {
             "message": "authoritative catalogue"
         }))
         .is_none());
+    }
+
+    #[test]
+    fn ambiguous_model_error_asks_for_a_provider_choice() {
+        let error = json!({
+            "type": "ambiguous_model",
+            "provider": "opencode",
+            "requested_model": "sonnet",
+            "ambiguous_providers": ["claude", "opencode"],
+            "message": "ambiguous model id 'sonnet': owned by claude, opencode; pass --agent to select a provider on dispatch, or provide it positionally to agent spawn"
+        });
+        let rendered = render_model_catalogue_error(&error).unwrap();
+        assert!(rendered.contains("--agent on dispatch"), "{rendered}");
+        assert!(rendered.contains("claude, opencode"), "{rendered}");
+        assert!(!rendered.contains("codeterm agent models"), "{rendered}");
     }
 
     #[test]

@@ -46,10 +46,9 @@ mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
 mod resolved_effort;
-mod routing;
 mod status_preflight;
-mod worker_ack;
 mod unplanned;
+mod worker_ack;
 
 #[test]
 fn nonrepo_team_runs_noncode_workers_without_git_probe() {
@@ -103,12 +102,20 @@ fn dispatched_attempt_records_routed_model_and_effort() {
         .unwrap();
     let task = store.show_task(&task_id).unwrap().task;
     assert!(task.model.is_none());
-    let routing = super::resolve_dispatch_routing(
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "claude",
+    )));
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "codex",
+    )));
+    let routing = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
         None,
-        Some("codex:gpt-6-luna".into()),
-        task.model,
-        &["claude".into(), "codex".into()],
-    );
+        Some("codex:gpt-6-luna"),
+        "claude",
+    )
+    .unwrap();
     let attempt_id = store
         .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan.id,
@@ -118,7 +125,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             TaskLaneMetadata::default(),
             crate::plan::ExecutionIntent::ReadOnly,
             None,
-            routing.agent.as_deref(),
+            Some(&routing.provider_id),
             "attempt-routed-model",
             Some(vec![]),
             crate::plan::WorkerPlacement::IsolatedLane,

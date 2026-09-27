@@ -1,5 +1,15 @@
 use super::*;
 
+fn registry_with_models(
+    entries: &[(&'static str, &[&'static str])],
+) -> crate::agent::registry::AgentRegistry {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    for (provider_id, model_ids) in entries {
+        registry.register_provider(Box::new(ModelProvider::new(*provider_id, *model_ids)));
+    }
+    registry
+}
+
 #[test]
 fn validate_agent_model_accepts_advertised_id() {
     let provider = ModelProvider::new(
@@ -80,6 +90,95 @@ fn spawn_model_validation_refuses_a_foreign_provider_alias() {
         .expect_err("Claude alias cannot be passed to a different provider");
     assert!(error.to_string().contains("claude"), "{error}");
     assert!(validate_agent_model(&registry, "claude", Some("sonnet")).is_ok());
+}
+
+#[test]
+fn claude_alias_never_routes_to_another_provider() {
+    let registry = registry_with_models(&[
+        ("claude", &["sonnet", "opus"]),
+        ("opencode", &["opencode/deepseek-v4-flash-free"]),
+    ]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("sonnet"),
+        "opencode",
+    )
+    .expect("a unique advertised alias selects its provider");
+
+    assert_eq!(selected.provider_id, "claude");
+    assert_eq!(selected.model.as_deref(), Some("sonnet"));
+}
+
+#[test]
+fn explicit_provider_accepts_a_model_it_shares_with_another_provider() {
+    let registry = registry_with_models(&[
+        ("provider-x", &["shared-model"]),
+        ("provider-y", &["shared-model"]),
+    ]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        Some("provider-x"),
+        Some("shared-model"),
+        "provider-y",
+    )
+    .expect("the selected provider advertises the requested id");
+
+    assert_eq!(selected.provider_id, "provider-x");
+    assert_eq!(selected.model.as_deref(), Some("shared-model"));
+}
+
+#[test]
+fn qualified_model_selects_its_provider_and_normalizes_its_id() {
+    let registry = registry_with_models(&[("claude", &["opus"]), ("codex", &["gpt-6-luna"])]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("codex:gpt-6-luna"),
+        "claude",
+    )
+    .expect("qualified model selects its registered provider");
+
+    assert_eq!(selected.provider_id, "codex");
+    assert_eq!(selected.model.as_deref(), Some("gpt-6-luna"));
+}
+
+#[test]
+fn bare_provider_name_selects_that_providers_default() {
+    let registry = registry_with_models(&[("claude", &["opus"]), ("codex", &["gpt-6-luna"])]);
+    let selected = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("codex"),
+        "claude",
+    )
+    .expect("provider name selects its own default model");
+
+    assert_eq!(selected.provider_id, "codex");
+    assert_eq!(selected.model, None);
+}
+
+#[test]
+fn ambiguous_bare_model_requires_an_explicit_provider() {
+    let registry = registry_with_models(&[
+        ("provider-x", &["shared-model"]),
+        ("provider-y", &["shared-model"]),
+    ]);
+    let error = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("shared-model"),
+        "provider-x",
+    )
+    .expect_err("an ambiguous id must not fall through to the default provider");
+
+    assert_eq!(
+        error.ambiguous_providers,
+        vec!["provider-x".to_string(), "provider-y".to_string()]
+    );
+    assert_eq!(error.rpc_data()["type"], "ambiguous_model");
+    assert!(error.to_string().contains("ambiguous model id"), "{error}");
+    assert!(error.to_string().contains("pass --agent"), "{error}");
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

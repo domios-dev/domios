@@ -9,15 +9,23 @@ pub(crate) struct InvalidModelError {
     pub requested_model: String,
     pub closest_model_ids: Vec<String>,
     pub provider_mismatch: Option<String>,
+    pub ambiguous_providers: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentModelSelection {
+    pub provider_id: String,
+    pub model: Option<String>,
 }
 
 impl InvalidModelError {
     pub(crate) fn rpc_data(&self) -> serde_json::Value {
         serde_json::json!({
-            "type": "invalid_model",
+            "type": if self.ambiguous_providers.is_empty() { "invalid_model" } else { "ambiguous_model" },
             "provider": self.provider_id.clone(),
             "requested_model": self.requested_model.clone(),
             "closest_model_ids": self.closest_model_ids.clone(),
+            "ambiguous_providers": self.ambiguous_providers.clone(),
             "refresh_command": self.refresh_command(),
             "message": self.to_string(),
         })
@@ -30,6 +38,14 @@ impl InvalidModelError {
 
 impl fmt::Display for InvalidModelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !self.ambiguous_providers.is_empty() {
+            return write!(
+                formatter,
+                "ambiguous model id '{}': owned by {}; pass --agent to select a provider on dispatch, or provide it positionally to agent spawn",
+                self.requested_model,
+                self.ambiguous_providers.join(", ")
+            );
+        }
         if let Some(requested_provider) = self.provider_mismatch.as_deref() {
             return write!(
                 formatter,
@@ -101,61 +117,162 @@ pub(crate) fn validate_agent_model(
     provider_id: &str,
     model: Option<&str>,
 ) -> Result<(), InvalidModelError> {
+    let default_provider = provider_id.to_string();
+    resolve_agent_model_selection(registry, Some(provider_id), model, &default_provider).map(|_| ())
+}
+
+pub(crate) fn resolve_agent_model_selection(
+    registry: &AgentRegistry,
+    explicit_provider: Option<&str>,
+    model: Option<&str>,
+    default_provider: &str,
+) -> Result<AgentModelSelection, InvalidModelError> {
+    let raw_requested = model.map(str::trim).filter(|value| !value.is_empty());
+    let providers = registry.provider_ids();
+    let explicit_provider = explicit_provider
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (provider_id, routed_model) = if let Some(explicit) = explicit_provider {
+        if let Some(requested) = raw_requested {
+            if let Some((qualified_provider, model_id)) =
+                qualified_provider_model(requested, &providers)
+            {
+                if !qualified_provider.eq_ignore_ascii_case(explicit) {
+                    return Err(provider_mismatch_error(
+                        explicit,
+                        requested,
+                        &qualified_provider,
+                    ));
+                }
+                (explicit.to_string(), Some(model_id))
+            } else if providers
+                .iter()
+                .any(|provider| provider.eq_ignore_ascii_case(requested))
+                && !requested.eq_ignore_ascii_case(explicit)
+            {
+                return Err(provider_mismatch_error(explicit, requested, requested));
+            } else {
+                (explicit.to_string(), Some(requested.to_string()))
+            }
+        } else {
+            (explicit.to_string(), None)
+        }
+    } else if let Some(requested) = raw_requested {
+        if let Some((provider, model_id)) = qualified_provider_model(requested, &providers) {
+            (provider, Some(model_id))
+        } else if let Some(provider) = providers
+            .iter()
+            .find(|provider| provider.eq_ignore_ascii_case(requested))
+        {
+            (provider.clone(), None)
+        } else {
+            let owners = model_owners(registry, requested);
+            match owners.as_slice() {
+                [provider] => (provider.clone(), Some(requested.to_string())),
+                [] => (default_provider.to_string(), Some(requested.to_string())),
+                _ => {
+                    return Err(InvalidModelError {
+                        provider_id: default_provider.to_string(),
+                        requested_model: requested.to_string(),
+                        closest_model_ids: Vec::new(),
+                        provider_mismatch: None,
+                        ambiguous_providers: owners,
+                    })
+                }
+            }
+        }
+    } else {
+        (default_provider.to_string(), None)
+    };
+    if let Some(requested) = routed_model.as_deref() {
+        let normalized = normalize_requested_model(&provider_id, requested);
+        let selected_lists_model = provider_lists_model(registry, &provider_id, &normalized);
+        validate_provider_model(registry, &provider_id, Some(&normalized))?;
+        let foreign_owners = model_owners(registry, &normalized)
+            .into_iter()
+            .filter(|owner| !owner.eq_ignore_ascii_case(&provider_id))
+            .collect::<Vec<_>>();
+        if !selected_lists_model && !foreign_owners.is_empty() {
+            return Err(provider_mismatch_error(
+                &provider_id,
+                &normalized,
+                &foreign_owners.join(", "),
+            ));
+        }
+    }
+    Ok(AgentModelSelection {
+        provider_id,
+        model: routed_model,
+    })
+}
+
+fn provider_mismatch_error(
+    provider_id: &str,
+    requested_model: &str,
+    owner: &str,
+) -> InvalidModelError {
+    InvalidModelError {
+        provider_id: provider_id.to_string(),
+        requested_model: requested_model.to_string(),
+        closest_model_ids: Vec::new(),
+        provider_mismatch: Some(owner.to_string()),
+        ambiguous_providers: Vec::new(),
+    }
+}
+
+fn model_owners(registry: &AgentRegistry, model_id: &str) -> Vec<String> {
+    let mut owners = registry
+        .provider_ids()
+        .into_iter()
+        .filter(|provider_id| provider_lists_model(registry, provider_id, model_id))
+        .collect::<Vec<_>>();
+    owners.sort_unstable();
+    owners
+}
+
+fn provider_lists_model(registry: &AgentRegistry, provider_id: &str, model_id: &str) -> bool {
+    if registry
+        .with_provider(provider_id, |provider| {
+            provider
+                .available_models()
+                .iter()
+                .any(|model| model.id.eq_ignore_ascii_case(model_id))
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    crate::agent::model_catalog::resolve_live_models(provider_id).is_some_and(|models| {
+        models
+            .iter()
+            .any(|model| model.id.eq_ignore_ascii_case(model_id))
+    })
+}
+
+fn qualified_provider_model<'a>(
+    model: &'a str,
+    provider_ids: &[String],
+) -> Option<(String, String)> {
+    let (provider, model) = model.split_once(':')?;
+    if provider_ids
+        .iter()
+        .any(|registered| registered.eq_ignore_ascii_case(provider))
+        && !model.trim().is_empty()
+    {
+        Some((provider.to_string(), model.trim().to_string()))
+    } else {
+        None
+    }
+}
+
+fn validate_provider_model(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    model: Option<&str>,
+) -> Result<(), InvalidModelError> {
     let Some(raw_requested) = model.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    if registry
-        .provider_ids()
-        .iter()
-        .any(|registered| registered.eq_ignore_ascii_case(raw_requested))
-        && !raw_requested.eq_ignore_ascii_case(provider_id)
-    {
-        return Err(InvalidModelError {
-            provider_id: provider_id.to_string(),
-            requested_model: raw_requested.to_string(),
-            closest_model_ids: Vec::new(),
-            provider_mismatch: Some(raw_requested.to_string()),
-        });
-    }
-    if let Some((requested_provider, _)) = raw_requested.split_once(':') {
-        if registry
-            .provider_ids()
-            .iter()
-            .any(|registered| registered.eq_ignore_ascii_case(requested_provider))
-            && !requested_provider.eq_ignore_ascii_case(provider_id)
-        {
-            return Err(InvalidModelError {
-                provider_id: provider_id.to_string(),
-                requested_model: raw_requested.to_string(),
-                closest_model_ids: Vec::new(),
-                provider_mismatch: Some(requested_provider.to_string()),
-            });
-        }
-    } else {
-        let owners = registry
-            .provider_ids()
-            .into_iter()
-            .filter(|candidate| !candidate.eq_ignore_ascii_case(provider_id))
-            .filter(|candidate| {
-                registry
-                    .with_provider(candidate, |provider| {
-                        provider
-                            .available_models()
-                            .iter()
-                            .any(|entry| entry.id.eq_ignore_ascii_case(raw_requested))
-                    })
-                    .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
-        if !owners.is_empty() {
-            return Err(InvalidModelError {
-                provider_id: provider_id.to_string(),
-                requested_model: raw_requested.to_string(),
-                closest_model_ids: Vec::new(),
-                provider_mismatch: Some(owners.join(", ")),
-            });
-        }
-    }
     let requested = normalize_requested_model(provider_id, raw_requested);
     let capability = model_catalogue_capability(registry, provider_id);
     let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
@@ -195,6 +312,7 @@ pub(crate) fn validate_agent_model(
         requested_model: requested,
         closest_model_ids,
         provider_mismatch: None,
+        ambiguous_providers: Vec::new(),
     })
 }
 
