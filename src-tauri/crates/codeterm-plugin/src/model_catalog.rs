@@ -845,7 +845,7 @@ pub fn try_override_default(provider_id: &str) -> Option<String> {
 mod storage;
 pub use storage::models_dir;
 #[cfg(test)]
-use storage::{cache_path, override_path, CachedSnapshot, ProviderOverride};
+use storage::{cache_path, override_path, CachedSnapshot};
 use storage::{load_override, override_cache, persist_cache, read_cache};
 /// Merge built-in models with user overrides, by id. Built-in order is
 /// preserved; each user entry either replaces an entry with the same id

@@ -63,6 +63,7 @@ fn restored_snapshot_launch_input(
 }
 
 /// A fresh launch carries a minted marker; a resume already names its session.
+#[cfg(test)]
 fn restored_snapshot_launch_command(
     registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
