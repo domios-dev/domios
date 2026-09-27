@@ -343,7 +343,7 @@ mod spawn_pty_restore_tests {
             Some("xhigh")
         );
         assert!(!tab.auto_approve);
-        assert!(crate::service::orchestrator::launch_waits_for_first_turn_binding(
+        assert!(crate::service::launch_waits_for_first_turn_binding(
             &fixture.service,
             &tab_id,
             PROVIDER,

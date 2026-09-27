@@ -6,6 +6,15 @@ use axum::{
 
 use crate::api::routes::{check_auth, AppState};
 
+const IDENTIFY_FEATURES: &[&str] = &[
+    "multiplexer",
+    "agent-detection",
+    "notifications",
+    "rest-api",
+    "canvas",
+    "delayed_recurrence",
+];
+
 pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     match crate::dispatch::dispatch(&crate::dispatch::Command::Health, state.svc.as_ref()) {
         Ok(r) => {
@@ -43,6 +52,16 @@ pub async fn identify(
         "name": "CodeTerm",
         "version": env!("CARGO_PKG_VERSION"),
         "platform": std::env::consts::OS,
-        "features": ["multiplexer", "agent-detection", "notifications", "rest-api", "canvas"]
+        "features": IDENTIFY_FEATURES
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IDENTIFY_FEATURES;
+
+    #[test]
+    fn identify_advertises_delayed_recurrence_capability() {
+        assert!(IDENTIFY_FEATURES.contains(&"delayed_recurrence"));
+    }
 }

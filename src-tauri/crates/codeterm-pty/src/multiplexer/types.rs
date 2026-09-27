@@ -760,6 +760,11 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
+        let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
+        Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))
+    }
+
     /// True when this tab is backed by a plugin `chatBackend` rather than a PTY.
     /// The one helper the I/O seam and frontend branch on instead of probing
     /// `pty_id`.
