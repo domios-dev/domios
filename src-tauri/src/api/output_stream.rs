@@ -256,7 +256,6 @@ fn sweep(
     tab_id: Option<&str>,
     dirty_pty_ids: &HashSet<String>,
     read_all: bool,
-    refresh_tabs: bool,
 ) -> (Vec<serde_json::Value>, Vec<StreamTabStart>, Vec<String>) {
     let live: HashMap<String, String> = svc
         .mux
@@ -268,18 +267,15 @@ fn sweep(
     // Disposed tabs (gone from mux) are dropped silently.
     tracked.retain(|tab, _| live.contains_key(tab));
     // Tabs created mid-stream full-replay from the start of the retained ring.
-    let new_tabs: Vec<String> = if refresh_tabs || read_all {
-        live.keys()
-            .filter(|tab| {
-                tracked
-                    .get(*tab)
-                    .is_none_or(|existing| existing.pty_id.as_str() != live[*tab].as_str())
-            })
-            .cloned()
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let new_tabs: Vec<String> = live
+        .keys()
+        .filter(|tab| {
+            tracked
+                .get(*tab)
+                .is_none_or(|existing| existing.pty_id.as_str() != live[*tab].as_str())
+        })
+        .cloned()
+        .collect();
     for tab in &new_tabs {
         tracked.insert(
             tab.clone(),
@@ -322,7 +318,11 @@ fn sweep(
             });
         }
         for (tab, pty) in &selected {
-            let t = tracked.get_mut(tab).expect("seeded above");
+            let t = tracked.entry(tab.clone()).or_insert_with(|| Tracked {
+                pty_id: pty.clone(),
+                offset: 0,
+                ended: false,
+            });
             if t.ended {
                 silent.push(tab.clone());
                 continue;
@@ -352,8 +352,14 @@ fn sweep(
         let tracker = svc.agent_tracker.lock();
         let known: HashSet<String> = tracker.all_ids().into_iter().collect();
         for tab in silent {
-            let pty = &live[&tab];
-            let t = tracked.get_mut(&tab).expect("seeded above");
+            let Some(pty) = live.get(&tab) else {
+                continue;
+            };
+            let t = tracked.entry(tab.clone()).or_insert_with(|| Tracked {
+                pty_id: pty.clone(),
+                offset: 0,
+                ended: false,
+            });
             let dead = known.contains(pty) && tracker.get_status(pty) == TabStatus::Dead;
             if dead {
                 if !t.ended {
@@ -464,13 +470,18 @@ pub async fn output_stream(
                             break;
                         }
                         Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
-                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => return,
+                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                            if let Some(diagnostics) = diagnostics.as_mut() {
+                                diagnostics.finish("activity_closed");
+                            }
+                            return;
+                        }
                     }
                 }
             }
             let dirty_for_sweep = std::mem::take(&mut dirty_pty_ids);
             let read_all_for_sweep = std::mem::replace(&mut read_all, false);
-            let refresh_tabs_for_sweep = std::mem::replace(&mut refresh_tabs, false);
+            refresh_tabs = false;
             let svc1 = svc.clone();
             let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);
@@ -481,7 +492,6 @@ pub async fn output_stream(
                     tab_id.as_deref(),
                     &dirty_for_sweep,
                     read_all_for_sweep,
-                    refresh_tabs_for_sweep,
                 );
                 (frames, starts, more_pty_ids, owned)
             })

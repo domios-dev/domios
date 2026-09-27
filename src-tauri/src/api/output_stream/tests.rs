@@ -1,5 +1,8 @@
 use super::*;
+use crate::multiplexer::state::MultiplexerState;
 use crate::pty::manager::OutputBuffer;
+use crate::service::test_fixture::ServiceFixture;
+use std::sync::Arc;
 
 // ── cursor wire form ──
 
@@ -195,6 +198,89 @@ fn mux_refresh_reads_only_new_or_replaced_ptys() {
     assert_eq!(
         selected_tabs(&live, &HashSet::new(), &changed, false),
         vec![("tab-y".to_string(), "pty-y".to_string())]
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn dirty_untracked_tab_output_before_mux_event_is_seeded_and_emitted() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-new".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .output_buf
+        .lock()
+        .append("pty-new", b"first");
+    let service = Arc::new(fixture.service.clone());
+    let mut tracked = HashMap::new();
+    let dirty = HashSet::from(["pty-new".to_string()]);
+
+    let (frames, starts, _) = sweep(&service, &mut tracked, None, &dirty, false);
+
+    assert_eq!(starts.len(), 1);
+    assert_eq!(starts[0].tab_id, tab_id);
+    assert_eq!(starts[0].resume_offset, Some(0));
+    assert!(frames.contains(&serde_json::json!({
+        "tab_id": tab_id,
+        "output": "first",
+        "offset": 5
+    })));
+    assert_eq!(
+        tracked.get(&tab_id).map(|state| state.pty_id.as_str()),
+        Some("pty-new")
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn replacement_pty_output_before_mux_event_starts_at_zero() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-old".into());
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pty_id = Some("pty-new".into());
+    fixture
+        .service
+        .output_buf
+        .lock()
+        .append("pty-new", b"fresh");
+    let service = Arc::new(fixture.service.clone());
+    let mut tracked = HashMap::from([(
+        tab_id.clone(),
+        Tracked {
+            pty_id: "pty-old".into(),
+            offset: 7,
+            ended: false,
+        },
+    )]);
+    let dirty = HashSet::from(["pty-new".to_string()]);
+
+    let (frames, starts, _) = sweep(&service, &mut tracked, None, &dirty, false);
+
+    assert_eq!(starts.len(), 1);
+    assert_eq!(starts[0].pty_id.as_deref(), Some("pty-new"));
+    assert_eq!(starts[0].resume_offset, Some(0));
+    assert!(frames.contains(&serde_json::json!({
+        "tab_id": tab_id,
+        "output": "fresh",
+        "offset": 5
+    })));
+    assert!(!frames.iter().any(|frame| frame.get("truncated").is_some()));
+    assert_eq!(
+        tracked.get(&tab_id).map(|state| state.pty_id.as_str()),
+        Some("pty-new")
     );
 }
 
