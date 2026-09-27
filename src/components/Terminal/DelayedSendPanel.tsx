@@ -19,17 +19,17 @@ import {
 } from "./delayedSend";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { queuedMessagePreview } from "./queuedMessagePreview";
+import { LiquidTabRail } from "../shared/LiquidTabRail";
+import type { RecurrenceRule } from "./delayedSend";
 
 const STASH_COLOR = "#a371f7";
 
 const panelStyle = {
-  background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
-  borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
   color: "var(--ct-fg, #c9d1d9)",
 };
 
 const panelClass =
-  "mb-2 ml-2 w-[min(34rem,calc(100vw-1.5rem))] rounded-xl border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.38)] backdrop-blur-sm";
+  "ct-panel-card mb-2 ml-2 w-[min(34rem,calc(100vw-1.5rem))] p-3 shadow-[0_16px_40px_rgba(0,0,0,0.38)] backdrop-blur-sm";
 
 function PanelHeader({
   icon,
@@ -49,9 +49,10 @@ function PanelHeader({
       <button
         type="button"
         data-testid="delayed-send-panel-close"
+        aria-label="Close delayed messages panel"
         onMouseDown={(e) => e.preventDefault()}
         onClick={onClose}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
+        className="ct-liquid-interactive inline-flex h-7 w-7 items-center justify-center rounded-lg"
         style={{ color: "var(--ct-muted-fg)" }}
         title="Close"
       >
@@ -71,88 +72,198 @@ export function DelayedSendSchedulePanel({
   busy: boolean;
   touchMode: boolean;
   onClose: () => void;
-  onConfirm: (scheduledAtMs: number) => void;
+  onConfirm: (scheduledAtMs: number, recurrence?: RecurrenceRule) => void;
   onStash: () => void;
 }) {
+  const [mode, setMode] = useState<"Send later" | "Repeat every">("Send later");
   const [value, setValue] = useState(() => toLocalInputValue(Date.now() + 5 * 60_000));
   const [customOpen, setCustomOpen] = useState(false);
+  const [everyMs, setEveryMs] = useState(10 * 60_000);
+  const [customEveryOpen, setCustomEveryOpen] = useState(false);
+  const [customEveryMinutes, setCustomEveryMinutes] = useState("10");
+  const [stopMode, setStopMode] = useState<"never" | "until" | "count">("never");
+  const [untilValue, setUntilValue] = useState(() => toLocalInputValue(Date.now() + 24 * 60 * 60_000));
+  const [countValue, setCountValue] = useState("3");
   const parsed = parseLocalInputValue(value);
-  const invalid = parsed == null || parsed <= Date.now() + 1_000;
+  const parsedUntil = parseLocalInputValue(untilValue);
+  const repeatCount = Number(countValue);
+  const invalid = mode === "Send later"
+    ? parsed == null || parsed <= Date.now() + 1_000
+    : everyMs < 60_000
+      || !Number.isInteger(Number(customEveryMinutes))
+      || Number(customEveryMinutes) < 1
+      || (stopMode === "until" && (parsedUntil == null || parsedUntil < Date.now() + everyMs))
+      || (stopMode === "count" && (!Number.isInteger(repeatCount) || repeatCount < 1));
 
-  const presets = useMemo(() => {
-    const now = Date.now();
-    return QUICK_PRESETS.map((p) => ({ label: p.label, ms: p.resolve(now) }));
-  }, []);
+  const presets = useMemo(
+    () => QUICK_PRESETS.map((p) => ({ label: p.label, ms: p.resolve(Date.now()) })),
+    [value],
+  );
 
   const activeLabel = useMemo(() => {
+    if (mode === "Repeat every") return null;
     if (parsed == null) return null;
     const match = presets.find((p) => Math.abs(p.ms - parsed) < 30_000);
     return match?.label ?? null;
-  }, [parsed, presets]);
+  }, [mode, parsed, presets]);
 
   const presetHeight = touchMode ? "h-11" : "h-9";
+  const activeInterval = (ms: number) => everyMs === ms && !customEveryOpen;
+  const intervalPresets = [
+    { label: "5m", ms: 5 * 60_000 },
+    { label: "10m", ms: 10 * 60_000 },
+    { label: "30m", ms: 30 * 60_000 },
+    { label: "1h", ms: 60 * 60_000 },
+  ];
 
   return (
-    <div className={panelClass} style={panelStyle} data-testid="delayed-send-schedule-panel">
+    <section
+      role="dialog"
+      aria-label="Schedule message"
+      className={panelClass}
+      style={panelStyle}
+      data-testid="delayed-send-schedule-panel"
+    >
       <PanelHeader
         icon={<CalendarClock size={15} />}
         title="Schedule message"
         onClose={onClose}
       />
 
-      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
-        {presets.map((p) => {
-          const active = activeLabel === p.label;
-          return (
+      <LiquidTabRail
+        value={mode}
+        options={["Send later", "Repeat every"] as const}
+        onChange={setMode}
+        label="Schedule type"
+        touch={touchMode}
+        testIdPrefix="delayed-send-mode"
+      />
+
+      {mode === "Send later" ? (
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {presets.map((p) => {
+            const active = activeLabel === p.label;
+            return (
+              <button
+                key={p.label}
+                type="button"
+                data-testid="delayed-send-preset"
+                data-preset-label={p.label}
+                aria-pressed={active}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  const preset = QUICK_PRESETS.find((item) => item.label === p.label);
+                  setValue(toLocalInputValue(preset?.resolve(Date.now()) ?? p.ms));
+                  setCustomOpen(false);
+                }}
+                className={`ct-liquid-interactive ${presetHeight} rounded-lg border text-[13px] font-medium`}
+                style={{
+                  borderColor: active
+                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)"
+                    : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+                  background: active
+                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)"
+                    : "color-mix(in srgb, var(--ct-bg, #0d1117) 60%, white 4%)",
+                  color: active ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            data-testid="delayed-send-custom-toggle"
+            aria-pressed={customOpen}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setCustomOpen((v) => !v)}
+            className={`ct-liquid-interactive ${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium`}
+            style={{
+              borderColor: customOpen
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)"
+                : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+              background: customOpen
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)"
+                : "color-mix(in srgb, var(--ct-bg, #0d1117) 60%, white 4%)",
+              color: customOpen ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+            }}
+          >
+            <Pencil size={12} />
+            <span>Custom</span>
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {intervalPresets.map((preset) => (
             <button
-              key={p.label}
+              key={preset.label}
               type="button"
-              data-testid="delayed-send-preset"
-              data-preset-label={p.label}
-              onMouseDown={(e) => e.preventDefault()}
+              data-testid="delayed-send-interval-preset"
+              data-preset-label={preset.label}
+              aria-pressed={activeInterval(preset.ms)}
               onClick={() => {
-                setValue(toLocalInputValue(p.ms));
-                setCustomOpen(false);
+                setEveryMs(preset.ms);
+                setCustomEveryMinutes(String(preset.ms / 60_000));
+                setCustomEveryOpen(false);
               }}
-              className={`${presetHeight} rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`}
+              className={`ct-liquid-interactive ${presetHeight} rounded-lg border text-[13px] font-medium`}
               style={{
-                borderColor: active
+                borderColor: activeInterval(preset.ms)
                   ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)"
                   : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
-                background: active
+                background: activeInterval(preset.ms)
                   ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)"
                   : "color-mix(in srgb, var(--ct-bg, #0d1117) 60%, white 4%)",
-                color: active ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+                color: activeInterval(preset.ms) ? "var(--ct-fg)" : "var(--ct-muted-fg)",
               }}
             >
-              {p.label}
+              {preset.label}
             </button>
-          );
-        })}
-        <button
-          type="button"
-          data-testid="delayed-send-custom-toggle"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setCustomOpen((v) => !v)}
-          className={`${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium transition active:scale-[0.97]`}
-          style={{
-            borderColor: customOpen
-              ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)"
-              : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
-            background: customOpen
-              ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)"
-              : "color-mix(in srgb, var(--ct-bg, #0d1117) 60%, white 4%)",
-            color: customOpen ? "var(--ct-fg)" : "var(--ct-muted-fg)",
-          }}
-        >
-          <Pencil size={12} />
-          <span>Custom</span>
-        </button>
-      </div>
+          ))}
+          <button
+            type="button"
+            data-testid="delayed-send-interval-custom-toggle"
+            aria-pressed={customEveryOpen}
+            onClick={() => setCustomEveryOpen((open) => !open)}
+            className={`ct-liquid-interactive ${presetHeight} inline-flex items-center justify-center gap-1 rounded-lg border text-[13px] font-medium`}
+            style={{
+              borderColor: customEveryOpen
+                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 70%, transparent)"
+                : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
+              color: customEveryOpen ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+            }}
+          >
+            <Pencil size={12} />
+            <span>Custom</span>
+          </button>
+          {customEveryOpen && (
+            <label className="col-span-4 flex items-center gap-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+              Repeat every
+              <input
+                type="number"
+                min={1}
+                step={1}
+                aria-label="Repeat interval in minutes"
+                data-testid="delayed-send-custom-interval"
+                value={customEveryMinutes}
+                onChange={(event) => {
+                  setCustomEveryMinutes(event.target.value);
+                  const minutes = Number(event.target.value);
+                  setEveryMs(Number.isFinite(minutes) ? minutes * 60_000 : 0);
+                }}
+                className={`w-20 rounded-lg border bg-transparent px-2 outline-none ${touchMode ? "h-11" : "h-9"}`}
+                style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
+              />
+              minutes
+            </label>
+          )}
+        </div>
+      )}
 
-      {customOpen && (
+      {mode === "Send later" && customOpen && (
         <input
           type="datetime-local"
+          aria-label="Schedule time"
           data-testid="delayed-send-custom-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -165,33 +276,86 @@ export function DelayedSendSchedulePanel({
         />
       )}
 
+      {mode === "Repeat every" && (
+        <div className="mt-3 grid gap-2">
+          <label className="flex items-center gap-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+            Stop repeating
+            <select
+              aria-label="Stop repeating"
+              data-testid="delayed-send-stop-mode"
+              value={stopMode}
+              onChange={(event) => setStopMode(event.target.value as typeof stopMode)}
+              className="ml-auto rounded-lg border bg-transparent px-2 text-[13px]"
+              style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
+            >
+              <option value="never">Never</option>
+              <option value="until">At a time</option>
+              <option value="count">After a number of ticks</option>
+            </select>
+          </label>
+          {stopMode === "until" && (
+            <label className="grid gap-1 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+              Stop at
+              <input
+                type="datetime-local"
+                aria-label="Stop repeating at"
+                data-testid="delayed-send-until"
+                value={untilValue}
+                onChange={(event) => setUntilValue(event.target.value)}
+                className={`w-full rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? "h-11" : "h-9"}`}
+                style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", colorScheme: "dark" }}
+              />
+            </label>
+          )}
+          {stopMode === "count" && (
+            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+              Stop after
+              <input
+                type="number"
+                min={1}
+                step={1}
+                aria-label="Stop after tick count"
+                data-testid="delayed-send-count"
+                value={countValue}
+                onChange={(event) => setCountValue(event.target.value)}
+                className="w-20 rounded-lg border bg-transparent px-2 py-1 text-[13px]"
+                style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
+              />
+              ticks
+            </label>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="delayed-send-stash"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onStash}
-          disabled={busy}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? "h-11" : "h-9"}`}
-          style={{
-            borderColor: `color-mix(in srgb, ${STASH_COLOR} 40%, transparent)`,
-            background: `color-mix(in srgb, ${STASH_COLOR} 13%, transparent)`,
-            color: STASH_COLOR,
-          }}
-          title="Stash indefinitely — never sends until you release it"
-        >
-          <InfinityIcon size={15} />
-          <span>Stash</span>
-        </button>
+        {mode === "Send later" && (
+          <button
+            type="button"
+            data-testid="delayed-send-stash"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onStash}
+            disabled={busy}
+            className={`ct-liquid-interactive inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium disabled:opacity-40 ${touchMode ? "h-11" : "h-9"}`}
+            style={{
+              borderColor: `color-mix(in srgb, ${STASH_COLOR} 40%, transparent)`,
+              background: `color-mix(in srgb, ${STASH_COLOR} 13%, transparent)`,
+              color: STASH_COLOR,
+            }}
+            title="Stash indefinitely — never sends until you release it"
+          >
+            <InfinityIcon size={15} />
+            <span>Stash</span>
+          </button>
+        )}
 
         <div className="ml-auto flex min-w-0 flex-col items-end leading-tight">
-          {parsed != null && !invalid ? (
+          {(mode === "Repeat every" || parsed != null) && !invalid ? (
             <>
               <span className="text-[13px] font-semibold tabular-nums">
-                {formatRelative(parsed)}
+                {formatRelative(mode === "Repeat every" ? Date.now() + everyMs : parsed ?? Date.now())}
               </span>
               <span className="text-[11px] font-mono" style={{ color: "var(--ct-muted-fg)" }}>
-                {formatClock(parsed)}
+                {formatClock(mode === "Repeat every" ? Date.now() + everyMs : parsed ?? Date.now())}
               </span>
             </>
           ) : (
@@ -205,18 +369,29 @@ export function DelayedSendSchedulePanel({
           type="button"
           data-testid="delayed-send-schedule-submit"
           onMouseDown={(e) => e.preventDefault()}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-40 ${touchMode ? "h-11" : "h-9"}`}
+          className={`ct-liquid-interactive inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-[13px] font-semibold text-white shadow-sm disabled:opacity-40 ${touchMode ? "h-11" : "h-9"}`}
           disabled={busy || invalid}
           style={{ background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)" }}
           onClick={() => {
-            if (parsed != null) onConfirm(parsed);
+            if (mode === "Send later" && parsed != null) {
+              onConfirm(parsed);
+              return;
+            }
+            if (mode === "Repeat every") {
+              const nextAt = Date.now() + everyMs;
+              onConfirm(nextAt, {
+                everyMs,
+                untilMs: stopMode === "until" ? parsedUntil : undefined,
+                count: stopMode === "count" ? repeatCount : undefined,
+              });
+            }
           }}
         >
           <Check size={15} />
-          <span>Schedule</span>
+          <span>{mode === "Repeat every" ? "Repeat" : "Schedule"}</span>
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -259,16 +434,23 @@ function CardAction({
       type="button"
       data-testid="delayed-send-card-action"
       data-action-title={title}
+      aria-label={title}
       onMouseDown={(e) => e.preventDefault()}
       disabled={disabled}
       onClick={onClick}
       title={title}
-      className={`inline-flex ${size} items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_16%,transparent)] active:scale-90 disabled:opacity-30`}
+      className={`ct-liquid-interactive inline-flex ${size} items-center justify-center rounded-lg active:scale-90 disabled:opacity-30`}
       style={{ color: color ?? "var(--ct-muted-fg)" }}
     >
       {icon}
     </button>
   );
+}
+
+function intervalLabel(ms: number): string {
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1_000)}s`;
 }
 
 function QueueCard({
@@ -279,8 +461,10 @@ function QueueCard({
   editing,
   text,
   time,
+  everyMinutes,
   onText,
   onTime,
+  onEveryMinutes,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
@@ -294,8 +478,10 @@ function QueueCard({
   editing: boolean;
   text: string;
   time: string;
+  everyMinutes: string;
   onText: (v: string) => void;
   onTime: (v: string) => void;
+  onEveryMinutes: (v: string) => void;
   onStartEdit: () => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
@@ -323,6 +509,7 @@ function QueueCard({
         <div className="grid gap-2">
           <textarea
             data-testid="delayed-send-edit-text"
+            aria-label="Reminder message"
             value={text}
             onChange={(e) => onText(e.target.value)}
             className="min-h-16 resize-y rounded-lg border bg-transparent px-2.5 py-1.5 text-[13px] leading-5 outline-none"
@@ -331,10 +518,28 @@ function QueueCard({
               color: "var(--ct-fg)",
             }}
           />
+          {msg.recurrence && (
+            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
+              Repeat every
+              <input
+                type="number"
+                min={1}
+                step={1}
+                aria-label="Repeat interval in minutes"
+                data-testid="delayed-send-edit-interval"
+                value={everyMinutes}
+                onChange={(event) => onEveryMinutes(event.target.value)}
+                className="w-20 rounded-lg border bg-transparent px-2 py-1 text-[13px]"
+                style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
+              />
+              minutes
+            </label>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="datetime-local"
               data-testid="delayed-send-edit-time"
+              aria-label="Next fire time"
               value={time}
               onChange={(e) => onTime(e.target.value)}
               className={`min-w-[12rem] flex-1 rounded-lg border bg-transparent px-2.5 text-[13px] outline-none ${touchMode ? "h-10" : "h-8"}`}
@@ -364,24 +569,31 @@ function QueueCard({
           <span className="mt-0.5 shrink-0" style={{ color: meta.color }}>
             {meta.icon}
           </span>
-          <FloatingTooltip
-            content={preview}
-            touchMode={touchMode}
-            className="line-clamp-2 min-w-0 flex-1 cursor-default break-words text-[13px] leading-5 outline-none"
-            style={{
-              color: "var(--ct-fg)",
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 2,
-              overflow: "hidden",
-              overflowWrap: "anywhere",
-              whiteSpace: "pre-wrap",
-            }}
-            tooltipClassName="max-h-none overflow-hidden"
-            tooltipStyle={{ maxHeight: "12rem", overflow: "hidden" }}
-          >
-            {preview}
-          </FloatingTooltip>
+          <span className="min-w-0 flex-1">
+            <FloatingTooltip
+              content={preview}
+              touchMode={touchMode}
+              className="line-clamp-2 min-w-0 cursor-default break-words text-[13px] leading-5 outline-none"
+              style={{
+                color: "var(--ct-fg)",
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 2,
+                overflow: "hidden",
+                overflowWrap: "anywhere",
+                whiteSpace: "pre-wrap",
+              }}
+              tooltipClassName="max-h-none overflow-hidden"
+              tooltipStyle={{ maxHeight: "12rem", overflow: "hidden" }}
+            >
+              {preview}
+            </FloatingTooltip>
+            {msg.recurrence && (
+              <span className="mt-0.5 block truncate text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>
+                repeats every {intervalLabel(msg.recurrence.everyMs)} · next at {formatClock(msg.scheduledAtMs)} · skipped {msg.skippedTicks ?? 0}
+              </span>
+            )}
+          </span>
           {msg.sessionChanged && (
             <span style={{ color: "var(--ct-yellow, #d29922)" }} title="Session changed since scheduled">
               <TriangleAlert size={13} />
@@ -411,7 +623,7 @@ function QueueCard({
             />
             <CardAction
               icon={<X size={15} />}
-              title="Delete"
+              title={msg.recurrence ? "Stop recurring series" : "Delete"}
               color="var(--ct-red, #f85149)"
               disabled={busy}
               touchMode={touchMode}
@@ -441,12 +653,13 @@ export function DelayedSendQueuePanel({
   onSendNow: (id: string) => void;
   onUpdate: (
     id: string,
-    patch: { text?: string; scheduledAtMs?: number; stash?: boolean },
+    patch: { text?: string; scheduledAtMs?: number; stash?: boolean; recurrence?: RecurrenceRule },
   ) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [time, setTime] = useState("");
+  const [everyMinutes, setEveryMinutes] = useState("10");
   const nowMs = Date.now();
 
   function startEdit(msg: DelayedMessage) {
@@ -454,12 +667,22 @@ export function DelayedSendQueuePanel({
     setText(msg.text);
     const base = msg.state === "stashed" ? Date.now() + 15 * 60_000 : msg.scheduledAtMs;
     setTime(toLocalInputValue(base));
+    setEveryMinutes(String((msg.recurrence?.everyMs ?? 600_000) / 60_000));
   }
 
   function saveEdit(id: string) {
     const scheduledAtMs = parseLocalInputValue(time);
     if (scheduledAtMs == null) return;
-    onUpdate(id, { text, scheduledAtMs });
+    const message = messages.find((item) => item.id === id);
+    const minutes = Number(everyMinutes);
+    if (message?.recurrence && (!Number.isInteger(minutes) || minutes < 1)) return;
+    onUpdate(id, {
+      text,
+      scheduledAtMs,
+      ...(message?.recurrence
+        ? { recurrence: { ...message.recurrence, everyMs: minutes * 60_000 } }
+        : {}),
+    });
     setEditingId(null);
   }
 
@@ -493,8 +716,10 @@ export function DelayedSendQueuePanel({
               editing={editingId === msg.id}
               text={text}
               time={time}
+              everyMinutes={everyMinutes}
               onText={setText}
               onTime={setTime}
+              onEveryMinutes={setEveryMinutes}
               onStartEdit={() => startEdit(msg)}
               onSaveEdit={() => saveEdit(msg.id)}
               onCancelEdit={() => setEditingId(null)}

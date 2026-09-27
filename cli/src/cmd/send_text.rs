@@ -332,6 +332,9 @@ pub fn handle_send_text(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
     require_agent: bool,
     to_shell: bool,
 ) {
@@ -353,16 +356,20 @@ pub fn handle_send_text(
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
         );
         return;
     }
-    if delay.is_some() || at.is_some() {
+    if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
         if actions.is_some() {
-            eprintln!("Error: --actions cannot be queued with --delay/--at");
+            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
             std::process::exit(2);
         }
         crate::cmd::delayed::queue_from_send(
-            client, json, tab, text, from_file, from_pad, from_stdin, delay, at,
+            client, json, tab, text, from_file, from_pad, from_stdin, delay, at, every, until,
+            count,
         );
         return;
     }
@@ -505,14 +512,23 @@ fn send_composite_over_mesh(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
 ) {
-    if delay.is_some() || at.is_some() {
-        eprintln!("Error: delayed send to a remote tab is unsupported; deliver now or run on the owning peer");
-        std::process::exit(2);
-    }
     let mut stdin = std::io::stdin();
     let (resolved_text, parsed_actions) =
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
+        if parsed_actions.is_some() {
+            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
+            std::process::exit(2);
+        }
+        crate::cmd::delayed::queue_over_mesh(
+            json, peer, remote_tab, resolved_text, delay, at, every, until, count,
+        );
+        return;
+    }
     let source_tab = std::env::var("CODETERM_TAB_ID").ok();
     let body = remote_send_body(
         &resolved_text,

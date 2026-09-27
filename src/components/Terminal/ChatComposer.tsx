@@ -15,6 +15,7 @@ import {
   sendDelayedMessageNow,
   updateDelayedMessage,
   type DelayedMessage,
+  type RecurrenceRule,
 } from "./delayedSend";
 import { DelayedSendQueuePanel, DelayedSendSchedulePanel } from "./DelayedSendPanel";
 import {
@@ -662,7 +663,7 @@ function ChatComposerImpl({
     }
   }
 
-  async function scheduleDraft(scheduledAtMs: number | null) {
+  async function scheduleDraft(scheduledAtMs: number | null, recurrence?: RecurrenceRule) {
     const draft = buildDraft();
     if (!draft) return;
     setScheduleBusy(true);
@@ -680,7 +681,7 @@ function ChatComposerImpl({
         flagComposerError("Model picker cannot be scheduled.");
         return;
       }
-      await createDelayedMessage(tabId, composed, scheduledAtMs);
+      await createDelayedMessage(tabId, composed, scheduledAtMs, recurrence);
       setInput("");
       clearAttachments();
       setScheduleOpen(false);
@@ -738,7 +739,7 @@ function ChatComposerImpl({
                 setScheduleOpen(false);
                 refocusComposer();
               }}
-              onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
+              onConfirm={(scheduledAtMs, recurrence) => void scheduleDraft(scheduledAtMs, recurrence)}
               onStash={() => void scheduleDraft(null)}
             />
           )}

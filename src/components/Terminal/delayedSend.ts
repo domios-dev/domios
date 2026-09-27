@@ -2,6 +2,12 @@ import { invoke } from "../../lib/bridge";
 
 export type DelayedMessageState = "queued" | "stashed" | "sending" | "failed";
 
+export interface RecurrenceRule {
+  everyMs: number;
+  untilMs?: number | null;
+  count?: number | null;
+}
+
 export interface DelayedMessage {
   id: string;
   tabId: string;
@@ -14,6 +20,12 @@ export interface DelayedMessage {
   sessionIdAtCreate?: string | null;
   currentSessionId?: string | null;
   sessionChanged: boolean;
+  recurrence?: RecurrenceRule | null;
+  seriesStartAtMs?: number | null;
+  tickIndex?: number;
+  skippedTicks?: number;
+  teamId?: string | null;
+  lastTickUnconfirmed?: boolean;
 }
 
 export async function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
@@ -25,23 +37,27 @@ export function createDelayedMessage(
   tabId: string,
   text: string,
   scheduledAtMs: number | null,
+  recurrence?: RecurrenceRule,
 ): Promise<DelayedMessage> {
   return invoke<DelayedMessage>("delayed_send_create", {
     tabId,
     text,
     scheduledAtMs: scheduledAtMs ?? undefined,
+    createdByTab: tabId,
+    recurrence,
   });
 }
 
 export function updateDelayedMessage(
   id: string,
-  patch: { text?: string; scheduledAtMs?: number; stash?: boolean },
+  patch: { text?: string; scheduledAtMs?: number; stash?: boolean; recurrence?: RecurrenceRule },
 ): Promise<DelayedMessage> {
   return invoke<DelayedMessage>("delayed_send_update", {
     id,
     text: patch.text,
     scheduledAtMs: patch.scheduledAtMs,
     stash: patch.stash,
+    recurrence: patch.recurrence,
   });
 }
 
@@ -105,25 +121,9 @@ export interface QuickPreset {
   resolve: (nowMs: number) => number;
 }
 
-function atHour(nowMs: number, hour: number, dayOffset: number): number {
-  const d = new Date(nowMs);
-  d.setDate(d.getDate() + dayOffset);
-  d.setHours(hour, 0, 0, 0);
-  return d.getTime();
-}
-
 export const QUICK_PRESETS: QuickPreset[] = [
   { label: "5m", resolve: (now) => now + 5 * 60_000 },
-  { label: "15m", resolve: (now) => now + 15 * 60_000 },
+  { label: "10m", resolve: (now) => now + 10 * 60_000 },
   { label: "30m", resolve: (now) => now + 30 * 60_000 },
   { label: "1h", resolve: (now) => now + 60 * 60_000 },
-  { label: "3h", resolve: (now) => now + 3 * 60 * 60_000 },
-  {
-    label: "Tonight",
-    resolve: (now) => {
-      const at = atHour(now, 20, 0);
-      return at > now ? at : atHour(now, 20, 1);
-    },
-  },
-  { label: "Tomorrow", resolve: (now) => atHour(now, 9, 1) },
 ];

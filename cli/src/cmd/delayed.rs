@@ -23,21 +23,30 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             tab,
             delay,
             at,
+            every,
+            until,
+            count,
             from_file,
             from_pad,
             stdin,
         } => {
             let tab_id = resolve_tab(client, tab);
             let text = required_text(text, from_file, from_pad, stdin);
-            let scheduled_at_ms =
-                parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
-            queue_message(json, &tab_id, text, scheduled_at_ms);
+            let now = now_ms();
+            let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
+                .unwrap_or_else(|e| exit_error(e));
+            let recurrence = parse_recurrence(every, until, count)
+                .unwrap_or_else(|e| exit_error(e));
+            queue_message(json, &tab_id, text, scheduled_at_ms, recurrence);
         }
         DelayedAction::Edit {
             id,
             text,
             delay,
             at,
+            every,
+            until,
+            count,
             from_file,
             from_pad,
             stdin,
@@ -48,9 +57,11 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             } else {
                 None
             };
-            if text.is_none() && scheduled_at_ms.is_none() {
+            let recurrence = parse_recurrence(every, until, count)
+                .unwrap_or_else(|e| exit_error(e));
+            if text.is_none() && scheduled_at_ms.is_none() && recurrence.is_none() {
                 exit_error(
-                    "nothing to update; pass --text/--from-file/--stdin and/or --delay/--at".into(),
+                    "nothing to update; pass text, --delay/--at, or --every with --until/--count".into(),
                 );
             }
             let mut body = serde_json::Map::new();
@@ -59,6 +70,9 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             }
             if let Some(scheduled_at_ms) = scheduled_at_ms {
                 body.insert("scheduledAtMs".into(), serde_json::json!(scheduled_at_ms));
+            }
+            if let Some(recurrence) = recurrence {
+                body.insert("recurrence".into(), recurrence);
             }
             let value = request_json(
                 "PATCH",
@@ -96,14 +110,27 @@ pub fn queue_from_send(
     from_stdin: bool,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
 ) {
     let tab_id = resolve_tab(client, tab);
     let text = required_text(text, from_file, from_pad, from_stdin);
-    let scheduled_at_ms = parse_schedule(delay, at, now_ms()).unwrap_or_else(|e| exit_error(e));
-    queue_message(json, &tab_id, text, scheduled_at_ms);
+    let now = now_ms();
+    let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
+        .unwrap_or_else(|e| exit_error(e));
+    let recurrence = parse_recurrence(every, until, count)
+        .unwrap_or_else(|e| exit_error(e));
+    queue_message(json, &tab_id, text, scheduled_at_ms, recurrence);
 }
 
-fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
+fn queue_message(
+    json: bool,
+    tab_id: &str,
+    text: String,
+    scheduled_at_ms: u64,
+    recurrence: Option<serde_json::Value>,
+) {
     let mut body = serde_json::json!({
         "text": text,
         "scheduledAtMs": scheduled_at_ms,
@@ -113,11 +140,44 @@ fn queue_message(json: bool, tab_id: &str, text: String, scheduled_at_ms: u64) {
             body["createdByTab"] = serde_json::json!(creator);
         }
     }
+    if let Some(recurrence) = recurrence {
+        body["recurrence"] = recurrence;
+    }
     let value = request_json(
         "POST",
         &format!("/api/tabs/{}/delayed-messages", tab_id),
         Some(body),
     );
+    print_delayed_result(json, value);
+}
+
+pub(crate) fn queue_over_mesh(
+    json: bool,
+    peer: &str,
+    tab_id: &str,
+    text: String,
+    delay: Option<String>,
+    at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
+) {
+    let now = now_ms();
+    let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
+        .unwrap_or_else(|error| exit_error(error));
+    let recurrence = parse_recurrence(every, until, count).unwrap_or_else(|error| exit_error(error));
+    let mut body = serde_json::json!({
+        "text": text,
+        "scheduledAtMs": scheduled_at_ms,
+    });
+    if let Some(recurrence) = recurrence {
+        body["recurrence"] = recurrence;
+    }
+    let path = format!(
+        "/api/tabs/{}/delayed-messages",
+        urlencoding::encode(tab_id)
+    );
+    let value = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
     print_delayed_result(json, value);
 }
 
@@ -185,7 +245,7 @@ fn request_json(method: &str, path: &str, body: Option<serde_json::Value>) -> se
     })
 }
 
-fn print_delayed_result(json: bool, value: serde_json::Value) {
+pub(crate) fn print_delayed_result(json: bool, value: serde_json::Value) {
     if json {
         println!("{}", serde_json::to_string_pretty(&value).unwrap());
         return;
@@ -222,6 +282,18 @@ fn print_delayed_item(value: &serde_json::Value) {
         .map(shorten)
         .unwrap_or_default();
     println!("{} [{}] tab={} at={} {}", id, state, tab, at, text);
+    if let Some(recurrence) = value.get("recurrence") {
+        let every = recurrence
+            .get("everyMs")
+            .and_then(|v| v.as_u64())
+            .map(format_duration)
+            .unwrap_or_else(|| "?".into());
+        let skipped = value
+            .get("skippedTicks")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default();
+        println!("  repeats every {} · next at {} · skipped {}", every, at, skipped);
+    }
     if value
         .get("sessionChanged")
         .and_then(|v| v.as_bool())
@@ -272,6 +344,66 @@ pub fn parse_schedule(
         }
         (None, Some(at)) => parse_absolute_ms(&at),
         (None, None) => Err("pass --delay or --at".into()),
+    }
+}
+
+fn parse_start_schedule(
+    delay: Option<String>,
+    at: Option<String>,
+    every: Option<&str>,
+    now_ms: u64,
+) -> Result<u64, String> {
+    if delay.is_none() && at.is_none() {
+        if let Some(every) = every {
+            let interval = parse_duration_ms(every)?;
+            if interval < 60_000 {
+                return Err("--every must be at least 1m".into());
+            }
+            return Ok(now_ms.saturating_add(interval));
+        }
+    }
+    parse_schedule(delay, at, now_ms)
+}
+
+fn parse_recurrence(
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(every) = every else {
+        return if until.is_some() || count.is_some() {
+            Err("--until and --count require --every".into())
+        } else {
+            Ok(None)
+        };
+    };
+    let every_ms = parse_duration_ms(&every)?;
+    if every_ms < 60_000 {
+        return Err("--every must be at least 1m".into());
+    }
+    if until.is_some() && count.is_some() {
+        return Err("use only one of --until or --count".into());
+    }
+    if count == Some(0) {
+        return Err("--count must be greater than zero".into());
+    }
+    let until_ms = until.map(|value| parse_absolute_ms(&value)).transpose()?;
+    Ok(Some(serde_json::json!({
+        "everyMs": every_ms,
+        "untilMs": until_ms,
+        "count": count,
+    })))
+}
+
+fn format_duration(ms: u64) -> String {
+    if ms % 86_400_000 == 0 {
+        format!("{}d", ms / 86_400_000)
+    } else if ms % 3_600_000 == 0 {
+        format!("{}h", ms / 3_600_000)
+    } else if ms % 60_000 == 0 {
+        format!("{}m", ms / 60_000)
+    } else {
+        format!("{}s", ms / 1_000)
     }
 }
 
@@ -358,7 +490,7 @@ fn exit_error(msg: String) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration_ms, parse_schedule};
+    use super::{parse_duration_ms, parse_recurrence, parse_schedule, parse_start_schedule};
 
     #[test]
     fn delay_bare_number_means_minutes() {
@@ -381,5 +513,33 @@ mod tests {
             parse_schedule(Some("2m".into()), None, 100).unwrap(),
             120_100
         );
+    }
+
+    #[test]
+    fn recurrence_schedule_starts_at_the_requested_interval() {
+        assert_eq!(
+            parse_start_schedule(None, None, Some("5m"), 100).unwrap(),
+            300_100
+        );
+    }
+
+    #[test]
+    fn recurrence_parses_count_and_until_as_mutually_exclusive_stops() {
+        let count = parse_recurrence(Some("10m".into()), None, Some(3))
+            .unwrap()
+            .unwrap();
+        assert_eq!(count["everyMs"], 600_000);
+        assert_eq!(count["count"], 3);
+        let until = parse_recurrence(Some("10m".into()), Some("900000".into()), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(until["untilMs"], 900_000);
+        assert!(parse_recurrence(Some("10m".into()), Some("900000".into()), Some(3)).is_err());
+        assert!(parse_recurrence(None, None, Some(3)).is_err());
+    }
+
+    #[test]
+    fn recurrence_rejects_intervals_under_one_minute() {
+        assert!(parse_recurrence(Some("59s".into()), None, None).is_err());
     }
 }
