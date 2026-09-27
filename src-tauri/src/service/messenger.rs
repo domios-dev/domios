@@ -265,8 +265,9 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        let (body, _pad_file) = svc.substitute_paste_limited_body(to_tab, body.to_string())?;
         let kind = envelope.kind;
-        let result = Self::deliver_inner(svc, to_tab, envelope, body);
+        let result = Self::deliver_inner(svc, to_tab, envelope, &body);
         if result.is_ok() {
             svc.record_kpi_delivery(to_tab, kind, body.len());
         }

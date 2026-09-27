@@ -770,6 +770,19 @@ fn all_workspace_plugins_load() {
 }
 
 #[test]
+fn paste_limit_capability_native_js_parity() {
+    let Some(_) = require_plugins() else {
+        return;
+    };
+    // 4096 lies above passing short cells and below cn20's first failing 8192-byte cell.
+    let codex = load_js("codex");
+    assert_eq!(codex.paste_limit_bytes(), Some(4096));
+    assert_eq!(codex.describe().paste_limit_bytes, Some(4096));
+    assert_eq!(load_js("claude").paste_limit_bytes(), None);
+    assert_eq!(load_js("opencode").paste_limit_bytes(), None);
+}
+
+#[test]
 fn launch_adapter_matrix_uses_each_installed_descriptor() {
     let Some(root) = require_plugins() else {
         return;

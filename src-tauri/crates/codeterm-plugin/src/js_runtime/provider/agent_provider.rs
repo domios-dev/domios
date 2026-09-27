@@ -49,6 +49,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or(&self.manifest.id)
     }
 
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        self.manifest.spawn.paste_limit_bytes
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if !self.has_js("buildLaunchCommand") {
             if let Some(command) = launch_command_from_template(&self.manifest, params) {

@@ -9,6 +9,7 @@ export type ChatSendStatus = {
   sequence: number;
   retained_from: number;
   correlationId?: string;
+  pad_file?: string;
 };
 
 export async function sendTrackedChatMessage(

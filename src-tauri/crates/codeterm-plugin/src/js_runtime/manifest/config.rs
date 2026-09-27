@@ -27,6 +27,8 @@ pub struct SubprocessPermission {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
+    #[serde(default)]
+    pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
