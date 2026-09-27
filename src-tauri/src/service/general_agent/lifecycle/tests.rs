@@ -362,10 +362,12 @@ fn general_agent_bootstrap_only_before_first_run_completes() {
         .get("preference_identity")
         .expect("read seeded identity")
         .expect("seeded identity record");
-    assert!(seeded_identity
-        .source
-        .as_deref()
-        .is_some_and(|source| source.starts_with("bundled:")));
+    assert!(
+        seeded_identity
+            .source
+            .as_deref()
+            .is_some_and(|source| source.starts_with("bundled:"))
+    );
 
     let dir = tempfile::tempdir().expect("temporary directory");
     let bootstrap_path = dir.path().join("bootstrap.md");
@@ -409,10 +411,12 @@ fn general_agent_launch_uses_system_prompt_channel_when_available() {
         &SystemPromptDelivery::External,
     );
     assert!(fallback.task.is_none());
-    assert!(fallback
-        .startup_message
-        .as_deref()
-        .is_some_and(|message| message.contains("BOOTSTRAP_SENTINEL")));
+    assert!(
+        fallback
+            .startup_message
+            .as_deref()
+            .is_some_and(|message| message.contains("BOOTSTRAP_SENTINEL"))
+    );
     assert_eq!(fallback.starter_prompt, StarterPrompt::NoStarter);
     assert_eq!(fallback.prompt_delivery, "confirmed_fallback");
 }
@@ -593,9 +597,11 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
             assert_eq!(tab.boot_stage, Some(BootStage::PtyStarting));
             tab.boot_stage = Some(BootStage::ProviderReady);
         }
-        assert!(!fixture
-            .service
-            .note_provider_exit_in_surviving_shell(&general_id));
+        assert!(
+            !fixture
+                .service
+                .note_provider_exit_in_surviving_shell(&general_id)
+        );
         let state = fixture.service.mux.read();
         let tab = state.get_tab(&general_id).expect("general Tab");
 
@@ -612,9 +618,11 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
         assert!(!tab.agent_booting);
         assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
     }
-    assert!(fixture
-        .service
-        .note_provider_exit_in_surviving_shell(&general_id));
+    assert!(
+        fixture
+            .service
+            .note_provider_exit_in_surviving_shell(&general_id)
+    );
     let state = fixture.service.mux.read();
     let tab = state.get_tab(&general_id).expect("general Tab");
     assert!(tab.agent_type.is_none());
@@ -733,9 +741,11 @@ fn agent_output_teardown_closes_armed_waiter() {
         )
         .expect("spawn PTY");
     let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
-    assert!(screen_state
-        .lock()
-        .bind_pty_generation("pty-1", session.generation));
+    assert!(
+        screen_state
+            .lock()
+            .bind_pty_generation("pty-1", session.generation)
+    );
     let registry = Arc::new(AgentRegistry::new());
     let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
     let signal = subscription.signal.clone();

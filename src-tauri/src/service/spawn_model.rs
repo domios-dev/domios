@@ -1,8 +1,8 @@
+use super::ServiceContext;
 use super::spawn_model_catalogue::{
     catalogue_lookup_model, model_catalogue_capability, normalize_requested_model,
     preserve_context_suffix,
 };
-use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 pub use crate::multiplexer::types::ModelFallbackNotice;
 
@@ -117,6 +117,7 @@ pub(crate) struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
     pub fallback_notice: Option<ModelFallbackNotice>,
+    pub restore_notification: Option<String>,
     pub warning: Option<String>,
 }
 
@@ -229,26 +230,25 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                     authoritative_catalogue_default(provider_id, capability, models)
                 })
             });
+        let restore_notification = requested_model.as_deref().and_then(|requested| {
+            (!catalogue_missing
+                && capability.authority
+                    == crate::agent::provider::ModelCatalogueAuthority::Authoritative
+                && matched.is_none())
+            .then(|| restored_model_fallback_warning(provider_id, requested, model.as_deref()))
+        });
         let warning = requested_model.as_deref().and_then(|requested| {
             if catalogue_missing {
                 Some(unavailable_live_catalogue_warning(provider_id, requested))
-            } else if capability.authority
-                == crate::agent::provider::ModelCatalogueAuthority::Authoritative
-                && matched.is_none()
-            {
-                Some(restored_model_fallback_warning(
-                    provider_id,
-                    requested,
-                    model.as_deref(),
-                ))
             } else {
-                None
+                restore_notification.clone()
             }
         });
         return FreshAgentModelResolution {
             model,
             requested_model,
             fallback_notice: None,
+            restore_notification,
             warning,
         };
     }
@@ -273,6 +273,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
             model: non_empty_model(resolved_model),
             requested_model: Some(model),
             fallback_notice: None,
+            restore_notification: None,
             warning,
         };
     }
@@ -289,6 +290,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                 model: non_empty_model(resolved.id),
                 requested_model: None,
                 fallback_notice: None,
+                restore_notification: None,
                 warning: None,
             };
         }
@@ -308,6 +310,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         model: non_empty_model(resolved.id),
         requested_model: None,
         fallback_notice: None,
+        restore_notification: None,
         warning: None,
     }
 }
@@ -424,6 +427,7 @@ fn resolve_authoritative_live_default(
             model: selected,
             requested_model: None,
             fallback_notice: None,
+            restore_notification: None,
             warning: Some(warning),
         });
     };
@@ -478,6 +482,7 @@ fn resolve_authoritative_live_default(
         model: selected,
         requested_model: None,
         fallback_notice: None,
+        restore_notification: None,
         warning,
     })
 }

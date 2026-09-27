@@ -27,11 +27,12 @@ fn happy_path_emits_stages_in_order() {
         sink.record("tab-1", stage, None);
     }
     assert_eq!(sink.stages(), BootStage::HAPPY_PATH.to_vec());
-    assert!(sink
-        .events
-        .lock()
-        .iter()
-        .all(|(pid, _, r)| pid == "tab-1" && r.is_none()));
+    assert!(
+        sink.events
+            .lock()
+            .iter()
+            .all(|(pid, _, r)| pid == "tab-1" && r.is_none())
+    );
 }
 
 #[test]
