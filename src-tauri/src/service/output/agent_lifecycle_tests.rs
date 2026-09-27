@@ -255,7 +255,7 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     harness.service.process_pty_output(
         "pty-planner",
-        b"\x1b]633;A\x07\x1b]633;E;;nonce-current\x07\x1b]633;C\x07\x1b]633;D;0\x07",
+        b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
     );
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
@@ -273,10 +273,9 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    harness.service.process_pty_output(
-        "pty-planner",
-        b"\x1b]633;A\x07\x1b]633;E;;nonce-wrong\x07\x1b]633;C\x07\x1b]633;D;0\x07",
-    );
+    harness
+        .service
+        .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07");
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
         AgentLiveness::Live
@@ -296,21 +295,16 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
             start_token: "codex-child-start".into(),
         }])),
     );
-    harness.service.process_pty_output(
-        "pty-planner",
-        b"\x1b]633;A\x07\x1b]633;E;;nonce-current\x07\x1b]633;C\x07",
-    );
+    harness
+        .service
+        .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-current\x07");
     harness
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     harness
         .service
-        .provider_tree_witnesses
-        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    harness
-        .service
-        .process_pty_output("pty-planner", b"\x1b]633;D;0\x07");
+        .process_pty_output("pty-planner", b"\x1b]633;D\x07");
 
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),

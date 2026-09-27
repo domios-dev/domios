@@ -850,6 +850,20 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
             return;
         }
+        if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
+            log::info!(
+                "[launch-readiness] observed verdict_source=launch-written tree_evidence={} tab={} pty={}",
+                tree.evidence(),
+                tab_id,
+                pty_id,
+            );
+        } else {
+            log::info!(
+                "[launch-readiness] observed verdict_source=launch-written tree_evidence=provider_tree_unavailable tab={} pty={}",
+                tab_id,
+                pty_id,
+            );
+        }
 
         if reader_monitor.closed() {
             let error = LaunchFailure::PtyEof.reason();

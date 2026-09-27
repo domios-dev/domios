@@ -127,6 +127,7 @@ impl LaunchExitProof {
         observation: &ProviderTreeObservation,
         exit_code: Option<i32>,
         command_line: Option<&str>,
+        may_have_named_process: Option<bool>,
     ) -> Option<Self> {
         let finished_command = exit_code.is_some()
             && command_line.is_some_and(|command_line| !command_line.trim().is_empty());
@@ -143,6 +144,15 @@ impl LaunchExitProof {
                     } else {
                         ""
                     }
+                )
+            }
+            crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+                if observation.has_distinct_absence_observations()
+                    && may_have_named_process == Some(false) =>
+            {
+                format!(
+                    "{}+distinct_absence_observations+may_have_named_process_absent",
+                    observation.evidence()
                 )
             }
             _ if observation.proves_exit_from_finished_marker() => observation.evidence().into(),

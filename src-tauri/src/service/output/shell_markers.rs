@@ -15,7 +15,7 @@ impl ServiceContext {
         let Some(tab_id) = tab_id else {
             return;
         };
-        let tree_observation = self.observe_provider_process_tree(tab_id, pty_id, true);
+        let tree_observation = self.observe_provider_process_tree(tab_id, pty_id);
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
                 exit_code, ..
@@ -55,12 +55,9 @@ impl ServiceContext {
                     if let Some(exited) = exited {
                         self.publish_launch_exit(&exited);
                     }
-                } else {
-                    let evidence = tree
-                        .map(|tree| tree.evidence())
-                        .unwrap_or("provider_tree_unavailable");
+                } else if tree.is_none() {
                     log::info!(
-                        "[launch-readiness] refused verdict_source=finished-marker tree_evidence={evidence} tab={tab_id} pty={pty_id}"
+                        "[launch-readiness] refused verdict_source=finished-marker tree_evidence=provider_tree_unavailable tab={tab_id} pty={pty_id}"
                     );
                 }
             }
