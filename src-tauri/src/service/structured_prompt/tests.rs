@@ -95,7 +95,7 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
             codeterm_types::notification::NotificationAction::RespondPromptOption {
                 label: "Cancel".into(),
                 value: "no".into(),
-                identity,
+                identity: identity.clone(),
             },
         ]),
         Some(true),
@@ -127,6 +127,7 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     assert!(notification.resolved);
     assert!(notification.read);
     assert!(notification.actions.is_none());
+    assert!(notification.answer.as_ref().unwrap().delivered);
 }
 
 #[test]

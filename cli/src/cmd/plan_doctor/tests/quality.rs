@@ -403,6 +403,39 @@ fn quality_accepts_complete_task_and_plan_scaffold() {
 }
 
 #[test]
+fn quality_does_not_flag_a_complete_unplanned_task_quality_gap() {
+    let plan = json!({
+        "id": "pl_unplanned",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "complete urgent work"},
+        "primary_spec_id": "sp_unplanned",
+        "sections": [{"id": "sec_work", "title": "Work", "body": "Urgent work"}],
+        "tasks": [{
+            "id": "task_unplanned",
+            "name": "unplanned: urgent probe",
+            "kind": "unplanned",
+            "status": "done",
+            "section_ids": ["sec_work"],
+            "body": "Run the urgent probe.",
+            "acceptance_criteria": ["Run the urgent probe."],
+            "test_plan": "The Orchestrator verifies the reported result against the brief.",
+            "correctness": "Run the urgent probe.",
+            "executor_role": "Worker"
+        }]
+    });
+
+    let findings = inspect_plan(Path::new("pl_unplanned.json"), &plan, "quality");
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| { finding.kind == "task_quality_gap" && finding.severity == "error" }),
+        "{findings:?}"
+    );
+}
+
+#[test]
 fn quality_warns_for_stalled_running_loop() {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)

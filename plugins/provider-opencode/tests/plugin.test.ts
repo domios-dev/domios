@@ -346,7 +346,7 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   const unix = loadOpencodeWithHost(ocHost({
     platform: () => "linux",
     shell: { quoteFor: (value: unknown) => `'${String(value)}'`, quote: (value: unknown) => `'${String(value)}'` },
-    fs: { writeTempFile: () => "/tmp/context.md" },
+    fs: { writeTempFile: () => "/tmp/context.md", fileExists: () => false },
   }));
   const fresh = unix.buildLaunchCommand({});
   const restored = unix.buildResumeCommand("ses_restore");
@@ -374,7 +374,7 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   eq(parsedResume.instructions, [".codeterm/context.md"], "POSIX resume config retains its instruction path");
   assert(resumed.includes("cp -- '/tmp/context.md' '.codeterm/context.md' && opencode --session 'ses_resume'"), "POSIX resume executes opencode after staging instructions");
   assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
-  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md" } }));
+  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md", fileExists: () => false } }));
   const windowsFresh = windows.buildLaunchCommand({});
   const windowsRestore = windows.buildResumeCommand("ses_restore");
   const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
@@ -483,7 +483,7 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
 {
   const p = loadOpencodeWithHost(ocHost({
     platform: () => "windows",
-    fs: { writeTempFile: () => "C:\\Temp\\opencode task.md" },
+    fs: { writeTempFile: () => "C:\\Temp\\opencode task.md", fileExists: () => false },
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
   }));
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";

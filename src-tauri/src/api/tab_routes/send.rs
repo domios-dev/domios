@@ -27,6 +27,11 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
+    if state.svc.tab_chat_backing(&tab_id).is_none() {
+        if state.svc.has_public_send_launch_gate(&tab_id) {
+            await_public_send_readiness(&state.svc, &tab_id).await?;
+        }
+    }
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let (text, pad_file) = state
         .svc
@@ -43,11 +48,10 @@ pub async fn chat_send_text(
     .await
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
     .map_err(|detail| {
-        DeliveryError::TabBusyRefused {
+        SendRejection::from(DeliveryError::TabBusyRefused {
             tab: tab_id,
             detail,
-        }
-        .into()
+        })
     })?;
     Ok(Json(crate::service::agent_pad::ChatSendResult::new(
         status, pad_file,
@@ -279,6 +283,33 @@ pub(super) async fn await_pty_link(state: &AppState, tab_id: &str) -> bool {
     .unwrap_or(false)
 }
 
+async fn await_public_send_readiness(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+) -> Result<(), SendRejection> {
+    let svc = svc.clone();
+    let tab = tab_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        svc.await_public_send_readiness(&tab, std::time::Duration::from_secs(30))
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "public send readiness wait failed",
+        ))
+    })?
+    .map_err(|detail| public_send_readiness_refusal(tab_id, detail))
+}
+
+fn public_send_readiness_refusal(tab_id: &str, detail: String) -> SendRejection {
+    DeliveryError::TabBusyRefused {
+        tab: tab_id.to_string(),
+        detail,
+    }
+    .into()
+}
+
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, tab_id: &str, text: &str) {
     let Some(svc_id) = svc_id else { return };
     let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
@@ -339,6 +370,12 @@ pub async fn send_text(
     // The return-address marker is meaningful only to an AGENT reading its input.
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.tab_has_agent(&tab_id);
+
+    if transport == TabInputTransport::Pty && target_has_agent {
+        if state.svc.has_public_send_launch_gate(&tab_id) {
+            await_public_send_readiness(&state.svc, &tab_id).await?;
+        }
+    }
 
     if body.kind.as_deref() == Some("report") {
         if let (Some(peer), Some(src)) = (
@@ -675,7 +712,7 @@ pub async fn send_text(
                 });
             } else {
                 items.push(crate::service::pty_io::SendBatchItem {
-                    text: prepend(&stage(text)),
+                    text: prepend(&text),
                     delay_ms: chunk.delay_ms,
                 });
             }
@@ -776,7 +813,10 @@ pub async fn send_text(
 
 #[cfg(test)]
 mod delivery_classification_tests {
-    use super::{chat_send_target_refusal, classify_delivery_failure, SendRejection};
+    use super::{
+        chat_send_target_refusal, classify_delivery_failure, public_send_readiness_refusal,
+        SendRejection,
+    };
     use crate::service::delivery_error::DeliveryError;
     use axum::http::StatusCode;
 
@@ -822,6 +862,19 @@ mod delivery_classification_tests {
             .as_str()
             .unwrap()
             .contains("nothing written"));
+    }
+
+    #[test]
+    fn public_send_readiness_deadline_is_a_zero_byte_route_refusal() {
+        let rejection = public_send_readiness_refusal(
+            "new-agent-tab",
+            "public input readiness deadline elapsed; no input was written".into(),
+        );
+
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["ok"], false);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
     }
 
     #[test]

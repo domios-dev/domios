@@ -690,11 +690,18 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 }
 
 #[test]
-fn supervised_spawn_uses_startup_handshake() {
+fn cartographer_attach_injects_handshake_only_with_armed_attempt() {
     let mut params = SpawnAgentParams {
         starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
         ..Default::default()
     };
+
+    apply_startup_handshake(&mut params, false);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::AssignedTask
+    );
+
     apply_startup_handshake(&mut params, true);
     assert_eq!(
         params.starter_prompt,

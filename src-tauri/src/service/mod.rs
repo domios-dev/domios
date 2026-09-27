@@ -51,9 +51,13 @@ mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
 mod prompt_resolution;
+pub(crate) mod public_send_readiness;
+pub(crate) mod startup_turn;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
+pub(crate) use orchestrator::{
+    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
+};
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
