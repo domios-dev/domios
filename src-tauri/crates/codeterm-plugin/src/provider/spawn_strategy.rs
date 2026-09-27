@@ -20,6 +20,16 @@ pub enum ProviderReadinessStrategy {
     StructuralComposer { timeout: Duration },
 }
 
+/// Terminal cursor placement accepted as composer evidence for a lazy session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerCursorPosition {
+    #[default]
+    BottomRegion,
+    /// Visible cursor on the provider's alternate-screen TUI may be centered.
+    VisibleAnywhere,
+}
+
 impl Default for ProviderReadinessStrategy {
     fn default() -> Self {
         Self::TuiFrame {
@@ -43,14 +53,16 @@ impl ProviderReadinessStrategy {
 /// How to confirm that text submitted to a launched provider was actually
 /// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
 /// real receiver-side observation rather than an optimistic write.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifySubmitStrategy {
     /// Wait for a new shell prompt to appear (default for plain shells and
     /// providers that pipe through the shell unchanged).
     ShellPrompt { timeout: Duration },
-    /// Submit through an interactive TUI. The PTY boundary waits for a
-    /// rendered draft before Enter, then observes the provider turn.
-    TuiInputDrained { initial_key_delay: Duration },
+    /// Submit through an interactive TUI with bounded provider-declared timing.
+    TuiInputDrained {
+        initial_key_delay: Duration,
+        retry_offsets: [Duration; 6],
+    },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
@@ -59,11 +71,29 @@ pub enum VerifySubmitStrategy {
 impl VerifySubmitStrategy {
     pub fn initial_key_delay(&self) -> Duration {
         match self {
-            Self::TuiInputDrained { initial_key_delay } => *initial_key_delay,
+            Self::TuiInputDrained {
+                initial_key_delay, ..
+            } => *initial_key_delay,
             Self::ShellPrompt { .. } | Self::None => Duration::ZERO,
         }
     }
+
+    pub fn retry_offsets(&self) -> [Duration; 6] {
+        match self {
+            Self::TuiInputDrained { retry_offsets, .. } => *retry_offsets,
+            Self::ShellPrompt { .. } | Self::None => DEFAULT_SUBMIT_RETRY_OFFSETS,
+        }
+    }
 }
+
+pub const DEFAULT_SUBMIT_RETRY_OFFSETS: [Duration; 6] = [
+    Duration::from_millis(200),
+    Duration::from_millis(500),
+    Duration::from_millis(900),
+    Duration::from_millis(1500),
+    Duration::from_millis(2200),
+    Duration::from_millis(3000),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BusySubmitStrategy {

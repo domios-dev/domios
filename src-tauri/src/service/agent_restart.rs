@@ -6,7 +6,7 @@
 //! the self-update flow (`feat/auto-update`) which restarts every agent tab
 //! around binary swap.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -25,12 +25,60 @@ pub const DEFAULT_GRACE_SECS: u64 = 10;
 /// Failure deadline for the new PTY to reach AgentReady.
 pub const RESTART_READY_TIMEOUT_SECS: u64 = 45;
 
-/// Tracks the last successful restart per tab for rate limiting.
+/// Tracks restart attempts and serializes in-flight recovery per tab.
 /// Lives on `ServiceContext` and survives across requests.
-pub type RestartTracker = Arc<Mutex<HashMap<String, Instant>>>;
+#[derive(Default)]
+pub struct RestartTrackerState {
+    last_restart: HashMap<String, Instant>,
+    in_progress: HashSet<String>,
+}
+
+pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;
+
+pub(super) struct RestartClaim {
+    tracker: RestartTracker,
+    tab_id: String,
+}
+
+impl Drop for RestartClaim {
+    fn drop(&mut self) {
+        self.tracker.lock().in_progress.remove(&self.tab_id);
+    }
+}
 
 pub fn new_restart_tracker() -> RestartTracker {
-    Arc::new(Mutex::new(HashMap::new()))
+    Arc::new(Mutex::new(RestartTrackerState::default()))
+}
+
+pub(super) fn claim_restart_attempt(
+    tracker: &RestartTracker,
+    tab_id: &str,
+    automatic: bool,
+) -> Result<RestartClaim, AgentRestartError> {
+    let mut state = tracker.lock();
+    let now = Instant::now();
+    if state.in_progress.contains(tab_id) {
+        return Err(AgentRestartError::BadRequest(
+            "an agent restart or automatic recovery is already in progress".to_string(),
+        ));
+    }
+    if !automatic {
+        if let Some(last) = state.last_restart.get(tab_id) {
+            let elapsed = now.duration_since(*last);
+            let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
+            if elapsed < limit {
+                return Err(AgentRestartError::RateLimited {
+                    retry_after_secs: (limit - elapsed).as_secs().max(1),
+                });
+            }
+        }
+    }
+    state.last_restart.insert(tab_id.to_string(), now);
+    state.in_progress.insert(tab_id.to_string());
+    Ok(RestartClaim {
+        tracker: tracker.clone(),
+        tab_id: tab_id.to_string(),
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -142,14 +190,14 @@ impl ServiceContext {
             return outcome;
         }
         if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
-            return self.recover_exited_provider(&exited_tab_id, force);
+            return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
 
-        self.check_and_record_restart(&snap.tab_id)?;
+        let restart_claim = self.claim_restart(&snap.tab_id, false)?;
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -201,12 +249,17 @@ impl ServiceContext {
             snap.tab_id.clone(),
             launch_cmd,
             snap.provider.clone(),
-            crate::service::launch_diagnostics::AgentLaunchOrigin::Restart,
+            if session_present {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
+            } else {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Restart
+            },
             launch_task,
             None,
             None,
             None,
         );
+        drop(restart_claim);
 
         let ready = self.finish_observed_restart(
             outcome,
@@ -262,7 +315,7 @@ impl ServiceContext {
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
-        self.check_and_record_restart(&target.tab_id)?;
+        let restart_claim = self.claim_restart(&target.tab_id, false)?;
 
         let claimed =
             crate::service::general_agent::claim_general_agent_tab_retry(&target.tab_id, &self.mux)
@@ -297,6 +350,7 @@ impl ServiceContext {
                 &app,
             );
         });
+        drop(restart_claim);
 
         log::info!(
             "[agent_restart] Tab {} recovered via General Agent relaunch",
@@ -432,21 +486,12 @@ impl ServiceContext {
         require_observed_live_agent(liveness)
     }
 
-    fn check_and_record_restart(&self, tab_id: &str) -> Result<(), AgentRestartError> {
-        let mut tracker = self.restart_tracker.lock();
-        let now = Instant::now();
-        if let Some(last) = tracker.get(tab_id) {
-            let elapsed = now.duration_since(*last);
-            let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
-            if elapsed < limit {
-                let retry = (limit - elapsed).as_secs().max(1);
-                return Err(AgentRestartError::RateLimited {
-                    retry_after_secs: retry,
-                });
-            }
-        }
-        tracker.insert(tab_id.to_string(), now);
-        Ok(())
+    pub(super) fn claim_restart(
+        &self,
+        tab_id: &str,
+        automatic: bool,
+    ) -> Result<RestartClaim, AgentRestartError> {
+        claim_restart_attempt(&self.restart_tracker, tab_id, automatic)
     }
 
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {

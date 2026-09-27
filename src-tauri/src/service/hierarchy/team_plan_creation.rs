@@ -85,7 +85,7 @@ impl ServiceContext {
         from_spec: Option<String>,
         now_ms: u64,
     ) -> Result<TeamPlanCreationOutcome, TeamPlanCreationError> {
-        let outcome = create_team_plan_for_caller(
+        let mut outcome = create_team_plan_for_caller(
             &self.mux,
             &self.plan_store,
             title,
@@ -96,6 +96,16 @@ impl ServiceContext {
             from_spec,
             now_ms,
         )?;
+        if self
+            .bind_pending_paired_planner(&outcome.plan.id, &outcome.plan.owner, now_ms)
+            .map_err(TeamPlanCreationError::Team)?
+        {
+            outcome.plan = self.plan_store.get(&outcome.plan.id).ok_or_else(|| {
+                TeamPlanCreationError::Team(
+                    "created Plan disappeared while binding its paired Planner".into(),
+                )
+            })?;
+        }
         self.emit_state_changed();
         Ok(outcome)
     }

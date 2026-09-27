@@ -280,6 +280,8 @@ pub struct AnswerSlot {
     pub asked_from_tab: Option<String>,
     /// The one chosen label. Set once and never overwritten.
     pub answered: Option<String>,
+    #[serde(default)]
+    pub answered_via: Option<String>,
     /// Whether the standing answer reached the asking tab. Recording an answer
     /// and carrying it back are separate facts, so a refused send cannot render
     /// as answered-and-delivered.
@@ -292,6 +294,7 @@ impl AnswerSlot {
         Self {
             asked_from_tab: tab_id.map(str::to_string),
             answered: None,
+            answered_via: None,
             delivered: false,
         }
     }
@@ -367,6 +370,19 @@ impl<'a> NotifyDestination<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn answer_slot_reads_legacy_rows_without_answer_channel() {
+        let slot: AnswerSlot = serde_json::from_value(serde_json::json!({
+            "asked_from_tab": "tab",
+            "answered": "Proceed",
+            "delivered": true
+        }))
+        .unwrap();
+
+        assert_eq!(slot.answered.as_deref(), Some("Proceed"));
+        assert_eq!(slot.answered_via, None);
+    }
 
     #[test]
     fn notify_level_all_is_the_single_source_of_the_set() {

@@ -751,7 +751,14 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             authorized_gates,
             provider_reserve_pct,
             non_user_facing,
+            unplanned,
+            reason: _,
         } => {
+            if *unplanned {
+                return unsupported(
+                    "agent spawn --unplanned is local-only: plan dispatch runs on the peer that owns the Plan",
+                );
+            }
             // Team membership is authorized against the caller's own tab, which
             // has no meaning on the peer that owns the Team.
             if team.is_some() {

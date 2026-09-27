@@ -161,6 +161,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--provider-reserve-pct`
+- `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
@@ -170,6 +171,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--task-id` — Bound task id
 - `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag
 - `--title` — Tab title
+- `--unplanned` — Create and dispatch a visible exceptional task for this Worker
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
 #### `codeterm agent startup-ack`
@@ -2418,6 +2420,15 @@ Show one task in the plan with full detail (body, criteria, test_plan, correctne
 - `--all` — With --siblings, include done/cancelled tasks
 - `<plan_id>`
 - `--siblings` — List sibling tasks (open-only unless --all)
+- `<task_id>`
+
+#### `codeterm plan task split`
+
+Split a task into dispatchable child tasks
+
+- `--child`
+- `--from-file`
+- `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan task update`

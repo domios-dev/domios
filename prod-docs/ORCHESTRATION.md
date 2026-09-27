@@ -47,6 +47,11 @@ The Orchestrator states the GOAL and delegates structure to the Planner, then
 approves or revises it, dispatches, judges reports, integrates accepted lanes,
 and owns cleanup. A bound Planner keeps section/task authority after approval;
 approval and dispatch remain the Orchestrator's.
+For oversized in-progress work, the Orchestrator can use `codeterm plan task
+split <plan> <task> --child <name>` to add approved child tasks, then dispatch
+each child into its own lane. Child status rolls up on the parent, which stays
+open until every child is done or cancelled. Workers can propose a split in
+their report but cannot spawn sub-Workers.
 Directly implement a genuinely small, local, low-risk change already authorized
 in canonical when delegation costs more. Worker dispatch remains default for
 plan-owned source work; never self-assign normal implementation work merely
@@ -168,7 +173,7 @@ Before a wave:
 2. Define a disjoint lane map: task, files, branch/worktree, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Dispatch through `codeterm plan task dispatch`; lanes by default,
+4. Default to an authored task and dispatch it through `codeterm plan task dispatch`; use `codeterm agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook).
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
 6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
@@ -211,4 +216,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 89 -->
+<!-- revision: 91 -->

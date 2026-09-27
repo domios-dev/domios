@@ -8,7 +8,7 @@ use crate::agent::prompt::PromptDecision;
 static RESPONDED_OCCURRENCES: LazyLock<StdMutex<HashMap<String, String>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-pub(super) fn claim_manual_update_occurrence(tab_id: &str, occurrence: &str) -> bool {
+pub(crate) fn claim_manual_update_occurrence(tab_id: &str, occurrence: &str) -> bool {
     let mut answered = RESPONDED_OCCURRENCES.lock().unwrap();
     if answered.get(tab_id).is_some_and(|seen| seen == occurrence) {
         return false;
@@ -17,11 +17,11 @@ pub(super) fn claim_manual_update_occurrence(tab_id: &str, occurrence: &str) -> 
     true
 }
 
-pub(super) fn clear_manual_update_occurrence(tab_id: &str) {
+pub(crate) fn clear_manual_update_occurrence(tab_id: &str) {
     RESPONDED_OCCURRENCES.lock().unwrap().remove(tab_id);
 }
 
-pub(super) fn manual_update_prompt_candidate(screen: &str) -> bool {
+pub(crate) fn manual_update_prompt_candidate(screen: &str) -> bool {
     let mut options = Vec::new();
     let mut footer = false;
     for row in screen.lines() {
@@ -64,14 +64,14 @@ pub(super) fn manual_update_prompt_candidate(screen: &str) -> bool {
 }
 
 #[cfg(test)]
-pub(super) fn parse_manual_update_prompt(
+pub(crate) fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
 ) -> Option<crate::multiplexer::types::PendingPrompt> {
     parse_manual_update_prompt_with_response(provider, snapshot).map(|(prompt, _)| prompt)
 }
 
-pub(super) fn parse_manual_update_prompt_with_response(
+pub(crate) fn parse_manual_update_prompt_with_response(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
 ) -> Option<(crate::multiplexer::types::PendingPrompt, Option<String>)> {
@@ -101,7 +101,7 @@ pub(super) fn parse_manual_update_prompt_with_response(
     Some((prompt, skip_value))
 }
 
-pub(super) fn resolve_classified_manual_update_prompt(
+pub(crate) fn resolve_classified_manual_update_prompt(
     service: &ServiceContext,
     snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
     prompt: crate::multiplexer::types::PendingPrompt,

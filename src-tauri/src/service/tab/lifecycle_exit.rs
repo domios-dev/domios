@@ -129,17 +129,19 @@ impl ServiceContext {
             mux.get_tab_mut(tab_id)
                 .map_or((false, None), clear_agent_identity_with_prompt)
         };
-        if let Some(exit) = exit {
-            self.publish_launch_exit(&exit);
-        }
-        self.finish_agent_identity_clear(
+        let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
             prompt_identity,
             "pty-exit",
             tree_evidence,
-        )
+        );
+        if let Some(exit) = exit {
+            self.publish_launch_exit(&exit);
+            self.handoff_launch_exit_after_teardown(&exit);
+        }
+        finished
     }
 
     pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
@@ -218,6 +220,15 @@ impl ServiceContext {
         ) {
             return self.refuse_lifecycle_identity_clear(tab_id, cause, tree.evidence());
         }
+        if tree.state() == crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+            && self.lifecycle_clear_has_inflight_launch(tab_id, &pty_id, tree.key())
+        {
+            return self.refuse_lifecycle_identity_clear(
+                tab_id,
+                cause,
+                "provider_not_seen_before_absence+launch_in_flight",
+            );
+        }
         let exit_proof =
             crate::service::launch_readiness::LaunchAttempt::current(&self.mux, tab_id, &pty_id)
                 .and_then(|attempt| {
@@ -233,17 +244,49 @@ impl ServiceContext {
             mux.get_tab_mut(tab_id)
                 .map_or((false, None), clear_agent_identity_with_prompt)
         };
-        if let Some(exited) = exited {
-            self.publish_launch_exit(&exited);
-        }
-        self.finish_agent_identity_clear(
+        let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
             prompt_identity,
             "lifecycle-clear",
             tree.evidence(),
-        )
+        );
+        if let Some(exited) = exited {
+            self.publish_launch_exit(&exited);
+            self.handoff_launch_exit_after_teardown(&exited);
+        }
+        finished
+    }
+
+    fn lifecycle_clear_has_inflight_launch(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        key: &crate::service::process_tree::ProviderTreeKey,
+    ) -> bool {
+        let tab_in_flight = {
+            let mux = self.mux.read();
+            let Some(tab) = mux
+                .get_tab(tab_id)
+                .filter(|tab| tab.pty_id.as_deref() == Some(pty_id))
+            else {
+                return true;
+            };
+            tab.agent_booting || launch_stage_before_readiness(tab)
+        };
+        if tab_in_flight {
+            return true;
+        }
+        let Some(binding_nonce) = key.binding_nonce.as_deref() else {
+            return false;
+        };
+        let attempt = crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.to_string(),
+            pty_id: pty_id.to_string(),
+            binding_nonce: binding_nonce.to_string(),
+        };
+        crate::service::launch_readiness::attempt_is_armed(&attempt)
     }
 
     pub(crate) fn clear_tab_agent_identity_after_exit_with_proof(
@@ -288,6 +331,37 @@ impl ServiceContext {
 
     pub(crate) fn clear_tab_restored_identity_if_absent(&self, tab_id: &str, cause: &str) -> bool {
         self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(tab_id, cause)
+    }
+
+    pub(crate) fn clear_tab_spawn_failed_identity_if_absent(
+        &self,
+        tab_id: &str,
+        cause: &str,
+    ) -> bool {
+        if !self.lifecycle_clear_allowed(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown().as_ref(),
+        ) {
+            return false;
+        }
+        let (cleared, prompt_identity) = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id)
+                .filter(|tab| {
+                    tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
+                        && !tab.agent_booting
+                })
+                .map_or((false, None), clear_agent_identity_with_prompt)
+        };
+        self.finish_agent_identity_clear(
+            tab_id,
+            cause,
+            cleared,
+            prompt_identity,
+            "spawn-failed",
+            "launch_owner_recorded_spawn_failure",
+        )
     }
 
     fn lifecycle_clear_allowed(
@@ -351,4 +425,23 @@ impl ServiceContext {
         self.emit_state_changed();
         true
     }
+}
+
+fn launch_stage_before_readiness(tab: &crate::multiplexer::types::Tab) -> bool {
+    use codeterm_types::pty::BootStage;
+
+    !tab.restored_from_snapshot
+        && matches!(
+            tab.boot_stage,
+            Some(
+                BootStage::PtyStarting
+                    | BootStage::PtySpawned
+                    | BootStage::ReaderReady
+                    | BootStage::AgentLaunching
+                    | BootStage::LaunchWritten
+                    | BootStage::ProviderReady
+                    | BootStage::PreparingRoleInstructions
+                    | BootStage::DeliveringInstructions
+            )
+        )
 }
