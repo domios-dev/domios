@@ -1,3 +1,15 @@
+pub(super) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
+    (
+        "Orchestration incident: launch brief undelivered".to_string(),
+        format!(
+            "Impact: Tab {tab_id} was not marked ready, so its assigned work must not proceed. \
+             Cleanup: confirmed-delivery cleanup was skipped and the pending brief was retained. \
+             Fallback: the launch failed after the bounded submit-key attempt; retry the pending assignment explicitly. \
+             Cause: {error}"
+        ),
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum LaunchFailure {
     PtySpawn(String),

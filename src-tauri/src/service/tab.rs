@@ -247,6 +247,7 @@ impl ServiceContext {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
         self.finish_tab_close(tab_id)?;
+        self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         {
             let mut notif = self.notif.lock();
