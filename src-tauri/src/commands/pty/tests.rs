@@ -511,7 +511,7 @@ mod spawn_pty_restore_tests {
             let mut mux = fixture.service.mux.write();
             mux.link_pty(&tab_id, pty_id.into());
         }
-        crate::service::orchestrator::mark_tab_agent_launch_started(&fixture.service.mux, &tab_id);
+        crate::service::mark_tab_agent_launch_started(&fixture.service.mux, &tab_id);
 
         let attached = spawn_pty_core(
             &Arc::new(fixture.service.clone()),
@@ -527,7 +527,7 @@ mod spawn_pty_restore_tests {
 
         assert_eq!(attached, pty_id);
         assert!(resume_context.lock().is_empty());
-        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap();
+        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
         assert!(!tab.restored_from_snapshot);
         assert!(tab.agent_booting);
         let mut pty = fixture.service.pty.lock();

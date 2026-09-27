@@ -167,7 +167,7 @@ pub async fn spawn_pty_core(
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
-        crate::service::orchestrator::mark_tab_agent_launch_started(mux_state, pid);
+        crate::service::mark_tab_agent_launch_started(mux_state, pid);
         let session_id = restore.session_id;
         let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;
