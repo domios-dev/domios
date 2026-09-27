@@ -808,14 +808,9 @@ pub async fn chat_send_text(
 ) -> Result<crate::service::agent_pad::ChatSendResult, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
-    let (text, pad_file) = svc.substitute_paste_limited_body(&tab_id, text)?;
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
-    let text = if run_stages && pad_file.is_none() {
-        svc.run_outbound_stages(&tab_id, text)
-    } else {
-        text
-    };
+    let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
     let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
     // Anchor capture reads the session file and may enter a plugin VM.
     let svc = svc.inner().clone();
