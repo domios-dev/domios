@@ -14,6 +14,7 @@
 /// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
 pub const HOST_API_VERSION: u32 = 2;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -27,7 +28,7 @@ use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
 
 struct HeldFileLock {
-    plugin_id: String,
+    call_id: String,
     file: File,
 }
 
@@ -36,10 +37,38 @@ fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
-pub(super) fn release_plugin_file_locks(plugin_id: &str) {
+thread_local! {
+    static FILE_LOCK_CALL: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+pub(super) struct FileLockCallScope {
+    call_id: String,
+    previous: Option<String>,
+}
+
+impl FileLockCallScope {
+    pub(super) fn new() -> Self {
+        let call_id = uuid::Uuid::new_v4().to_string();
+        let previous = FILE_LOCK_CALL.with(|scope| scope.replace(Some(call_id.clone())));
+        Self { call_id, previous }
+    }
+}
+
+impl Drop for FileLockCallScope {
+    fn drop(&mut self) {
+        release_call_file_locks(&self.call_id);
+        FILE_LOCK_CALL.with(|scope| *scope.borrow_mut() = self.previous.take());
+    }
+}
+
+fn current_file_lock_call() -> Option<String> {
+    FILE_LOCK_CALL.with(|scope| scope.borrow().clone())
+}
+
+fn release_call_file_locks(call_id: &str) {
     held_file_locks()
         .lock()
-        .retain(|_, lock| lock.plugin_id != plugin_id);
+        .retain(|_, lock| lock.call_id != call_id);
 }
 
 /// A write-once, weakly-held ref populated after construction — the VM is built
@@ -534,6 +563,7 @@ pub(super) fn install(
     });
     let sb = sandbox.clone();
     bind!("lockFile", move |path: String| -> Option<String> {
+        let call_id = current_file_lock_call()?;
         if !sb.can_write(&path) {
             log::warn!("[plugin] denied lockFile outside sandbox: {path}");
             return None;
@@ -550,16 +580,24 @@ pub(super) fn install(
         held_file_locks().lock().insert(
             id.clone(),
             HeldFileLock {
-                plugin_id: sb.plugin_id().to_string(),
+                call_id,
                 file,
             },
         );
         Some(id)
     });
     bind!("unlockFile", move |id: String| -> bool {
-        let Some(file) = held_file_locks().lock().remove(&id) else {
+        let Some(call_id) = current_file_lock_call() else {
             return false;
         };
+        let mut locks = held_file_locks().lock();
+        if !locks.get(&id).is_some_and(|lock| lock.call_id == call_id) {
+            return false;
+        }
+        let Some(file) = locks.remove(&id) else {
+            return false;
+        };
+        drop(locks);
         file.file.unlock().is_ok()
     });
     let sb = sandbox.clone();

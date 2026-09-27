@@ -19,6 +19,14 @@ function eq(actual: unknown, expected: unknown, name: string) {
   else { failed++; console.error(`  ✗ ${name}: expected ${e}, got ${a}`); }
 }
 
+function visibleNumberedChoices(screen: string): [string, string][] {
+  return screen
+    .split(/\r?\n/)
+    .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match): [string, string] => [match[2], match[1]]);
+}
+
 console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\n");
 
 {
@@ -66,14 +74,40 @@ console.log("\n--- directoryTrustPromptResponse: wrapped Codex trust frames ---\
   );
 
   const userDir = fs.readFileSync(path.join(dir, "trust-folder-access-0.157.1.txt"), "utf8");
-  const trustPrompt = plugin.parseDirectoryTrustPrompt!(userDir);
   const trustOptions = userDir
     .split(/\r?\n/)
     .map((line) => /^[ \t]*[>❯▶➤›]?[ \t]*\d+[.)][ \t]+(.+?)[ \t]*$/.exec(line)?.[1] ?? null)
     .filter((label): label is string => label !== null);
+  const genericTrustPrompt = plugin.parsePrompt!(userDir);
+  eq(genericTrustPrompt?.options?.map(([label]) => label), trustOptions,
+    "provider parsePrompt exposes the active trust frame as a structured prompt");
+  eq(genericTrustPrompt?.options?.map(([, value]) => value), ["1", "2"],
+    "provider parsePrompt keeps both trust option values in screen order");
+  const trustPrompt = plugin.parseDirectoryTrustPrompt!(userDir);
   eq(trustPrompt?.options?.map(([label]) => label), trustOptions, "folder trust prompt preserves option labels and order");
   eq(trustPrompt?.options?.map(([, value]) => value), ["1", "2"], "folder trust prompt retains both visible option values");
   eq(plugin.buildPromptResponse!(1, userDir), ["G1tC", "DQ=="], "tab respond can select the second trust option");
+
+  for (const file of [
+    "trust-frame-live-user-dir-0.157.1.txt",
+    "trust-frame-full-screen-trailing-blank-rows.txt",
+  ]) {
+    const screen = fs.readFileSync(path.join(dir, file), "utf8");
+    const choices = visibleNumberedChoices(screen);
+    const parsed = plugin.parsePrompt!(screen);
+    const directoryTrust = plugin.parseDirectoryTrustPrompt!(screen);
+    eq(choices.length, 2, `${file} contains two visible choices`);
+    eq(parsed?.options, choices, `${file} structured choices match the visible choices in order`);
+    eq(directoryTrust?.options, choices, `${file} directory-trust parsing preserves the visible choices`);
+    eq(parsed?.options?.map(([, value]) => value), ["1", "2"], `${file} retains both numbered values`);
+  }
+
+  const fullScreen = fs.readFileSync(path.join(dir, "trust-frame-full-screen-trailing-blank-rows.txt"), "utf8");
+  eq(classifyCodexTabState({
+    tabId: "full-screen-trust-tab",
+    agentType: "codex",
+    screenText: fullScreen,
+  }, 0)?.state, "clarifying_question", "trailing terminal blank rows preserve the active choice classification");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
