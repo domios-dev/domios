@@ -40,6 +40,7 @@ impl PlanStore {
                 return Err(PlanError::BadMode);
             }
             let mut tasks = Vec::with_capacity(prepared.len());
+            let keys = keys.into_iter().map(Some).chain(std::iter::repeat(None));
             for ((id, child), key) in prepared.into_iter().zip(keys) {
                 let depends_on = validate_task_dependencies(plan, &id, &child.depends_on)?;
                 let mut task = Task {
@@ -59,7 +60,7 @@ impl PlanStore {
                     review_round: 0,
                     review_oracle: None,
                     review_evidence: vec![],
-                    key: Some(key),
+                    key,
                     review_override: None,
                     review_audit: vec![],
                     status_label: None,
