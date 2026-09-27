@@ -29,16 +29,8 @@ impl ServiceContext {
                     self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
                     let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code, &proof);
                     let note_surviving_shell_exit = !crate::crash::shutdown::is_shutting_down()
-                        && {
-                            let mux = self.mux.read();
-                            mux.get_tab(tab_id).is_some_and(
-                                crate::service::launch_readiness::
-                                    surviving_shell_exit_is_after_launch_ack,
-                            )
-                        };
-                    if note_surviving_shell_exit {
-                        self.note_provider_exit_in_surviving_shell(tab_id);
-                    } else {
+                        && self.note_provider_exit_in_surviving_shell(tab_id);
+                    if !note_surviving_shell_exit {
                         self.clear_tab_agent_identity_after_exit_with_proof(
                             tab_id,
                             "provider process exited to a surviving shell",
@@ -47,14 +39,12 @@ impl ServiceContext {
                     }
                     if let Some(exited) = exited {
                         self.publish_launch_exit(&exited);
-                        if note_surviving_shell_exit {
-                            self.notify_surviving_shell_restart_required(
-                                tab_id,
-                                pty_id,
-                            );
-                        } else {
+                        if !note_surviving_shell_exit {
                             self.handoff_launch_exit_after_teardown(&exited);
                         }
+                    }
+                    if note_surviving_shell_exit {
+                        self.notify_surviving_shell_restart_required(tab_id, pty_id);
                     }
                 } else if tree.is_none() {
                     log::info!(
