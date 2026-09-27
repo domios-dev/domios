@@ -703,12 +703,17 @@ impl ServiceContext {
                 tab_created_by_spawn,
             ));
         }
+        let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+            agent.task.as_deref(),
+            fallback_spec.as_ref(),
+        );
         launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+            has_startup_task_turn,
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
