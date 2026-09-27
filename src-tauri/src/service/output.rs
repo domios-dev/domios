@@ -847,7 +847,7 @@ impl ServiceContext {
         decision: &PromptDecision,
         screen_text: Option<&str>,
         directory_trust_prompt: bool,
-        manual_update_prompt: bool,
+        require_user_confirmation: bool,
     ) {
         match decision {
             PromptDecision::None => {}
@@ -869,7 +869,7 @@ impl ServiceContext {
                     )
                 };
 
-                let trust = if manual_update_prompt {
+                let trust = if require_user_confirmation {
                     super::directory_trust::TrustDecision::NotApplicable
                 } else {
                     self.respond_to_directory_trust(tab_id, screen_text)
@@ -877,7 +877,7 @@ impl ServiceContext {
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve && !directory_trust_prompt && !manual_update_prompt {
+                if auto_approve && !directory_trust_prompt && !require_user_confirmation {
                     if is_general_tab {
                         let provider_classified_safety_dialog = agent_type
                             .as_deref()
@@ -960,7 +960,7 @@ impl ServiceContext {
                     );
                 }
                 if !directory_trust_prompt
-                    && !manual_update_prompt
+                    && !require_user_confirmation
                     && self
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()

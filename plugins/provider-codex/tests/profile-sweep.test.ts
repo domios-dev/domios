@@ -45,6 +45,10 @@ function makeHost(files: Record<string, string>, unreadableDirectory = false) {
 console.log("\n--- profile marker and name parsing ---\n");
 eq(codexProfileTabId("codeterm-tab-with-dashes_and_underscores.config.toml"), "tab-with-dashes_and_underscores",
   "extracts only a CodeTerm profile tab id");
+eq(codexProfileTabId("codeterm-tab-preserved.config.toml"), "tab",
+  "extracts the tab id from its bounded preserved profile");
+eq(codexProfileTabId("codeterm-tab-retry-42-1700000000000.config.toml"), "tab",
+  "extracts the tab id from a retry profile");
 eq(codexProfileTabId("config.toml"), null, "does not match the base Codex config");
 eq(codexProfileTabId("codeterm-tab.config.toml.codeterm-backup"), null, "does not match backup names");
 eq(codexProfileInstanceId("\uFEFF# codeterm-instance: instance-dev\r\ndeveloper_instructions = \"x\""), "instance-dev",
@@ -56,15 +60,21 @@ console.log("\n--- automatic sweep only removes this instance's dead profiles --
 {
   const { host, files, removed } = makeHost({
     "codeterm-dead-tab.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"dead\"",
+    "codeterm-dead-tab-preserved.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"preserved\"",
+    "codeterm-dead-tab-retry-42-1700000000000.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"retry\"",
     "codeterm-live-tab.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"live\"",
     "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod\ndeveloper_instructions = \"foreign\"",
     "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
     "foreign.config.toml": "# codeterm-instance: instance-dev",
   });
   const report = sweepCodexProfiles(host, ["live-tab"], "instance-dev");
-  eq(report.dead, ["codeterm-dead-tab.config.toml"], "reports only a dead profile owned by this instance");
-  eq(report.removed, ["codeterm-dead-tab.config.toml"], "removes only the owned dead profile");
-  eq(removed, ["codeterm-dead-tab.config.toml"], "never removes another instance or unmarked profile");
+  eq(report.dead, [
+    "codeterm-dead-tab.config.toml",
+    "codeterm-dead-tab-preserved.config.toml",
+    "codeterm-dead-tab-retry-42-1700000000000.config.toml",
+  ], "reports all dead profiles owned by this instance");
+  eq(report.removed, report.dead, "removes owned standard, preserved, and retry profiles");
+  eq(removed, report.dead, "never removes another instance or unmarked profile");
   assert.ok(files["codeterm-live-tab.config.toml"], "keeps this instance's live tab profile");
   assert.ok(files["codeterm-foreign-tab.config.toml"], "keeps another instance's unknown tab profile");
   assert.ok(files["codeterm-legacy-tab.config.toml"], "keeps the unmarked legacy profile automatically");
@@ -132,6 +142,38 @@ console.log("\n--- profile release carries project trust before removal ---\n");
   assert.equal(releaseCodexProfile(host, "tab", "instance-dev"), true);
   assert.equal(files["codeterm-tab.config.toml"], undefined, "profile is removed after trust carry-over");
   assert.ok(files["config.toml"].includes("[projects.'d:\\developer\\trust-probe']"));
+  assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
+}
+
+console.log("\n--- retry and preserved profiles carry trust before removal ---\n");
+{
+  const config = [
+    "[hooks.state.'C:\\Users\\test\\.codex\\hooks.json:session_start:0:0']",
+    'trusted_hash = "sha256:unchanged"',
+    "",
+  ].join("\r\n");
+  const { host, files } = makeHost({
+    "codeterm-tab-retry-42-1700000000000.config.toml": [
+      "# codeterm-instance: instance-dev",
+      "",
+      "[projects.'C:\\RetryProject']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "codeterm-tab-preserved.config.toml": [
+      "# codeterm-instance: instance-dev",
+      "",
+      "[projects.'C:\\PreservedProject']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "config.toml": config,
+  });
+  assert.equal(releaseCodexProfile(host, "tab", "instance-dev"), true);
+  assert.equal(files["codeterm-tab-retry-42-1700000000000.config.toml"], undefined);
+  assert.equal(files["codeterm-tab-preserved.config.toml"], undefined);
+  assert.ok(files["config.toml"].includes("[projects.'C:\\RetryProject']"));
+  assert.ok(files["config.toml"].includes("[projects.'C:\\PreservedProject']"));
   assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
 }
 
