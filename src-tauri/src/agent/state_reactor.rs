@@ -124,7 +124,7 @@ pub fn start(svc: ServiceState) {
 /// scoped, never held across the provider call or a thread spawn.
 fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     // mux (1): resolve the tab's OWN identity + provider + session/cwd.
-    let (tab_id, agent_type, session_id, cwd) = {
+    let (tab_id, agent_type, session_id, cwd, auto_approve) = {
         let mux = svc.mux.read();
         let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
             return;
@@ -140,6 +140,7 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
             agent_type,
             tab.agent_session_id.clone(),
             tab.cwd.clone(),
+            tab.auto_approve,
         )
     };
 
@@ -169,8 +170,66 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}
         ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
-        ReactorDecision::Act(action) => execute_action(svc, &tab_id, action),
+        ReactorDecision::Act(action) => {
+            if !route_classified_prompt(
+                svc,
+                &tab_id,
+                &agent_type,
+                &snapshot.screen_text,
+                classification.as_ref(),
+                auto_approve,
+            ) {
+                execute_action(svc, &tab_id, action);
+            }
+        }
     }
+}
+
+fn route_classified_prompt(
+    svc: &ServiceState,
+    tab_id: &str,
+    agent_type: &str,
+    screen: &str,
+    classification: Option<&TabStateClassification>,
+    auto_approve: bool,
+) -> bool {
+    if !classification.is_some_and(|value| value.state == TabState::ClarifyingQuestion) {
+        return false;
+    }
+    let prompt = svc
+        .agent_registry
+        .with_provider(agent_type, |provider| provider.parse_prompt(screen))
+        .flatten();
+    let Some(prompt) = prompt else {
+        let surface = classification
+            .and_then(|value| value.action.as_ref())
+            .and_then(|action| action.surface.clone());
+        surface_to_user(svc, tab_id, surface);
+        return true;
+    };
+    if auto_approve {
+        let directory_trust_prompt = svc
+            .agent_registry
+            .with_provider(agent_type, |provider| {
+                provider.directory_trust_prompt_response(screen)
+            })
+            .flatten()
+            .is_some();
+        if !directory_trust_prompt {
+            return true;
+        }
+    }
+    let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+        tab_id,
+        true,
+        true,
+        Some(crate::agent::prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    svc.apply_prompt_decision_with_screen(&decision, Some(screen), true, true);
+    true
 }
 
 fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {

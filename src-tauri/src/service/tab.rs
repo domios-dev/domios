@@ -709,7 +709,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn respond_prompt(
+    pub(crate) fn respond_prompt(
         &self,
         tab_id: &str,
         value: &str,
