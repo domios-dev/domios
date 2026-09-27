@@ -57,6 +57,29 @@ mod kill_pty_tests {
     }
 }
 
+#[test]
+fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
+    let source = include_str!("../pty.rs");
+    let spawn = source
+        .split("pub async fn spawn_pty_core(")
+        .nth(1)
+        .and_then(|remaining| remaining.split("pub async fn read_pty(").next())
+        .expect("the frontend spawn command remains present");
+    assert_eq!(spawn.matches("dispatch_restored_snapshot_launch(").count(), 2);
+    assert!(!spawn.contains("poll_bare_shell_prompt"));
+    assert!(!spawn.contains("await_agent_tui_frame_on_screen"));
+
+    let dispatcher = source
+        .split("fn dispatch_restored_snapshot_launch(")
+        .nth(1)
+        .expect("restored frontend launches use one dispatcher");
+    assert!(dispatcher.contains("launch_agent_in_background("));
+    assert!(dispatcher.contains("AgentLaunchOrigin::RestoredSnapshot"));
+
+    let shared_launcher = include_str!("../../service/orchestrator/launch.rs");
+    assert!(shared_launcher.contains("arm_with_origin(readiness_attempt.clone(), origin)"));
+}
+
 mod payload_preflight_tests {
     use super::super::deliver_composed_text;
     use crate::service::delivery_error::{
