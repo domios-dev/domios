@@ -345,8 +345,13 @@ fn launch_readiness_deadline_is_provisional_not_a_verdict() {
     );
     assert!(BootStage::LaunchDeadlineElapsed.is_provisional());
 
-    let latch = provisional_launch_for(&tab, &attempt.pty_id, SPAWN_READINESS_DEADLINE)
-        .expect("an unresolved current launch is latchable");
+    let latch = provisional_launch_for(
+        &tab,
+        &attempt.pty_id,
+        &attempt.binding_nonce,
+        SPAWN_READINESS_DEADLINE,
+    )
+    .expect("an unresolved current launch is latchable");
     apply_boot_stage(
         &mut tab,
         BootStage::LaunchDeadlineElapsed,

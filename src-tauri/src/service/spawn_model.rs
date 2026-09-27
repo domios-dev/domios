@@ -75,6 +75,19 @@ impl ServiceContext {
         self.publish_model_reconciliation_warning(model_fallback_notice_title(notice), None, None);
     }
 
+    pub(crate) fn notify_model_resolution_warning(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        warning: &str,
+    ) {
+        self.publish_model_reconciliation_warning(
+            format!("restored model needs reconciliation for {provider_id}"),
+            Some(warning.to_string()),
+            Some(tab_id),
+        );
+    }
+
     fn publish_model_reconciliation_warning(
         &self,
         title: String,
@@ -104,6 +117,7 @@ pub(crate) struct FreshAgentModelResolution {
     pub requested_model: Option<String>,
     pub model: Option<String>,
     pub fallback_notice: Option<ModelFallbackNotice>,
+    pub restore_notification: Option<String>,
     pub warning: Option<String>,
 }
 
@@ -155,8 +169,10 @@ impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelP
         let Some(configured) = non_empty_model(configured.to_string()) else {
             return (String::new(), false);
         };
-        let canonical = codeterm_types::agent::models::canonicalize_short(&configured);
-        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(canonical));
+        let catalogue = crate::agent::model_catalog::resolve_live_models(provider_id)
+            .unwrap_or_else(|| crate::agent::model_catalog::resolve_models(provider_id));
+        let lookup = catalogue_lookup_model(&configured, &catalogue);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&lookup));
         if resolved.fell_back {
             (String::new(), true)
         } else {
@@ -183,16 +199,56 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
     if resume_session_id.is_some() {
         let requested_model = requested
             .and_then(non_empty_model)
-            .map(|model| normalize_requested_model(provider_id, &model))
-            .map(|model| normalize_session_model(&model));
-        let warning = requested_model
-            .as_deref()
-            .filter(|_| live_catalogue_missing(registry, provider_id))
-            .map(|model| unavailable_live_catalogue_warning(provider_id, model));
+            .map(|model| normalize_requested_model(provider_id, &model));
+        let capability = model_catalogue_capability(registry, provider_id);
+        let catalogue_missing = live_catalogue_missing(registry, provider_id);
+        let catalogue = catalogue_models_for_resolution(provider_id, capability);
+        let matched = requested_model.as_deref().and_then(|model| {
+            catalogue
+                .as_deref()
+                .and_then(|models| resolve_catalogue_model(provider_id, model, models, capability))
+        });
+        let model = matched
+            .as_ref()
+            .map(|entry| {
+                preserve_context_suffix(
+                    entry.id.clone(),
+                    requested_model.as_deref().unwrap_or_default(),
+                )
+            })
+            .or_else(|| {
+                let requested = requested_model.as_deref()?;
+                if catalogue_missing {
+                    return Some(requested.to_string());
+                }
+                if capability.authority
+                    != crate::agent::provider::ModelCatalogueAuthority::Authoritative
+                {
+                    return Some(requested.to_string());
+                }
+                catalogue.as_deref().and_then(|models| {
+                    authoritative_catalogue_default(provider_id, capability, models)
+                })
+            });
+        let restore_notification = requested_model.as_deref().and_then(|requested| {
+            (!catalogue_missing
+                && capability.authority
+                    == crate::agent::provider::ModelCatalogueAuthority::Authoritative
+                && matched.is_none())
+            .then(|| restored_model_fallback_warning(provider_id, requested, model.as_deref()))
+        });
+        let warning = requested_model.as_deref().and_then(|requested| {
+            if catalogue_missing {
+                Some(unavailable_live_catalogue_warning(provider_id, requested))
+            } else {
+                restore_notification.clone()
+            }
+        });
         return FreshAgentModelResolution {
-            model: requested_model.clone(),
+            model,
             requested_model,
             fallback_notice: None,
+            restore_notification,
             warning,
         };
     }
@@ -202,23 +258,22 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
     {
         let catalogue_missing = live_catalogue_missing(registry, provider_id);
         let capability = model_catalogue_capability(registry, provider_id);
-        let lookup = catalogue_lookup_model(&model);
-        let matched = if catalogue_missing {
-            None
-        } else if capability.live_discovery_required {
-            crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
-        } else {
-            crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
-        };
+        let catalogue = catalogue_models_for_resolution(provider_id, capability);
+        let matched = catalogue.as_deref().and_then(|models| {
+            (!catalogue_missing)
+                .then(|| resolve_catalogue_model(provider_id, &model, models, capability))
+                .flatten()
+        });
         let resolved_model = matched
             .map(|entry| preserve_context_suffix(entry.id, &model))
             .unwrap_or_else(|| model.clone());
         let warning =
             catalogue_missing.then(|| unavailable_live_catalogue_warning(provider_id, &model));
         return FreshAgentModelResolution {
-            model: non_empty_model(resolved_model).map(|id| normalize_session_model(&id)),
-            requested_model: Some(normalize_session_model(&model)),
+            model: non_empty_model(resolved_model),
+            requested_model: Some(model),
             fallback_notice: None,
+            restore_notification: None,
             warning,
         };
     }
@@ -232,9 +287,10 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
         let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
         if !resolved.fell_back {
             return FreshAgentModelResolution {
-                model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
+                model: non_empty_model(resolved.id),
                 requested_model: None,
                 fallback_notice: None,
+                restore_notification: None,
                 warning: None,
             };
         }
@@ -251,9 +307,10 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
     let resolved =
         crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
     FreshAgentModelResolution {
-        model: non_empty_model(resolved.id).map(|id| normalize_session_model(&id)),
+        model: non_empty_model(resolved.id),
         requested_model: None,
         fallback_notice: None,
+        restore_notification: None,
         warning: None,
     }
 }
@@ -269,10 +326,74 @@ fn resolve_live_provider_model(
     provider_id: &str,
     requested: &str,
 ) -> Option<crate::agent::provider::ModelInfo> {
-    crate::agent::model_catalog::resolve_live_catalog_model(
-        provider_id,
-        &catalogue_lookup_model(requested),
-    )
+    let models = crate::agent::model_catalog::resolve_live_models(provider_id)?;
+    let lookup = catalogue_lookup_model(requested, &models);
+    crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
+}
+
+fn catalogue_models_for_resolution(
+    provider_id: &str,
+    capability: crate::agent::provider::ModelCatalogueCapability,
+) -> Option<Vec<crate::agent::provider::ModelInfo>> {
+    if capability.live_discovery_required {
+        crate::agent::model_catalog::resolve_live_models(provider_id)
+    } else {
+        Some(crate::agent::model_catalog::resolve_models(provider_id))
+    }
+}
+
+fn resolve_catalogue_model(
+    provider_id: &str,
+    requested: &str,
+    catalogue: &[crate::agent::provider::ModelInfo],
+    capability: crate::agent::provider::ModelCatalogueCapability,
+) -> Option<crate::agent::provider::ModelInfo> {
+    let lookup = catalogue_lookup_model(requested, catalogue);
+    if capability.live_discovery_required {
+        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
+    } else {
+        crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
+    }
+}
+
+fn authoritative_catalogue_default(
+    provider_id: &str,
+    capability: crate::agent::provider::ModelCatalogueCapability,
+    catalogue: &[crate::agent::provider::ModelInfo],
+) -> Option<String> {
+    let default = if capability.live_discovery_required {
+        crate::agent::model_catalog::resolve_live_default_model(provider_id)
+    } else {
+        crate::agent::model_catalog::resolve_default(provider_id)
+    };
+    default
+        .as_deref()
+        .and_then(|default| {
+            catalogue.iter().find(|model| {
+                model.available != Some(false) && model.id.eq_ignore_ascii_case(default)
+            })
+        })
+        .or_else(|| {
+            catalogue
+                .iter()
+                .find(|model| model.available != Some(false))
+        })
+        .map(|model| model.id.clone())
+}
+
+fn restored_model_fallback_warning(
+    provider_id: &str,
+    requested: &str,
+    selected: Option<&str>,
+) -> String {
+    match selected {
+        Some(selected) => format!(
+            "saved model '{requested}' is no longer in provider '{provider_id}' authoritative catalogue; restoring with provider default '{selected}'."
+        ),
+        None => format!(
+            "saved model '{requested}' is no longer in provider '{provider_id}' authoritative catalogue, and no catalogue model is available; restoring with the provider default."
+        ),
+    }
 }
 
 fn resolve_authoritative_live_default(
@@ -303,9 +424,10 @@ fn resolve_authoritative_live_default(
             ),
         };
         return Some(FreshAgentModelResolution {
-            model: selected.map(|model| normalize_session_model(&model)),
+            model: selected,
             requested_model: None,
             fallback_notice: None,
+            restore_notification: None,
             warning: Some(warning),
         });
     };
@@ -357,9 +479,10 @@ fn resolve_authoritative_live_default(
         None
     };
     Some(FreshAgentModelResolution {
-        model: selected.map(|model| normalize_session_model(&model)),
+        model: selected,
         requested_model: None,
         fallback_notice: None,
+        restore_notification: None,
         warning,
     })
 }
