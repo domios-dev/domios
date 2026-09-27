@@ -633,12 +633,7 @@ pub async fn mesh_remote_tab_action(
     )
     .await?;
     let client = client.ok_or_else(|| "remote tab unavailable".to_string())?;
-    let response = match client.send_relay(&command).await {
-        Ok(response) => response,
-        Err(error) => {
-            return Err(error);
-        }
-    };
+    let response = client.send_relay(&command).await?;
     if remote_pty_cache::is_missing_pty_write(&suffix, response.status) {
         REMOTE_PTY_IDS.invalidate(&cache_key);
     }

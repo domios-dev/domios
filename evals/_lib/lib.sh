@@ -62,7 +62,6 @@ dev_default_data_dir() {
 dev_requested_data_dir() {
   local instance slug
   instance="${EVAL_LIB_REQUESTED_INSTANCE:-}"
-  instance="$(printf '%s' "$instance" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   if [ -z "$instance" ]; then
     dev_default_data_dir
     return
