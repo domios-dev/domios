@@ -63,9 +63,9 @@ fn pair_first_plan_creation_binds_the_pending_planner() {
     mux.set_orchestrator_role(&orchestrator_tab_id).unwrap();
     let planner_tab_id = mux.create_tab(&workspace_id).unwrap();
     let team_id = mux
-        .get_tab(&orchestrator_tab_id)
-        .and_then(|tab| tab.team_id.clone())
-        .expect("Orchestrator role creates its Team");
+        .resolve_or_mint_team_for_parent(&orchestrator_tab_id)
+        .unwrap()
+        .team_id;
     {
         let planner = mux.get_tab_mut(&planner_tab_id).unwrap();
         planner.role = Some(crate::multiplexer::types::AgentRole::Manager);
