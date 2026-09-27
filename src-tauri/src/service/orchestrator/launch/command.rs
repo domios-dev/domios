@@ -102,10 +102,16 @@ fn build_agent_command_inner(
                     params.resume_session_id.as_deref(),
                 );
                 if params.resume_session_id.is_some() {
-                    if let (Some((service, tab_id)), Some(warning)) =
-                        (notice_context, resolution.warning.as_deref())
+                    if let Some(warning) = resolution.warning.as_deref() {
+                        log::warn!(
+                            "[model-resolution] restore tab={} provider={agent_cmd}: {warning}",
+                            notice_context.map_or("unknown", |(_, tab_id)| tab_id)
+                        );
+                    }
+                    if let (Some((service, tab_id)), Some(notice)) =
+                        (notice_context, resolution.restore_notification.as_deref())
                     {
-                        service.notify_model_resolution_warning(tab_id, agent_cmd, warning);
+                        service.notify_model_resolution_warning(tab_id, agent_cmd, notice);
                     }
                 }
                 resolution.model
