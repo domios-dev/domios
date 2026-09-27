@@ -24,20 +24,43 @@ fn opencode_invocation(command: &str) -> &str {
     &invocation[..end]
 }
 
+fn staged_prompt_source(command: &str) -> &str {
+    let source = if let Some(copy) = command.split("Copy-Item -LiteralPath ").nth(1) {
+        copy.split(" -Destination ")
+            .next()
+            .expect("PowerShell staged source path")
+    } else {
+        command
+            .split("cp -- ")
+            .nth(1)
+            .and_then(|copy| copy.split(" &&").next())
+            .expect("POSIX staged source path")
+    };
+    let source = source.trim();
+    if let Some(quote @ ('\'' | '"')) = source.chars().next() {
+        let end = source[1..]
+            .find(quote)
+            .map(|index| index + 1)
+            .expect("quoted staged source path");
+        &source[1..end]
+    } else {
+        source.split_whitespace().next().expect("staged source path")
+    }
+}
+
 #[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;
     }
     let j = opencode();
-    assert_eq!(
-        j.build_launch_command(&AgentLaunchParams::default()),
-        "opencode"
-    );
+    let plain = j.build_launch_command(&AgentLaunchParams::default());
+    assert_eq!(opencode_invocation(&plain), "opencode");
     let with_args = j.build_launch_command(&AgentLaunchParams {
         args: Some(vec!["x y".into()]),
         ..Default::default()
     });
+    let with_args = opencode_invocation(&with_args);
     assert!(with_args.starts_with("opencode"), "{with_args}");
     assert!(
         with_args.contains("'x y'") || with_args.contains("\"x y\""),
@@ -53,9 +76,10 @@ fn build_resume_command_shape() {
     let j = opencode();
     // Resume goes through the normal TUI path: `opencode --session <id>`.
     let cmd = j.build_resume_command(SES_ID, true).unwrap();
-    assert!(cmd.contains("opencode"), "{cmd}");
-    assert!(cmd.contains("--session"), "{cmd}");
-    assert!(cmd.contains(SES_ID), "{cmd}");
+    let invocation = opencode_invocation(&cmd);
+    assert!(invocation.starts_with("opencode"), "{invocation}");
+    assert!(invocation.contains("--session"), "{invocation}");
+    assert!(invocation.contains(SES_ID), "{invocation}");
 }
 
 #[test]
@@ -126,11 +150,7 @@ fn resume_with_context_restages_the_session_config() {
         !command.contains(prompt),
         "prompt travels in the staged file, not the command: {command}"
     );
-    let staged = command
-        .split_whitespace()
-        .find(|token| token.contains(".ct-task"))
-        .expect("staged prompt file")
-        .trim_matches(['\'', '"']);
+    let staged = staged_prompt_source(&command);
     let delivered = std::fs::read_to_string(staged).expect("staged prompt file");
     assert_eq!(delivered.matches(prompt).count(), 1);
 }
