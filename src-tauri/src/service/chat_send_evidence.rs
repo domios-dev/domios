@@ -473,18 +473,20 @@ mod tests {
     #[test]
     fn exact_turn_lookup_requires_the_anchored_session_append_window() {
         let fx = Fixture::new();
+        fx.append_user_turn("sess-a", "prior session A turn");
+        fx.append_user_turn("sess-other", "prior session B turn");
         let anchor = fx.anchor_now("sess-a");
-        fx.append_user_turn("sess-a", "payload");
+        let other_anchor = fx.anchor_now("sess-other");
         fx.append_user_turn("sess-other", "payload");
 
-        assert!(contains_exact_user_turn(&fx.registry, &anchor, "payload"));
-        let other_session = SendEvidenceAnchor {
-            session_id: "sess-other".into(),
-            ..anchor
-        };
         assert!(!contains_exact_user_turn(
             &fx.registry,
-            &other_session,
+            &anchor,
+            "payload"
+        ));
+        assert!(contains_exact_user_turn(
+            &fx.registry,
+            &other_anchor,
             "payload"
         ));
     }
