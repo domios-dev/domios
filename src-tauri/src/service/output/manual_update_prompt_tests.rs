@@ -95,6 +95,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture
         .service
+        .pty
+        .lock()
+        .spawn_with_id(Some("pty-update".into()), None, None, 80, 24, Default::default())
+        .expect("spawn live shell PTY for structured prompt response");
+    fixture
+        .service
         .agent_registry
         .register_provider(Box::new(provider));
     assert!(
@@ -121,9 +127,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     assert_eq!(response, Some(crate::service::tab::RespondPromptOutcome::Sent));
     assert!(fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt.is_none());
 
-    let notifications = fixture.service.notif.lock().list(false);
-    assert_eq!(notifications.len(), 1);
-    assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+    {
+        let notif = fixture.service.notif.lock();
+        let notifications = notif.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+    }
 
     let second_render = resolve_classified_manual_update_prompt(
         &fixture.service,
@@ -137,6 +146,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     clear_manual_update_occurrence(&tab_id);
     assert!(claim_manual_update_occurrence(&tab_id, &occurrence));
     clear_manual_update_occurrence(&tab_id);
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill("pty-update")
+        .expect("stop live shell PTY");
 }
 
 #[test]
