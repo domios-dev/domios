@@ -56,7 +56,8 @@ pub(crate) mod startup_turn;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{
-    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
+    build_agent_command_for_service, launch_agent_in_background, mark_tab_agent_launch_started,
+    provider_launch_task,
 };
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
