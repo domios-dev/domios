@@ -17,14 +17,19 @@ mod tests {
         not(windows),
         ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
     )]
-    fn startup_profile_sweep_runs_after_restore_with_the_live_tab_set() {
+    fn startup_profile_sweep_excludes_failed_restore_shells_from_live_tab_set() {
         let (mut mux, existing_tab_id) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
+        let failed_tab_id = mux.create_tab(&workspace_id).unwrap();
         mux.get_tab_mut(&existing_tab_id).unwrap().agent_type = Some("sweep-probe".into());
         let restored = mux.get_tab_mut(&restored_tab_id).unwrap();
         restored.agent_type = Some("sweep-probe".into());
         restored.restored_from_snapshot = true;
+        let failed_restore = mux.get_tab_mut(&failed_tab_id).unwrap();
+        failed_restore.agent_type = Some("sweep-probe".into());
+        failed_restore.pty_id = Some("pty-failed-restore-shell".into());
+        failed_restore.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
 
         let fixture = ServiceFixture::new(mux);
         let requests = Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new()));
@@ -39,6 +44,7 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert!(requests[0].live_tab_ids.contains(&existing_tab_id));
         assert!(requests[0].live_tab_ids.contains(&restored_tab_id));
+        assert!(!requests[0].live_tab_ids.contains(&failed_tab_id));
         assert!(requests[0].confirm);
         assert!(!requests[0].include_legacy);
     }

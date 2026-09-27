@@ -98,7 +98,7 @@ export function checkIntegration(): unknown {
   const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
   const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
   const proposedChanges = ["SessionStart hook", "Stop hook"];
-  if (!trustOk) proposedChanges.push("hook trust");
+  if (!trustVerifiedCurrent) proposedChanges.push("hook trust");
   const integrationState = !installed
     ? CODEX_INTEGRATION_STATE_ABSENT
     : (trustState === "disabled" || trustState === "stale"
