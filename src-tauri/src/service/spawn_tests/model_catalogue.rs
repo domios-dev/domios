@@ -9,22 +9,18 @@ fn validate_agent_model_accepts_advertised_id() {
     .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
     let registry = registry_with(provider);
 
-    assert!(
-        validate_agent_model(
-            &registry,
-            "authoritative-catalogue",
-            Some("opencode/big-pickle")
-        )
-        .is_ok()
-    );
-    assert!(
-        validate_agent_model(
-            &registry,
-            "authoritative-catalogue",
-            Some("anthropic/claude-sonnet-4-6")
-        )
-        .is_ok()
-    );
+    assert!(validate_agent_model(
+        &registry,
+        "authoritative-catalogue",
+        Some("opencode/big-pickle")
+    )
+    .is_ok());
+    assert!(validate_agent_model(
+        &registry,
+        "authoritative-catalogue",
+        Some("anthropic/claude-sonnet-4-6")
+    )
+    .is_ok());
 }
 
 #[test]
@@ -324,14 +320,12 @@ fn authoritative_ids_accept_matching_provider_prefix() {
         ),
     );
 
-    assert!(
-        validate_agent_model(
-            &registry,
-            provider_id,
-            Some("codex-prefix-fixture:gpt-6-sol")
-        )
-        .is_ok()
-    );
+    assert!(validate_agent_model(
+        &registry,
+        provider_id,
+        Some("codex-prefix-fixture:gpt-6-sol")
+    )
+    .is_ok());
     assert_eq!(
         resolve_fresh_agent_model_with_notice(
             &registry,
