@@ -9,18 +9,22 @@ fn validate_agent_model_accepts_advertised_id() {
     .with_model_catalogue(crate::agent::provider::ModelCatalogueCapability::authoritative());
     let registry = registry_with(provider);
 
-    assert!(validate_agent_model(
-        &registry,
-        "authoritative-catalogue",
-        Some("opencode/big-pickle")
-    )
-    .is_ok());
-    assert!(validate_agent_model(
-        &registry,
-        "authoritative-catalogue",
-        Some("anthropic/claude-sonnet-4-6")
-    )
-    .is_ok());
+    assert!(
+        validate_agent_model(
+            &registry,
+            "authoritative-catalogue",
+            Some("opencode/big-pickle")
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_agent_model(
+            &registry,
+            "authoritative-catalogue",
+            Some("anthropic/claude-sonnet-4-6")
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -55,6 +59,61 @@ fn validate_agent_model_accepts_claude_alias() {
             .as_deref(),
         Some("opus[1m]")
     );
+}
+
+#[test]
+fn concrete_claude_model_stays_concrete_when_provider_does_not_offer_alias() {
+    let provider_id = "concrete-model-without-alias";
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["claude-opus-5"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        provider_id,
+        Some("claude-opus-5".into()),
+        None,
+    );
+
+    assert_eq!(resolved.model.as_deref(), Some("claude-opus-5"));
+    let launch_args = registry
+        .with_provider(provider_id, |provider| {
+            provider.model_launch_args(resolved.model.as_deref())
+        })
+        .expect("fixture provider remains registered");
+    assert_eq!(
+        launch_args,
+        vec!["--model".to_string(), "claude-opus-5".to_string()]
+    );
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
+fn restore_with_model_missing_from_authoritative_catalogue_records_notice() {
+    let provider_id = "restore-missing-model-fixture";
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["provider-default", "other-model"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+
+    let resumed = resolve_fresh_agent_model_with_notice(
+        &registry,
+        provider_id,
+        Some("removed-model".into()),
+        Some("restored-session"),
+    );
+
+    assert_eq!(resumed.model.as_deref(), Some("provider-default"));
+    assert_eq!(resumed.requested_model.as_deref(), Some("removed-model"));
+    let warning = resumed
+        .warning
+        .expect("a removed saved model must produce a restore notice");
+    assert!(warning.contains("removed-model"), "{warning}");
+    assert!(warning.contains("provider-default"), "{warning}");
+    crate::agent::model_catalog::unregister(provider_id);
 }
 
 #[test]
@@ -95,7 +154,12 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
         .filter_map(serde_json::Value::as_str)
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(closest.iter().all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"), "{closest:?}");
+    assert!(
+        closest
+            .iter()
+            .all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"),
+        "{closest:?}"
+    );
     assert!(!closest.is_empty());
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
         let clearance = provider_launch_preflight(&registry, "codex-like")
@@ -182,12 +246,14 @@ fn authoritative_ids_accept_matching_provider_prefix() {
         ),
     );
 
-    assert!(validate_agent_model(
-        &registry,
-        provider_id,
-        Some("codex-prefix-fixture:gpt-6-sol")
-    )
-    .is_ok());
+    assert!(
+        validate_agent_model(
+            &registry,
+            provider_id,
+            Some("codex-prefix-fixture:gpt-6-sol")
+        )
+        .is_ok()
+    );
     assert_eq!(
         resolve_fresh_agent_model_with_notice(
             &registry,
@@ -200,7 +266,10 @@ fn authoritative_ids_accept_matching_provider_prefix() {
         Some("gpt-6-sol")
     );
     assert_eq!(
-        crate::service::spawn::spawn_model_catalogue::normalize_requested_model("codex", "codex:gpt-6-sol"),
+        crate::service::spawn::spawn_model_catalogue::normalize_requested_model(
+            "codex",
+            "codex:gpt-6-sol"
+        ),
         "gpt-6-sol"
     );
     crate::agent::model_catalog::unregister(provider_id);

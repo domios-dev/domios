@@ -93,17 +93,25 @@ fn build_agent_command_inner(
         .model
         .as_deref()
         .filter(|model| !model.is_empty())
-        .map(|model| {
+        .and_then(|model| {
             if registry.with_provider(agent_cmd, |_| ()).is_some() {
-                crate::service::spawn::resolve_fresh_agent_model(
+                let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
                     registry,
                     agent_cmd,
                     Some(model.to_string()),
-                    None,
-                )
-                .unwrap_or_default()
+                    params.resume_session_id.as_deref(),
+                );
+                if params.resume_session_id.is_some() {
+                    if let (Some((service, tab_id)), Some(warning)) =
+                        (notice_context, resolution.warning.as_deref())
+                    {
+                        service.notify_model_resolution_warning(tab_id, agent_cmd, warning);
+                    }
+                }
+                resolution.model
             } else {
-                crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id
+                let model = crate::agent::model_catalog::resolve_model(agent_cmd, Some(model)).id;
+                (!model.trim().is_empty()).then_some(model)
             }
         });
     if let Some(model) = resolved_model.as_deref() {
