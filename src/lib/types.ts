@@ -311,9 +311,23 @@ export interface PtyInfo {
 export type NotificationAction =
   { type: "url"; label: string; value: string }
   | { type: "dismiss"; label: string }
-  | { type: "answer"; label: string };
+  | { type: "answer"; label: string }
+  | {
+      type: "respond_prompt_option";
+      label: string;
+      value: string;
+      identity: NotificationPromptIdentity;
+    };
 
-export type CallerNotificationAction = NotificationAction;
+export type CallerNotificationAction =
+  | Extract<NotificationAction, { type: "url" }>
+  | Extract<NotificationAction, { type: "dismiss" }>
+  | Extract<NotificationAction, { type: "answer" }>;
+
+export interface NotificationPromptIdentity {
+  kind: "provider" | "directory_trust" | "structured" | "manual_update";
+  options: Array<{ label: string; value: string }>;
+}
 
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */

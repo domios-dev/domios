@@ -27,6 +27,7 @@ pub struct MockProvider {
     directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
     tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
     parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
+    parsed_directory_trust_prompt: Option<codeterm_types::pty::PendingPrompt>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
@@ -54,6 +55,7 @@ impl MockProvider {
             directory_trust_response: None,
             tab_state_classification: None,
             parsed_prompt: None,
+            parsed_directory_trust_prompt: None,
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
@@ -205,6 +207,14 @@ impl MockProvider {
 
     pub fn with_parsed_prompt(mut self, prompt: codeterm_types::pty::PendingPrompt) -> Self {
         self.parsed_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_directory_trust_prompt(
+        mut self,
+        prompt: codeterm_types::pty::PendingPrompt,
+    ) -> Self {
+        self.parsed_directory_trust_prompt = Some(prompt);
         self
     }
 
@@ -382,9 +392,14 @@ impl AgentProvider for MockProvider {
         &self,
         _screen: &str,
     ) -> Option<codeterm_types::pty::PendingPrompt> {
-        self.parsed_prompt.clone()
+        self.parsed_directory_trust_prompt.clone().or_else(|| {
+            self.directory_trust_response
+                .as_ref()
+                .and_then(|_| self.parsed_prompt.clone())
+        })
     }
     fn supports_directory_trust_prompt_parsing(&self) -> bool {
-        self.parsed_prompt.is_some()
+        self.parsed_directory_trust_prompt.is_some()
+            || (self.directory_trust_response.is_some() && self.parsed_prompt.is_some())
     }
 }

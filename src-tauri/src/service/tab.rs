@@ -98,6 +98,7 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;
     tab.pending_prompt = None;
+    tab.pending_prompt_kind = None;
     tab.exit_suspected_at = None;
     // Provider and model are one identity: a tab must never keep a model label
     // for a provider it no longer has.
@@ -702,6 +703,7 @@ impl ServiceContext {
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.pending_prompt = None;
+            tab.pending_prompt_kind = None;
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
@@ -714,8 +716,36 @@ impl ServiceContext {
         tab_id: &str,
         value: &str,
     ) -> Result<RespondPromptOutcome, String> {
-        if self.mux.read().get_tab(tab_id).is_none() {
+        self.respond_prompt_inner(tab_id, value, None)
+    }
+
+    pub(crate) fn respond_prompt_with_identity(
+        &self,
+        tab_id: &str,
+        value: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Result<RespondPromptOutcome, String> {
+        self.respond_prompt_inner(tab_id, value, Some(identity))
+    }
+
+    fn respond_prompt_inner(
+        &self,
+        tab_id: &str,
+        value: &str,
+        expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Result<RespondPromptOutcome, String> {
+        let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
+        };
+        if let Some(expected) = expected_identity {
+            let current_identity = tab
+                .pending_prompt
+                .as_ref()
+                .zip(tab.pending_prompt_kind)
+                .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(kind, prompt));
+            if current_identity.as_ref() != Some(expected) {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
         }
         let Some(option_index) = value
             .parse::<usize>()
@@ -725,15 +755,26 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::InvalidOption);
         };
 
-        let pending_option_count = crate::service::structured_prompt::pending_for_tab(tab_id)
+        let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if let Some(expected) = expected_identity {
+            if expected.kind == codeterm_types::pty::PromptKind::Structured {
+                let current_identity = structured_prompt.as_ref().map(|prompt| {
+                    codeterm_types::pty::PromptIdentity::new(
+                        codeterm_types::pty::PromptKind::Structured,
+                        prompt,
+                    )
+                });
+                if current_identity.as_ref() != Some(expected) {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                }
+            } else if structured_prompt.is_some() {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
+        let pending_option_count = structured_prompt
+            .as_ref()
             .map(|prompt| prompt.options.len())
-            .or_else(|| {
-                self.mux.read().get_tab(tab_id).and_then(|tab| {
-                    tab.pending_prompt
-                        .as_ref()
-                        .map(|prompt| prompt.options.len())
-                })
-            });
+            .or_else(|| tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()));
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
         }
@@ -752,21 +793,25 @@ impl ServiceContext {
             buf.get_text(&pty_id).unwrap_or_default()
         };
         let clean = crate::pty::ansi::clean_terminal_output(&screen);
-        let agent_type = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|p| p.agent_type.clone());
+        let agent_type = tab.agent_type.clone();
         let provider_prompt = agent_type.as_deref().and_then(|at| {
             crate::agent::prompt::parse_prompt_safely(|| {
-                self.agent_registry.parse_prompt(at, &clean)
+                self.agent_registry.parse_interactive_prompt(at, &clean)
             })
         });
+        if let Some(expected) = expected_identity {
+            let current_identity = provider_prompt.as_ref().map(|(prompt, kind)| {
+                codeterm_types::pty::PromptIdentity::new(*kind, prompt)
+            });
+            if current_identity.as_ref() != Some(expected) {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
         let generic_option_count = crate::agent::detector::parse_permission_prompt(&clean)
             .map(|(_, options)| options.len());
         let option_count = provider_prompt
             .as_ref()
-            .map(|prompt| prompt.options.len())
+            .map(|(prompt, _)| prompt.options.len())
             .or(generic_option_count);
         let prompt_on_screen = provider_prompt.is_some()
             || generic_option_count.is_some()
@@ -815,6 +860,7 @@ impl ServiceContext {
     fn mark_prompt_responded(&self, tab_id: &str) {
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.pending_prompt = None;
+            tab.pending_prompt_kind = None;
         }
         self.prompt_detector.lock().mark_responded(tab_id);
     }
@@ -824,6 +870,7 @@ impl ServiceContext {
 pub(crate) enum RespondPromptOutcome {
     Sent,
     Structured,
+    StalePrompt,
     PromptNotOnScreen,
     NoPty,
     InvalidOption,
