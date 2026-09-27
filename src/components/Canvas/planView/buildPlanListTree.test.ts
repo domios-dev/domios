@@ -115,6 +115,17 @@ test("task rows use canonical status labels", () => {
   assert(rows.find((row) => row.taskId === "qa-b")?.statusLabel === "in review", "canonical status label");
 });
 
+test("unplanned task badge carries its reason label", () => {
+  const task = {
+    ...FIXTURE_TASK,
+    name: "unplanned: urgent probe",
+    tags: ["unplanned"],
+  };
+  const plan = { ...FIXTURE_PLAN, tasks: [task] };
+  const row = buildPlanListRows(plan, { tabs }).find((candidate) => candidate.taskId === task.id);
+  assert(row?.statusLabel === "unplanned: urgent probe", "unplanned badge includes its reason");
+});
+
 test("done task surfaces historical executor instead of active tab label", () => {
   const plan = {
     ...FIXTURE_PLAN,

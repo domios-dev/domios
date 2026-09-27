@@ -140,6 +140,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.task.relink"
             | "plan.task.assign"
             | "plan.task.dispatch"
+            | "plan.task.dispatch_unplanned"
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.respawn"
@@ -792,6 +793,9 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
+        "plan.task.dispatch_unplanned" => {
+            super::plan_task_dispatch::dispatch_unplanned(params, app, svc, now)
+        }
         "plan.task.attempts" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;
