@@ -614,6 +614,7 @@ impl ServiceContext {
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
         };
+        let response_identity = tab.prompt_identity();
         if let Some(expected) = expected_identity {
             let current_identity = tab.prompt_identity();
             if current_identity.as_ref() != Some(expected) {
@@ -657,7 +658,7 @@ impl ServiceContext {
         }
         if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
             result?;
-            self.mark_prompt_responded(tab_id);
+            self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
             self.emit_state_changed();
             return Ok(RespondPromptOutcome::Structured);
         }
@@ -734,7 +735,7 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::PromptNotOnScreen);
         }
 
-        self.mark_prompt_responded(tab_id);
+        self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
         self.emit_state_changed();
         Ok(RespondPromptOutcome::Sent)
     }
@@ -751,7 +752,15 @@ impl ServiceContext {
         identity
     }
 
-    fn mark_prompt_responded(&self, tab_id: &str) {
+    fn mark_prompt_responded(
+        &self,
+        tab_id: &str,
+        option_index: usize,
+        identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) {
+        if let Some(identity) = identity {
+            self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
+        }
         if let Some(identity) = self.clear_pending_prompt(tab_id) {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
@@ -863,7 +872,17 @@ mod respond_prompt_tests {
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
     #[test]
-    fn tab_respond_resolves_prompt_notification_and_new_prompt_notifies() {
+    fn tab_respond_marks_trust_prompt_notification_answered() {
+        tab_respond_marks_prompt_notification_answered();
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+    #[test]
+    fn unstructured_respond_also_resolves_its_prompt_notification() {
+        tab_respond_marks_prompt_notification_answered();
+    }
+
+    fn tab_respond_marks_prompt_notification_answered() {
         let screen = std::fs::read_to_string(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../plugins/provider-claude/tests/fixtures/folder-trust")
@@ -884,7 +903,7 @@ mod respond_prompt_tests {
                 prompt: prompt.clone(),
             },
             Some(&screen),
-            codeterm_types::pty::PromptKind::Provider,
+            codeterm_types::pty::PromptKind::DirectoryTrust,
             true,
         );
         let first_id = {
@@ -897,6 +916,37 @@ mod respond_prompt_tests {
                 .id
                 .clone()
         };
+        let unrelated_id = fixture.service.create_prompt_notification_ext(
+            "Unrelated prompt".into(),
+            Some("unrelated".into()),
+            Some("warning"),
+            Some(vec![
+                codeterm_types::notification::NotificationAction::RespondPromptOption {
+                    label: "Later".into(),
+                    value: "1".into(),
+                    identity: codeterm_types::pty::PromptIdentity::new(
+                        codeterm_types::pty::PromptKind::Provider,
+                        &PendingPrompt {
+                            question: "unrelated".into(),
+                            options: vec![crate::multiplexer::types::PromptOption {
+                                label: "Later".into(),
+                                value: "1".into(),
+                            }],
+                            sections: None,
+                            multi_select: None,
+                            submit_available: None,
+                            selected_values: None,
+                        },
+                    ),
+                },
+            ]),
+            Some(true),
+            crate::service::notification::NotificationOrigin::local_tab(tab_id.clone()),
+            crate::service::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some("unrelated-prompt-answer-test".into()),
+            },
+        );
         assert_eq!(
             fixture
                 .service
@@ -930,6 +980,13 @@ mod respond_prompt_tests {
             assert!(first.resolved);
             assert!(first.read);
             assert!(first.actions.is_none());
+            let answer = first.answer.as_ref().expect("answer slot");
+            assert_eq!(answer.answered.as_deref(), Some("Yes"));
+            assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
+            let unrelated = notifications.notification(&unrelated_id).unwrap();
+            assert!(!unrelated.resolved);
+            assert_eq!(unrelated.answer.as_ref().unwrap().answered, None);
+            assert!(unrelated.actions.is_some());
         }
         fixture.service.apply_prompt_decision_with_kind(
             &crate::agent::prompt::PromptDecision::NewPrompt {
@@ -945,6 +1002,7 @@ mod respond_prompt_tests {
             .list(false)
             .into_iter()
             .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
+            .filter(|notification| notification.title != "Unrelated prompt")
             .collect::<Vec<_>>();
         assert_eq!(for_tab.len(), 2);
         assert_ne!(for_tab[0].id, for_tab[1].id);

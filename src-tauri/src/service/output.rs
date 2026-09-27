@@ -28,13 +28,13 @@ pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
 mod prompt_notifications;
-use prompt_notifications::should_notify_pending_prompt;
+#[cfg(test)]
+pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
 pub(super) use manual_update::{
     clear_manual_update_occurrence, manual_update_prompt_candidate,
     parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
 };
-#[cfg(test)]
-pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
+use prompt_notifications::should_notify_pending_prompt;
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(
@@ -699,7 +699,7 @@ impl ServiceContext {
         tab_id: &str,
         prompt: Option<crate::multiplexer::types::PendingPrompt>,
     ) {
-        {
+        let previous = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
@@ -707,10 +707,24 @@ impl ServiceContext {
             if tab.pending_prompt == prompt {
                 return;
             }
+            let previous = tab.prompt_identity();
             tab.pending_prompt = prompt.clone();
             tab.pending_prompt_kind = prompt
                 .as_ref()
                 .map(|_| codeterm_types::pty::PromptKind::Structured);
+            previous
+        };
+        let current = prompt.as_ref().map(|prompt| {
+            codeterm_types::pty::PromptIdentity::new(
+                codeterm_types::pty::PromptKind::Structured,
+                prompt,
+            )
+        });
+        if let Some(previous) = previous.filter(|previous| Some(previous) != current.as_ref()) {
+            self.resolve_prompt_notifications(tab_id, &previous);
+        }
+        if let Some(prompt) = prompt.as_ref() {
+            self.notify_pending_prompt(tab_id, prompt, codeterm_types::pty::PromptKind::Structured);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,

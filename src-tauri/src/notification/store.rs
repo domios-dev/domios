@@ -517,6 +517,57 @@ impl NotificationStore {
         resolved
     }
 
+    pub fn answer_prompt_notifications(
+        &mut self,
+        tab_id: &str,
+        identity: &PromptIdentity,
+        option_index: usize,
+        answered_via: &str,
+    ) -> Vec<String> {
+        let Some(option) = identity.options.get(option_index) else {
+            return Vec::new();
+        };
+        let mut answered = Vec::new();
+        for notification in &mut self.notifications {
+            if notification.tab_id.as_deref() != Some(tab_id) || notification.resolved {
+                continue;
+            }
+            let Some(slot) = notification.answer.as_mut() else {
+                continue;
+            };
+            if slot.answered.is_some() || slot.asked_from_tab.as_deref() != Some(tab_id) {
+                continue;
+            }
+            let Some(actions) = notification.actions.as_deref() else {
+                continue;
+            };
+            let action = actions.iter().find(|action| {
+                matches!(
+                    action,
+                    NotificationAction::RespondPromptOption { identity: offered, value, .. }
+                        if offered == identity && value == &option.value
+                )
+            });
+            let Some(action) = action else {
+                continue;
+            };
+            let Some(label) = action.answer_label() else {
+                continue;
+            };
+            slot.answered = Some(label.to_string());
+            slot.answered_via = Some(answered_via.to_string());
+            notification.resolved = true;
+            notification.read = true;
+            notification.actions = None;
+            answered.push(notification.id.clone());
+        }
+        for id in &answered {
+            self.close_push_slot_for(id);
+            self.deliveries.release(id);
+        }
+        answered
+    }
+
     /// The one answer this notification may hold, and the tab it was asked
     /// from. Read-only: recording goes through `record_answer`.
     pub fn answer_slot(&self, id: &str) -> Option<&AnswerSlot> {
@@ -606,6 +657,15 @@ impl NotificationStore {
     /// guard would let it take two answers.
     pub fn record_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
         answer::record(&mut self.notifications, id, label)
+    }
+
+    pub fn record_answer_via(
+        &mut self,
+        id: &str,
+        label: &str,
+        answered_via: &str,
+    ) -> AnswerAdmission {
+        answer::record_via(&mut self.notifications, id, label, answered_via)
     }
 
     /// What one record owes the tab that asked. Read-only: the send itself

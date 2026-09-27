@@ -12,6 +12,7 @@ struct UnplannedFixture {
     team_id: String,
     owner_tab: String,
     project: tempfile::TempDir,
+    delivered_brief: std::sync::Arc<parking_lot::Mutex<Option<String>>>,
 }
 
 fn fixture() -> UnplannedFixture {
@@ -73,6 +74,7 @@ fn fixture() -> UnplannedFixture {
         team_id,
         owner_tab,
         project,
+        delivered_brief: std::sync::Arc::new(parking_lot::Mutex::new(None)),
     }
 }
 
@@ -91,12 +93,14 @@ fn params(harness: &UnplannedFixture, reason: &str) -> Option<Value> {
 }
 
 fn dispatch(harness: &UnplannedFixture, params: &Option<Value>) -> Result<Value, JsonRpcError> {
+    let delivered_brief = harness.delivered_brief.clone();
     super::super::unplanned::dispatch_unplanned_with_spawn(
         params,
         harness.fixture._app.handle(),
         &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |service, spawn_params, ready_tx| {
+            *delivered_brief.lock() = spawn_params.task.clone();
             let tab_id = spawn_params.existing_tab_id.unwrap();
             {
                 let mut mux = service.mux.write();
@@ -134,6 +138,18 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     assert!(task.tags.iter().any(|tag| tag == "unplanned"));
     assert_eq!(task.name, "unplanned: urgent probe");
     assert_eq!(task.body, "Run the urgent probe.");
+    assert_eq!(task.acceptance_criteria, vec!["Run the urgent probe."]);
+    assert!(task
+        .test_plan
+        .as_deref()
+        .is_some_and(|plan| plan.contains("Orchestrator verifies")));
+    let report_contract =
+        crate::service::plan::task_attempts::task_report_command(&harness.plan_id, task_id);
+    assert!(harness
+        .delivered_brief
+        .lock()
+        .as_deref()
+        .is_some_and(|brief| brief.contains(&report_contract)));
     assert_eq!(task.status, TaskStatus::Pending);
     assert_eq!(task.execution_attempts.len(), 1);
     assert!(task.lane.worktree_path.is_some());
@@ -278,8 +294,14 @@ fn team_close_cleans_up_unplanned_worker() {
         let mux = harness.fixture.service.mux.read();
         let worker = mux.get_tab(&tab_id).unwrap();
         assert_eq!(worker.team_id.as_deref(), Some(harness.team_id.as_str()));
-        assert_eq!(worker.parent_tab_id.as_deref(), Some(harness.owner_tab.as_str()));
-        assert_eq!(worker.role, Some(crate::multiplexer::types::AgentRole::Worker));
+        assert_eq!(
+            worker.parent_tab_id.as_deref(),
+            Some(harness.owner_tab.as_str())
+        );
+        assert_eq!(
+            worker.role,
+            Some(crate::multiplexer::types::AgentRole::Worker)
+        );
     }
     tauri::async_runtime::block_on(harness.fixture.service.close_team(
         &harness.team_id,

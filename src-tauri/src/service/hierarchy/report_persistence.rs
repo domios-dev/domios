@@ -28,6 +28,22 @@ pub(super) fn report_persistence_incident(
     )
 }
 
+fn persistence_failure(tab_id: &str, plan_id: &str, task_id: &str, cause: &str) -> String {
+    if cause.starts_with("in_review requires evidence:") {
+        cause.to_string()
+    } else {
+        report_persistence_incident(tab_id, plan_id, Some(task_id), cause)
+    }
+}
+
+pub(super) fn report_transition_outcome(cause: &str) -> codeterm_types::agent::ReportOutcomeClass {
+    if cause.starts_with("in_review requires evidence:") {
+        codeterm_types::agent::ReportOutcomeClass::MissingReviewEvidence
+    } else {
+        codeterm_types::agent::ReportOutcomeClass::StaleBindingConflict
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn persist_authorized_local_task_report(
     svc: &ServiceContext,
@@ -166,6 +182,13 @@ fn report_authority(
 }
 
 pub(super) fn rejected_report_delivery_message(cause: &str, message: &str) -> String {
+    if cause.starts_with("in_review requires evidence:") {
+        return format!(
+            "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+             The report was not persisted. Ask the Orchestrator to add exact acceptance and QA evidence, then resubmit with --status in_review; do not retry without a status.\n\
+             Required evidence: {cause}\n\n{message}"
+        );
+    }
     format!(
         "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
          The report itself was delivered and must not be resent.\n\
@@ -207,7 +230,7 @@ pub(super) fn persist_local_task_report(
         milestone_kind,
         now_ms,
     )
-    .map_err(|cause| report_persistence_incident(tab_id, plan_id, Some(task_id), &cause))
+    .map_err(|cause| persistence_failure(tab_id, plan_id, task_id, &cause))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -239,9 +262,7 @@ fn persist_bound_report(
     };
     store
         .ingest_bound_worker_report(plan_id, task_id, from, evidence, now_ms)
-        .map_err(|error| {
-            report_persistence_incident(tab_id, plan_id, Some(task_id), &error.to_string())
-        })?;
+        .map_err(|error| persistence_failure(tab_id, plan_id, task_id, &error.to_string()))?;
 
     let milestone_id = store
         .get(plan_id)
@@ -368,6 +389,24 @@ mod tests {
     use crate::plan::{OrchestratorRef, Plan};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
+
+    #[test]
+    fn missing_review_evidence_is_not_classified_as_a_binding_incident() {
+        let cause = persistence_failure(
+            "worker",
+            "plan",
+            "task",
+            "in_review requires evidence: exact QA plan",
+        );
+
+        assert_eq!(
+            report_transition_outcome(&cause),
+            codeterm_types::agent::ReportOutcomeClass::MissingReviewEvidence
+        );
+        let message = rejected_report_delivery_message(&cause, "opaque report");
+        assert!(message.contains("add exact acceptance and QA evidence"));
+        assert!(!message.contains("ORCHESTRATION PRODUCT INCIDENT"));
+    }
 
     fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
         store
