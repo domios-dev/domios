@@ -171,6 +171,7 @@ const ocHost = (over: Record<string, unknown>) => ({
   fetch: () => JSON.stringify({ error: "no network in tests" }),
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  fs: { fileExists: () => false, readJson: () => null, readFile: () => null },
   ...over,
 });
 
