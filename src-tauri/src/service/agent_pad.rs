@@ -3,7 +3,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-const PAD_SUBDIR: &str = "runtime/agent-pads";
 const TOMBSTONE_PREFIX: &str = ".revoked-";
 const POINTER_TEMPLATE: &str = "Read and follow the message in {path}";
 const INBOX_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -97,7 +96,7 @@ pub struct AgentPad {
 impl AgentPad {
     pub fn create(data_dir: &Path, tab_id: &str, role: AgentPadRole) -> Result<Self, String> {
         validate_tab_id(tab_id)?;
-        let root = data_dir.join(PAD_SUBDIR);
+        let root = data_dir.join("runtime").join("agent-pads");
         fs::create_dir_all(&root).map_err(|e| format!("create AgentPad root: {e}"))?;
         let path = root.join(tab_id);
         if path.exists() {
@@ -118,7 +117,7 @@ impl AgentPad {
 
     pub fn open(data_dir: &Path, tab_id: &str) -> Result<Self, String> {
         validate_tab_id(tab_id)?;
-        let root = data_dir.join(PAD_SUBDIR);
+        let root = data_dir.join("runtime").join("agent-pads");
         let path = root.join(tab_id);
         if !path.is_dir() {
             return Err(format!("AgentPad is unavailable for tab {tab_id}"));
@@ -295,7 +294,10 @@ impl super::ServiceContext {
     }
 
     pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {
-        revoke(&self.agent_pad_data_dir.join(PAD_SUBDIR), tab_id)
+        revoke(
+            &self.agent_pad_data_dir.join("runtime").join("agent-pads"),
+            tab_id,
+        )
     }
 }
 
@@ -321,7 +323,7 @@ pub fn revoke(root: &Path, tab_id: &str) -> Result<(), String> {
 }
 
 pub fn reconcile(data_dir: &Path, live_tab_ids: &HashSet<String>) -> Result<(), String> {
-    let root = data_dir.join(PAD_SUBDIR);
+    let root = data_dir.join("runtime").join("agent-pads");
     if !root.exists() {
         return Ok(());
     }
