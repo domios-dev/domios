@@ -10,9 +10,7 @@ use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
 use serde::{Deserialize, Serialize};
 
-use crate::multiplexer::types::TabCloseReason;
 use crate::plan::{OrchestratorRef, PlannerRef};
-use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::startup_lease::StartupTeamLease;
 use crate::service::ServiceContext;
@@ -64,22 +62,6 @@ pub struct OrchestrationPairResult {
     /// tabs land — a pair adds two, so its count is the authoritative one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_notice: Option<crate::service::tab_budget::TabBudgetNotice>,
-}
-
-/// The exact command to finish a degraded pair by hand, using the real
-/// requested provider and model rather than a hardcoded default.
-fn degraded_fix_command(
-    orch_tab_id: &str,
-    planner_agent: &str,
-    planner_model: Option<&str>,
-) -> String {
-    let model_flag = planner_model
-        .filter(|m| !m.trim().is_empty())
-        .map(|m| format!(" --model {m}"))
-        .unwrap_or_default();
-    format!(
-        "codeterm agent spawn {planner_agent}{model_flag} --parent-tab {orch_tab_id} --role Planner"
-    )
 }
 
 fn pair_retry_command(
@@ -185,6 +167,35 @@ fn validate_pair_creator(
     Ok(())
 }
 
+fn validate_pair_provider(
+    service: &ServiceContext,
+    provider: &str,
+    role: &str,
+    role_profile: Option<&str>,
+    model: Option<&str>,
+    reasoning_effort: Option<&str>,
+) -> Result<(), String> {
+    let spawn_params = SpawnAgentParams {
+        agent: Some(provider.to_string()),
+        model: model.map(str::to_string),
+        reasoning_effort: reasoning_effort.map(str::to_string),
+        role: Some(role.to_string()),
+        role_profile: role_profile.map(str::to_string),
+        ..Default::default()
+    };
+    if service.classify_spawn_target_for_params(provider, &spawn_params)? {
+        return Ok(());
+    }
+    crate::service::spawn::validate_agent_model(&service.agent_registry, provider, model)
+        .map_err(|error| error.to_string())?;
+    crate::service::spawn::validate_agent_reasoning_effort(
+        &service.agent_registry,
+        provider,
+        model,
+        reasoning_effort,
+    )
+}
+
 #[derive(Debug)]
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
@@ -244,133 +255,111 @@ fn reserve_pair_tabs(
             shape,
         )?;
     }
-    let orchestrator_tab_id = match existing_orchestrator_tab_id {
-        Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
-        None => mux.create_tab(workspace_id)?,
-    };
-    let orchestrator_label = mux.display_label_for_tab(&orchestrator_tab_id);
-    let existing_titles: Vec<String> = mux
-        .get_workspace(workspace_id)
-        .into_iter()
-        .flat_map(|workspace| workspace.tabs.iter())
-        .filter_map(|tab_id| mux.get_tab(tab_id).map(|tab| tab.title.clone()))
-        .collect();
-    let planner_name = derive_planner_name(
-        existing_titles.iter().map(String::as_str),
-        &orchestrator_label,
-    );
-    let planner_tab_id = mux.create_tab(workspace_id)?;
-    mux.rename_tab_at_level(
-        &planner_tab_id,
-        &planner_name,
-        crate::multiplexer::types::TitleLevel::User,
-    )?;
-    for tab_id in [&orchestrator_tab_id, &planner_tab_id] {
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            tab.agent_booting = true;
-            crate::service::boot_stage::apply_boot_stage(
-                tab,
-                codeterm_types::pty::BootStage::PtyStarting,
-                None,
-            );
+    let mut created_tab_ids = Vec::new();
+    let result = (|| {
+        let orchestrator_tab_id = match existing_orchestrator_tab_id {
+            Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
+            None => {
+                let tab_id = mux.create_tab(workspace_id)?;
+                created_tab_ids.push(tab_id.clone());
+                tab_id
+            }
+        };
+        let orchestrator_label = mux.display_label_for_tab(&orchestrator_tab_id);
+        let existing_titles: Vec<String> = mux
+            .get_workspace(workspace_id)
+            .into_iter()
+            .flat_map(|workspace| workspace.tabs.iter())
+            .filter_map(|tab_id| mux.get_tab(tab_id).map(|tab| tab.title.clone()))
+            .collect();
+        let planner_name = derive_planner_name(
+            existing_titles.iter().map(String::as_str),
+            &orchestrator_label,
+        );
+        let planner_tab_id = mux.create_tab(workspace_id)?;
+        created_tab_ids.push(planner_tab_id.clone());
+        mux.rename_tab_at_level(
+            &planner_tab_id,
+            &planner_name,
+            crate::multiplexer::types::TitleLevel::User,
+        )?;
+        for tab_id in [&orchestrator_tab_id, &planner_tab_id] {
+            if let Some(tab) = mux.get_tab_mut(tab_id) {
+                tab.agent_booting = true;
+                crate::service::boot_stage::apply_boot_stage(
+                    tab,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
+            }
+        }
+        let reservation = mux.resolve_or_mint_team_for_parent(&orchestrator_tab_id)?;
+        if let Some(tab) = mux.get_tab_mut(&planner_tab_id) {
+            tab.team_id = Some(reservation.team_id.clone());
+        }
+        let team_name = mux
+            .get_team(&reservation.team_id)
+            .and_then(|team| team.name.clone());
+        Ok(ReservedPairTabs {
+            orchestrator_tab_id,
+            planner_tab_id,
+            planner_name,
+            team: crate::service::spawn_factory::TeamIdentity::new(
+                reservation.team_id,
+                team_name.as_deref(),
+            ),
+            team_minted: reservation.minted,
+        })
+    })();
+    if result.is_err() {
+        for tab_id in created_tab_ids {
+            mux.rollback_spawn_tab(workspace_id, &tab_id);
         }
     }
-    let reservation = mux.resolve_or_mint_team_for_parent(&orchestrator_tab_id)?;
-    if let Some(tab) = mux.get_tab_mut(&planner_tab_id) {
-        tab.team_id = Some(reservation.team_id.clone());
+    result
+}
+
+fn rollback_pair_tabs(service: &ServiceContext, reserved: &ReservedPairTabs) -> Vec<String> {
+    let mut cleanup_errors = Vec::new();
+    for tab_id in [&reserved.planner_tab_id, &reserved.orchestrator_tab_id] {
+        if service.mux.read().get_tab(tab_id).is_none() {
+            service.cancel_agent_startup_supervision(tab_id);
+            continue;
+        }
+        let cleanup = service.rollback_failed_agent_spawn(tab_id, "pair creation rolled back");
+        if cleanup != "pair creation rolled back" {
+            cleanup_errors.push(cleanup);
+        }
     }
-    let team_name = mux
-        .get_team(&reservation.team_id)
-        .and_then(|team| team.name.clone());
-    Ok(ReservedPairTabs {
-        orchestrator_tab_id,
-        planner_tab_id,
-        planner_name,
-        team: crate::service::spawn_factory::TeamIdentity::new(
-            reservation.team_id,
-            team_name.as_deref(),
-        ),
-        team_minted: reservation.minted,
-    })
-}
-
-fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String {
-    format!(
-        "Planner spawn failed ({error}). No plan exists yet and there is no live Planner specialist.\n\n{}\n\nAfter setting a goal, complete attachment with:\n  {fix_command}",
-        crate::prompts::PEER_WAIVER_HINT
-    )
-}
-
-fn pair_agent_state_allows_followup(
-    booting: bool,
-    boot_stage: Option<codeterm_types::pty::BootStage>,
-    is_chat_backend: bool,
-    tui_visible: bool,
-) -> bool {
-    !booting
-        && boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
-        && (is_chat_backend || tui_visible)
+    {
+        let mut mux = service.mux.write();
+        release_minted_pair_team(&mut mux, reserved);
+    }
+    service.forget_pair_startup_lease(&reserved.team.id);
+    let mux = service.mux.read();
+    let remaining_tabs: Vec<_> = reserved_member_tab_ids(reserved)
+        .into_iter()
+        .filter(|tab_id| mux.get_tab(tab_id).is_some())
+        .collect();
+    if !remaining_tabs.is_empty() {
+        cleanup_errors.push(format!(
+            "Tabs remain after pair rollback: {}",
+            remaining_tabs.join(", ")
+        ));
+    }
+    if reserved.team_minted && mux.get_team(&reserved.team.id).is_some() {
+        cleanup_errors.push(format!(
+            "Team {} remains after pair rollback",
+            reserved.team.id
+        ));
+    }
+    drop(mux);
+    crate::service::session_persist::persist_session_after_close(service);
+    service.emit_state_changed();
+    cleanup_errors
 }
 
 impl ServiceContext {
-    fn pair_agent_live_now(&self, tab_id: &str, provider: &str) -> bool {
-        let (booting, boot_stage, backing, pty_id) = {
-            let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return false;
-            };
-            (
-                tab.agent_booting,
-                tab.boot_stage,
-                tab.backing.clone(),
-                tab.pty_id.clone(),
-            )
-        };
-        let is_chat_backend = matches!(
-            backing,
-            crate::multiplexer::types::TabBacking::ChatBackend { .. }
-        );
-        if is_chat_backend {
-            return pair_agent_state_allows_followup(booting, boot_stage, true, false);
-        }
-        let Some(pty_id) = pty_id else {
-            return false;
-        };
-        let screen = self
-            .screen_state
-            .lock()
-            .get_screen_text(&pty_id)
-            .unwrap_or_default();
-        let provider_ready = self
-            .agent_registry
-            .with_provider(provider, |p| p.screen_has_tui(&screen));
-        let tui_visible = crate::service::pty_io::provider_or_generic_tui(
-            provider_ready,
-            crate::pty::screen_state::screen_has_agent_tui(&screen),
-        );
-        pair_agent_state_allows_followup(booting, boot_stage, false, tui_visible)
-    }
-
-    fn deliver_pair_followup(
-        &self,
-        orchestrator_tab_id: &str,
-        orchestrator_provider: &str,
-        body: &str,
-    ) -> Result<(), String> {
-        if !self.pair_agent_live_now(orchestrator_tab_id, orchestrator_provider) {
-            return Err(format!(
-                "orchestrator Tab {orchestrator_tab_id} is not a confirmed live agent"
-            ));
-        }
-        self.gateway_deliver(
-            orchestrator_tab_id,
-            MessageEnvelope::codeterm_reminder("orchestration-pair"),
-            body,
-            crate::service::message_gateway::DeliveryClass::SystemNotice,
-        )
-        .map(|_| ())
-    }
-
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
     /// first plan. Returns true only when a pending tab was consumed.
     pub(crate) fn bind_pending_paired_planner(
@@ -467,20 +456,22 @@ impl ServiceContext {
 
         let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
         let planner_model = explicit_pair_model(params.planner_model.clone());
-        self.require_agent_provider_ready(&params.orchestrator_agent)?;
-        self.require_agent_provider_ready(&params.planner_agent)?;
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
+        validate_pair_provider(
+            self,
             &params.orchestrator_agent,
+            "Orchestrator",
+            None,
             orchestrator_model.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
+            params.orchestrator_reasoning_effort.as_deref(),
+        )?;
+        validate_pair_provider(
+            self,
             &params.planner_agent,
+            "Manager",
+            Some("planner"),
             planner_model.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
+            params.planner_reasoning_effort.as_deref(),
+        )?;
         let pair_fix_command = pair_retry_command(
             &workspace_id,
             &params.orchestrator_agent,
@@ -576,31 +567,17 @@ impl ServiceContext {
         let orch_result = match self.spawn_agent(orch_params, None).await {
             Ok(result) => result,
             Err(error) => {
-                self.cancel_agent_startup_supervision(&reserved.orchestrator_tab_id);
-                self.cancel_agent_startup_supervision(&reserved.planner_tab_id);
-                self.emit_boot_stage(
-                    &reserved.orchestrator_tab_id,
-                    codeterm_types::pty::BootStage::SpawnFailed,
-                    Some(&error),
-                );
-                {
-                    let mut mux = self.mux.write();
-                    if let Some(tab) = mux.get_tab_mut(&reserved.orchestrator_tab_id) {
-                        tab.agent_booting = false;
-                    }
-                    let _ = mux.close_tab_with_reason(
-                        &reserved.planner_tab_id,
-                        TabCloseReason::SpawnRollback,
-                    );
-                    release_minted_pair_team(&mut mux, &reserved);
-                }
-                self.forget_pair_startup_lease(&reserved.team.id);
-                // A concurrent save during the async spawn may have persisted
-                // the reserved planner; record its rollback as authorized.
-                crate::service::session_persist::persist_session_after_close(self);
-                self.emit_state_changed();
+                let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                let cleanup = if cleanup_errors.is_empty() {
+                    "Both reserved Tabs were rolled back.".to_string()
+                } else {
+                    format!(
+                        "Pair rollback was incomplete: {}.",
+                        cleanup_errors.join("; ")
+                    )
+                };
                 return Err(format!(
-                    "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"
+                    "Failed to spawn Orchestrator ({error}). {cleanup} Retry with: {pair_fix_command}"
                 ));
             }
         };
@@ -672,34 +649,18 @@ impl ServiceContext {
                     budget_notice,
                 })
             }
-            Err(e) => {
-                self.cancel_agent_startup_supervision(&reserved.planner_tab_id);
-                // The Orchestrator is live in this Team, so the lease is over:
-                // the Team is now a normal Team with an unowned member.
-                self.forget_pair_startup_lease(&reserved.team.id);
-                self.emit_boot_stage(
-                    &reserved.planner_tab_id,
-                    codeterm_types::pty::BootStage::SpawnFailed,
-                    Some(&e),
-                );
-                if let Some(tab) = self.mux.write().get_tab_mut(&reserved.planner_tab_id) {
-                    tab.agent_booting = false;
-                }
-                let fix_command = degraded_fix_command(
-                    &orch_tab_id,
-                    &params.planner_agent,
-                    planner_model.as_deref(),
-                );
-                let followup = orchestrator_pair_followup_degraded(&fix_command, &e);
-                if let Err(notify_err) =
-                    self.deliver_pair_followup(&orch_tab_id, &params.orchestrator_agent, &followup)
-                {
-                    log::warn!(
-                        "[orchestration-pair] failed to notify orchestrator {orch_tab_id} of degraded pairing: {notify_err}"
-                    );
-                }
+            Err(error) => {
+                let cleanup_errors = rollback_pair_tabs(self, &reserved);
+                let cleanup = if cleanup_errors.is_empty() {
+                    "Both reserved Tabs were rolled back.".to_string()
+                } else {
+                    format!(
+                        "Pair rollback was incomplete: {}.",
+                        cleanup_errors.join("; ")
+                    )
+                };
                 Err(format!(
-                    "Orchestrator spawned (Tab {orch_tab_id}) but Planner spawn failed: {e}. No plan was created. Complete the pair after first goal with: {fix_command}"
+                    "Failed to spawn Planner ({error}). {cleanup} Retry with: {pair_fix_command}"
                 ))
             }
         }

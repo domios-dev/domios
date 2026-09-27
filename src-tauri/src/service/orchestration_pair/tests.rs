@@ -55,31 +55,6 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
 }
 
 #[test]
-fn degraded_path_creates_no_plan_when_planner_spawn_fails() {
-    let (_root, store) = store_for_test();
-    assert!(
-        store.list_index().is_empty(),
-        "degraded pair spawn must not leave an unowned empty plan"
-    );
-}
-
-#[test]
-fn degraded_fix_command_includes_model_when_present() {
-    let cmd = degraded_fix_command("orch-1", "codex", Some("gpt-5"));
-    assert!(cmd.contains("agent spawn codex"));
-    assert!(cmd.contains("--model gpt-5"));
-    assert!(cmd.contains("--parent-tab orch-1"));
-    assert!(cmd.contains("--role Planner"));
-    assert!(!cmd.contains("--plan"));
-}
-
-#[test]
-fn degraded_fix_command_omits_model_flag_when_absent() {
-    let cmd = degraded_fix_command("orch-1", "codex", None);
-    assert!(!cmd.contains("--model"));
-}
-
-#[test]
 fn pair_retry_command_preserves_provider_models_and_workspace() {
     let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
     assert_eq!(
@@ -96,36 +71,6 @@ fn pair_without_model_does_not_promote_provider_defaults_to_explicit_requests() 
         explicit_pair_model(Some("gpt-6-sol".into())).as_deref(),
         Some("gpt-6-sol")
     );
-}
-
-#[test]
-fn pair_followup_refuses_bare_shell_and_booting_agent() {
-    use codeterm_types::pty::BootStage;
-
-    assert!(!pair_agent_state_allows_followup(
-        false,
-        Some(BootStage::SpawnFailed),
-        false,
-        false
-    ));
-    assert!(!pair_agent_state_allows_followup(
-        false,
-        Some(BootStage::AgentReady),
-        false,
-        false
-    ));
-    assert!(!pair_agent_state_allows_followup(
-        true,
-        Some(BootStage::AgentReady),
-        false,
-        true
-    ));
-    assert!(pair_agent_state_allows_followup(
-        false,
-        Some(BootStage::AgentReady),
-        false,
-        true
-    ));
 }
 
 #[test]
@@ -318,15 +263,6 @@ fn failed_pair_launch_keeps_a_team_the_claimed_tab_already_had() {
     );
 }
 
-#[test]
-fn degraded_followup_names_exact_fix_command_and_waiver_hint() {
-    let fix = degraded_fix_command("orch-1", "codex", None);
-    let msg = orchestrator_pair_followup_degraded(&fix, "spawn timed out");
-    assert!(msg.contains("spawn timed out"));
-    assert!(msg.contains(&fix));
-    assert!(msg.contains(crate::prompts::PEER_WAIVER_HINT));
-}
-
 // ── General Agent membership guard ──────────────────────────────
 
 fn general_agent_in_pair_workspace(
@@ -431,6 +367,9 @@ fn declared_leaf_and_every_non_leaf_are_never_refused() {
     assert!(pair_creation_refusal_for_leaf(false, true).is_none());
 }
 
+// WHAT: pair service validation refuses a supplied caller id that is blank or unresolved.
+// WHY: A bad caller id must not silently turn a scoped call into a root call.
+// ORACLE: the service returns an error naming the unresolved caller tab.
 #[test]
 fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -439,6 +378,9 @@ fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
     assert!(error.contains("missing-caller"), "{error}");
 }
 
+// WHAT: Worker and Manager callers need explicit leaf acknowledgement.
+// WHY: Team leaf roles cannot create a pair through a caller attribution gap.
+// ORACLE: each call returns the acknowledgement refusal without changing Tabs, Teams, or Plans.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
@@ -466,13 +408,17 @@ fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
         .unwrap();
     for creator_tab_id in [&worker_id, &manager_id] {
         let error = runtime
-            .block_on(fixture.service.create_orchestration_pair(OrchestrationPairParams {
-                orchestrator_agent: "unknown-orchestrator".into(),
-                planner_agent: "unknown-planner".into(),
-                workspace_id: Some(workspace_id.clone()),
-                spawned_by_tab_id: Some(creator_tab_id.clone()),
-                ..Default::default()
-            }))
+            .block_on(
+                fixture
+                    .service
+                    .create_orchestration_pair(OrchestrationPairParams {
+                        orchestrator_agent: "unknown-orchestrator".into(),
+                        planner_agent: "unknown-planner".into(),
+                        workspace_id: Some(workspace_id.clone()),
+                        spawned_by_tab_id: Some(creator_tab_id.clone()),
+                        ..Default::default()
+                    }),
+            )
             .expect_err("a Team leaf without the explicit acknowledgement must be refused");
         assert!(error.contains("--acknowledge-leaf"), "{error}");
     }
@@ -483,18 +429,18 @@ fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
+// WHAT: both pair providers are checked before reserving pair state.
+// WHY: an unknown Planner must not strand the otherwise valid Orchestrator Tab.
+// ORACLE: no new Tabs, Teams, or Plans remain after the provider refusal.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_with_unknown_provider_creates_no_tab() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
-            "valid-orchestrator",
-        )));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("valid-orchestrator"),
+    ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();
 
@@ -503,12 +449,16 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
         .build()
         .unwrap();
     let error = runtime
-        .block_on(fixture.service.create_orchestration_pair(OrchestrationPairParams {
-            orchestrator_agent: "valid-orchestrator".into(),
-            planner_agent: "unknown-planner".into(),
-            workspace_id: Some(workspace_id),
-            ..Default::default()
-        }))
+        .block_on(
+            fixture
+                .service
+                .create_orchestration_pair(OrchestrationPairParams {
+                    orchestrator_agent: "valid-orchestrator".into(),
+                    planner_agent: "unknown-planner".into(),
+                    workspace_id: Some(workspace_id),
+                    ..Default::default()
+                }),
+        )
         .expect_err("an unknown Planner must be rejected before the Orchestrator Tab is reserved");
 
     assert!(error.contains("unknown-planner"), "{error}");
@@ -516,6 +466,76 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
     assert_eq!(mux.snapshot().tabs.len(), tabs_before);
     assert_eq!(mux.team_count(), teams_before);
     assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
+// WHAT: a pair can preflight providers routed to the chatBackend transport.
+// WHY: provider readiness for PTY launch commands does not apply to chat backends.
+// ORACLE: the registered spawnable backend passes pair preflight without reserving Tabs.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn pair_preflight_accepts_spawnable_chat_backend_providers() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.chatbackend_registry.register(
+        "pair-chat-backend",
+        std::sync::Arc::new(
+            crate::service::spawn_capability::test_backend::SpawnableTestBackend {
+                id: "pair-chat-backend",
+            },
+        ),
+    );
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(
+            fixture
+                .service
+                .create_orchestration_pair(OrchestrationPairParams {
+                    orchestrator_agent: "pair-chat-backend".into(),
+                    planner_agent: "unknown-planner".into(),
+                    workspace_id: Some(workspace_id),
+                    ..Default::default()
+                }),
+        )
+        .expect_err("preflight must accept the chat backend before reaching the unknown Planner");
+
+    assert!(error.contains("unknown-planner"), "{error}");
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before
+    );
+    assert_eq!(fixture.service.mux.read().team_count(), teams_before);
+}
+
+// WHAT: a failed pair launch removes every Tab and its newly minted Team.
+// WHY: either role failing to launch must not leave a half-pair behind.
+// ORACLE: rollback returns no errors and both reserved Tab ids and Team id are absent.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let reserved = {
+        let mut mux = fixture.service.mux.write();
+        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default())
+            .expect("pair reservation")
+    };
+    let tab_ids = reserved_member_tab_ids(&reserved);
+    let team_id = reserved.team.id.clone();
+
+    let errors = rollback_pair_tabs(&fixture.service, &reserved);
+
+    assert!(errors.is_empty(), "rollback errors: {errors:?}");
+    let mux = fixture.service.mux.read();
+    assert!(tab_ids.iter().all(|tab_id| mux.get_tab(tab_id).is_none()));
+    assert!(mux.get_team(&team_id).is_none());
 }
 
 #[test]
@@ -598,8 +618,8 @@ fn general_agent_team_guard_refusal_carries_the_requested_pair_shape() {
 }
 
 #[test]
-fn general_agent_team_guard_transports_forward_the_claimed_tab_to_the_guarded_service() {
-    // REST, socket and the Tauri command all deserialize this one struct before calling `create_orchestration_pair`, so none of them can drop the claimed tab and slip past the guard.
+fn pair_params_deserialize_socket_caller_and_claimed_tab() {
+    // Socket and Tauri paths carry this context in params; REST stamps it from the caller header.
     let body = serde_json::json!({
         "orchestrator_agent": "provider-alpha",
         "planner_agent": "provider-beta",

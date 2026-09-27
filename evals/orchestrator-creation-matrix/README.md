@@ -31,7 +31,7 @@ The script self-cleans (closes every tab/plan/workspace it created) via an
 
 **H negatives:**
 1. `agent spawn --role Orchestrator` with **no** `--workspace` → actionable error, zero tabs.
-2. A Worker-attributed `team pair` without `--acknowledge-leaf` → refused by the hierarchy guard, with no Plan or Tab created.
+2. A Worker-attributed `team pair` without `--acknowledge-leaf` → refused by the hierarchy guard, with no Plan or Tab created. The focused product test covers both Worker and Manager callers. REST caller identity comes from the authenticated tab header, not a body claim.
 3. `team pair` with valid `claude` Orchestrator and unknown Planner provider →
    clean fail before any Tab or Plan is created.
 
