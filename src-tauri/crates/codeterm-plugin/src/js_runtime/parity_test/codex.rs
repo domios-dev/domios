@@ -257,12 +257,21 @@ fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
         cwd: None,
         screen_text: screen.clone(),
     };
-    let classification = provider.classify_tab_state(&snapshot).expect("update state");
-    assert_eq!(classification.state, crate::tab_state::TabState::UpdatePrompt);
+    let classification = provider
+        .classify_tab_state(&snapshot)
+        .expect("update state");
+    assert_eq!(
+        classification.state,
+        crate::tab_state::TabState::UpdatePrompt
+    );
     assert!(classification.action.is_none());
     let prompt = provider.parse_prompt(&screen).expect("structured prompt");
     assert_eq!(
-        prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
         ["1", "2", "3"]
     );
     assert_eq!(
@@ -389,7 +398,11 @@ fn codex_trust_prompt_is_respondable_native_js_parity() {
         .parse_directory_trust_prompt(&screen)
         .expect("structured trust options are available to the host");
     assert_eq!(
-        prompt.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
         ["1", "2"]
     );
     assert_eq!(
@@ -654,7 +667,9 @@ fn codex_session_reasoning_effort_reads_exact_rollout() {
     let _env = EnvGuard::new(&[("CODETERM_CODEX_STATE_DB_PATH", state_db.to_str().unwrap())]);
     let provider = codex();
     assert_eq!(
-        provider.detect_session_reasoning_effort("/ignored", CODEX_UUID).as_deref(),
+        provider
+            .detect_session_reasoning_effort("/ignored", CODEX_UUID)
+            .as_deref(),
         Some("xhigh")
     );
     assert_eq!(

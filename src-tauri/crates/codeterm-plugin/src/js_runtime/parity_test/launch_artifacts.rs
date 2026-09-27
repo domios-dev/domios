@@ -36,7 +36,11 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         None
     }
 
-    fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+    fn release_tab_launch_artifacts(
+        &self,
+        tab_id: &str,
+        instance_id: &str,
+    ) -> Result<bool, String> {
         Ok(tab_id == "closed-tab" && instance_id == "instance-fixture")
     }
 
@@ -52,7 +56,13 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         let removed = if request.confirm {
             dead.iter()
                 .cloned()
-                .chain(request.include_legacy.then(|| legacy.clone()).into_iter().flatten())
+                .chain(
+                    request
+                        .include_legacy
+                        .then(|| legacy.clone())
+                        .into_iter()
+                        .flatten(),
+                )
                 .collect()
         } else {
             Vec::new()

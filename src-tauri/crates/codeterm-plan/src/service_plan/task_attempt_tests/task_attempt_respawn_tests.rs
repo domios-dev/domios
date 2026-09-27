@@ -66,10 +66,7 @@ fn attempt_model_fields_round_trip() {
         .unwrap();
     assert_eq!(respawned.attempt.provider.as_deref(), Some("codex"));
     assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
-    assert_eq!(
-        respawned.attempt.reasoning_effort.as_deref(),
-        Some("xhigh")
-    );
+    assert_eq!(respawned.attempt.reasoning_effort.as_deref(), Some("xhigh"));
     assert_eq!(respawned.attempt.session_model, None);
 }
 

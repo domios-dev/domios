@@ -21,9 +21,7 @@ mod tests {
         let (mut mux, existing_tab_id) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
-        mux.get_tab_mut(&existing_tab_id)
-            .unwrap()
-            .agent_type = Some("sweep-probe".into());
+        mux.get_tab_mut(&existing_tab_id).unwrap().agent_type = Some("sweep-probe".into());
         let restored = mux.get_tab_mut(&restored_tab_id).unwrap();
         restored.agent_type = Some("sweep-probe".into());
         restored.restored_from_snapshot = true;
@@ -31,10 +29,8 @@ mod tests {
         let fixture = ServiceFixture::new(mux);
         let requests = Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new()));
         fixture.service.agent_registry.register_provider(Box::new(
-            MockProvider::new("sweep-probe").with_launch_artifact_logs(
-                requests.clone(),
-                Arc::new(Mutex::new(Vec::new())),
-            ),
+            MockProvider::new("sweep-probe")
+                .with_launch_artifact_logs(requests.clone(), Arc::new(Mutex::new(Vec::new()))),
         ));
 
         notify(&fixture.service);

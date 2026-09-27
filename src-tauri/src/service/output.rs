@@ -13,14 +13,14 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
-#[path = "output/prompt_steps.rs"]
-mod prompt_steps;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
-use prompt_steps::write_prompt_steps;
-pub(super) use prompt_steps::write_bound_prompt_steps;
+#[path = "output/prompt_steps.rs"]
+mod prompt_steps;
 #[cfg(test)]
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
+pub(super) use prompt_steps::write_bound_prompt_steps;
+use prompt_steps::write_prompt_steps;
 
 fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
@@ -318,13 +318,12 @@ impl ServiceContext {
                         .get_screen_text(pty_id)
                         .unwrap_or_default()
                 });
-                let check_screen =
-                    has_markers
-                        || has_active_prompt
-                        || is_auto_approve
-                        || trust_candidate
-                        || trust_prompt_candidate
-                        || update_candidate;
+                let check_screen = has_markers
+                    || has_active_prompt
+                    || is_auto_approve
+                    || trust_candidate
+                    || trust_prompt_candidate
+                    || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
                     let clean_text = if check_screen {
@@ -357,30 +356,29 @@ impl ServiceContext {
                     };
                     self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
                 }
-                let (provider_prompt, directory_trust_prompt) = if structured.is_none()
-                    && !manual_update_candidate
-                {
-                    clean_text
-                        .as_deref()
-                        .map(|screen| {
-                            if trust_prompt_candidate {
-                                let prompt = crate::agent::prompt::parse_prompt_safely(|| {
-                                    self.agent_registry
-                                        .with_provider(at, |provider| {
-                                            parse_directory_trust_prompt(provider, screen)
-                                        })
-                                        .flatten()
-                                });
-                                let parsed_trust_prompt = prompt.is_some();
-                                (prompt, parsed_trust_prompt)
-                            } else {
-                                (None, false)
-                            }
-                        })
-                        .unwrap_or((None, false))
-                } else {
-                    (None, false)
-                };
+                let (provider_prompt, directory_trust_prompt) =
+                    if structured.is_none() && !manual_update_candidate {
+                        clean_text
+                            .as_deref()
+                            .map(|screen| {
+                                if trust_prompt_candidate {
+                                    let prompt = crate::agent::prompt::parse_prompt_safely(|| {
+                                        self.agent_registry
+                                            .with_provider(at, |provider| {
+                                                parse_directory_trust_prompt(provider, screen)
+                                            })
+                                            .flatten()
+                                    });
+                                    let parsed_trust_prompt = prompt.is_some();
+                                    (prompt, parsed_trust_prompt)
+                                } else {
+                                    (None, false)
+                                }
+                            })
+                            .unwrap_or((None, false))
+                    } else {
+                        (None, false)
+                    };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
                         crate::agent::native_prompt::resolve_pending_prompt(
@@ -665,8 +663,9 @@ impl ServiceContext {
             return;
         };
         for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished { exit_code, .. } =
-                event
+            if let crate::agent::command_detection::CommandLifecycle::Finished {
+                exit_code, ..
+            } = event
             {
                 if self.command_finished_proves_provider_exit(tab_id, pty_id, event) {
                     self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
@@ -786,25 +785,19 @@ impl ServiceContext {
             let Some(prompt) = prompt else {
                 return;
             };
-            let screen = svc
-                .screen_state
-                .lock()
-                .get_screen_text(&pty_id);
+            let screen = svc.screen_state.lock().get_screen_text(&pty_id);
             if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
                 return;
             }
-            let decision = svc
-                .prompt_detector
-                .lock()
-                .evaluate_pty_output_parsed(
-                    &snapshot.tab_id,
-                    true,
-                    true,
-                    Some(crate::agent::prompt::ResolvedPrompt {
-                        prompt,
-                        explicit: false,
-                    }),
-                );
+            let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+                &snapshot.tab_id,
+                true,
+                true,
+                Some(crate::agent::prompt::ResolvedPrompt {
+                    prompt,
+                    explicit: false,
+                }),
+            );
             svc.apply_prompt_decision_with_screen(
                 &decision,
                 Some(&snapshot.screen_text),
@@ -884,10 +877,7 @@ impl ServiceContext {
                             .is_some_and(|(agent_type, screen)| {
                                 trust_candidate::provider_classifies_non_auto_ack_dialog(
                                     self,
-                                    trust_candidate::ProviderDialogIdentity {
-                                        agent_type,
-                                        tab_id,
-                                    },
+                                    trust_candidate::ProviderDialogIdentity { agent_type, tab_id },
                                     screen,
                                 )
                             });

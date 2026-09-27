@@ -68,19 +68,11 @@ impl ServiceContext {
         log::warn!(
             "[reasoning-effort] tab={tab_id} provider={provider_id} model={model} requested={effort} supported={supported}; omitted from launch"
         );
-        self.publish_model_reconciliation_warning(
-            title,
-            Some(body),
-            Some(tab_id),
-        );
+        self.publish_model_reconciliation_warning(title, Some(body), Some(tab_id));
     }
 
     pub(crate) fn notify_model_fallback(&self, notice: &ModelFallbackNotice) {
-        self.publish_model_reconciliation_warning(
-            model_fallback_notice_title(notice),
-            None,
-            None,
-        );
+        self.publish_model_reconciliation_warning(model_fallback_notice_title(notice), None, None);
     }
 
     fn publish_model_reconciliation_warning(

@@ -95,7 +95,12 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
         .filter_map(serde_json::Value::as_str)
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(closest.iter().all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"), "{closest:?}");
+    assert!(
+        closest
+            .iter()
+            .all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"),
+        "{closest:?}"
+    );
     assert!(!closest.is_empty());
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
         let clearance = provider_launch_preflight(&registry, "codex-like")
@@ -200,7 +205,10 @@ fn authoritative_ids_accept_matching_provider_prefix() {
         Some("gpt-6-sol")
     );
     assert_eq!(
-        crate::service::spawn::spawn_model_catalogue::normalize_requested_model("codex", "codex:gpt-6-sol"),
+        crate::service::spawn::spawn_model_catalogue::normalize_requested_model(
+            "codex",
+            "codex:gpt-6-sol"
+        ),
         "gpt-6-sol"
     );
     crate::agent::model_catalog::unregister(provider_id);

@@ -89,7 +89,10 @@ fn format_model_reasoning_efforts(
     let levels = efforts
         .iter()
         .map(|effort| {
-            let id = effort.get("id").and_then(|value| value.as_str()).unwrap_or("?");
+            let id = effort
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("?");
             if default == Some(id) {
                 format!("{id} (default)")
             } else {
