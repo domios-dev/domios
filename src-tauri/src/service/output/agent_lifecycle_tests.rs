@@ -73,6 +73,26 @@ fn seed_live_planner() -> (
     )
 }
 
+fn restore_live_planner_fixture(
+    snapshot: &crate::session::store::SessionSnapshot,
+    tab_id: &str,
+) -> ServiceFixture {
+    let mut restored = MultiplexerState::from_session_snapshot(snapshot);
+    let pty_id = "pty-restored-live-planner";
+    restored.link_pty(tab_id, pty_id.into());
+    let fixture = ServiceFixture::new(restored);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("restored live PTY");
+    fixture
+        .service
+        .reconcile_boot_stage_with_session_binding(tab_id);
+    fixture
+}
+
 fn assert_live_planner_identity(tab: &crate::multiplexer::types::Tab) {
     assert_eq!(tab.agent_type.as_deref(), Some("codex"));
     assert_eq!(tab.agent_session_id.as_deref(), Some("session-tab-owned"));
@@ -157,10 +177,10 @@ fn planner_shell_like_live_tui_preserves_identity_across_snapshot_reload() {
     drop(mux);
     let serialized = serde_json::to_string(&snapshot).unwrap();
     let restored_snapshot = serde_json::from_str(&serialized).unwrap();
-    let mut restored = MultiplexerState::from_session_snapshot(&restored_snapshot);
-    restored.link_pty(&tab_id, "pty-restored".into());
+    let restored = restore_live_planner_fixture(&restored_snapshot, &tab_id);
     let stored_planner = harness.service.plan_store.get(&plan.id).unwrap().planner;
-    let tab = restored.get_tab(&tab_id).unwrap();
+    let mux = restored.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
     assert_live_planner_identity(tab);
     assert_planner_resolves(&tab_id, &stored_planner, &owner, tab);
 }
@@ -249,10 +269,28 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         AgentLiveness::Live
     );
 
-    harness
-        .service
-        .provider_tree_witnesses
-        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    harness.service.provider_tree_witnesses.script_snapshot(
+        &key,
+        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+            pid: 52_519,
+            start_token: "codex-live-at-launch-write".into(),
+        }])),
+    );
+    assert_eq!(
+        harness
+            .service
+            .observe_provider_process_tree(&tab_id, "pty-planner")
+            .expect("launch-written tree observation")
+            .state(),
+        crate::service::process_tree::ProviderTreeState::Present
+    );
+    harness.service.provider_tree_witnesses.script_snapshot(
+        &key,
+        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+            pid: 52_520,
+            start_token: "codex-live-at-finished-marker".into(),
+        }])),
+    );
     harness.service.process_pty_output(
         "pty-planner",
         b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
@@ -271,10 +309,6 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .is_some());
     harness
         .service
-        .provider_tree_witnesses
-        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    harness
-        .service
         .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07");
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
@@ -288,23 +322,14 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .unwrap()
         .agent_type
         .is_some());
-    harness.service.provider_tree_witnesses.script_snapshot(
-        &key,
-        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
-            pid: 52_520,
-            start_token: "codex-child-start".into(),
-        }])),
-    );
-    harness
-        .service
-        .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-current\x07");
     harness
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    harness
-        .service
-        .process_pty_output("pty-planner", b"\x1b]633;D\x07");
+    harness.service.process_pty_output(
+        "pty-planner",
+        b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
+    );
 
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
@@ -341,8 +366,8 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
     let serialized =
         serde_json::to_string(&harness.service.mux.read().to_session_snapshot()).unwrap();
     let restored_snapshot = serde_json::from_str(&serialized).unwrap();
-    let restored = MultiplexerState::from_session_snapshot(&restored_snapshot);
-    assert_live_planner_identity(restored.get_tab(&tab_id).unwrap());
+    let restored = restore_live_planner_fixture(&restored_snapshot, &tab_id);
+    assert_live_planner_identity(restored.service.mux.read().get_tab(&tab_id).unwrap());
 
     assert!(harness
         .service

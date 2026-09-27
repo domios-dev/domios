@@ -23,6 +23,8 @@ mod shell_markers;
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
+mod prompt_notifications;
+use prompt_notifications::should_notify_pending_prompt;
 
 fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
@@ -918,12 +920,20 @@ impl ServiceContext {
                 {
                     return;
                 }
-                {
+                let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        let notify =
+                            should_notify_pending_prompt(decision, tab.pending_prompt.as_ref());
                         tab.pending_prompt = Some(prompt.clone());
+                        Some(notify)
+                    } else {
+                        None
                     }
-                }
+                };
+                let Some(notify_prompt) = notify_prompt else {
+                    return;
+                };
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -933,6 +943,9 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                if notify_prompt {
+                    self.notify_pending_prompt(tab_id, prompt);
+                }
             }
             PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();

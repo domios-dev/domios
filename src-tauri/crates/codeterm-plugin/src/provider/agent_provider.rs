@@ -57,9 +57,7 @@ pub trait AgentProvider: Send + Sync {
         ProviderReadinessStrategy::default()
     }
 
-    /// A resumed interactive session first emits its binding hook after the
-    /// owner's first user turn, so restore may accept that turn at provider-ready.
-    fn resume_binds_on_first_user_turn(&self) -> bool {
+    fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }
 

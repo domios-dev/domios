@@ -12,6 +12,7 @@ mod lifecycle_exit;
 #[cfg(test)]
 #[path = "tab/tests.rs"]
 mod tests;
+#[cfg(test)]
 pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;

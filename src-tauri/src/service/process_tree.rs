@@ -28,6 +28,26 @@ pub(crate) fn may_have_named_process(root: u32, expected_name: &str) -> bool {
     tree_may_have_named_process(root, &entries, platform::start_time, expected_name)
 }
 
+pub(crate) fn has_named_process(root: u32, expected_name: &str) -> bool {
+    let entries = platform::snapshot();
+    tree_has_named_process(root, &entries, platform::start_time, expected_name)
+}
+
+fn tree_has_named_process(
+    root: u32,
+    entries: &[ProcessEntry],
+    start_time: impl Fn(u32) -> Option<u64>,
+    expected_name: &str,
+) -> bool {
+    let pids = launch_tree(root, entries, start_time)
+        .into_iter()
+        .map(|process| process.pid)
+        .collect::<HashSet<_>>();
+    entries.iter().any(|entry| {
+        pids.contains(&entry.pid) && executable_names_match(&entry.image_name, expected_name)
+    })
+}
+
 pub(crate) struct ProviderTreeWitnesses {
     observations: Mutex<HashMap<ProviderTreeKey, ProviderTreeHistory>>,
     #[cfg(test)]
@@ -565,11 +585,25 @@ mod tests {
     }
 
     #[test]
+    fn provider_process_must_be_named_and_descend_from_the_tab_root() {
+        let entries = [
+            named_entry(10, 1, "powershell.exe"),
+            named_entry(20, 10, "codex.exe"),
+            named_entry(30, 1, "codex.exe"),
+            named_entry(40, 1, "powershell.exe"),
+        ];
+
+        assert!(tree_has_named_process(10, &entries, |pid| Some(pid.into()), "codex"));
+        assert!(!tree_has_named_process(40, &entries, |pid| Some(pid.into()), "codex"));
+    }
+
+    #[test]
     fn named_process_lookup_is_scoped_to_the_tab_tree_and_normalizes_exe_suffix() {
         let entries = [
             named_entry(10, 1, "pwsh.exe"),
             named_entry(20, 10, "opencode.exe"),
-            named_entry(30, 99, "opencode.exe"),
+            named_entry(30, 99, "pwsh.exe"),
+            named_entry(40, 99, "opencode.exe"),
         ];
         let has_process = |root, expected| {
             launch_tree(root, &entries, |pid| Some(u64::from(pid)))

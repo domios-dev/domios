@@ -102,7 +102,8 @@ fn provider_tree_witnesses_reject_live_restored_provider() {
         crate::service::process_tree::ProviderTreeState::Present
     );
     assert!(
-        LaunchExitProof::from_finished_marker(&attempt, &live_child, Some(3), None, None).is_none()
+        LaunchExitProof::from_finished_marker(&attempt, &live_child, Some(3), false, None)
+            .is_none()
     );
     assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &live_child).is_none());
 }
@@ -125,29 +126,25 @@ fn provider_absent_before_first_seen_is_not_exit_evidence() {
         assert_eq!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
         assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &absent).is_none());
         assert!(
-            LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, None).is_none()
+            LaunchExitProof::from_finished_marker(&attempt, &absent, None, false, None).is_none()
         );
     }
     let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     let explicit_failure =
-        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(3), None, None);
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(3), true, None);
     assert!(explicit_failure.is_some());
     assert!(
-        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), None, None).is_none()
-    );
-    assert!(LaunchExitProof::from_finished_marker(
-        &attempt,
-        &absent,
-        Some(0),
-        Some("opencode"),
-        None
-    )
-    .is_some());
-    assert!(
-        LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, Some(false)).is_some()
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), false, None).is_none()
     );
     assert!(
-        LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, Some(true)).is_none()
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), true, None).is_some()
+    );
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, None, false, Some(false))
+            .is_some()
+    );
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, None, false, Some(true)).is_none()
     );
 
     witnesses.record_for_test(
@@ -165,21 +162,21 @@ fn provider_absent_before_first_seen_is_not_exit_evidence() {
     assert_eq!(one_absence.state(), ProviderTreeState::GoneAfterSeen);
     assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &one_absence).is_some());
     assert!(
-        LaunchExitProof::from_finished_marker(&attempt, &one_absence, None, None, None).is_some()
+        LaunchExitProof::from_finished_marker(&attempt, &one_absence, None, false, None).is_some()
     );
 }
 
 #[test]
-fn provider_exit_evidence_ends_resume_first_turn_waiting() {
+fn provider_exit_evidence_ends_first_turn_waiting() {
     let mut tab = launching_tab("pty-resume-exit", "nonce-resume-exit");
     tab.boot_stage = Some(BootStage::AgentReady);
     tab.agent_booting = false;
     let attempt = attempt_of(&tab);
 
-    assert!(resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+    assert!(launch_attempt_is_waiting_for_first_turn(&tab, &attempt));
 
     tab.exit_suspected_at = Some(std::time::Instant::now());
-    assert!(!resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+    assert!(!launch_attempt_is_waiting_for_first_turn(&tab, &attempt));
 }
 
 /// The agent naming itself on this launch: its own accepted session plus this
