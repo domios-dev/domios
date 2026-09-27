@@ -505,7 +505,10 @@ impl ServiceContext {
         );
         self.screen_state.lock().remove(&snap.pty_id);
         crate::service::stream_preview::remove(&snap.pty_id);
-        self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
+        self.clear_tab_agent_identity_after_confirmed_exit(
+            &snap.tab_id,
+            "agent restart reaped the previous PTY",
+        );
         {
             let mut mux = self.mux.write();
             let tab = mux
@@ -726,7 +729,9 @@ fn build_relaunch_command_with_registry(
             let resume = crate::agent::provider::AgentResumeParams {
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
+                agent_name: None,
                 system_prompt,
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
                 args: Vec::new(),
             };
             if let Some(cmd) = registry

@@ -166,10 +166,9 @@ pub enum Commands {
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///
-        /// send is fire-and-forget: the call returns as soon as bytes
-        /// have been written to the PTY. For "wait for the agent to process
-        /// my message", a future `codeterm agent send` primitive will hook
-        /// into the provider's request/response cycle.
+        /// A local background route reports `OK (pending)` after accepting
+        /// work; `OK (sent)` means the selected route completed its write.
+        /// Neither status waits for the agent to answer.
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
 

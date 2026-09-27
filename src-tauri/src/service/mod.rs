@@ -112,6 +112,7 @@ pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
+pub(crate) mod restored_launch;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
@@ -247,6 +248,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.

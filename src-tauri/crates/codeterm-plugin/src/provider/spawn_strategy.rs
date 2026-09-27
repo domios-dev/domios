@@ -157,14 +157,16 @@ pub struct LaunchArtifactSweepReport {
     pub removed: Vec<String>,
 }
 
-/// Everything a resumed session needs beyond its id. `system_prompt` is the
-/// composed launch prompt, present only when the host has one to re-apply.
+/// Launch context passed to a provider when a session resumes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
     pub session_id: String,
     pub skip_permissions: bool,
+    pub agent_name: Option<String>,
     pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub instance_id: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
 }

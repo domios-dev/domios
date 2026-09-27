@@ -342,12 +342,10 @@ impl ChatStreamState {
     }
 
     fn clear_part_state_if_full(&mut self, part_id: &str, needs_text: bool, needs_kind: bool) {
-        let text_full = needs_text
-            && self.part_text.len() >= 512
-            && !self.part_text.contains_key(part_id);
-        let kind_full = needs_kind
-            && self.part_kind.len() >= 512
-            && !self.part_kind.contains_key(part_id);
+        let text_full =
+            needs_text && self.part_text.len() >= 512 && !self.part_text.contains_key(part_id);
+        let kind_full =
+            needs_kind && self.part_kind.len() >= 512 && !self.part_kind.contains_key(part_id);
         if text_full || kind_full {
             self.clear_part_state();
         }
@@ -414,11 +412,7 @@ impl ChatStreamState {
             self.part_text.remove(&update.part_id);
         }
 
-        let chat_message = normalize_chat_part(
-            &typed_update,
-            message,
-            previous_text.as_deref(),
-        )?;
+        let chat_message = normalize_chat_part(&typed_update, message, previous_text.as_deref())?;
         if is_text {
             self.part_text
                 .insert(update.part_id.clone(), chat_message.content.clone());

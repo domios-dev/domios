@@ -70,6 +70,11 @@ pub struct AgentIdentitySnapshot {
         skip_serializing_if = "crate::multiplexer::types::ReasoningEffortIdentity::is_empty"
     )]
     pub reasoning_effort: crate::multiplexer::types::ReasoningEffortIdentity,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::multiplexer::types::RestorableLaunchParameters::is_empty"
+    )]
+    pub restorable_launch: crate::multiplexer::types::RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epochs: Vec<crate::multiplexer::types::ContextEpochArchive>,
     /// Retired launch nonces tagged with their sessions. Exit recovery reads the

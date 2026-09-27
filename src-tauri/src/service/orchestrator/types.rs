@@ -128,9 +128,8 @@ pub struct SpawnAgentParams {
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split tab (even with parent).
     pub force_tab: Option<bool>,
-    /// Claim this existing blank tab instead of creating a new one — used by
-    /// the new-session picker's in-place spawn so confirming transforms the
-    /// picker's own tab rather than leaving it behind as an orphan.
+    /// Claim an existing blank tab instead of creating one. On failure, the
+    /// caller owns cleanup and may restore its pre-claim snapshot.
     pub existing_tab_id: Option<String>,
     /// Skip legacy onboarding work for a paired Orchestrator. Its complete
     /// identity and counterpart context travel in the single launch payload.
