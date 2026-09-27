@@ -729,7 +729,9 @@ fn build_relaunch_command_with_registry(
             let resume = crate::agent::provider::AgentResumeParams {
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
+                agent_name: None,
                 system_prompt,
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
                 args: Vec::new(),
             };
             if let Some(cmd) = registry

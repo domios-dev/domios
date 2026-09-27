@@ -112,6 +112,7 @@ pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
+pub(crate) mod restored_launch;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;

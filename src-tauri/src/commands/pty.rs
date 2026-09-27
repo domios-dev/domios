@@ -1,79 +1,13 @@
 use std::io::Read;
 use tauri::AppHandle;
 
+#[path = "pty/restored_launch.rs"]
+mod restored_launch;
+use restored_launch::{restored_fresh_launch_input, RestoredFreshLaunchInput};
+
 use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
-
-struct RestoredFreshLaunchInput {
-    params: crate::service::SpawnAgentParams,
-    launch_task: Option<String>,
-}
-
-fn restored_fresh_launch_input(
-    registry: &crate::agent::registry::AgentRegistry,
-    mut params: crate::service::SpawnAgentParams,
-) -> RestoredFreshLaunchInput {
-    params.task = None;
-    params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
-    let provider_id = params.agent.as_deref().expect("restored launch provider");
-    let launch_task = crate::service::provider_launch_task(
-        registry,
-        provider_id,
-        None,
-        params.role.as_deref(),
-        params.role_profile.as_deref(),
-    );
-    RestoredFreshLaunchInput {
-        params,
-        launch_task,
-    }
-}
-
-impl RestoredFreshLaunchInput {
-    /// `None` when a resume was asked for but the provider offers no resume
-    /// command — the caller clears the stale session and starts fresh rather
-    /// than silently sending a fresh-launch command down the resume branch.
-    /// A fresh launch carries a minted marker; a resume already names its session.
-    fn command(&self, service: &crate::service::ServiceContext, tab_id: &str) -> Option<String> {
-        let provider_id = self.params.agent.as_deref()?;
-        let registry = &service.agent_registry;
-        let resumable = registry.with_provider(provider_id, |provider| {
-            match self.params.resume_session_id.as_deref() {
-                Some(session_id) => provider
-                    .build_resume_command(
-                        session_id,
-                        self.params.permission_bypass_requested(provider_id),
-                    )
-                    .is_some(),
-                None => true,
-            }
-        })?;
-        if !resumable {
-            return None;
-        }
-        Some(match self.params.resume_session_id {
-            Some(_) => crate::service::build_agent_command_for_service(
-                service,
-                tab_id,
-                provider_id,
-                &self.params,
-                self.launch_task.as_deref(),
-                None,
-                registry,
-            ),
-            None => crate::service::launch_session_detection::marked_agent_command_for_service(
-                service,
-                tab_id,
-                provider_id,
-                &self.params,
-                self.launch_task.as_deref(),
-                None,
-                registry,
-            ),
-        })
-    }
-}
 
 #[tauri::command]
 pub async fn spawn_pty(
@@ -201,7 +135,6 @@ pub async fn spawn_pty_core(
             );
         }
     }
-
     // Auto-resume tab session after shell is ready.
     if let Some(ref pid) = tab_id {
         let recovery_service = svc.clone();
@@ -218,6 +151,7 @@ pub async fn spawn_pty_core(
         let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;
         let tab_model = restore.model;
+        let launch_parameters = restore.launch_parameters;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
         let agent_type = match (session_id.as_deref(), tab_cwd.as_deref()) {
@@ -269,7 +203,6 @@ pub async fn spawn_pty_core(
                         .unwrap_or(false)
                 })
                 .unwrap_or(false);
-
             if !session_valid {
                 log::info!(
                     "[resume] session {} for Tab {} has no backing file under {:?} — clearing, will try fresh launch",
@@ -278,17 +211,19 @@ pub async fn spawn_pty_core(
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
-                // Build resume command from provider and global fallback config.
+                // Build the resume command from the persisted launch inputs.
                 let pc = crate::config::provider_config(&provider_id);
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let permission_bypass_authorization =
-                    crate::service::permission_policy::configured_permission_bypass(
-                        &svc.agent_registry,
-                        &provider_id,
-                    )?;
+                    crate::service::restored_launch::restore_permission_bypass_authorization(
+                    &svc.agent_registry,
+                    pid,
+                    &provider_id,
+                    &launch_parameters,
+                )?;
                 let skip_perms = permission_bypass_authorization.is_some();
                 // Reuse the restored-launch seam so identity, model, and effort arguments cannot diverge between launch paths.
-                let resume_cmd = restored_fresh_launch_input(
+                let input = restored_fresh_launch_input(
                     &svc.agent_registry,
                     crate::service::SpawnAgentParams {
                         agent: Some(provider_id.clone()),
@@ -296,19 +231,23 @@ pub async fn spawn_pty_core(
                         resume_session_id: Some(session_id.clone()),
                         skip_permissions: Some(skip_perms),
                         permission_bypass_authorization,
-                        model: tab_model.clone(),
+                        model: launch_parameters.model.clone().or(tab_model.clone()),
                         role: tab_role.clone(),
                         role_profile: tab_role_profile.clone(),
                         ..Default::default()
                     },
-                )
-                .command(svc.as_ref(), pid);
-
+                    launch_parameters.clone(),
+                );
+                let resume_cmd = input.command(svc.as_ref(), pid);
                 if let Some(cmd) = resume_cmd {
                     if resume_enabled {
-                        if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
-                            tab.auto_approve = skip_perms;
-                        }
+                        crate::service::restored_launch::persist_restored_launch_identity(
+                            mux_state,
+                            pid,
+                            &provider_id,
+                            &input.params,
+                            &input.launch_parameters,
+                        );
                     }
                     let pty_id_for_poll = pty_id.clone();
                     let pty_id_for_launch = pty_id.clone();
@@ -443,18 +382,16 @@ pub async fn spawn_pty_core(
                 }
             }
         }
-
         if should_fresh_launch {
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
-                crate::service::permission_policy::configured_permission_bypass(
-                    &svc.agent_registry,
-                    &provider_id,
-                )?;
+                crate::service::restored_launch::restore_permission_bypass_authorization(
+                &svc.agent_registry,
+                pid,
+                &provider_id,
+                &launch_parameters,
+            )?;
             let skip_perms = permission_bypass_authorization.is_some();
-            if let Some(tab) = svc.mux.write().get_tab_mut(pid) {
-                tab.auto_approve = skip_perms;
-            }
             let input = restored_fresh_launch_input(
                 &svc.agent_registry,
                 crate::service::SpawnAgentParams {
@@ -462,14 +399,22 @@ pub async fn spawn_pty_core(
                     cwd: tab_cwd.clone(),
                     skip_permissions: Some(skip_perms),
                     permission_bypass_authorization,
-                    model: tab_model.clone(),
+                    model: launch_parameters.model.clone().or(tab_model.clone()),
                     role: tab_role.clone(),
                     role_profile: tab_role_profile.clone(),
                     ..Default::default()
                 },
+                launch_parameters.clone(),
             );
             let launch_cmd = input.command(svc.as_ref(), pid);
             if let Some(cmd) = launch_cmd {
+                crate::service::restored_launch::persist_restored_launch_identity(
+                    mux_state,
+                    pid,
+                    &provider_id,
+                    &input.params,
+                    &input.launch_parameters,
+                );
                 let prompt_delivery = svc
                     .agent_registry
                     .with_provider(&provider_id, |provider| {

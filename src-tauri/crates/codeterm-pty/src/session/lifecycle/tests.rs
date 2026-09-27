@@ -77,6 +77,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         agent_state: None,
         boot_stage: None,
         reasoning_effort: Default::default(),
+        restorable_launch: Default::default(),
         context_epochs: vec![],
         prior_session_bindings: vec![],
         task_binding: None,
@@ -175,6 +176,7 @@ fn partial_launch_leaf(tab_id: &str) -> SplitNodeSnapshot {
     {
         *agent_identity = Some(AgentIdentitySnapshot {
             reported_session_binding_nonce: None,
+            restorable_launch: Default::default(),
             ..identity(None, None)
         });
         *role = Some("Worker".into());

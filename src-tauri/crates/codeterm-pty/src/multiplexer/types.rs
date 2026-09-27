@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+mod restorable_launch;
+pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
+
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
 /// A workspace contains multiple tabs and tracks which tab is active.
@@ -50,20 +53,6 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReasoningEffortIdentity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planned: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<String>,
-    #[serde(default)]
-    pub actual: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actual_source: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionModelIdentity {
     pub session_id: String,
@@ -75,16 +64,6 @@ pub struct ContextEpochArchive {
     pub provider: String,
     pub cwd: String,
     pub session_id: String,
-}
-
-impl ReasoningEffortIdentity {
-    pub fn is_empty(&self) -> bool {
-        self.planned.is_none()
-            && self.requested.is_none()
-            && self.resolved.is_none()
-            && self.actual.is_none()
-            && self.actual_source.is_none()
-    }
 }
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
@@ -591,6 +570,8 @@ pub struct Tab {
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(skip, default)]
+    pub restorable_launch: RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
@@ -898,6 +879,7 @@ mod tests {
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            restorable_launch: RestorableLaunchParameters::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,

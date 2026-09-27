@@ -118,6 +118,8 @@ export interface LaunchSessionDetection {
 export interface ResumeParams {
   sessionId: string;
   skipPermissions?: boolean;
+  agentName?: string | null;
+  instanceId?: string | null;
   /** Composed system prompt to re-apply; absent when the host has none. */
   systemPrompt?: string | null;
   args?: string[];
