@@ -4,11 +4,16 @@ use crate::{
 
 fn handle_resp(resp: crate::local_api::LocalApiResponse) -> Result<serde_json::Value, String> {
     let status = resp.status();
+    parse_mesh_response(status, &resp.text().unwrap_or_default())
+}
+
+fn parse_mesh_response(
+    status: reqwest::StatusCode,
+    body: &str,
+) -> Result<serde_json::Value, String> {
     if status.is_success() {
-        resp.json::<serde_json::Value>()
-            .map_err(|e| format!("Bad JSON: {}", e))
+        serde_json::from_str(body).map_err(|e| format!("Bad JSON: {}", e))
     } else {
-        let body = resp.text().unwrap_or_default();
         Err(format!("HTTP {} — {}", status.as_u16(), body.trim()))
     }
 }
@@ -249,7 +254,13 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 .send()
             {
                 Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    let val = match handle_resp(resp) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            eprintln!("Error: {}", error);
+                            std::process::exit(1);
+                        }
+                    };
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else if let Some(arr) = val.as_array() {
@@ -290,7 +301,13 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 .send()
             {
                 Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    let val = match handle_resp(resp) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            eprintln!("Error: {}", error);
+                            std::process::exit(1);
+                        }
+                    };
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else if let Some(dur) = val.get("duration_secs").and_then(|v| v.as_u64()) {
@@ -315,7 +332,13 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 .send()
             {
                 Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    let val = match handle_resp(resp) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            eprintln!("Error: {}", error);
+                            std::process::exit(1);
+                        }
+                    };
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
@@ -491,6 +514,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Online => set_mesh_enabled(&http, &base, &token, true, json),
     }
 }
+
+#[cfg(test)]
+#[path = "mesh/tests.rs"]
+mod tests;
 
 /// Flip `[mesh] enabled` in config.toml via the existing PATCH /api/config
 /// endpoint. Both the address-refresh loop and the ping scheduler re-read
