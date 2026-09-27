@@ -236,7 +236,7 @@ mod tests {
         let (fixture, tab_id, previous_id) = pending_prompt_fixture();
         let state = app_state(&fixture);
 
-        crate::api::hook_routes::hook_stop(
+        let _ = crate::api::hook_routes::hook_stop(
             axum::extract::State(state),
             axum::extract::Path(tab_id.clone()),
             axum::http::HeaderMap::new(),
