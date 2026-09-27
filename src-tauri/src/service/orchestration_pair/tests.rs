@@ -576,9 +576,10 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_empty_launch_command(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-orchestrator",
-        ),
+        )
+        .with_launch_binary("powershell"),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("pair-valid-planner"),
@@ -622,9 +623,10 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
     let picker_before = mux.get_tab(&picker_tab_id).unwrap().clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_empty_launch_command(
+        crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-orchestrator-claimed",
-        ),
+        )
+        .with_launch_binary("powershell"),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("pair-valid-planner-claimed"),
@@ -688,7 +690,10 @@ fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
         ),
     );
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_empty_launch_command("pair-empty-planner"),
+        crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
+            "pair-empty-planner",
+        )
+        .with_launch_binary("powershell"),
     ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();

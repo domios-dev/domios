@@ -144,6 +144,7 @@ impl ServiceFixture {
             worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(1)),
             prompt_detector: Arc::new(Mutex::new(crate::agent::prompt::PromptDetector::new())),
             pty_ownership: Default::default(),
+            provider_tree_witnesses: Arc::new(Default::default()),
             agent_run_pty_map: Arc::new(Mutex::new(HashMap::new())),
             run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
             remote_workers: Arc::new(crate::service::remote_workers::RemoteWorkerRegistry::new()),
@@ -182,6 +183,7 @@ impl ServiceFixture {
             )),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+            output_stream_activity: super::output_stream_activity::channel(),
             session_persist_pending: Arc::new(AtomicBool::new(false)),
             services_store,
             tokens: Arc::new(crate::service::tokens::TokenStore::new_with_root(

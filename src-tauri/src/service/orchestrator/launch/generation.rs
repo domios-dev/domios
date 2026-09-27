@@ -56,7 +56,7 @@ impl LaunchGeneration {
         })
     }
 
-    pub(super) fn emit_resume_first_turn_input_ready(&mut self, svc: &ServiceContext) -> bool {
+    pub(super) fn emit_first_turn_input_ready(&mut self, svc: &ServiceContext) -> bool {
         self.transition(BootStage::AgentReady);
         self.commit_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::AgentReady, None);

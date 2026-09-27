@@ -809,6 +809,23 @@ impl ServiceContext {
                 None => t,
             })
         };
+        crate::service::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            crate::service::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: params.model.clone(),
+                reasoning_effort: params.reasoning_effort.clone(),
+                args: params.args.clone(),
+                agent_name: params.agent_name.clone(),
+                task: params.task.as_deref(),
+                role: params.role.as_deref(),
+                role_profile: params.role_profile.as_deref(),
+                permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
+            },
+        );
         let launch_cmd = build_or_refuse_orchestrated_launch_command(
             self,
             &tab_id,

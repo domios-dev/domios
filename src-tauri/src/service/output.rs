@@ -17,10 +17,14 @@ use crate::agent::status::TabStatus;
 mod launch_exit;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
+#[path = "output/shell_markers.rs"]
+mod shell_markers;
 #[cfg(test)]
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
+mod prompt_notifications;
+use prompt_notifications::should_notify_pending_prompt;
 
 fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
@@ -644,46 +648,6 @@ impl ServiceContext {
         }
     }
 
-    /// Feed a raw chunk into the tab's shell-integration accumulators and emit
-    /// command-lifecycle changes on the unified frontend event path (same
-    /// `emit_everywhere` channel `tab-status-changed` uses). OSC4 renders these.
-    fn process_shell_markers(
-        &self,
-        pty_id: &str,
-        tab_id: Option<&str>,
-        nonce: Option<String>,
-        data: &[u8],
-    ) {
-        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
-        if events.is_empty() {
-            return;
-        }
-        // nothing to surface to a chat view yet.
-        let Some(tab_id) = tab_id else {
-            return;
-        };
-        for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
-            {
-                if self.command_finished_proves_provider_exit(tab_id, pty_id, event) {
-                    self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                    let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
-                    self.note_provider_exit_in_surviving_shell(tab_id);
-                    if let Some(exited) = exited {
-                        self.publish_launch_exit(&exited);
-                    }
-                }
-            }
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "shell-command-changed",
-                serde_json::json!({ "tab_id": tab_id, "event": event }),
-            );
-        }
-    }
-
     /// Heuristic detection is limited to hookless, file-backed providers. A
     /// hooked provider that missed its launch deadline reads its own launch record.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
@@ -956,12 +920,20 @@ impl ServiceContext {
                 {
                     return;
                 }
-                {
+                let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        let notify =
+                            should_notify_pending_prompt(decision, tab.pending_prompt.as_ref());
                         tab.pending_prompt = Some(prompt.clone());
+                        Some(notify)
+                    } else {
+                        None
                     }
-                }
+                };
+                let Some(notify_prompt) = notify_prompt else {
+                    return;
+                };
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -971,6 +943,9 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                if notify_prompt {
+                    self.notify_pending_prompt(tab_id, prompt);
+                }
             }
             PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();

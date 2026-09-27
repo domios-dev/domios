@@ -44,6 +44,9 @@ const TASK = "task_" + "b".repeat(32);
 
   const ok = parseSend(inv(`codeterm send --tab bda "x"`), "OK (sent)", undefined);
   assert(ok.status?.ok === true && ok.status.label === "delivered", "delivered status");
+  const pending = parseSend(inv(`codeterm send --tab bda "x"`), "OK (pending)", undefined);
+  assert(pending.status?.pending === true && pending.status.label === "pending", "accepted send stays visibly pending");
+  assert(!pending.status?.ok, "pending send is never marked delivered");
   const resolved = parseSend(inv(`codeterm send --tab bda "$VAR"`), 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"', undefined);
   assert(resolved.body === "expanded ***REDACTED*** text" && resolved.bodySource === "resolved", "resolved output overrides raw source");
   const typed = parseSend(inv(`codeterm send --tab bda "$VAR"`), "OK (sent)", undefined);
