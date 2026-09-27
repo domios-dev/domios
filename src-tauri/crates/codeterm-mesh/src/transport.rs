@@ -273,6 +273,26 @@ impl PeerClient {
             .map(|t| ("Authorization".to_string(), format!("Bearer {}", t)))
     }
 
+    pub async fn auth_get_json(&self, path: &str) -> Result<serde_json::Value, String> {
+        let url = format!("{}{}", self.base_url, path);
+        let mut request = self.client.get(&url);
+        if let Some((key, value)) = self.auth_header() {
+            request = request.header(&key, &value);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| format!("Network error: {error}"))?;
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|error| format!("Bad response: {error}"))
+        } else {
+            Err(format!("HTTP error: {}", response.status()))
+        }
+    }
+
     /// Ping a peer — returns true if reachable.
     pub async fn ping(&self) -> bool {
         let url = format!("{}/api/mesh/ping", self.base_url);
