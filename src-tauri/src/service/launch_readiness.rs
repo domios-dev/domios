@@ -338,6 +338,14 @@ pub(crate) fn arm_with_origin(
     arm_inner(attempt, Some(origin));
 }
 
+pub(crate) fn attempt_is_armed(attempt: &LaunchAttempt) -> bool {
+    OBSERVATIONS
+        .armed
+        .lock()
+        .get(&attempt.tab_id)
+        .is_some_and(|observed| &observed.attempt == attempt)
+}
+
 fn arm_inner(
     attempt: LaunchAttempt,
     origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
@@ -640,11 +648,7 @@ impl ServiceContext {
         );
     }
 
-    pub(crate) fn notify_surviving_shell_restart_required(
-        &self,
-        tab_id: &str,
-        attempt_id: &str,
-    ) {
+    pub(crate) fn notify_surviving_shell_restart_required(&self, tab_id: &str, attempt_id: &str) {
         let command = recovery_command(tab_id);
         self.create_notification_ext(
             "Agent process exited".into(),

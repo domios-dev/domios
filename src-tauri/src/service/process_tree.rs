@@ -52,6 +52,9 @@ pub(crate) struct ProviderTreeWitnesses {
     observations: Mutex<HashMap<ProviderTreeKey, ProviderTreeHistory>>,
     #[cfg(test)]
     scripted: Mutex<HashMap<ProviderTreeKey, VecDeque<ProviderProcessTreeSnapshot>>>,
+    #[cfg(test)]
+    observation_senders:
+        Mutex<HashMap<ProviderTreeKey, std::sync::mpsc::Sender<ProviderTreeObservation>>>,
 }
 
 impl Default for ProviderTreeWitnesses {
@@ -60,6 +63,8 @@ impl Default for ProviderTreeWitnesses {
             observations: Mutex::new(HashMap::new()),
             #[cfg(test)]
             scripted: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            observation_senders: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -170,6 +175,15 @@ impl ProviderTreeWitnesses {
             .push_back(snapshot);
     }
 
+    #[cfg(test)]
+    pub(crate) fn report_next_observation(
+        &self,
+        key: &ProviderTreeKey,
+        sender: std::sync::mpsc::Sender<ProviderTreeObservation>,
+    ) {
+        self.observation_senders.lock().insert(key.clone(), sender);
+    }
+
     pub(crate) fn unavailable(&self, key: &ProviderTreeKey) -> ProviderTreeObservation {
         self.record(key, ProviderProcessTreeSnapshot::Unknown)
     }
@@ -210,12 +224,18 @@ impl ProviderTreeWitnesses {
                 ProviderTreeState::Unknown
             }
         };
-        ProviderTreeObservation {
+        let observation = ProviderTreeObservation {
             key: key.clone(),
             state,
             provider_seen_before,
             consecutive_absent_observations: history.consecutive_absent_observations,
+        };
+        drop(observations);
+        #[cfg(test)]
+        if let Some(sender) = self.observation_senders.lock().remove(key) {
+            let _ = sender.send(observation.clone());
         }
+        observation
     }
 
     #[cfg(test)]
@@ -632,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_witnesses_do_not_treat_first_absence_as_exit() {
+    fn provider_absent_before_first_seen_is_not_exit_evidence() {
         let witnesses = ProviderTreeWitnesses::default();
         let key = tree_key();
         let first_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
@@ -652,6 +672,23 @@ mod tests {
         assert_eq!(one_absence.state, ProviderTreeState::GoneAfterSeen);
         assert!(one_absence.proves_exit_from_finished_marker());
         assert!(one_absence.proves_exit_from_lifecycle_clear());
+    }
+
+    #[test]
+    fn live_provider_observation_is_seen_before_later_absence() {
+        let witnesses = ProviderTreeWitnesses::default();
+        let key = tree_key();
+        let live = witnesses.record(
+            &key,
+            ProviderProcessTreeSnapshot::Present(provider_process(78)),
+        );
+
+        assert_eq!(live.state(), ProviderTreeState::Present);
+        assert!(witnesses.has_seen(&key));
+
+        let absent = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
+        assert_eq!(absent.state(), ProviderTreeState::GoneAfterSeen);
+        assert_ne!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
     }
 
     #[test]
