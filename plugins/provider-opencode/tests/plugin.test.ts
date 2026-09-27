@@ -343,29 +343,61 @@ console.log("\n--- discoverModels ---\n");
 
 console.log("\n--- per-launch pad-only external directory permission ---\n");
 {
-  const unix = loadOpencodeWithHost(ocHost({ platform: () => "linux" }));
+  const unix = loadOpencodeWithHost(ocHost({
+    platform: () => "linux",
+    shell: { quoteFor: (value: unknown) => `'${String(value)}'`, quote: (value: unknown) => `'${String(value)}'` },
+    fs: { writeTempFile: () => "/tmp/context.md" },
+  }));
   const fresh = unix.buildLaunchCommand({});
   const restored = unix.buildResumeCommand("ses_restore");
   const resumed = unix.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
   for (const [name, command] of [["fresh", fresh], ["restore", restored], ["resume", resumed]] as const) {
     assert(command.includes('"*":"ask"'), `${name} keeps unmatched external paths at ask`);
     assert(command.includes("CODETERM_PAD_DIR"), `${name} derives the grant from the tab launch environment`);
+    assert(command.includes('if [ -n "$ct_pad_dir" ]'), `${name} grants nothing when the pad environment value is empty`);
     assert(command.includes('\\"$ct_pad_dir/*\\":\\"allow\\"'), `${name} allows only the normalized pad subtree`);
     assert(command.includes("unset OPENCODE_CONFIG_CONTENT"), `${name} clears the per-launch config after OpenCode exits`);
     assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `${name} does not write a global config path`);
   }
   assert(fresh.includes("tr '\\\\' '/'") && fresh.includes("sed 's/\"/\\\\\\\"/g'"), "Unix launch normalizes Windows separators and JSON-quotes the pad path");
 
-  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` } }));
+  const posixConfig = (command: string) => {
+    const prefix = command.match(/OPENCODE_CONFIG_CONTENT='([^']*)';/);
+    const suffix = command.match(/\$\(printf '%s' '([^']*)'\); export OPENCODE_CONFIG_CONTENT/);
+    assert(!!prefix && !!suffix, "POSIX inline config has safely quoted JSON prefix and suffix");
+    return JSON.parse(`${prefix?.[1]},"/runtime/pads/tab-1/*":"allow"${suffix?.[1]}`) as { permission: { external_directory: Record<string, string> }; instructions?: string[] };
+  };
+  const parsedFresh = posixConfig(fresh);
+  eq(parsedFresh.permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX fresh config grants only the tab pad and asks for all other paths");
+  eq(posixConfig(restored).permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX restore config grants only the tab pad and asks for all other paths");
+  const parsedResume = posixConfig(resumed);
+  eq(parsedResume.instructions, [".codeterm/context.md"], "POSIX resume config retains its instruction path");
+  assert(resumed.includes("cp -- '/tmp/context.md' '.codeterm/context.md' && opencode --session 'ses_resume'"), "POSIX resume executes opencode after staging instructions");
+  assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
+  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md" } }));
   const windowsFresh = windows.buildLaunchCommand({});
   const windowsRestore = windows.buildResumeCommand("ses_restore");
-  const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume" });
+  const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore], ["resume", windowsResume]] as const) {
     assert(command.includes("$env:CODETERM_PAD_DIR -replace"), `Windows ${name} normalizes its tab pad path`);
     assert(command.includes("$ct_pad.TrimEnd('/') + '/*'"), `Windows ${name} grants exactly the pad subtree`);
+    assert(command.includes("$ct_pad_native + '\\*'"), `Windows ${name} grants the native path.join pattern too`);
+    assert(command.includes("if ($ct_pad_native)"), `Windows ${name} grants nothing when the pad environment value is empty`);
     assert(command.includes('"*":"ask"'), `Windows ${name} keeps other external paths at ask`);
     assert(command.includes("Remove-Item Env:OPENCODE_CONFIG_CONTENT"), `Windows ${name} clears the per-launch config after OpenCode exits`);
     assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `Windows ${name} does not write a global config path`);
+  }
+  const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+  assert(!!windowsConfigText, "Windows resume embeds a quoted inline config");
+  const parsedWindows = JSON.parse(windowsConfigText || "{}") as { permission: { external_directory: Record<string, string> }; instructions?: string[] };
+  eq(parsedWindows.permission.external_directory, { "*": "ask" }, "Windows base config keeps unmatched paths at ask before adding the pad patterns");
+  eq(parsedWindows.instructions, [".codeterm/context.md"], "Windows resume config retains its instruction path");
+  assert(windowsResume.includes("Copy-Item -LiteralPath 'C:\\Temp\\context.md' -Destination '.codeterm/context.md' -Force; opencode"), "Windows resume executes opencode after staging instructions");
+  for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
+    const embedded = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+    assert(!!embedded, `Windows ${name} embeds a quoted config`);
+    eq(JSON.parse(embedded || "{}").permission.external_directory, { "*": "ask" }, `Windows ${name} base config is valid JSON with unmatched paths asking`);
+    assert(command.includes("try { opencode"), `Windows ${name} executes opencode outside any copy command`);
   }
 }
 
@@ -430,7 +462,8 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
     "resume stops if it cannot enter the saved project directory before staging configuration",
   );
   assert(
-    configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item") &&
+      configured.includes("Copy-Item -LiteralPath Q(windows:C:\\Temp\\restored-context.md) -Destination Q(windows:.codeterm/restored-context.md) -Force; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
     "session-config wrapper preserves the explicit full-TUI resume argv",
   );
   assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
@@ -458,7 +491,7 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
   assert(launch.includes("Copy-Item -LiteralPath 'C:\\Temp\\opencode task.md'"), "OpenCode copies the host task into its workspace");
   assert(launch.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode config references only the workspace-local task file");
-  assert(launch.includes("finally { Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes the workspace-local task file on exit");
+  assert(launch.includes("finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes its inline config and workspace-local task file on exit");
   assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
   assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
