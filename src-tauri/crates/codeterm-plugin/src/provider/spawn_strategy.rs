@@ -7,6 +7,56 @@ use serde::{Deserialize, Serialize};
 
 use super::StructuredPromptServer;
 
+/// Provider-declared differences between a sent payload and its stored user turn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct TurnEvidenceNormalization {
+    pub unwrap_pasted_content_wrapper: bool,
+    pub collapse_horizontal_whitespace: bool,
+    pub drop_supplementary_characters: bool,
+}
+
+impl TurnEvidenceNormalization {
+    pub fn normalize(self, text: &str) -> String {
+        let text = text.trim();
+        let text = if self.unwrap_pasted_content_wrapper {
+            unwrap_pasted_content_wrapper(text).unwrap_or(text)
+        } else {
+            text
+        };
+        let mut normalized = String::with_capacity(text.len());
+        let mut horizontal_whitespace = false;
+        for character in text.chars() {
+            if self.drop_supplementary_characters && character as u32 > 0xFFFF {
+                continue;
+            }
+            if self.collapse_horizontal_whitespace && matches!(character, ' ' | '\t') {
+                if !horizontal_whitespace {
+                    normalized.push(' ');
+                }
+                horizontal_whitespace = true;
+            } else {
+                normalized.push(character);
+                horizontal_whitespace = false;
+            }
+        }
+        normalized.trim().to_string()
+    }
+}
+
+fn unwrap_pasted_content_wrapper(text: &str) -> Option<&str> {
+    let (opening, content) = text.split_once('\n')?;
+    let opening = opening.trim_end_matches('\r');
+    let id = opening
+        .strip_prefix("<pasted_content id=\"")?
+        .strip_suffix("\">")?;
+    if id.is_empty() {
+        return None;
+    }
+    let closing = format!("</pasted_content id=\"{id}\">");
+    content.strip_suffix(&closing).map(str::trim)
+}
+
 /// How to wait for agent readiness after PTY spawn.
 #[derive(Debug, Clone)]
 pub enum ReadinessStrategy {

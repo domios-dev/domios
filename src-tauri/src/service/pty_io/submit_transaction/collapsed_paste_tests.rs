@@ -3,6 +3,8 @@
 //! ORACLE: recorded writes expose both a missed submit key and a draft that never left.
 use super::tests::{opts, tui};
 use super::*;
+use crate::agent::provider::TurnEvidenceNormalization;
+use crate::service::chat_send_transaction::normalize_turn_evidence_with;
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
@@ -24,6 +26,7 @@ struct ScreenBackedComposer {
     generation: Cell<u64>,
     turn: Cell<bool>,
     exact_session_turn: Cell<bool>,
+    stored_exact_turn: RefCell<Option<(String, TurnEvidenceNormalization)>>,
     turn_after_wait: Cell<bool>,
     writes: RefCell<Vec<String>>,
 }
@@ -43,6 +46,7 @@ impl ScreenBackedComposer {
             generation: Cell::new(0),
             turn: Cell::new(false),
             exact_session_turn: Cell::new(false),
+            stored_exact_turn: RefCell::new(None),
             turn_after_wait: Cell::new(false),
             writes: RefCell::new(Vec::new()),
         }
@@ -62,6 +66,10 @@ impl ScreenBackedComposer {
             .iter()
             .filter(|write| write.starts_with("paste:"))
             .count()
+    }
+
+    fn set_stored_exact_turn(&self, turn: &str, normalization: TurnEvidenceNormalization) {
+        *self.stored_exact_turn.borrow_mut() = Some((turn.to_string(), normalization));
     }
 }
 
@@ -102,8 +110,17 @@ impl SubmitTransport for ScreenBackedComposer {
         true
     }
 
-    fn exact_user_turn_present(&self, _text: &str) -> bool {
-        self.exact_session_turn.get()
+    fn exact_user_turn_present(&self, text: &str) -> bool {
+        if !self.exact_session_turn.get() {
+            return false;
+        }
+        self.stored_exact_turn
+            .borrow()
+            .as_ref()
+            .is_none_or(|(stored, normalization)| {
+                normalize_turn_evidence_with(text, *normalization)
+                    == normalize_turn_evidence_with(stored, *normalization)
+            })
     }
 
     fn wait_retry_deadline_for_turn(&self, _deadline: Instant, _text: &str) -> bool {
@@ -157,7 +174,11 @@ fn collapsed_paste_frame_releases_the_submit_key_exactly_once() {
     assert!(result.echo_observed);
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1);
-    assert_eq!(io.enters(), 1, "turn evidence stops the remaining key schedule");
+    assert_eq!(
+        io.enters(),
+        1,
+        "turn evidence stops the remaining key schedule"
+    );
 }
 
 #[test]
@@ -173,7 +194,60 @@ fn codex_collapsed_pasted_content_is_submitted_without_rewriting_payload() {
 
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1, "the payload is written at most once");
-    assert_eq!(io.enters(), 1, "no recovery key follows exact turn evidence");
+    assert_eq!(
+        io.enters(),
+        1,
+        "no recovery key follows exact turn evidence"
+    );
+}
+
+#[test]
+fn claude_wrapped_multiline_turn_with_tabs_stops_the_key_schedule() {
+    let io = ScreenBackedComposer::new(
+        EMPTY_BORDERED_COMPOSER,
+        "› [Pasted text #8 +3 lines]",
+        EMPTY_BORDERED_COMPOSER,
+        true,
+    );
+    io.set_stored_exact_turn(
+        "<pasted_content id=\"8\">\nname       value\n        alpha    beta\nlast\n</pasted_content id=\"8\">",
+        TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
+        },
+    );
+    let payload = "name\tvalue\n\talpha\tbeta\nlast";
+    let result = run(&io, payload, true, tui(), opts())
+        .expect("the normalized exact Claude transcript turn confirms submission");
+
+    assert!(result.submit_observed);
+    assert_eq!(io.pastes(), 1);
+    assert_eq!(io.enters(), 1);
+}
+
+#[test]
+fn codex_astral_characters_dropped_from_turn_still_stop_the_key_schedule() {
+    let io = ScreenBackedComposer::new(
+        EMPTY_BORDERED_COMPOSER,
+        CODEX_COLLAPSED_PASTE_FRAME,
+        EMPTY_BORDERED_COMPOSER,
+        true,
+    );
+    io.set_stored_exact_turn(
+        "inspect  logs\nrepair  pipeline\n✅ BMP survives ",
+        TurnEvidenceNormalization {
+            drop_supplementary_characters: true,
+            ..Default::default()
+        },
+    );
+    let payload = "inspect 🚀 logs\nrepair 🧪 pipeline\n✅ BMP survives 🔥";
+    let result = run(&io, payload, true, tui(), opts())
+        .expect("Codex's provider-normalized exact turn confirms submission");
+
+    assert!(result.submit_observed);
+    assert_eq!(io.pastes(), 1);
+    assert_eq!(io.enters(), 1);
 }
 
 #[test]
@@ -190,7 +264,11 @@ fn submit_stops_on_provider_turn_evidence() {
 
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1);
-    assert_eq!(io.enters(), 1, "the wait wakeup suppresses later Enter keys");
+    assert_eq!(
+        io.enters(),
+        1,
+        "the wait wakeup suppresses later Enter keys"
+    );
 }
 
 #[test]
@@ -273,14 +351,8 @@ fn opencode_collapsed_paste_keeps_its_existing_single_submit_path() {
         EMPTY_BORDERED_COMPOSER,
         true,
     );
-    let result = run(
-        &io,
-        COLLAPSED_PASTE_PAYLOAD,
-        true,
-        tui(),
-        opts(),
-    )
-    .expect("OpenCode's exact structured turn evidence stops the retry schedule");
+    let result = run(&io, COLLAPSED_PASTE_PAYLOAD, true, tui(), opts())
+        .expect("OpenCode's exact structured turn evidence stops the retry schedule");
 
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1);

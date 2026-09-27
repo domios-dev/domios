@@ -22,6 +22,10 @@
       "kind": "tui_input_drained",
       "initialKeyDelayMs": 100
     },
+    "turnEvidenceNormalization": {
+      "unwrapPastedContentWrapper": true,
+      "collapseHorizontalWhitespace": true
+    },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
     "agentStateStatusReconciliation": true,
