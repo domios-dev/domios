@@ -61,6 +61,8 @@ An Orchestrator can split an approved in-progress task with
 sections, executor role, model routing, and quality fields unless the file
 overrides a field. Dispatch children individually; each receives its own lane.
 Draft-plan children remain locked behind ordinary plan approval.
+Parents with open children cannot be marked done or cancelled until every child
+is done or cancelled.
 The file is a JSON array of objects; each object uses `name` and may override
 `body`, `criteria`, `test_plan`, `sections`, `executor_role`, `personality`,
 `role_guidance`, `model`, `model_rationale`, `correctness`, `qa_plan`, or `intent`.
@@ -78,4 +80,4 @@ tab is the one caller allowed to write tasks it does not execute. A shell
 carrying a task id the daemon has moved should drop `--task` and let the daemon
 resolve its live binding.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
