@@ -8,6 +8,7 @@ mod blocked_dispatch_tests;
 mod plan_skill_evidence;
 mod session_model_replay;
 mod task_attempt_respawn_tests;
+mod unplanned_reports;
 
 pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();

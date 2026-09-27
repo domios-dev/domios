@@ -165,6 +165,12 @@ fn notify_answer_takes_exactly_one_answer_per_notification() {
         Some("Rebase".into()),
         "the stored answer is unchanged by every later attempt"
     );
+    assert_eq!(
+        store
+            .answer_slot(&id)
+            .and_then(|slot| slot.answered_via.as_deref()),
+        Some("notification")
+    );
 }
 
 /// An answer already recorded is history: closing the tab afterwards does not

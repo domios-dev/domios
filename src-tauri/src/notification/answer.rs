@@ -35,6 +35,15 @@ pub fn slot_for(
 /// surfaces render the same question, and a per-surface guard would let it take
 /// two answers.
 pub fn record(notifications: &mut [Notification], id: &str, label: &str) -> AnswerAdmission {
+    record_via(notifications, id, label, "notification")
+}
+
+pub fn record_via(
+    notifications: &mut [Notification],
+    id: &str,
+    label: &str,
+    answered_via: &str,
+) -> AnswerAdmission {
     let Some(target) = notifications.iter_mut().find(|n| n.id == id) else {
         return AnswerAdmission::NotOffered;
     };
@@ -57,6 +66,7 @@ pub fn record(notifications: &mut [Notification], id: &str, label: &str) -> Answ
         return AnswerAdmission::Undeliverable;
     }
     slot.answered = Some(label.to_string());
+    slot.answered_via = Some(answered_via.to_string());
     AnswerAdmission::Recorded(label.to_string())
 }
 
