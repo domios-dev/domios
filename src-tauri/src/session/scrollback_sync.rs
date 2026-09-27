@@ -242,6 +242,38 @@ mod tests {
     }
 
     #[test]
+    fn pending_seed_keeps_prior_sidecar_during_autosave() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        let mut state = MultiplexerState::empty();
+        let ws = state.create_workspace("ws".to_string(), None);
+        let tab_id = state.create_tab(&ws.id).unwrap();
+        state.link_pty(&tab_id, "pty-pending-seed".to_string());
+        let prior = b"restored history survives a deferred seed";
+        store
+            .save_scrollback_tail(&tab_id, prior, DEFAULT_SCROLLBACK_TAIL_BYTES)
+            .unwrap();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(prior.to_vec()));
+
+        let mut buf = OutputBuffer::new(65536);
+        buf.append("pty-pending-seed", b"fresh shell banner");
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", state));
+        let output_buf: OutputBufferState = Arc::new(TimedMutex::new("output_buf", buf));
+        let session: SessionState = Arc::new(Mutex::new(store));
+
+        let report = sync_scrollback_sidecars_with(&mux, &output_buf, &session);
+
+        assert!(report.written.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![(tab_id.clone(), "scrollback_seed_pending".into())]
+        );
+        assert_eq!(session.lock().load_scrollback_tail(&tab_id).unwrap(), prior);
+    }
+
+    #[test]
     fn scrollback_sync_removes_sidecar_of_closed_tab() {
         let dir = tempfile::tempdir().unwrap();
         let store = SessionStore::for_test_dir(dir.path().to_path_buf());
@@ -275,5 +307,4 @@ mod tests {
             "closing the tab removes the sidecar at the next snapshot"
         );
     }
-
 }

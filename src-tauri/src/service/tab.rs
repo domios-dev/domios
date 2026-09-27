@@ -32,6 +32,7 @@ pub(crate) fn normalize_optional_tab_description(
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 mod rename_guard;
+mod scrollback;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
 
@@ -443,6 +444,7 @@ impl ServiceContext {
             launch_owned,
             |candidate| self.pty.lock().get_session(candidate).is_some(),
             |selected| {
+                self.seed_pending_scrollback_before_link(tab_id, selected);
                 let mut mux = self.mux.write();
                 if mux.get_tab(tab_id).is_none() {
                     crate::service::pty_ownership::LinkOutcome::TabMissing

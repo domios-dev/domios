@@ -226,3 +226,42 @@ mod restored_fresh_launch_tests {
         assert_eq!(registered_launch_marker("tab-restored-resume"), None);
     }
 }
+
+mod restored_scrollback_tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+    async fn frontend_first_spawn_seeds_history_before_reader_start() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tail = b"restored frontend spawn history\r\n";
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(tail.to_vec()));
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        let pty_id = crate::commands::pty::spawn_pty_core(
+            &service,
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend spawn should materialize the restored PTY");
+
+        let buffer = service.output_buf.lock();
+        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert_eq!(
+            buffer.read_since(&pty_id, 0).0.get(..tail.len()),
+            Some(tail.as_slice())
+        );
+        drop(buffer);
+        service.kill_ptys(&[pty_id]);
+    }
+}

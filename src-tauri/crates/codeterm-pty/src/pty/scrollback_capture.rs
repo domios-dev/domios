@@ -46,6 +46,10 @@ pub fn capture_scrollback_tails(
                 continue;
             }
             live.insert(tab.id.clone());
+            if tab.scrollback_seed_pending {
+                skipped.push((tab.id.clone(), "scrollback_seed_pending"));
+                continue;
+            }
             if let Some(pty_id) = &tab.pty_id {
                 plan.push((tab.id.clone(), pty_id.clone()));
             } else {
@@ -193,10 +197,7 @@ mod tests {
             capture.live_tab_ids.contains(&tab_id),
             "a restored tab awaiting respawn keeps its sidecar"
         );
-        assert_eq!(
-            capture.skipped_tabs,
-            vec![(tab_id, "pty_not_materialized")]
-        );
+        assert_eq!(capture.skipped_tabs, vec![(tab_id, "pty_not_materialized")]);
     }
 
     #[test]
