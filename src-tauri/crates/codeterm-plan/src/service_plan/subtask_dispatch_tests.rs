@@ -52,7 +52,7 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
             4,
         )
         .unwrap();
-    let child_id = store
+    let child_ids = store
         .add_child_tasks_atomic(
             &plan.id,
             &parent_id,
@@ -62,8 +62,9 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
             }],
             5,
         )
-        .unwrap()
-        .remove(0);
+        .unwrap();
+    assert_eq!(child_ids.len(), 1);
+    let child_id = child_ids.into_iter().next().expect("split child");
     (root, store, plan.id, parent_id, child_id, parent_attempt_id)
 }
 
