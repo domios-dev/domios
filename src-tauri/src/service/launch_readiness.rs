@@ -335,6 +335,10 @@ fn route_pre_ready_exit(
     }
 }
 
+fn recovery_failure_needs_notification(reason: Option<&str>) -> bool {
+    !reason.is_some_and(|reason| reason.starts_with(EXITED_BEFORE_READINESS))
+}
+
 pub(crate) fn arm_with_origin(
     attempt: LaunchAttempt,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
@@ -638,11 +642,27 @@ impl ServiceContext {
                             outcome.agent_ready,
                             outcome.recovered_in_place,
                         ),
-                        Err(error) => log::error!(
-                            "[launch-recovery] attempt=failed tab={} launch={} error={error:?}",
-                            recovery_tab_id,
-                            recovery_attempt_id,
-                        ),
+                        Err(error) => {
+                            let reason = match &error {
+                                crate::service::agent_restart::RestartAttemptError::Request(_) => {
+                                    None
+                                }
+                                crate::service::agent_restart::RestartAttemptError::Failed {
+                                    reason,
+                                    ..
+                                } => Some(reason.as_str()),
+                            };
+                            svc.notify_recovery_failure_if_needed(
+                                &recovery_tab_id,
+                                &recovery_attempt_id,
+                                reason,
+                            );
+                            log::error!(
+                                "[launch-recovery] attempt=failed tab={} launch={} error={error:?}",
+                                recovery_tab_id,
+                                recovery_attempt_id,
+                            );
+                        }
                     }
                 });
             },
@@ -650,6 +670,17 @@ impl ServiceContext {
                 self.notify_pre_ready_recovery_stopped(&tab_id, &attempt_id);
             },
         );
+    }
+
+    fn notify_recovery_failure_if_needed(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        reason: Option<&str>,
+    ) {
+        if recovery_failure_needs_notification(reason) {
+            self.notify_pre_ready_recovery_stopped(tab_id, attempt_id);
+        }
     }
 
     pub(crate) fn notify_surviving_shell_restart_required(&self, tab_id: &str, attempt_id: &str) {
@@ -681,7 +712,7 @@ impl ServiceContext {
         self.create_notification_ext(
             "Agent recovery stopped".into(),
             Some(format!(
-                "Automatic resume exited before readiness. The shell is available; recover this Tab with `{command}`."
+                "Automatic resume did not reach readiness. The shell is available; recover this Tab with `{command}`."
             )),
             Some("warning"),
             None,
