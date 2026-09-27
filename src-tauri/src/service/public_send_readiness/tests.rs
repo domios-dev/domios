@@ -445,14 +445,10 @@ fn opencode_capability_holds_public_send_until_startup_turn_idle() {
     );
     service.bind_public_send_launch_attempt(attempt, key);
     observe_session_binding(&service, &tab_id, "launch-session", "launch-nonce");
-    std::fs::write(
-        &transcript,
-        format!(
-            "{}\n",
-            serde_json::json!({"role":"user", "content":STARTER})
-        ),
-    )
-    .unwrap();
+    observe_bootstrap_turn_idle(&service, &tab_id, "session.idle", "launch-session");
+    assert!(service
+        .await_public_send_readiness(&tab_id, Duration::ZERO)
+        .is_err());
     assert!(note_bootstrap_turn(
         &service.mux,
         &tab_id,
