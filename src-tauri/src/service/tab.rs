@@ -3,9 +3,16 @@
 use super::ServiceContext;
 use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
-use crate::service::session_model::{clear_runtime_model_evidence, spawn_startup_model_refresh};
+use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "tab/lifecycle_exit.rs"]
+mod lifecycle_exit;
+#[cfg(test)]
+#[path = "tab/tests.rs"]
+mod tests;
+pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 pub(crate) const TAB_TITLE_ERROR: &str =
@@ -63,142 +70,11 @@ pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> 
     }
 }
 
-pub(crate) fn clear_agent_identity_for_lifecycle_exit(
-    tab: &mut crate::multiplexer::types::Tab,
-) -> bool {
-    if let (Some(provider_id), Some(session_id)) =
-        (tab.agent_type.as_deref(), tab.agent_session_id.as_deref())
-    {
-        crate::service::integration_silence::clear_hook_binding_fallback_session(
-            provider_id,
-            session_id,
-        );
-    }
-    let has_identity = tab.agent_type.is_some()
-        || tab.agent_type_locked
-        || tab.agent_session_id.is_some()
-        || tab.agent_session_name.is_some()
-        || tab.session_binding_nonce.is_some()
-        || tab.reported_session_binding_nonce.is_some()
-        || tab.agent_state.is_some()
-        || tab.pending_prompt.is_some();
-    if !has_identity {
-        return false;
-    }
-    tab.agent_type = None;
-    tab.agent_type_locked = false;
-    tab.agent_set_at = None;
-    tab.agent_booting = false;
-    // Tag the retiring nonce with its still-current session BEFORE clearing it,
-    // so a resumed session can prove same-session lineage after relaunch.
-    tab.remember_superseded_binding_nonce();
-    tab.agent_session_id = None;
-    tab.agent_session_name = None;
-    tab.session_binding_nonce = None;
-    tab.reported_session_binding_nonce = None;
-    tab.agent_state = None;
-    tab.pending_prompt = None;
-    tab.exit_suspected_at = None;
-    // Provider and model are one identity: a tab must never keep a model label
-    // for a provider it no longer has.
-    clear_runtime_model_evidence(tab);
-    crate::service::boot_stage::apply_boot_stage(
-        tab,
-        codeterm_types::pty::BootStage::ShellReady,
-        None,
-    );
-    true
-}
-
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
-}
-
-impl ServiceContext {
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit(&self, tab_id: &str) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-            tab_id,
-            "agent identity cleared on lifecycle exit",
-        )
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-        &self,
-        tab_id: &str,
-        cause: &str,
-    ) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_during(
-            tab_id,
-            cause,
-            crate::crash::shutdown::active_shutdown(),
-        )
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
-        &self,
-        tab_id: &str,
-        cause: &str,
-        shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
-    ) -> bool {
-        if !self.lifecycle_clear_allowed(tab_id, cause, shutdown.as_ref()) {
-            return false;
-        }
-        let exited = self.claim_launch_exit(tab_id, None, None);
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .is_some_and(clear_agent_identity_for_lifecycle_exit)
-        };
-        if let Some(exited) = exited {
-            self.publish_launch_exit(&exited);
-        }
-        self.finish_agent_identity_clear(tab_id, cause, cleared)
-    }
-
-    pub(crate) fn clear_tab_restored_identity_if_absent(&self, tab_id: &str, cause: &str) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(tab_id, cause)
-    }
-
-    fn lifecycle_clear_allowed(
-        &self,
-        tab_id: &str,
-        cause: &str,
-        shutdown: Option<&crate::crash::lifecycle::ShutdownReason>,
-    ) -> bool {
-        if let Some(reason) = shutdown {
-            log::info!(
-                "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
-            );
-            return false;
-        }
-        true
-    }
-
-    fn finish_agent_identity_clear(&self, tab_id: &str, cause: &str, cleared: bool) -> bool {
-        if !cleared {
-            return false;
-        }
-        self.record_lifecycle_end(
-            tab_id,
-            crate::session::lifecycle::LifecycleTransition::RolledBack {
-                reason: cause.to_string(),
-            },
-        );
-        self.invalidate_guarded_agent_input(tab_id);
-        log::info!("[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause}");
-        self.signal_worker_interruption(
-            tab_id,
-            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-        );
-        self.clear_dead_planner_binding(tab_id);
-        self.prompt_detector.lock().clear(tab_id);
-        crate::service::structured_prompt::clear_tab(tab_id);
-        self.emit_state_changed();
-        true
-    }
 }
 
 impl ServiceContext {

@@ -505,7 +505,10 @@ impl ServiceContext {
         );
         self.screen_state.lock().remove(&snap.pty_id);
         crate::service::stream_preview::remove(&snap.pty_id);
-        self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
+        self.clear_tab_agent_identity_after_confirmed_exit(
+            &snap.tab_id,
+            "agent restart reaped the previous PTY",
+        );
         {
             let mut mux = self.mux.write();
             let tab = mux

@@ -5,6 +5,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::types::Tab;
+use crate::service::process_tree::ProviderTreeObservation;
 use codeterm_types::pty::BootStage;
 use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
@@ -56,8 +57,6 @@ impl LaunchAttempt {
 pub(crate) enum LaunchEvidence {
     /// The agent named itself on this launch: a nonce-verified session binding.
     Acknowledged,
-    /// The launch command finished before readiness, carrying its exit code.
-    ProcessExited { exit_code: Option<i32> },
     /// The observer gave up, carrying the provisional stage and the evidence
     /// that made it give up. Uncertainty about this attempt, never a verdict.
     Unobserved { stage: BootStage, reason: String },
@@ -93,6 +92,130 @@ pub(crate) struct LaunchExitFailure {
     attempt: LaunchAttempt,
     exit_code: Option<i32>,
     reason: String,
+    source: LaunchExitSource,
+    tree_evidence: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LaunchExitSource {
+    FinishedMarker,
+    LifecycleClear,
+    ConfirmedPtyExit,
+}
+
+impl LaunchExitSource {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::FinishedMarker => "finished-marker",
+            Self::LifecycleClear => "lifecycle-clear",
+            Self::ConfirmedPtyExit => "pty-exit",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LaunchExitProof {
+    attempt: LaunchAttempt,
+    source: LaunchExitSource,
+    tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
+    tree_evidence: String,
+}
+
+impl LaunchExitProof {
+    pub(crate) fn from_finished_marker(
+        attempt: &LaunchAttempt,
+        observation: &ProviderTreeObservation,
+        exit_code: Option<i32>,
+        command_line: Option<&str>,
+        may_have_named_process: Option<bool>,
+    ) -> Option<Self> {
+        let finished_command = exit_code.is_some()
+            && command_line.is_some_and(|command_line| !command_line.trim().is_empty());
+        let tree_evidence = match observation.state() {
+            crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+                if exit_code.is_some_and(|code| code != 0) || finished_command =>
+            {
+                format!(
+                    "{}+shell_exit_code={}{}",
+                    observation.evidence(),
+                    exit_code?,
+                    if command_line.is_some_and(|line| !line.trim().is_empty()) {
+                        "+shell_command_line_present"
+                    } else {
+                        ""
+                    }
+                )
+            }
+            crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+                if observation.has_distinct_absence_observations()
+                    && may_have_named_process == Some(false) =>
+            {
+                format!(
+                    "{}+distinct_absence_observations+may_have_named_process_absent",
+                    observation.evidence()
+                )
+            }
+            _ if observation.proves_exit_from_finished_marker() => observation.evidence().into(),
+            _ => return None,
+        };
+        if !observation_matches_attempt(observation, attempt) {
+            return None;
+        }
+        Some(Self {
+            attempt: attempt.clone(),
+            source: LaunchExitSource::FinishedMarker,
+            tree_key: Some(observation.key().clone()),
+            tree_evidence: format!("finished-marker+{tree_evidence}"),
+        })
+    }
+
+    pub(crate) fn from_lifecycle_clear(
+        attempt: &LaunchAttempt,
+        observation: &ProviderTreeObservation,
+    ) -> Option<Self> {
+        (observation.proves_exit_from_lifecycle_clear()
+            && observation_matches_attempt(observation, attempt))
+        .then(|| Self {
+            attempt: attempt.clone(),
+            source: LaunchExitSource::LifecycleClear,
+            tree_key: Some(observation.key().clone()),
+            tree_evidence: observation.evidence().to_string(),
+        })
+    }
+
+    pub(crate) fn from_confirmed_pty_exit(attempt: &LaunchAttempt, evidence: &str) -> Self {
+        Self {
+            attempt: attempt.clone(),
+            source: LaunchExitSource::ConfirmedPtyExit,
+            tree_key: None,
+            tree_evidence: evidence.to_string(),
+        }
+    }
+
+    pub(crate) fn attempt(&self) -> &LaunchAttempt {
+        &self.attempt
+    }
+
+    pub(crate) fn source_label(&self) -> &'static str {
+        self.source.label()
+    }
+
+    pub(crate) fn tree_key(&self) -> Option<&crate::service::process_tree::ProviderTreeKey> {
+        self.tree_key.as_ref()
+    }
+
+    pub(crate) fn tree_evidence(&self) -> &str {
+        &self.tree_evidence
+    }
+}
+
+fn observation_matches_attempt(
+    observation: &ProviderTreeObservation,
+    attempt: &LaunchAttempt,
+) -> bool {
+    observation.key().tab_id == attempt.tab_id
+        && observation.key().pty_id == attempt.pty_id
+        && observation.key().binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
 }
 
 /// The result of waiting on one armed observation.
@@ -133,9 +256,7 @@ pub(crate) fn exited_before_readiness_reason(
     )
 }
 
-/// The whole classification, as a pure rule over the tab's own record. A live
-/// agent's own binding proof still outranks this failure — `honest_boot_stage`
-/// owns that rule and applies it when the stage is recorded.
+/// Classify readiness evidence that does not itself prove a provider exit.
 pub(crate) fn settle_evidence(
     tab: &Tab,
     attempt: &LaunchAttempt,
@@ -146,14 +267,25 @@ pub(crate) fn settle_evidence(
     }
     match evidence {
         LaunchEvidence::Acknowledged => LaunchSettlement::Ready,
-        LaunchEvidence::ProcessExited { exit_code } => LaunchSettlement::Failed {
-            reason: exited_before_readiness_reason(attempt, exit_code),
-            exit_code,
-        },
         LaunchEvidence::Unobserved { stage, reason } => {
             debug_assert!(stage.is_provisional());
             LaunchSettlement::Provisional { stage, reason }
         }
+    }
+}
+
+fn settle_proven_exit(
+    tab: &Tab,
+    attempt: &LaunchAttempt,
+    exit_code: Option<i32>,
+    proof: &LaunchExitProof,
+) -> LaunchSettlement {
+    if proof.attempt != *attempt || !attempt_owns_tab(tab, attempt) {
+        return LaunchSettlement::Superseded;
+    }
+    LaunchSettlement::Failed {
+        reason: exited_before_readiness_reason(attempt, exit_code),
+        exit_code,
     }
 }
 
@@ -236,10 +368,12 @@ fn claim_exit(
     tab_id: &str,
     pty_id: Option<&str>,
     exit_code: Option<i32>,
-) -> Option<(LaunchAttempt, Option<i32>)> {
+    proof: &LaunchExitProof,
+) -> Option<(LaunchAttempt, Option<i32>, LaunchExitProof)> {
     let mut armed = OBSERVATIONS.armed.lock();
     let observed = armed.get_mut(tab_id)?;
-    if pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
+    if proof.attempt != observed.attempt
+        || pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
         || observed.exit_claimed
         || observed.failure.is_some()
         || matches!(observed.evidence, Some(LaunchEvidence::Acknowledged))
@@ -247,11 +381,7 @@ fn claim_exit(
         return None;
     }
     observed.exit_claimed = true;
-    let exit_code = match observed.evidence.take() {
-        Some(LaunchEvidence::ProcessExited { exit_code }) => exit_code,
-        _ => exit_code,
-    };
-    Some((observed.attempt.clone(), exit_code))
+    Some((observed.attempt.clone(), exit_code, proof.clone()))
 }
 
 /// Mark this attempt's verdict as published.
@@ -343,11 +473,11 @@ impl ServiceContext {
                 stage => self.record_provisional_launch(attempt, *stage, reason),
             },
             LaunchSettlement::Failed { reason, exit_code } => {
-                self.publish_launch_exit(&LaunchExitFailure {
-                    attempt: attempt.clone(),
-                    exit_code: *exit_code,
-                    reason: reason.clone(),
-                });
+                log::error!(
+                    "[launch-readiness] refused unproved exit settlement: tab={} attempt={} verdict_source=readiness-evidence tree_evidence=missing reason={reason} exit_code={exit_code:?}",
+                    attempt.tab_id,
+                    attempt.pty_id
+                );
             }
         }
         settlement
@@ -363,27 +493,34 @@ impl ServiceContext {
         tab_id: &str,
         pty_id: Option<&str>,
         exit_code: Option<i32>,
+        proof: &LaunchExitProof,
     ) -> Option<LaunchExitFailure> {
-        let (attempt, exit_code) = claim_exit(tab_id, pty_id, exit_code)?;
-        self.launch_exit_verdict(&attempt, exit_code)
+        let (attempt, exit_code, proof) = claim_exit(tab_id, pty_id, exit_code, proof)?;
+        self.launch_exit_verdict(&attempt, exit_code, &proof)
     }
 
     fn launch_exit_verdict(
         &self,
         attempt: &LaunchAttempt,
         exit_code: Option<i32>,
+        proof: &LaunchExitProof,
     ) -> Option<LaunchExitFailure> {
+        if proof.attempt != *attempt {
+            return None;
+        }
         let mux = self.mux.read();
         let tab = mux.get_tab(&attempt.tab_id)?;
         // A live agent that proved this launch outranks one exit observer.
         if tab.launch_session_authenticated() {
             return None;
         }
-        match settle_evidence(tab, attempt, LaunchEvidence::ProcessExited { exit_code }) {
+        match settle_proven_exit(tab, attempt, exit_code, proof) {
             LaunchSettlement::Failed { reason, exit_code } => Some(LaunchExitFailure {
                 attempt: attempt.clone(),
                 exit_code,
                 reason,
+                source: proof.source,
+                tree_evidence: proof.tree_evidence.clone(),
             }),
             _ => None,
         }
@@ -393,7 +530,13 @@ impl ServiceContext {
     /// decided while the launch it names was still the tab's own.
     pub(crate) fn publish_launch_exit(&self, failure: &LaunchExitFailure) {
         record_published_failure(&failure.attempt, &failure.reason);
-        self.emit_launch_readiness_failure(&failure.attempt, &failure.reason, failure.exit_code);
+        self.emit_launch_readiness_failure(
+            &failure.attempt,
+            &failure.reason,
+            failure.exit_code,
+            failure.source.label(),
+            &failure.tree_evidence,
+        );
     }
 
     /// The structured launch failure: identity and exit code, never terminal
@@ -403,9 +546,11 @@ impl ServiceContext {
         attempt: &LaunchAttempt,
         reason: &str,
         exit_code: Option<i32>,
+        verdict_source: &str,
+        tree_evidence: &str,
     ) {
         log::error!(
-            "[launch-readiness] Tab {} launch failed on PTY {}: {reason}",
+            "[launch-readiness] Tab {} launch failed on PTY {} verdict_source={verdict_source} tree_evidence={tree_evidence}: {reason}",
             attempt.tab_id,
             attempt.pty_id
         );
