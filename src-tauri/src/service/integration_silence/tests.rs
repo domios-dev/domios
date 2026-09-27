@@ -148,6 +148,24 @@ fn binding_fallback_field_survives_non_binding_hooks() {
         .is_none());
 }
 
+#[test]
+fn codex_integration_status_reports_trust_verification_source() {
+    let status = integration_status_with_fallback_source(
+        json!({
+            "hook_trust_verification_source": "hash_verified",
+            "hook_trust_verified_current": true,
+            "proposed_changes": ["SessionStart hook", "Stop hook"],
+        }),
+        false,
+        None,
+    );
+    assert_eq!(status["hook_trust_verification_source"], "hash_verified");
+    assert_eq!(status["hook_trust_verified_current"], true);
+    assert!(!status["proposed_changes"]
+        .as_array()
+        .is_some_and(|changes| changes.iter().any(|change| change == "hook trust")));
+}
+
 /// A provider that is neither claude nor codex, so nothing the mechanism does
 /// can be keyed on a shipped provider id.
 struct FixtureProvider {

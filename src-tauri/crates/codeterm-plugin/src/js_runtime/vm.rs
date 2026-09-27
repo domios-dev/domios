@@ -502,7 +502,6 @@ impl Drop for PluginVm {
         // keyed the jobs by when the plugin started them.
         super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
         super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
-        super::host_api::release_plugin_file_locks(self.sandbox.plugin_id());
     }
 }
 
@@ -553,7 +552,7 @@ fn call_json_mode<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     strict: bool,
 ) -> Result<R, VmError> {
-    let _file_lock_cleanup = PluginFileLockCleanup(vm.sandbox.plugin_id());
+    let _file_lock_scope = super::host_api::FileLockCallScope::new();
     let started = std::time::Instant::now();
     CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).
@@ -574,14 +573,6 @@ fn call_json_mode<R: serde::de::DeserializeOwned>(
         );
     }
     result
-}
-
-struct PluginFileLockCleanup<'a>(&'a str);
-
-impl Drop for PluginFileLockCleanup<'_> {
-    fn drop(&mut self) {
-        super::host_api::release_plugin_file_locks(self.0);
-    }
 }
 
 /// A method that returned `host.awaitJob(job, then)` instead of a value. Matched by

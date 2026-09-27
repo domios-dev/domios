@@ -87,15 +87,33 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   const initial = plugin.checkIntegration();
   assert.equal(calls(), 0, "status polling never starts codex app-server");
   assert.equal(initial.hook_trust_state, "unknown", "a recorded hash is not trusted without Codex confirmation");
+  assert.equal(initial.hook_trust_verification_source, "unverified", "status distinguishes an unverified hash from a cached verdict");
+  assert.equal(initial.hook_trust_verified_current, false, "unknown trust is not reported as current");
 
   const repair = plugin.ensureIntegrationOnStartup(7686);
   assert.equal(repair.actionable, true, "background reconciliation finds a current-content hash mismatch");
   const stale = plugin.checkIntegration();
   assert.equal(stale.hook_trust_state, "stale", "the cached Codex comparison reports stale trust");
   assert.equal(stale.integration_state, "untrusted_hash", "stale trust enters the existing consented repair path");
+  assert.equal(stale.hook_trust_verification_source, "cached", "status identifies the cached app-server hash comparison");
+  assert.equal(stale.hook_trust_verified_current, false, "a cached mismatch is not current trust");
+  assert.equal(stale.proposed_changes.includes("hook trust"), true,
+    "a cached mismatch still proposes hook trust verification");
   assert.equal(calls(), 1, "only the explicit background refresh used app-server");
   assert.equal(files.get(configPath)?.includes('trusted_hash = "sha256:recorded-session"'), true,
     "status and refresh do not write hook trust hashes");
+}
+
+{
+  const files = fixtureFiles();
+  const { plugin } = load(files, () => appServerResult("sha256:recorded-session", "sha256:recorded-stop", "trusted"));
+  plugin.ensureIntegrationOnStartup(7686);
+  const status = plugin.checkIntegration();
+  assert.equal(status.hook_trust_state, "trusted", "Codex confirmed the current hook hashes");
+  assert.equal(status.hook_trust_verification_source, "hash_verified", "status says the recorded trust hash matches Codex currentHash");
+  assert.equal(status.hook_trust_verified_current, true, "trusted current hashes are explicit");
+  assert.equal(status.proposed_changes.includes("hook trust"), false,
+    "a current hash verdict removes hook trust from proposed changes");
 }
 
 {

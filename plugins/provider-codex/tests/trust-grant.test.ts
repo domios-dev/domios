@@ -316,6 +316,9 @@ console.log("\n--- trust_grant: trusted state reads back after a successful gran
   assert(result.granted === true, "trust_grant grant after install succeeds", JSON.stringify(result));
   const check = p.checkIntegration();
   eq(check.hook_trust_state, "trusted", "trust_grant checkIntegration reports trusted after the grant");
+  eq(check.hook_trust_verification_source, "hash_verified", "trust status names the current Codex hash verification");
+  eq(check.hook_trust_verified_current, true, "trust status reports that current hook content is verified");
+  eq(check.proposed_changes.includes("hook trust"), false, "verified hook trust is not proposed as a pending change");
   assert(check.hooks_installed === true, "trust_grant hooks stay installed with granted trust");
 }
 
