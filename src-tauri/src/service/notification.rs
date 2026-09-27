@@ -646,6 +646,25 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn resolve_prompt_notifications(
+        &self,
+        tab_id: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Vec<String> {
+        let resolved = self
+            .notif
+            .lock()
+            .resolve_prompt_notifications(tab_id, identity);
+        for id in &resolved {
+            let spent = { self.notif.lock().spent_question(id) };
+            if let Some(spent) = spent {
+                self.spend_on_channels(id, &spent);
+            }
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
+        resolved
+    }
+
     fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
         let prompt_answer = {
             self.notif

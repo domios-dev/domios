@@ -33,6 +33,68 @@ fn test_mark_read_nonexistent() {
 }
 
 #[test]
+fn resolving_a_prompt_disables_its_choices_and_spends_channel_posts() {
+    use codeterm_types::notification::NotificationAction;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+
+    let prompt = PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![
+            PromptOption {
+                label: "Choice one".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Choice two".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let identity = PromptIdentity::new(PromptKind::Provider, &prompt);
+    let actions = prompt
+        .options
+        .iter()
+        .map(|option| NotificationAction::RespondPromptOption {
+            label: option.label.clone(),
+            value: option.value.clone(),
+            identity: identity.clone(),
+        })
+        .collect();
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "Agent needs your response".into(),
+        Some("opaque prompt".into()),
+        NotificationSeverity::Warning,
+        NotificationProvenance {
+            tab_id: Some("asking-tab".into()),
+            ..Default::default()
+        },
+        Ask::offering(Some(actions)),
+        Some(true),
+        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+    );
+    store.remember_channel_placement(&id, "telegram", "message-1");
+
+    assert_eq!(
+        store.resolve_prompt_notifications("asking-tab", &identity),
+        vec![id.clone()]
+    );
+    let notification = store.notification(&id).expect("resolved notification");
+    assert!(notification.resolved);
+    assert!(notification.read);
+    assert!(notification.actions.is_none());
+    let spent = store.spent_question(&id).expect("channel message to update");
+    let rewritten = spent.message_for(crate::notification::push::PushBounds::for_ceiling(4096));
+    assert!(rewritten.text.contains("Resolved in tab"));
+    assert!(!rewritten.offers_choices());
+    assert!(store.resolve_prompt_notifications("asking-tab", &identity).is_empty());
+}
+
+#[test]
 fn test_clear_specific() {
     let mut store = NotificationStore::new(100);
     let id1 = store.add("A".into(), None, NotificationSeverity::Info, None, None);
