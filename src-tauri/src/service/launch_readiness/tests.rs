@@ -32,16 +32,16 @@ fn attempt_of(tab: &Tab) -> LaunchAttempt {
 }
 
 #[test]
-fn provider_exit_evidence_ends_resume_first_turn_waiting() {
+fn provider_exit_evidence_ends_first_turn_waiting() {
     let mut tab = launching_tab("pty-resume-exit", "nonce-resume-exit");
     tab.boot_stage = Some(BootStage::AgentReady);
     tab.agent_booting = false;
     let attempt = attempt_of(&tab);
 
-    assert!(resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+    assert!(launch_attempt_is_waiting_for_first_turn(&tab, &attempt));
 
     tab.exit_suspected_at = Some(std::time::Instant::now());
-    assert!(!resume_attempt_is_waiting_for_first_turn(&tab, &attempt));
+    assert!(!launch_attempt_is_waiting_for_first_turn(&tab, &attempt));
 }
 
 /// The agent naming itself on this launch: its own accepted session plus this
