@@ -122,6 +122,8 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             "attempt-routed-model",
             Some(vec![]),
             crate::plan::WorkerPlacement::IsolatedLane,
+            routing.model.clone(),
+            routing.model.clone(),
             routing.model,
             Some("xhigh".into()),
             None,

@@ -80,6 +80,7 @@ impl PlanStore {
                 }
                 if let Some(model) = binding.model.as_ref() {
                     attempt.model = Some(model.clone());
+                    attempt.provider_resolved_model = Some(model.clone());
                 }
                 attempt.session_model = binding.session_model.clone();
                 attempt.reasoning_effort = binding.reasoning_effort.clone();

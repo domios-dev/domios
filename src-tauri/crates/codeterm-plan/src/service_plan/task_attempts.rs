@@ -434,6 +434,8 @@ pub fn new_assignment_attempt_with_id(
         executor_tab_id: tab_id.to_string(),
         provider: provider.clone(),
         agent_type: provider,
+        provider_resolved_model: None,
+        requested_model: task.model.clone(),
         model,
         role: role.map(str::to_string),
         mesh_peer: peer.map(str::to_string).or_else(|| task.peer.clone()),
@@ -678,7 +680,50 @@ impl PlanStore {
                 return Ok(None);
             };
             attempt.session_model = Some(model.into());
-            attempt.model = Some(model.into());
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
+    }
+
+    pub fn update_attempt_model_identity(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        requested_model: Option<String>,
+        provider_resolved_model: Option<String>,
+        session_model: Option<String>,
+        mismatch: Option<crate::plan::AttemptModelIdentityMismatch>,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            let changed = attempt.requested_model != requested_model
+                || attempt.provider_resolved_model != provider_resolved_model
+                || attempt.session_model != session_model
+                || attempt.model_identity_mismatch != mismatch;
+            if !changed {
+                return Ok(None);
+            }
+            attempt.requested_model = requested_model;
+            attempt.provider_resolved_model = provider_resolved_model;
+            attempt.session_model = session_model;
+            attempt.model_identity_mismatch = mismatch;
             task.updated_at = now_ms;
             Ok(Some(true))
         })
@@ -998,6 +1043,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.provider_resolved_model = draft.model.clone();
             attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
@@ -1044,6 +1090,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.provider_resolved_model = draft.model.clone();
             attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
