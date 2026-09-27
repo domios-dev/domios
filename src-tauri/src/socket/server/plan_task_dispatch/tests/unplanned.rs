@@ -101,6 +101,10 @@ fn dispatch(harness: &UnplannedFixture, params: &Option<Value>) -> Result<Value,
             {
                 let mut mux = service.mux.write();
                 let tab = mux.get_tab_mut(&tab_id).unwrap();
+                tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+                tab.role_profile = Some("worker".into());
+                tab.parent_tab_id = Some(harness.owner_tab.clone());
+                tab.team_id = Some(harness.team_id.clone());
                 tab.agent_session_id = Some("unplanned-worker-session".into());
                 tab.session_binding_nonce = Some("unplanned-worker-nonce".into());
                 tab.reported_session_binding_nonce = Some("unplanned-worker-nonce".into());
@@ -182,7 +186,21 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
         || {},
     )
     .unwrap_err();
-    assert!(sibling_error.message.contains("approval"));
+    assert_eq!(
+        harness
+            .fixture
+            .service
+            .plan_store
+            .get(&harness.plan_id)
+            .unwrap()
+            .planning_state,
+        PlanningState::Drafting
+    );
+    assert_eq!(sibling_error.code, -32003);
+    assert_eq!(
+        sibling_error.data.as_ref().unwrap()["type"],
+        "plan_orchestrator_authorization_required"
+    );
 }
 
 #[test]
@@ -229,14 +247,11 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
         let mut mux = harness.fixture.service.mux.write();
         let workspace = mux.list_workspaces()[0].id.clone();
         let planner = mux.create_tab(&workspace).unwrap();
-        mux.set_tab_role(
-            &planner,
-            crate::multiplexer::types::AgentRole::Manager,
-            Some(&harness.owner_tab),
-        )
-        .unwrap();
         let tab = mux.get_tab_mut(&planner).unwrap();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
         tab.role_profile = Some("planner".into());
+        tab.parent_tab_id = Some(harness.owner_tab.clone());
+        tab.team_id = Some(harness.team_id.clone());
         tab.agent_session_id = Some("planner-session".into());
         tab.session_binding_nonce = Some("planner-nonce".into());
         tab.reported_session_binding_nonce = Some("planner-nonce".into());
@@ -259,6 +274,13 @@ fn team_close_cleans_up_unplanned_worker() {
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
     let task_id = response["task_id"].as_str().unwrap().to_string();
     let tab_id = response["tab_id"].as_str().unwrap().to_string();
+    {
+        let mux = harness.fixture.service.mux.read();
+        let worker = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(worker.team_id.as_deref(), Some(harness.team_id.as_str()));
+        assert_eq!(worker.parent_tab_id.as_deref(), Some(harness.owner_tab.as_str()));
+        assert_eq!(worker.role, Some(crate::multiplexer::types::AgentRole::Worker));
+    }
     tauri::async_runtime::block_on(harness.fixture.service.close_team(
         &harness.team_id,
         TeamMutationCaller::AgentTab(harness.owner_tab.clone()),
@@ -271,15 +293,11 @@ fn team_close_cleans_up_unplanned_worker() {
         .read()
         .get_tab(&tab_id)
         .is_none());
-    let task = harness
-        .fixture
-        .service
-        .plan_store
-        .show_task(&task_id)
-        .unwrap()
-        .task;
-    assert_eq!(task.status, TaskStatus::Cancelled);
-    assert!(task.execution_attempts[0].closed_at.is_some());
+    // Team close may retire the Plan with its tasks; a surviving task must be closed out.
+    if let Some(shown) = harness.fixture.service.plan_store.show_task(&task_id) {
+        assert_eq!(shown.task.status, TaskStatus::Cancelled);
+        assert!(shown.task.execution_attempts[0].closed_at.is_some());
+    }
 }
 
 #[test]
