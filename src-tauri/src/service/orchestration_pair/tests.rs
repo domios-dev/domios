@@ -674,21 +674,17 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
 // WHY: rollback owns the new pair member but must preserve a Tab supplied by the user.
 // ORACLE: the original Tab remains blank and no pair-created Tab or Team remains.
 #[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[ignore = "ServiceFixture has no Tauri-managed SessionState, so a real Orchestrator spawn cannot complete; covered by the orchestrator-creation bench"]
 fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let picker_tab_id = mux.create_tab(&workspace_id).unwrap();
     let picker_before = mux.get_tab(&picker_tab_id).unwrap().clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.chatbackend_registry.register(
-        "pair-successful-chat-orchestrator",
-        std::sync::Arc::new(
-            crate::service::spawn_capability::test_backend::SpawnableTestBackend {
-                id: "pair-successful-chat-orchestrator",
-            },
-        ),
-    );
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("pair-valid-orchestrator")
+            .with_launch_binary("powershell"),
+    ));
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::with_empty_launch_command_when_task_present(
             "pair-empty-planner",
@@ -707,7 +703,7 @@ fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
             fixture
                 .service
                 .create_orchestration_pair(OrchestrationPairParams {
-                    orchestrator_agent: "pair-successful-chat-orchestrator".into(),
+                    orchestrator_agent: "pair-valid-orchestrator".into(),
                     planner_agent: "pair-empty-planner".into(),
                     workspace_id: Some(workspace_id),
                     existing_tab_id: Some(picker_tab_id.clone()),

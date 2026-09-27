@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 mod restorable_launch;
 pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
@@ -660,6 +661,8 @@ pub struct Tab {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
     /// the chat view. Persisted only with the tab-owned session identity.
@@ -702,6 +705,12 @@ pub struct Tab {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// Restored plain-shell history still needs to be prepended before its PTY is linked.
+    #[serde(skip, default)]
+    pub scrollback_seed_pending: bool,
+    /// Sidecar bytes loaded once during startup and consumed before the first PTY link.
+    #[serde(skip, default)]
+    pub pending_scrollback_tail: Option<Arc<[u8]>>,
     /// In-memory only — when true, this tab is excluded from the session
     /// snapshot. Set for ephemeral picker/onboarding tabs that must not
     /// survive a daemon restart and reappear as ghost tabs.
@@ -904,6 +913,7 @@ mod tests {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,
@@ -918,6 +928,8 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,

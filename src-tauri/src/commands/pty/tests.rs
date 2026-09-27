@@ -207,6 +207,7 @@ mod restored_fresh_launch_tests {
                 .trim()
                 .trim_matches(['\'', '"']);
             let delivered = std::fs::read_to_string(path).expect("prompt file the command names");
+            let delivered = delivered.strip_prefix('\u{feff}').unwrap_or(&delivered);
             assert_eq!(delivered, RESTORED_INSTRUCTIONS);
             assert!(!delivered.contains(HISTORICAL_TASK));
             assert!(command.contains("--model "));
@@ -303,17 +304,10 @@ mod spawn_pty_restore_tests {
                 .with_resume_context_log(resume_context.clone()),
         ));
 
-        let pty_id = spawn_pty_core(
-            &fixture.service,
-            None,
-            None,
-            80,
-            24,
-            None,
-            Some(tab_id.clone()),
-        )
-        .await
-        .expect("restore PTY spawn succeeds");
+        let service = Arc::new(fixture.service.clone());
+        let pty_id = spawn_pty_core(&service, None, None, 80, 24, None, Some(tab_id.clone()))
+            .await
+            .expect("restore PTY spawn succeeds");
         let built = resume_context
             .lock()
             .first()
@@ -351,5 +345,44 @@ mod spawn_pty_restore_tests {
 
         let mut pty = fixture.service.pty.lock();
         kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
+    }
+}
+
+mod restored_scrollback_tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+    async fn frontend_first_spawn_seeds_history_before_reader_start() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tail = b"restored frontend spawn history\r\n";
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(tail.to_vec()));
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        let pty_id = crate::commands::pty::spawn_pty_core(
+            &service,
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend spawn should materialize the restored PTY");
+
+        let buffer = service.output_buf.lock();
+        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert_eq!(
+            buffer.read_since(&pty_id, 0).0.get(..tail.len()),
+            Some(tail.as_slice())
+        );
+        drop(buffer);
+        service.kill_ptys(&[pty_id]);
     }
 }

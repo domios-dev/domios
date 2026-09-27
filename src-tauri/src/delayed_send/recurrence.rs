@@ -69,12 +69,13 @@ pub fn after_tick(
     let skip_due_slot = current_tick_skipped
         && elapsed % rule.every_ms == 0
         && elapsed / rule.every_ms >= first_unprocessed;
-    let next_index = first_unprocessed.max(
-        first_not_before_now.saturating_add(if skip_due_slot { 1 } else { 0 }),
-    );
+    let next_index = first_unprocessed.max(first_not_before_now.saturating_add(if skip_due_slot {
+        1
+    } else {
+        0
+    }));
     let missed_before_next = next_index.saturating_sub(first_unprocessed);
-    let skipped_ticks =
-        missed_before_next.saturating_add(if current_tick_skipped { 1 } else { 0 });
+    let skipped_ticks = missed_before_next.saturating_add(if current_tick_skipped { 1 } else { 0 });
     let next_at = scheduled_at(start_at_ms, rule.every_ms, next_index).filter(|scheduled| {
         rule.until_ms.is_none_or(|until| *scheduled <= until)
             && rule.count.is_none_or(|count| next_index < u64::from(count))
@@ -143,13 +144,11 @@ mod tests {
     #[test]
     fn until_and_count_remove_the_series_after_the_last_slot() {
         assert_eq!(
-            after_tick(10_000, &rule(60_000, None, Some(1)), 0, 10_000, false)
-                .scheduled_at_ms,
+            after_tick(10_000, &rule(60_000, None, Some(1)), 0, 10_000, false).scheduled_at_ms,
             None
         );
         assert_eq!(
-            after_tick(10_000, &rule(60_000, Some(69_999), None), 0, 10_000, false)
-                .scheduled_at_ms,
+            after_tick(10_000, &rule(60_000, Some(69_999), None), 0, 10_000, false).scheduled_at_ms,
             None
         );
     }
