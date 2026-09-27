@@ -80,6 +80,17 @@ fn gate_tab_matches(tab: &Tab, gate: &LaunchSendGate) -> bool {
     })
 }
 
+fn launch_is_finalized(stage: Option<crate::service::boot_stage::BootStage>) -> bool {
+    matches!(
+        stage,
+        Some(
+            crate::service::boot_stage::BootStage::SpawnFailed
+                | crate::service::boot_stage::BootStage::LaunchDeadlineElapsed
+                | crate::service::boot_stage::BootStage::LaunchBindingUnconfirmed
+        )
+    )
+}
+
 impl ReadinessRegistry {
     fn arm(
         &self,
@@ -309,8 +320,10 @@ impl ReadinessRegistry {
         let Some(gate) = state.gates.get(tab_id) else {
             return Some(Ok(()));
         };
+        let attempt_matches = gate_tab_matches(&tab, gate);
         if gate.attempt.is_some()
-            && (!gate_tab_matches(&tab, gate)
+            && (!attempt_matches
+                || (attempt_matches && launch_is_finalized(tab.boot_stage))
                 || gate
                     .bound_session
                     .as_ref()
@@ -540,7 +553,9 @@ pub(crate) fn observe_session_binding(
         .unwrap_or(false);
     let turn_normalization = svc
         .agent_registry
-        .with_provider(&provider_id, |provider| provider.turn_evidence_normalization())
+        .with_provider(&provider_id, |provider| {
+            provider.turn_evidence_normalization()
+        })
         .unwrap_or_default();
     let anchor = previous_anchor
         .filter(|anchor| anchor.session_id == session_id)
