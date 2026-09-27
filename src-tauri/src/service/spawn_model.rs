@@ -282,7 +282,8 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                 .flatten()
         });
         let resolved_model = matched
-            .map(|entry| preserve_context_suffix(entry.id, &model))
+            .as_ref()
+            .map(|entry| preserve_context_suffix(entry.id.clone(), &model))
             .unwrap_or_else(|| model.clone());
         let provider_resolved_model = matched
             .as_ref()

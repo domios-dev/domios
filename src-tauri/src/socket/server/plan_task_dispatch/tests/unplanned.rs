@@ -267,7 +267,8 @@ fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
 
     assert!(
         error.message.contains("opencode/deepseek-v4-flash-free"),
-        "{error}"
+        "{}",
+        error.message
     );
     assert_eq!(
         harness.fixture.service.mux.read().snapshot().tabs.len(),
