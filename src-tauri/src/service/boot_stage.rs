@@ -301,7 +301,6 @@ impl ServiceContext {
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
         super::boot_wait::notify_boot_changed();
-        super::public_send_readiness::notify_lifecycle_changed(&self.mux, tab_id);
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
         if matches!(stage, BootStage::ProviderReady | BootStage::AgentReady) {

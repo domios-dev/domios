@@ -235,10 +235,12 @@ pub(super) fn dispatch(
                         std::time::Duration::from_secs(30),
                     ) {
                         return Ok(local_send_response(
-                            Err(crate::service::delivery_error::DeliveryError::TabBusyRefused {
-                                tab: resolved_target,
-                                detail,
-                            }),
+                            Err(
+                                crate::service::delivery_error::DeliveryError::TabBusyRefused {
+                                    tab: resolved_target,
+                                    detail,
+                                },
+                            ),
                             true,
                         ));
                     }

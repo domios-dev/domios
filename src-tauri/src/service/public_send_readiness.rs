@@ -2,7 +2,6 @@ use crate::multiplexer::types::Tab;
 use crate::service::chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor};
 use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::ServiceContext;
-use codeterm_types::pty::BootStage;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
@@ -14,6 +13,7 @@ use std::time::{Duration, Instant};
 mod tests;
 
 struct LaunchSendGate {
+    key: PublicSendGateKey,
     attempt: Option<LaunchAttempt>,
     expected_turn: String,
     anchor: Option<SendEvidenceAnchor>,
@@ -21,6 +21,9 @@ struct LaunchSendGate {
     watcher: Option<RecommendedWatcher>,
     deadline: Option<Instant>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PublicSendGateKey(uuid::Uuid);
 
 #[derive(Default)]
 struct ReadinessState {
@@ -39,12 +42,15 @@ static READINESS: LazyLock<ReadinessRegistry> = LazyLock::new(ReadinessRegistry:
 pub(crate) struct PublicSendLaunchGuard {
     svc: ServiceContext,
     tab_id: String,
+    key: Option<PublicSendGateKey>,
     completed: bool,
 }
 
 impl PublicSendLaunchGuard {
     pub(crate) fn complete(mut self) {
-        self.svc.complete_public_send_launch(&self.tab_id);
+        if let Some(key) = self.key {
+            self.svc.complete_public_send_launch(&self.tab_id, key);
+        }
         self.completed = true;
     }
 }
@@ -52,7 +58,9 @@ impl PublicSendLaunchGuard {
 impl Drop for PublicSendLaunchGuard {
     fn drop(&mut self) {
         if !self.completed {
-            self.svc.retire_public_send_launch(&self.tab_id);
+            if let Some(key) = self.key {
+                self.svc.retire_public_send_launch_key(&self.tab_id, key);
+            }
         }
     }
 }
@@ -63,17 +71,6 @@ fn dispose_gate(gate: Option<LaunchSendGate>) {
             std::thread::spawn(move || drop(watcher));
         }
     }
-}
-
-fn terminal_launch_stage(stage: Option<BootStage>) -> bool {
-    matches!(
-        stage,
-        Some(
-            BootStage::SpawnFailed
-                | BootStage::LaunchDeadlineElapsed
-                | BootStage::LaunchBindingUnconfirmed
-        )
-    )
 }
 
 fn gate_tab_matches(tab: &Tab, gate: &LaunchSendGate) -> bool {
@@ -89,13 +86,17 @@ impl ReadinessRegistry {
         tab_id: String,
         expected_turn: Option<String>,
         anchor: Option<SendEvidenceAnchor>,
-    ) {
+    ) -> Option<PublicSendGateKey> {
         let expected_turn = expected_turn.filter(|text| !text.trim().is_empty());
         let mut state = self.state.lock();
-        let previous = match expected_turn {
-            Some(expected_turn) => state.gates.insert(
-                tab_id,
+        let key = expected_turn
+            .as_ref()
+            .map(|_| PublicSendGateKey(uuid::Uuid::new_v4()));
+        let previous = match (expected_turn, key) {
+            (Some(expected_turn), Some(key)) => state.gates.insert(
+                tab_id.clone(),
                 LaunchSendGate {
+                    key,
                     attempt: None,
                     expected_turn,
                     anchor,
@@ -104,12 +105,43 @@ impl ReadinessRegistry {
                     deadline: None,
                 },
             ),
-            None => state.gates.remove(&tab_id),
+            _ => state.gates.remove(&tab_id),
         };
         state.generation = state.generation.wrapping_add(1);
         self.changed.notify_all();
         drop(state);
         dispose_gate(previous);
+        key
+    }
+
+    fn retire_key(&self, tab_id: &str, key: PublicSendGateKey) {
+        let mut state = self.state.lock();
+        let matches_key = state.gates.get(tab_id).is_some_and(|gate| gate.key == key);
+        let removed = matches_key.then(|| state.gates.remove(tab_id)).flatten();
+        if removed.is_some() {
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+        }
+        drop(state);
+        dispose_gate(removed);
+    }
+
+    fn retire_attempt(&self, attempt: &LaunchAttempt) {
+        let mut state = self.state.lock();
+        let matches_attempt = state
+            .gates
+            .get(&attempt.tab_id)
+            .and_then(|gate| gate.attempt.as_ref())
+            == Some(attempt);
+        let removed = matches_attempt
+            .then(|| state.gates.remove(&attempt.tab_id))
+            .flatten();
+        if removed.is_some() {
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+        }
+        drop(state);
+        dispose_gate(removed);
     }
 
     fn retire(&self, tab_id: &str) {
@@ -123,21 +155,27 @@ impl ReadinessRegistry {
         dispose_gate(removed);
     }
 
-    fn bind_attempt(&self, attempt: LaunchAttempt) {
+    fn bind_attempt(&self, attempt: LaunchAttempt, key: Option<PublicSendGateKey>) {
+        let Some(key) = key else { return };
         let mut state = self.state.lock();
         if let Some(gate) = state.gates.get_mut(&attempt.tab_id) {
-            gate.attempt = Some(attempt);
-            state.generation = state.generation.wrapping_add(1);
-            self.changed.notify_all();
+            if gate.key == key {
+                gate.attempt = Some(attempt);
+                state.generation = state.generation.wrapping_add(1);
+                self.changed.notify_all();
+            }
         }
     }
 
-    fn complete(&self, tab_id: &str) {
+    fn complete(&self, tab_id: &str, key: PublicSendGateKey) {
         let tab_id = tab_id.to_string();
         let mut state = self.state.lock();
         let Some(gate) = state.gates.get_mut(&tab_id) else {
             return;
         };
+        if gate.key != key {
+            return;
+        }
         let Some(attempt) = gate.attempt.clone() else {
             return;
         };
@@ -153,7 +191,10 @@ impl ReadinessRegistry {
                 let Some(gate) = state.gates.get(&tab_id) else {
                     return;
                 };
-                if gate.attempt.as_ref() != Some(&attempt) || gate.deadline != Some(deadline) {
+                if gate.key != key
+                    || gate.attempt.as_ref() != Some(&attempt)
+                    || gate.deadline != Some(deadline)
+                {
                     return;
                 }
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -164,9 +205,14 @@ impl ReadinessRegistry {
                     dispose_gate(removed);
                     return;
                 };
-                if READINESS.changed.wait_for(&mut state, remaining).timed_out() {
+                if READINESS
+                    .changed
+                    .wait_for(&mut state, remaining)
+                    .timed_out()
+                {
                     if state.gates.get(&tab_id).is_some_and(|gate| {
-                        gate.attempt.as_ref() == Some(&attempt)
+                        gate.key == key
+                            && gate.attempt.as_ref() == Some(&attempt)
                             && gate.deadline == Some(deadline)
                     }) {
                         let removed = state.gates.remove(&tab_id);
@@ -181,24 +227,7 @@ impl ReadinessRegistry {
         });
     }
 
-    fn retire_terminal(&self, mux: &crate::MuxState, tab_id: &str) {
-        let armed = self
-            .state
-            .lock()
-            .gates
-            .get(tab_id)
-            .is_some_and(|gate| gate.attempt.is_some());
-        let terminal = armed
-            && mux
-                .read()
-                .get_tab(tab_id)
-                .is_some_and(|tab| terminal_launch_stage(tab.boot_stage));
-        if terminal {
-            self.retire(tab_id);
-        }
-    }
-
-    fn retire_changed_session(&self, mux: &crate::MuxState, tab_id: &str) {
+    fn retire_changed_session(&self, mux: &crate::MuxState, tab_id: &str, event_nonce: &str) {
         let current = mux.read().get_tab(tab_id).map(|tab| {
             (
                 tab.pty_id.clone(),
@@ -210,7 +239,10 @@ impl ReadinessRegistry {
         let Some(gate) = state.gates.get(tab_id) else {
             return;
         };
-        let changed = current.is_none_or(|(pty_id, nonce, session_id)| {
+        let changed = current.is_some_and(|(pty_id, nonce, session_id)| {
+            if nonce.as_deref() != Some(event_nonce) {
+                return false;
+            }
             gate.attempt.as_ref().is_some_and(|attempt| {
                 pty_id.as_deref() != Some(attempt.pty_id.as_str())
                     || nonce.as_deref() != Some(attempt.binding_nonce.as_str())
@@ -228,7 +260,14 @@ impl ReadinessRegistry {
         }
     }
 
-    fn confirm(&self, mux: &crate::MuxState, tab_id: &str, session_id: &str, nonce: &str) {
+    fn confirm(
+        &self,
+        mux: &crate::MuxState,
+        tab_id: &str,
+        session_id: &str,
+        nonce: &str,
+        key: PublicSendGateKey,
+    ) {
         let authenticated = mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.launch_session_authenticated()
                 && tab.agent_session_id.as_deref() == Some(session_id)
@@ -242,12 +281,15 @@ impl ReadinessRegistry {
         let Some(gate) = state.gates.get(tab_id) else {
             return;
         };
-        if gate
-            .attempt
-            .as_ref()
-            .is_none_or(|attempt| attempt.binding_nonce != nonce)
+        if gate.key != key
+            || gate
+                .attempt
+                .as_ref()
+                .is_none_or(|attempt| attempt.binding_nonce != nonce)
             || gate.bound_session.as_deref() != Some(session_id)
-            || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            || gate
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
         {
             return;
         }
@@ -269,12 +311,13 @@ impl ReadinessRegistry {
         };
         if gate.attempt.is_some()
             && (!gate_tab_matches(&tab, gate)
-                || terminal_launch_stage(tab.boot_stage)
                 || gate
                     .bound_session
                     .as_ref()
                     .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
-                || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline))
+                || gate
+                    .deadline
+                    .is_some_and(|deadline| Instant::now() >= deadline))
         {
             let removed = state.gates.remove(tab_id);
             state.generation = state.generation.wrapping_add(1);
@@ -317,10 +360,10 @@ impl ReadinessRegistry {
                 ));
             };
             if self.changed.wait_for(&mut state, remaining).timed_out() {
-                if !state.gates.contains_key(tab_id) {
-                    return Ok(());
-                }
                 drop(state);
+                if let Some(observed) = self.inspect(mux, tab_id) {
+                    return observed;
+                }
                 return Err(format!(
                     "Tab {tab_id} public input readiness deadline elapsed; no input was written"
                 ));
@@ -328,15 +371,20 @@ impl ReadinessRegistry {
         }
     }
 
-    fn expected_turn(&self, tab_id: &str, nonce: &str) -> Option<(String, Option<SendEvidenceAnchor>)> {
+    fn expected_turn(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+    ) -> Option<(String, Option<SendEvidenceAnchor>, PublicSendGateKey)> {
         self.state.lock().gates.get(tab_id).and_then(|gate| {
-            (gate.attempt
+            (gate
+                .attempt
                 .as_ref()
                 .is_some_and(|attempt| attempt.binding_nonce == nonce)
-                && gate.deadline.is_none_or(|deadline| Instant::now() < deadline))
-            .then(|| {
-                (gate.expected_turn.clone(), gate.anchor.clone())
-            })
+                && gate
+                    .deadline
+                    .is_none_or(|deadline| Instant::now() < deadline))
+            .then(|| (gate.expected_turn.clone(), gate.anchor.clone(), gate.key))
         })
     }
 
@@ -349,7 +397,9 @@ impl ReadinessRegistry {
             .attempt
             .as_ref()
             .is_none_or(|attempt| attempt.binding_nonce != nonce)
-            || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            || gate
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
         {
             return false;
         }
@@ -371,15 +421,22 @@ impl ReadinessRegistry {
         true
     }
 
-    fn set_watcher(&self, tab_id: &str, nonce: &str, watcher: RecommendedWatcher) {
+    fn set_watcher(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        key: PublicSendGateKey,
+        watcher: RecommendedWatcher,
+    ) {
         let mut state = self.state.lock();
         let Some(gate) = state.gates.get_mut(tab_id) else {
             return;
         };
-        let previous = if gate
-            .attempt
-            .as_ref()
-            .is_some_and(|attempt| attempt.binding_nonce == nonce)
+        let previous = if gate.key == key
+            && gate
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.binding_nonce == nonce)
         {
             gate.watcher.replace(watcher)
         } else {
@@ -391,15 +448,22 @@ impl ReadinessRegistry {
         }
     }
 
-    fn expected_text(&self, tab_id: &str, nonce: &str, session_id: &str) -> Option<String> {
+    fn expected_text(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        session_id: &str,
+    ) -> Option<(String, PublicSendGateKey)> {
         self.state.lock().gates.get(tab_id).and_then(|gate| {
             (gate
                 .attempt
                 .as_ref()
                 .is_some_and(|attempt| attempt.binding_nonce == nonce)
-                && gate.deadline.is_none_or(|deadline| Instant::now() < deadline)
+                && gate
+                    .deadline
+                    .is_none_or(|deadline| Instant::now() < deadline)
                 && gate.bound_session.as_deref() == Some(session_id))
-            .then(|| gate.expected_turn.clone())
+            .then(|| (gate.expected_turn.clone(), gate.key))
         })
     }
 
@@ -411,28 +475,37 @@ impl ReadinessRegistry {
         binding_nonce: &str,
         messages: &[crate::agent::chat_types::ChatMsg],
     ) -> bool {
-        let Some(expected) = self.expected_text(tab_id, binding_nonce, session_id) else {
+        let Some((expected, key)) = self.expected_text(tab_id, binding_nonce, session_id) else {
             return false;
         };
         if !messages.iter().any(|message| {
             message.kind == "user"
-                && crate::service::chat_send_transaction::normalize_turn_evidence(
-                    &message.content,
-                ) == crate::service::chat_send_transaction::normalize_turn_evidence(&expected)
+                && crate::service::chat_send_transaction::normalize_turn_evidence(&message.content)
+                    == crate::service::chat_send_transaction::normalize_turn_evidence(&expected)
         }) {
             return false;
         }
-        self.confirm(mux, tab_id, session_id, binding_nonce);
+        self.confirm(mux, tab_id, session_id, binding_nonce, key);
         true
     }
 }
 
-pub(crate) fn notify_lifecycle_changed(mux: &crate::MuxState, tab_id: &str) {
-    READINESS.retire_terminal(mux, tab_id);
-}
-
-pub(crate) fn observe_session_binding(svc: &ServiceContext, tab_id: &str) {
-    READINESS.retire_changed_session(&svc.mux, tab_id);
+pub(crate) fn observe_session_binding(
+    svc: &ServiceContext,
+    tab_id: &str,
+    event_session_id: &str,
+    event_nonce: &str,
+) {
+    let authenticated_event_matches = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.launch_session_authenticated()
+            && tab.agent_session_id.as_deref() == Some(event_session_id)
+            && tab.session_binding_nonce.as_deref() == Some(event_nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(event_nonce)
+    });
+    if !authenticated_event_matches {
+        return;
+    }
+    READINESS.retire_changed_session(&svc.mux, tab_id, event_nonce);
     let bound = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         (tab.launch_session_authenticated()).then(|| {
             (
@@ -446,7 +519,11 @@ pub(crate) fn observe_session_binding(svc: &ServiceContext, tab_id: &str) {
     let Some((Some(provider_id), cwd, Some(session_id), Some(nonce))) = bound else {
         return;
     };
-    let Some((expected_turn, previous_anchor)) = READINESS.expected_turn(tab_id, &nonce) else {
+    if session_id != event_session_id || nonce != event_nonce {
+        return;
+    }
+    let Some((expected_turn, previous_anchor, gate_key)) = READINESS.expected_turn(tab_id, &nonce)
+    else {
         return;
     };
     if !READINESS.bound(tab_id, &nonce, &session_id) {
@@ -490,31 +567,42 @@ pub(crate) fn observe_session_binding(svc: &ServiceContext, tab_id: &str) {
             let session = session_id.clone();
             let binding_nonce = nonce.clone();
             let watch_anchor = anchor.clone();
-            let mut cursor = crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(
-                Some(&watch_anchor),
-            );
-            if let Ok(mut watcher) = notify::recommended_watcher(move |event: notify::Result<Event>| {
-                let Ok(event) = event else { return };
-                if !event.paths.iter().any(|changed| {
-                    changed.parent() == Some(parent.as_path())
-                        && changed.file_name() == file_name.as_deref()
-                }) {
-                    return;
-                }
-                let Some(expected) = READINESS.expected_text(&tab, &binding_nonce, &session) else {
-                    return;
-                };
-                if crate::service::chat_send_evidence::contains_exact_user_turn_since(
-                    &registry,
-                    &watch_anchor,
-                    &expected,
-                    &mut cursor,
-                ) {
-                    READINESS.confirm(&mux, &tab, &session, &binding_nonce);
-                }
-            }) {
-                if watcher.watch(path.parent().unwrap(), RecursiveMode::NonRecursive).is_ok() {
-                    READINESS.set_watcher(tab_id, &nonce, watcher);
+            let watch_key = gate_key;
+            let mut cursor = crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(
+                &watch_anchor,
+            ));
+            if let Ok(mut watcher) =
+                notify::recommended_watcher(move |event: notify::Result<Event>| {
+                    let Ok(event) = event else { return };
+                    if !event.paths.iter().any(|changed| {
+                        changed.parent() == Some(parent.as_path())
+                            && changed.file_name() == file_name.as_deref()
+                    }) {
+                        return;
+                    }
+                    let Some((expected, current_key)) =
+                        READINESS.expected_text(&tab, &binding_nonce, &session)
+                    else {
+                        return;
+                    };
+                    if current_key != watch_key {
+                        return;
+                    }
+                    if crate::service::chat_send_evidence::contains_exact_user_turn_since(
+                        &registry,
+                        &watch_anchor,
+                        &expected,
+                        &mut cursor,
+                    ) {
+                        READINESS.confirm(&mux, &tab, &session, &binding_nonce, watch_key);
+                    }
+                })
+            {
+                if watcher
+                    .watch(path.parent().unwrap(), RecursiveMode::NonRecursive)
+                    .is_ok()
+                {
+                    READINESS.set_watcher(tab_id, &nonce, gate_key, watcher);
                 }
             }
         }
@@ -525,7 +613,7 @@ pub(crate) fn observe_session_binding(svc: &ServiceContext, tab_id: &str) {
         &expected_turn,
         &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
     ) {
-        READINESS.confirm(&svc.mux, tab_id, &session_id, &nonce);
+        READINESS.confirm(&svc.mux, tab_id, &session_id, &nonce, gate_key);
     }
 }
 
@@ -540,10 +628,15 @@ pub(crate) fn note_bootstrap_turn(
 }
 
 impl ServiceContext {
-    pub(crate) fn public_send_launch_guard(&self, tab_id: &str) -> PublicSendLaunchGuard {
+    pub(crate) fn public_send_launch_guard_for_key(
+        &self,
+        tab_id: &str,
+        key: Option<PublicSendGateKey>,
+    ) -> PublicSendLaunchGuard {
         PublicSendLaunchGuard {
             svc: self.clone(),
             tab_id: tab_id.to_string(),
+            key,
             completed: false,
         }
     }
@@ -553,20 +646,24 @@ impl ServiceContext {
         tab_id: &str,
         expected_turn: Option<String>,
         anchor: Option<SendEvidenceAnchor>,
-    ) {
-        READINESS.arm(tab_id.to_string(), expected_turn, anchor);
+    ) -> Option<PublicSendGateKey> {
+        READINESS.arm(tab_id.to_string(), expected_turn, anchor)
     }
 
-    pub(crate) fn bind_public_send_launch_attempt(&self, attempt: LaunchAttempt) {
-        READINESS.bind_attempt(attempt);
+    pub(crate) fn bind_public_send_launch_attempt(
+        &self,
+        attempt: LaunchAttempt,
+        key: Option<PublicSendGateKey>,
+    ) {
+        READINESS.bind_attempt(attempt, key);
     }
 
     pub(crate) fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
         READINESS.state.lock().gates.contains_key(tab_id)
     }
 
-    pub(crate) fn complete_public_send_launch(&self, tab_id: &str) {
-        READINESS.complete(tab_id);
+    pub(crate) fn complete_public_send_launch(&self, tab_id: &str, key: PublicSendGateKey) {
+        READINESS.complete(tab_id, key);
     }
 
     pub(crate) fn await_public_send_readiness(
@@ -579,5 +676,13 @@ impl ServiceContext {
 
     pub(crate) fn retire_public_send_launch(&self, tab_id: &str) {
         READINESS.retire(tab_id);
+    }
+
+    pub(crate) fn retire_public_send_launch_key(&self, tab_id: &str, key: PublicSendGateKey) {
+        READINESS.retire_key(tab_id, key);
+    }
+
+    pub(crate) fn retire_public_send_launch_attempt(&self, attempt: &LaunchAttempt) {
+        READINESS.retire_attempt(attempt);
     }
 }
