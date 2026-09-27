@@ -22,7 +22,11 @@ fn should_materialize_restored_backend(
 
 pub(crate) const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
 
-fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
+fn start_restored_pty_backends(
+    service_state: ServiceState,
+    session_state: crate::session::SessionState,
+    frontend_readiness_generation: u64,
+) {
     std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         materialize_restored_backends(
@@ -30,23 +34,44 @@ fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_g
             || note_frontend_deadline(&service_state),
             || restored_backend_tab_ids(&service_state),
             |tab_id| service_state.ensure_tab_pty_for_send(tab_id),
+            |tab_id| {
+                match crate::session::scrollback_restore::seed_restored_scrollback_tail(
+                    tab_id,
+                    &service_state.mux,
+                    &service_state.output_buf,
+                    &session_state,
+                ) {
+                    crate::session::scrollback_restore::ScrollbackRestoreOutcome::Seeded {
+                        bytes,
+                    } => log::info!(
+                        "[startup-pty] tab={tab_id} scrollback seeded bytes={bytes}"
+                    ),
+                    crate::session::scrollback_restore::ScrollbackRestoreOutcome::Skipped {
+                        reason,
+                    } => log::debug!(
+                        "[startup-pty] tab={tab_id} scrollback skipped reason={reason}"
+                    ),
+                }
+            },
         );
     });
 }
 
 /// A missed frontend deadline never abandons restored agents: the backend claims
 /// their PTYs, and a later frontend mount reuses them through the same tab claim.
-fn materialize_restored_backends<W, D, T, M>(
+fn materialize_restored_backends<W, D, T, M, S>(
     wait_frontend: W,
     on_deadline: D,
     tab_ids: T,
     mut materialize: M,
+    mut seed_scrollback: S,
 ) -> Vec<String>
 where
     W: FnOnce() -> bool,
     D: FnOnce(),
     T: FnOnce() -> Vec<String>,
     M: FnMut(&str) -> Result<(), String>,
+    S: FnMut(&str),
 {
     if !wait_frontend() {
         log::warn!(
@@ -56,8 +81,9 @@ where
     }
     let tab_ids = tab_ids();
     for tab_id in &tab_ids {
-        if let Err(error) = materialize(tab_id) {
-            log::error!("[startup-pty] tab={tab_id} materialization failed: {error}");
+        match materialize(tab_id) {
+            Ok(()) => seed_scrollback(tab_id),
+            Err(error) => log::error!("[startup-pty] tab={tab_id} materialization failed: {error}"),
         }
     }
     tab_ids
@@ -344,7 +370,11 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             );
         }
     }
-    start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
+    start_restored_pty_backends(
+        service_state.clone(),
+        states.session.clone(),
+        frontend_readiness_generation,
+    );
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
@@ -400,10 +430,16 @@ mod tests {
         materialize_restored_backends, report_general_agent_frontend_deadline,
         restored_backend_tab_ids, select_web_dist, should_materialize_restored_backend,
     };
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::TabBacking;
+    use crate::pty::manager::OutputBuffer;
+    use crate::session::store::SessionStore;
+    use crate::session::SessionState;
     use crate::service::test_fixture::ServiceFixture;
+    use crate::{multiplexer::commands::MuxState, OutputBufferState};
     use codeterm_types::pty::BootStage;
+    use parking_lot::Mutex;
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
@@ -440,6 +476,7 @@ mod tests {
                 || {},
                 || restored_backend_tab_ids(&restore_service),
                 |_| Ok(()),
+                |_| {},
             );
             restore_tx.send(attempted).unwrap();
         });
@@ -481,6 +518,7 @@ mod tests {
                     Ok(())
                 }
             },
+            |_| {},
         );
 
         assert!(
@@ -509,10 +547,84 @@ mod tests {
                 materialized.push(tab_id.to_string());
                 Ok(())
             },
+            |_| {},
         );
 
         assert!(!deadline_noted);
         assert_eq!(materialized, vec!["worker"]);
+    }
+
+    #[test]
+    fn restored_shell_tab_seeds_sidecar_into_new_pty_before_attach() {
+        let mut state = MultiplexerState::empty();
+        let workspace_id = state.create_workspace("ws".to_string(), None);
+        let tab_id = state.create_tab(&workspace_id.id).unwrap();
+        state
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .restored_from_snapshot = true;
+
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", state));
+        let output_buf: OutputBufferState = Arc::new(TimedMutex::new(
+            "output_buf",
+            OutputBuffer::new(65536),
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        let history = b"prior shell output\r\n";
+        store
+            .save_scrollback_tail(&tab_id, history, 65536)
+            .unwrap();
+        let session: SessionState = Arc::new(Mutex::new(store));
+        let mut sidecar_reads = 0;
+
+        let attempted = materialize_restored_backends(
+            || true,
+            || {},
+            || vec![tab_id.clone()],
+            |restored_tab| {
+                mux.write()
+                    .link_pty(restored_tab, "pty-restored".to_string());
+                mux.write()
+                    .get_tab_mut(restored_tab)
+                    .unwrap()
+                    .restored_from_snapshot = false;
+                output_buf
+                    .lock()
+                    .append("pty-restored", b"fresh shell banner\r\n");
+                Ok(())
+            },
+            |restored_tab| {
+                sidecar_reads += 1;
+                let outcome = crate::session::scrollback_restore::seed_restored_scrollback_tail(
+                    restored_tab,
+                    &mux,
+                    &output_buf,
+                    &session,
+                );
+                assert!(matches!(
+                    outcome,
+                    crate::session::scrollback_restore::ScrollbackRestoreOutcome::Seeded {
+                        bytes: 20
+                    }
+                ));
+            },
+        );
+
+        assert_eq!(attempted, vec![tab_id]);
+        assert_eq!(sidecar_reads, 1);
+        let buffer = output_buf.lock();
+        assert_eq!(
+            buffer.get("pty-restored"),
+            Some(&b"prior shell output\r\nfresh shell banner\r\n"[..])
+        );
+        assert_eq!(
+            buffer.read_since("pty-restored", 0),
+            (
+                b"prior shell output\r\nfresh shell banner\r\n".to_vec(),
+                40
+            )
+        );
     }
 
     fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
