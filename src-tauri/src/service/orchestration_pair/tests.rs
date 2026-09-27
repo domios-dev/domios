@@ -55,6 +55,66 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "ServiceFixture requires a desktop runtime")]
+fn pair_first_plan_creation_binds_the_pending_planner() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let orchestrator_tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&orchestrator_tab_id).unwrap();
+    let planner_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let team_id = mux
+        .get_tab(&orchestrator_tab_id)
+        .and_then(|tab| tab.team_id.clone())
+        .expect("Orchestrator role creates its Team");
+    {
+        let planner = mux.get_tab_mut(&planner_tab_id).unwrap();
+        planner.role = Some(crate::multiplexer::types::AgentRole::Manager);
+        planner.role_profile = Some("planner".into());
+        planner.parent_tab_id = Some(orchestrator_tab_id.clone());
+        planner.team_id = Some(team_id);
+    }
+    mux.get_tab_mut(&orchestrator_tab_id)
+        .unwrap()
+        .pending_paired_planner_tab_id = Some(planner_tab_id.clone());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let outcome = fixture
+        .service
+        .create_team_plan_for_caller(
+            "First goal".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab(&orchestrator_tab_id),
+            crate::service::TeamPlanCaller {
+                tab_id: Some(orchestrator_tab_id.clone()),
+                session_id: None,
+                binding_nonce: None,
+            },
+            Vec::new(),
+            None,
+            1,
+        )
+        .expect("Orchestrator first goal creates its Plan");
+    let expected_planner = Some(PlannerRef::Tab {
+        tab_id: planner_tab_id.clone(),
+        session_id: None,
+        title: None,
+    });
+
+    assert_eq!(outcome.plan.planner, expected_planner);
+    assert_eq!(
+        fixture
+            .service
+            .plan_store
+            .get(&outcome.plan.id)
+            .and_then(|plan| plan.planner),
+        expected_planner
+    );
+    assert!(!fixture
+        .service
+        .tab_has_pending_paired_planner(&orchestrator_tab_id));
+}
+
+#[test]
 fn pair_retry_command_preserves_provider_models_and_workspace() {
     let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
     assert_eq!(
