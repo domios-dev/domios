@@ -569,7 +569,8 @@ mod tests {
         let entries = [
             named_entry(10, 1, "pwsh.exe"),
             named_entry(20, 10, "opencode.exe"),
-            named_entry(30, 99, "opencode.exe"),
+            named_entry(30, 99, "pwsh.exe"),
+            named_entry(40, 99, "opencode.exe"),
         ];
         let has_process = |root, expected| {
             launch_tree(root, &entries, |pid| Some(u64::from(pid)))
