@@ -9,47 +9,56 @@ impl ServiceContext {
         data: &[u8],
     ) {
         let events = self.shell_caps.lock().feed(pty_id, nonce, data);
-        let finished_marker = events.iter().any(|event| {
-            matches!(
-                event,
-                crate::agent::command_detection::CommandLifecycle::Finished { .. }
-            )
-        });
-        let tree_observation = tab_id
-            .and_then(|tab_id| self.observe_provider_process_tree(tab_id, pty_id, finished_marker));
         if events.is_empty() {
             return;
         }
         let Some(tab_id) = tab_id else {
             return;
         };
+        let tree_observation = self.observe_provider_process_tree(tab_id, pty_id, true);
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
                 exit_code, ..
             } = event
             {
-                let tree = self
-                    .observe_provider_process_tree(tab_id, pty_id, true)
-                    .or_else(|| tree_observation.clone());
-                let proof = tree.as_ref().and_then(|tree| {
+                let tree = tree_observation.as_ref();
+                let proof = tree.and_then(|tree| {
                     self.command_finished_proves_provider_exit(tab_id, pty_id, event, tree)
                 });
                 if let Some(proof) = proof {
                     self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
                     let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code, &proof);
-                    self.clear_tab_agent_identity_after_exit_with_proof(
-                        tab_id,
-                        "provider process exited to a surviving shell",
-                        &proof,
-                    );
+                    let note_surviving_shell_exit = !crate::crash::shutdown::is_shutting_down()
+                        && {
+                            let mux = self.mux.read();
+                            mux.get_tab(tab_id).is_some_and(|tab| {
+                                tab.agent_type.is_some()
+                                    && !tab.agent_booting
+                                    && matches!(
+                                        tab.boot_stage,
+                                        Some(
+                                            crate::service::boot_stage::BootStage::ProviderReady
+                                                | crate::service::boot_stage::BootStage::AgentReady
+                                        )
+                                    )
+                            })
+                        };
+                    if note_surviving_shell_exit {
+                        self.note_provider_exit_in_surviving_shell(tab_id);
+                    } else {
+                        self.clear_tab_agent_identity_after_exit_with_proof(
+                            tab_id,
+                            "provider process exited to a surviving shell",
+                            &proof,
+                        );
+                    }
                     if let Some(exited) = exited {
                         self.publish_launch_exit(&exited);
                     }
                 } else {
                     let evidence = tree
-                        .as_ref()
                         .map(|tree| tree.evidence())
-                        .unwrap_or("launch_attempt_unavailable");
+                        .unwrap_or("provider_tree_unavailable");
                     log::info!(
                         "[launch-readiness] refused verdict_source=finished-marker tree_evidence={evidence} tab={tab_id} pty={pty_id}"
                     );

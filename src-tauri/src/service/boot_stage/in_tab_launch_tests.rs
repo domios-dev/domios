@@ -190,8 +190,8 @@ fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
     );
 }
 
-/// A provider observed under this tab's shell and then absent from two
-/// finished-marker snapshots proves exit, so the tab no longer claims it.
+/// A provider observed under this tab's shell and then absent from one
+/// finished-marker snapshot proves exit, so the tab no longer claims it.
 #[test]
 #[cfg_attr(
     not(windows),
@@ -210,13 +210,11 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
         .script_snapshot(&key, observed_provider_process());
     fixture
         .service
-        .process_pty_output("pty-shell", b"provider startup output");
-    for _ in 0..2 {
-        fixture
-            .service
-            .provider_tree_witnesses
-            .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    }
+        .process_pty_output("pty-shell", b"\x1b]633;C\x07");
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     fixture
         .service
@@ -250,13 +248,11 @@ fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
         .script_snapshot(&key, observed_provider_process());
     fixture
         .service
-        .process_pty_output("pty-shell", b"provider startup output");
-    for _ in 0..2 {
-        fixture
-            .service
-            .provider_tree_witnesses
-            .script_snapshot(&key, observed_provider_process());
-    }
+        .process_pty_output("pty-shell", b"\x1b]633;C\x07");
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
 
     fixture
         .service

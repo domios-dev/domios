@@ -568,7 +568,7 @@ fn tab_scoped_retry_claim_is_single_owner() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn general_agent_launch_claim_and_missing_tree_evidence_preserve_identity() {
+fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     let mut mux = MultiplexerState::empty();
     super::super::workspace::ensure_general_workspace(&mut mux, true);
     let general_id = mux
@@ -595,11 +595,7 @@ fn general_agent_launch_claim_and_missing_tree_evidence_preserve_identity() {
         }
         assert!(!fixture
             .service
-            .clear_tab_agent_identity_for_lifecycle_exit_during(
-                &general_id,
-                "general launch exit without tree evidence",
-                None,
-            ));
+            .note_provider_exit_in_surviving_shell(&general_id));
         let state = fixture.service.mux.read();
         let tab = state.get_tab(&general_id).expect("general Tab");
 
@@ -616,18 +612,14 @@ fn general_agent_launch_claim_and_missing_tree_evidence_preserve_identity() {
         assert!(!tab.agent_booting);
         assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
     }
-    assert!(!fixture
+    assert!(fixture
         .service
-        .clear_tab_agent_identity_for_lifecycle_exit_during(
-            &general_id,
-            "general launch exit without tree evidence",
-            None,
-        ));
+        .note_provider_exit_in_surviving_shell(&general_id));
     let state = fixture.service.mux.read();
     let tab = state.get_tab(&general_id).expect("general Tab");
-    assert_eq!(tab.agent_type.as_deref(), Some("codex"));
-    assert_eq!(tab.agent_session_id.as_deref(), Some("session-1"));
-    assert_eq!(tab.session_binding_nonce.as_deref(), Some("nonce-1"));
+    assert!(tab.agent_type.is_none());
+    assert!(tab.agent_session_id.is_none());
+    assert!(tab.session_binding_nonce.is_none());
     assert!(tab.exit_suspected_at.is_none());
 }
 

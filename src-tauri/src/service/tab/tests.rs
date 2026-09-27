@@ -69,12 +69,10 @@ fn assert_opencode_identity(fixture: &ServiceFixture, tab_id: &str) {
 fn restored_opencode_with_live_child_is_never_reported_exited() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     let cause = "restored without a live agent";
-    for _ in 0..2 {
-        fixture
-            .service
-            .provider_tree_witnesses
-            .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    }
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     fixture.service.process_pty_output(
         &pty_id,
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D;0\x07",
@@ -89,12 +87,14 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     fixture
         .service
         .process_pty_output(&pty_id, b"OpenCode startup output");
-    for _ in 0..2 {
-        fixture
-            .service
-            .provider_tree_witnesses
-            .script_snapshot(&key, live_opencode_process());
-    }
+    assert!(!fixture.service.provider_tree_witnesses.has_seen(&key));
+    fixture
+        .service
+        .process_pty_output(&pty_id, b"\x1b]633;C\x07");
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, live_opencode_process());
     fixture.service.process_pty_output(
         &pty_id,
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D;0\x07",
@@ -141,7 +141,7 @@ fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
     fixture
         .service
         .provider_tree_witnesses
-        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Unknown);
     assert!(!fixture
         .service
         .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, None));
@@ -161,7 +161,7 @@ fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
         .recv()
         .expect("published exit settles the waiter");
     let LaunchSettlement::Failed { reason, .. } = settlement else {
-        panic!("two absent snapshots after seeing the provider prove the exit");
+        panic!("one absent snapshot after seeing the provider proves the exit");
     };
     assert!(reason.contains("exit_code=unknown"));
     assert!(fixture
@@ -170,6 +170,95 @@ fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
         .read()
         .get_tab(&tab_id)
         .is_some_and(|tab| tab.agent_type.is_none()));
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(&pty_id)
+        .expect("stop the tab's PTY shell");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn provider_never_seen_finished_marker_with_exit_code_finalises_launch() {
+    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+
+    fixture.service.process_pty_output(
+            &pty_id,
+            b"\x1b]633;A\x07\x1b]633;E;opencode;restored-opencode-shell\x07\x1b]633;C\x07\x1b]633;D;7\x07",
+    );
+
+    assert!(launch_readiness::take_published_failure(&attempt)
+        .is_some_and(|reason| reason.contains("exit_code=7")));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_type.is_none()));
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(&pty_id)
+        .expect("stop the tab's PTY shell");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn confirmed_pty_exit_finalises_launch_before_provider_is_seen() {
+    let (fixture, tab_id, pty_id, attempt, _) = restored_opencode_fixture();
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(&pty_id)
+        .expect("reap the tab's PTY shell");
+
+    assert!(fixture
+        .service
+        .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "PTY process reaped"));
+    assert!(launch_readiness::take_published_failure(&attempt)
+        .is_some_and(|reason| reason.contains("exit_code=unknown")));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_type.is_none()));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn explicit_ui_clear_does_not_depend_on_process_tree_absence() {
+    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, live_opencode_process());
+
+    fixture.service.set_tab_agent_type(&tab_id, None);
+
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_type.is_none()));
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
     fixture
         .service
         .pty

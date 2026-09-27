@@ -100,6 +100,7 @@ pub(crate) struct LaunchExitFailure {
 pub(crate) enum LaunchExitSource {
     FinishedMarker,
     LifecycleClear,
+    ConfirmedPtyExit,
 }
 
 impl LaunchExitSource {
@@ -107,6 +108,7 @@ impl LaunchExitSource {
         match self {
             Self::FinishedMarker => "finished-marker",
             Self::LifecycleClear => "lifecycle-clear",
+            Self::ConfirmedPtyExit => "pty-exit",
         }
     }
 }
@@ -115,7 +117,7 @@ impl LaunchExitSource {
 pub(crate) struct LaunchExitProof {
     attempt: LaunchAttempt,
     source: LaunchExitSource,
-    tree_key: crate::service::process_tree::ProviderTreeKey,
+    tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
     tree_evidence: String,
 }
 
@@ -123,14 +125,37 @@ impl LaunchExitProof {
     pub(crate) fn from_finished_marker(
         attempt: &LaunchAttempt,
         observation: &ProviderTreeObservation,
+        exit_code: Option<i32>,
+        command_line: Option<&str>,
     ) -> Option<Self> {
-        (observation.proves_exit_from_finished_marker()
-            && observation_matches_attempt(observation, attempt))
-        .then(|| Self {
+        let finished_command = exit_code.is_some()
+            && command_line.is_some_and(|command_line| !command_line.trim().is_empty());
+        let tree_evidence = match observation.state() {
+            crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+                if exit_code.is_some_and(|code| code != 0) || finished_command =>
+            {
+                format!(
+                    "{}+shell_exit_code={}{}",
+                    observation.evidence(),
+                    exit_code?,
+                    if command_line.is_some_and(|line| !line.trim().is_empty()) {
+                        "+shell_command_line_present"
+                    } else {
+                        ""
+                    }
+                )
+            }
+            _ if observation.proves_exit_from_finished_marker() => observation.evidence().into(),
+            _ => return None,
+        };
+        if !observation_matches_attempt(observation, attempt) {
+            return None;
+        }
+        Some(Self {
             attempt: attempt.clone(),
             source: LaunchExitSource::FinishedMarker,
-            tree_key: observation.key().clone(),
-            tree_evidence: format!("finished-marker+{}", observation.evidence()),
+            tree_key: Some(observation.key().clone()),
+            tree_evidence: format!("finished-marker+{tree_evidence}"),
         })
     }
 
@@ -143,9 +168,18 @@ impl LaunchExitProof {
         .then(|| Self {
             attempt: attempt.clone(),
             source: LaunchExitSource::LifecycleClear,
-            tree_key: observation.key().clone(),
+            tree_key: Some(observation.key().clone()),
             tree_evidence: observation.evidence().to_string(),
         })
+    }
+
+    pub(crate) fn from_confirmed_pty_exit(attempt: &LaunchAttempt, evidence: &str) -> Self {
+        Self {
+            attempt: attempt.clone(),
+            source: LaunchExitSource::ConfirmedPtyExit,
+            tree_key: None,
+            tree_evidence: evidence.to_string(),
+        }
     }
 
     pub(crate) fn attempt(&self) -> &LaunchAttempt {
@@ -156,8 +190,8 @@ impl LaunchExitProof {
         self.source.label()
     }
 
-    pub(crate) fn tree_key(&self) -> &crate::service::process_tree::ProviderTreeKey {
-        &self.tree_key
+    pub(crate) fn tree_key(&self) -> Option<&crate::service::process_tree::ProviderTreeKey> {
+        self.tree_key.as_ref()
     }
 
     pub(crate) fn tree_evidence(&self) -> &str {

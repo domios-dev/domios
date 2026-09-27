@@ -68,6 +68,79 @@ impl ServiceContext {
         )
     }
 
+    pub(crate) fn clear_tab_agent_identity_after_confirmed_exit(
+        &self,
+        tab_id: &str,
+        cause: &str,
+    ) -> bool {
+        self.clear_tab_agent_identity_after_confirmed_exit_with_evidence(
+            tab_id,
+            cause,
+            "confirmed_tab_pty_exit_event",
+        )
+    }
+
+    fn clear_tab_agent_identity_after_confirmed_exit_with_evidence(
+        &self,
+        tab_id: &str,
+        cause: &str,
+        tree_evidence: &str,
+    ) -> bool {
+        if !self.lifecycle_clear_allowed(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown().as_ref(),
+        ) {
+            return false;
+        }
+        let exit = {
+            let pty_id = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
+            if self.tab_chat_backing(tab_id).is_some() {
+                None
+            } else {
+                pty_id.and_then(|pty_id| {
+                    let attempt = crate::service::launch_readiness::LaunchAttempt::current(
+                        &self.mux, tab_id, &pty_id,
+                    )?;
+                    let proof =
+                        crate::service::launch_readiness::LaunchExitProof::from_confirmed_pty_exit(
+                            &attempt,
+                            tree_evidence,
+                        );
+                    self.claim_launch_exit(tab_id, Some(&pty_id), None, &proof)
+                })
+            }
+        };
+        let cleared = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id)
+                .is_some_and(clear_agent_identity_for_lifecycle_exit)
+        };
+        if let Some(exit) = exit {
+            self.publish_launch_exit(&exit);
+        }
+        self.finish_agent_identity_clear(tab_id, cause, cleared, "pty-exit", tree_evidence)
+    }
+
+    pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
+        let cleared = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id)
+                .is_some_and(clear_agent_identity_for_lifecycle_exit)
+        };
+        self.finish_agent_identity_clear(
+            tab_id,
+            cause,
+            cleared,
+            "explicit-clear",
+            "caller_explicitly_cleared_identity",
+        )
+    }
+
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
         &self,
         tab_id: &str,
@@ -83,8 +156,26 @@ impl ServiceContext {
             .get_tab(tab_id)
             .and_then(|tab| tab.pty_id.clone());
         let Some(pty_id) = pty_id else {
-            return self.refuse_lifecycle_identity_clear(tab_id, cause, "tab_pty_unavailable");
+            let cleared = {
+                let mut mux = self.mux.write();
+                mux.get_tab_mut(tab_id)
+                    .is_some_and(clear_agent_identity_for_lifecycle_exit)
+            };
+            return self.finish_agent_identity_clear(
+                tab_id,
+                cause,
+                cleared,
+                "lifecycle-clear",
+                "tab_has_no_live_pty_tree",
+            );
         };
+        if self.pty.lock().get_session(&pty_id).is_none() {
+            return self.clear_tab_agent_identity_after_confirmed_exit_with_evidence(
+                tab_id,
+                cause,
+                "pty_manager_session_absent",
+            );
+        }
         let Some(tree) = self.observe_provider_process_tree(tab_id, &pty_id, true) else {
             return self.refuse_lifecycle_identity_clear(
                 tab_id,
@@ -102,7 +193,11 @@ impl ServiceContext {
                 "tab_identity_changed_during_tree_check",
             );
         }
-        if !tree.proves_exit_from_lifecycle_clear() {
+        if matches!(
+            tree.state(),
+            crate::service::process_tree::ProviderTreeState::Present
+                | crate::service::process_tree::ProviderTreeState::Unknown
+        ) {
             return self.refuse_lifecycle_identity_clear(tab_id, cause, tree.evidence());
         }
         let exit_proof =
@@ -142,7 +237,7 @@ impl ServiceContext {
         let attempt = proof.attempt();
         let key_matches = self
             .provider_tree_key_for_tab(tab_id, &attempt.pty_id)
-            .is_some_and(|key| &key == proof.tree_key());
+            .is_some_and(|key| proof.tree_key().is_some_and(|proof_key| &key == proof_key));
         if proof.source_label() != "finished-marker" || !key_matches {
             return self.refuse_lifecycle_identity_clear(
                 tab_id,
@@ -185,6 +280,9 @@ impl ServiceContext {
     }
 
     fn refuse_lifecycle_identity_clear(&self, tab_id: &str, cause: &str, evidence: &str) -> bool {
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.exit_suspected_at = None;
+        }
         log::warn!(
             "[agent-lifecycle] refused identity clear: tab={tab_id} cause={cause} verdict_source=lifecycle-clear tree_evidence={evidence}"
         );
