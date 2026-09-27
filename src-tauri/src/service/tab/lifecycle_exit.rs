@@ -220,6 +220,15 @@ impl ServiceContext {
         ) {
             return self.refuse_lifecycle_identity_clear(tab_id, cause, tree.evidence());
         }
+        if tree.state() == crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
+            && self.lifecycle_clear_has_inflight_launch(tab_id, &pty_id, tree.key())
+        {
+            return self.refuse_lifecycle_identity_clear(
+                tab_id,
+                cause,
+                "provider_not_seen_before_absence+launch_in_flight",
+            );
+        }
         let exit_proof =
             crate::service::launch_readiness::LaunchAttempt::current(&self.mux, tab_id, &pty_id)
                 .and_then(|attempt| {
@@ -248,6 +257,36 @@ impl ServiceContext {
             self.handoff_launch_exit_after_teardown(&exited);
         }
         finished
+    }
+
+    fn lifecycle_clear_has_inflight_launch(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        key: &crate::service::process_tree::ProviderTreeKey,
+    ) -> bool {
+        let tab_in_flight = {
+            let mux = self.mux.read();
+            let Some(tab) = mux
+                .get_tab(tab_id)
+                .filter(|tab| tab.pty_id.as_deref() == Some(pty_id))
+            else {
+                return true;
+            };
+            tab.agent_booting || launch_stage_before_readiness(tab)
+        };
+        if tab_in_flight {
+            return true;
+        }
+        let Some(binding_nonce) = key.binding_nonce.as_deref() else {
+            return false;
+        };
+        let attempt = crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab_id.to_string(),
+            pty_id: pty_id.to_string(),
+            binding_nonce: binding_nonce.to_string(),
+        };
+        crate::service::launch_readiness::attempt_is_armed(&attempt)
     }
 
     pub(crate) fn clear_tab_agent_identity_after_exit_with_proof(
@@ -386,4 +425,23 @@ impl ServiceContext {
         self.emit_state_changed();
         true
     }
+}
+
+fn launch_stage_before_readiness(tab: &crate::multiplexer::types::Tab) -> bool {
+    use codeterm_types::pty::BootStage;
+
+    !tab.restored_from_snapshot
+        && matches!(
+            tab.boot_stage,
+            Some(
+                BootStage::PtyStarting
+                    | BootStage::PtySpawned
+                    | BootStage::ReaderReady
+                    | BootStage::AgentLaunching
+                    | BootStage::LaunchWritten
+                    | BootStage::ProviderReady
+                    | BootStage::PreparingRoleInstructions
+                    | BootStage::DeliveringInstructions
+            )
+        )
 }
