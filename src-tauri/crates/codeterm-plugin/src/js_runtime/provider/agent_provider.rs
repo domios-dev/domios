@@ -97,6 +97,10 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.provider_readiness).into()
     }
 
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        self.manifest.spawn.composer_cursor_position
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self

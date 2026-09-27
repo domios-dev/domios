@@ -151,6 +151,11 @@ export function PlanListRowView({
         <span data-testid="plan-list-title" className="plan-list-title">
           {row.title}
         </span>
+        {row.unplannedLabel && (
+          <span data-testid="plan-list-unplanned-badge" className="plan-list-unplanned-badge">
+            {row.unplannedLabel}
+          </span>
+        )}
         <TaskExecutionBadges loop={row.loopBadge} competition={row.competeBadge} />
         {isPausedTask && (
           <span
