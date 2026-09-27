@@ -615,7 +615,7 @@ pub(super) fn dispatch(
                     Value::String(value) => value,
                     _ => String::new(),
                 };
-                let mut child_params = json!({
+                let child_params = json!({
                     "plan_id": plan_id,
                     "name": name,
                     "parent": parent_id,

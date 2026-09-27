@@ -27,13 +27,11 @@ mod status_reason_render_tests {
             {"id": "child_a", "name": "Part A", "status": "in_progress"},
             {"id": "child_b", "name": "Part B", "status": "done"}
         ])));
-        let line = line.unwrap();
         for token in ["child_a", "in_progress", "child_b", "done"] {
             assert!(line.contains(token), "missing {token} in {line}");
         }
     }
 
-    #[test]
     #[test]
     fn task_show_renders_the_blocked_reason() {
         assert_eq!(

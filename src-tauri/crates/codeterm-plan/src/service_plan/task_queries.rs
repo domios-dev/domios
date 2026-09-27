@@ -51,7 +51,7 @@ pub struct TaskSection {
     pub title: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct TaskLabel {
     pub id: String,
     pub display_key: String,

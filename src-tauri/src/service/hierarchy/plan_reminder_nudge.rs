@@ -425,6 +425,7 @@ fn aged_task_status_text(
             }
         }
         TaskPresentation::Blocked => "blocked".into(),
+        TaskPresentation::BlockedOnSubtasks => "waiting on subtasks".into(),
         TaskPresentation::Paused => "paused".into(),
         TaskPresentation::Terminal => "terminal".into(),
     }
