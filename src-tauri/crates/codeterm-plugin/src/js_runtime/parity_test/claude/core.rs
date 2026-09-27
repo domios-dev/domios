@@ -255,7 +255,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
     let params = crate::provider::AgentResumeParams {
         session_id: "abc-def-123-456".into(),
         skip_permissions: true,
+        agent_name: None,
         system_prompt: Some(prompt.into()),
+        instance_id: None,
         args: vec!["--model".into(), "parity-model".into()],
     };
 

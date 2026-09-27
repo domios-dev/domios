@@ -98,6 +98,25 @@ test("Team mode names the Team action and counts only Team tabs", async () => {
   await act(async () => root.unmount());
 });
 
+test("Team close inventory lists its crons and lanes", async () => {
+  const { root } = await render(
+    <GroupCloseConfirmDialog
+      mode="team"
+      orchestratorTitle="QA fixtures"
+      members={[member("worker", "Worker", null)]}
+      crons={["Daily review"]}
+      lanes={["API plan: Add route"]}
+      onConfirm={() => {}}
+      onCancel={() => {}}
+    />,
+  );
+  assert(document.body.textContent?.includes("Crons (1)"), "cron count appears");
+  assert(document.body.textContent?.includes("Daily review"), "cron name appears");
+  assert(document.body.textContent?.includes("Lanes (1)"), "lane count appears");
+  assert(document.body.textContent?.includes("API plan: Add route"), "lane name appears");
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {

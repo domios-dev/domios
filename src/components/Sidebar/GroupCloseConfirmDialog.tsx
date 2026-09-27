@@ -5,12 +5,16 @@ export function GroupCloseConfirmDialog({
   mode = "group",
   orchestratorTitle,
   members,
+  crons = [],
+  lanes = [],
   onConfirm,
   onCancel,
 }: {
   mode?: "group" | "team";
   orchestratorTitle: string;
   members: OrchestrationGroupMember[];
+  crons?: readonly string[];
+  lanes?: readonly string[];
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -42,6 +46,22 @@ export function GroupCloseConfirmDialog({
             </li>
           ))}
         </ul>
+        {isTeam && (
+          <div className="px-4 pb-3 text-[11px] text-[var(--ct-muted-fg)]">
+            <div>Crons ({crons.length})</div>
+            {crons.length > 0 && (
+              <ul className="py-1 text-[var(--ct-fg)]">
+                {crons.map((cron, index) => <li key={`${cron}-${index}`}>{cron}</li>)}
+              </ul>
+            )}
+            <div className="pt-1">Lanes ({lanes.length})</div>
+            {lanes.length > 0 && (
+              <ul className="py-1 text-[var(--ct-fg)]">
+                {lanes.map((lane) => <li key={lane}>{lane}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
           <button
             onClick={onCancel}

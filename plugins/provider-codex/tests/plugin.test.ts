@@ -9,6 +9,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import "./prompt.test";
+import "./restore-resume.test";
 
 let passed = 0;
 let failed = 0;
@@ -217,7 +218,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
@@ -1093,7 +1094,7 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex resume Q(windows:11111111-1111-1111-1111-111111111111) --no-daemon",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {

@@ -631,8 +631,23 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // On rejection the workspace still lives — drop its tombstones and restore.
       guardedInvoke("mux_close_workspace", { workspaceId: id, force })
         .then(() => refreshFromBackend())
-        .catch(() => {
+        .catch((error) => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });
+          dispatch({
+            type: "UPSERT_TOAST",
+            toast: {
+              id: uid(),
+              tab_id: null,
+              workspace_id: id,
+              title: "Workspace close failed",
+              body: error instanceof Error ? error.message : String(error),
+              severity: "Error",
+              level: "failure",
+              sticky: true,
+              timestamp: Date.now(),
+              read: false,
+            },
+          });
           refreshFromBackend();
         });
     },

@@ -227,7 +227,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .and_then(|s| mux.write().resolve_tab_id(&s));
-            if let Some(src) = source_tab.as_deref() {
+            let response = if let Some(src) = source_tab.as_deref() {
                 let (from_label, model) = {
                     let m = mux.write();
                     (
@@ -238,7 +238,8 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::tab(from_label, src.to_string())
                         .model(model);
-                svc.as_ref()
+                let delivery = svc
+                    .as_ref()
                     .gateway_deliver(
                         &resolved_target,
                         envelope,
@@ -250,14 +251,16 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
+                gateway_send_response(delivery)
             } else {
-                if enter {
-                    svc.send_text_detached(&resolved_target, &raw_text);
-                } else {
-                    svc.insert_text_detached(&resolved_target, &raw_text);
-                }
-            }
-            Ok(serde_json::json!({"ok": true}))
+                let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
+                local_send_response(
+                    svc.as_ref()
+                        .send_text_input_delivery(&resolved_target, &raw_text, enter, None),
+                    writes_pty,
+                )
+            };
+            Ok(response)
         }
 
         "tab.get_output" => {
@@ -375,9 +378,45 @@ pub(super) fn dispatch(
     }
 }
 
+fn gateway_send_response(delivery: crate::service::messenger::Delivery) -> Value {
+    match delivery {
+        crate::service::messenger::Delivery::Pty { .. } => serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": false,
+        }),
+        crate::service::messenger::Delivery::ChatBackend { .. } => serde_json::json!({
+            "ok": true,
+            "delivery": "sent",
+        }),
+    }
+}
+
+fn local_send_response(
+    result: Result<(), crate::service::delivery_error::DeliveryError>,
+    writes_pty: bool,
+) -> Value {
+    match result {
+        Ok(()) if writes_pty => serde_json::json!({
+            "ok": true,
+            "delivery": "sent",
+            "bytes_written": true,
+        }),
+        Ok(()) => serde_json::json!({ "ok": true, "delivery": "sent" }),
+        Err(error) if error.bytes_written() => serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": true,
+        }),
+        Err(error) => error.to_json(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::require_send_target;
+    use super::{gateway_send_response, local_send_response, require_send_target};
+    use crate::service::delivery_error::DeliveryError;
+    use crate::service::messenger::Delivery;
 
     #[test]
     fn send_target_must_resolve_to_a_real_tab() {
@@ -387,6 +426,64 @@ mod tests {
         assert_eq!(
             require_send_target("short", Some("full-id".into())).unwrap(),
             "full-id"
+        );
+    }
+
+    #[test]
+    fn local_send_response_reports_confirmed_pending_and_refused_outcomes() {
+        assert_eq!(
+            local_send_response(Ok(()), true),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "sent",
+                "bytes_written": true,
+            }),
+        );
+        assert_eq!(
+            local_send_response(
+                Err(DeliveryError::SubmitUnconfirmed {
+                    tab: "tab".into(),
+                    detail: "submit was not confirmed".into(),
+                }),
+                true,
+            ),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "pending",
+                "bytes_written": true,
+            }),
+        );
+        let refused = local_send_response(
+            Err(DeliveryError::TabBusyRefused {
+                tab: "tab".into(),
+                detail: "provider is not ready".into(),
+            }),
+            true,
+        );
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["error"]["code"], "tab_busy_refused");
+        assert_eq!(refused["error"]["bytes_written"], false);
+    }
+
+    #[test]
+    fn chat_backend_send_does_not_claim_pty_bytes() {
+        assert_eq!(
+            local_send_response(Ok(()), false),
+            serde_json::json!({ "ok": true, "delivery": "sent" }),
+        );
+    }
+
+    #[test]
+    fn enveloped_pty_send_remains_pending_until_background_write() {
+        assert_eq!(
+            gateway_send_response(Delivery::Pty {
+                text: "body".into()
+            }),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "pending",
+                "bytes_written": false,
+            }),
         );
     }
 }

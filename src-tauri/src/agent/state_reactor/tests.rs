@@ -333,7 +333,8 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
             .iter()
             .filter_map(|action| match action {
                 codeterm_types::notification::NotificationAction::RespondPromptOption {
-                    value, ..
+                    value,
+                    ..
                 } => Some(value.as_str()),
                 _ => None,
             })
@@ -428,8 +429,8 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
-    let screen = std::fs::read_to_string(fixture_path)
-        .expect("captured Codex command approval frame");
+    let screen =
+        std::fs::read_to_string(fixture_path).expect("captured Codex command approval frame");
     let options = screen
         .lines()
         .filter_map(|line| {
@@ -526,7 +527,8 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
             .iter()
             .filter_map(|action| match action {
                 codeterm_types::notification::NotificationAction::RespondPromptOption {
-                    value, ..
+                    value,
+                    ..
                 } => Some(value.as_str()),
                 _ => None,
             })
@@ -554,8 +556,8 @@ fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
     let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../plugins/provider-codex/tests/fixtures/command-approval/command-approval-0.157.1.txt",
     );
-    let screen = std::fs::read_to_string(fixture_path)
-        .expect("captured Codex command approval frame");
+    let screen =
+        std::fs::read_to_string(fixture_path).expect("captured Codex command approval frame");
     let prompt = PendingPrompt {
         question: "opaque command approval".into(),
         options: vec![

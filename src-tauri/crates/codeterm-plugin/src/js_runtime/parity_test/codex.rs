@@ -3,6 +3,7 @@
 //! realistic fixture and asserts the result round-trips into the native shape.
 //!
 //! Covered capabilities: buildLaunchCommand, buildResumeCommand,
+//! buildResumeCommandWithContext,
 //! parseSessionDelta, parseSessionMessages, sessionFilePath, sessionJsonlPath,
 //! enumerateSessions, detectSessionModel, detectSessionId, detectActiveSession.
 
@@ -157,18 +158,58 @@ fn build_resume_command_shape() {
     assert!(no_skip.contains(CODEX_UUID));
 }
 
-/// Codex declares no resume re-application, so the composed prompt must not
-/// reach its command — the conservative default that keeps a retaining
-/// provider from carrying two copies of its primer. Launch args still travel.
 #[test]
-fn resume_with_context_keeps_the_conservative_default() {
+fn resume_with_context_restores_profile_and_launch_parameters() {
     if require_plugins().is_none() {
         return;
     }
     let j = codex();
     let params = crate::provider::AgentResumeParams {
         session_id: CODEX_UUID.into(),
+        skip_permissions: true,
+        agent_name: Some("restored-agent".into()),
+        system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
+        instance_id: Some("instance-parity".into()),
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="xhigh""#.into(),
+        ],
+    };
+    let command = j
+        .build_resume_command_with_context(&params)
+        .expect("codex resume command");
+
+    if cfg!(windows) {
+        assert!(command.contains("codex resume"));
+    } else {
+        assert!(command.starts_with("codex resume"));
+    }
+    assert!(command.contains(CODEX_UUID));
+    assert!(command.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(command.contains("--dangerously-bypass-hook-trust"));
+    assert!(command.contains("gpt-6-sol"));
+    assert!(command.contains("model_reasoning_effort"));
+    assert!(command.contains("xhigh"));
+    assert!(!command.contains("parity-sentinel-91c3"));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+        assert!(command.contains("launch-artifacts/release"));
+        assert!(command.contains("instance-parity"));
+    }
+}
+
+#[test]
+fn resume_with_context_keeps_the_conservative_default() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let params = crate::provider::AgentResumeParams {
+        session_id: CODEX_UUID.into(),
         skip_permissions: false,
+        instance_id: Some("instance-parity".into()),
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
         args: vec![
             "-m".into(),
@@ -176,24 +217,35 @@ fn resume_with_context_keeps_the_conservative_default() {
             "-c".into(),
             r#"model_reasoning_effort="high""#.into(),
         ],
+        ..Default::default()
     };
-    let command = j
+    let command = provider
         .build_resume_command_with_context(&params)
         .expect("codex resume command");
 
     assert!(!command.contains("parity-sentinel-91c3"));
-    assert_eq!(
-        command,
-        format!("codex resume '{CODEX_UUID}' -m gpt-6-sol -c model_reasoning_effort=\"high\"")
-    );
-    assert_eq!(
-        command,
-        crate::provider::append_launch_args(
-            j.build_resume_command(CODEX_UUID, false)
-                .expect("codex base resume"),
-            &params.args
-        )
-    );
+    assert!(command.contains("--no-daemon"));
+    assert!(command.contains("gpt-6-sol"));
+    assert!(command.contains("model_reasoning_effort=\"high\""));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+    } else {
+        assert_eq!(
+            command,
+            format!(
+                "codex resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
+            )
+        );
+        assert_eq!(
+            command,
+            crate::provider::append_launch_args(
+                provider
+                    .build_resume_command(CODEX_UUID, false)
+                    .expect("codex base resume"),
+                &params.args
+            )
+        );
+    }
 }
 
 #[test]

@@ -183,7 +183,7 @@ export function parseMenuOptions(screen: string): MenuOption[] {
 
 function joinWrappedLabel(label: string, row: string): string {
   const continuation = row.trim();
-  const pathBoundary = /[\\/]$/.test(label) || /^[\\/]/.test(continuation);
+  const pathBoundary = /[\\/]$/.test(label);
   return `${label}${pathBoundary ? "" : " "}${continuation}`;
 }
 

@@ -32,26 +32,36 @@ integration surface.
 
 | Route | Handler | Returns |
 |-------|---------|---------|
-| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true}` once delivery is accepted, or a structured `DeliveryError` |
-| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId` |
+| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when an enveloped send is accepted in the background, or a structured delivery error with its `bytes_written` status |
+| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
 | `GET /api/tabs/{id}/chat-send` | `tab_routes::chat_send_status` (`src-tauri/src/api/tab_routes/send.rs:50`) | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
 
-`POST .../send` is the ordinary write path: every CLI send, mesh relay, service
-push-token write, and low-level `actions` / `raw` / `batch` terminal input. It
-is **not** fire-and-forget — the tab is resolved before anything is written and
-the response is returned only after delivery is accepted. A failure serializes
-the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`,
-`pty_unavailable`, `submit_unconfirmed`) documented in
-`.agents/skills/pty-delivery/SKILL.md`.
+`POST .../send` is the synchronous REST write path used by mesh relays, service
+push-token writes, and low-level `actions` / `raw` / `batch` terminal input.
+Responses include `delivery: "sent"` after the route confirms its write, or
+`delivery: "pending"` when an enveloped message was accepted by a background
+route. A failure serializes the delivery taxonomy
+(`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`,
+`submit_unconfirmed`) documented in `.agents/skills/pty-delivery/SKILL.md`.
 
-`POST .../chat-send` is the Chat UI user turn. It additionally opens a ledger
-entry so the send can be reconciled later; `GET .../chat-send` reads that
-ledger, and `state` is one of `accepted`, `unknown`, `confirmed`, `failed`
-(`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
+Local `codeterm send` uses the socket `tab.send_text` route. It reports
+`OK (sent)` after a confirmed write, `OK (pending)` when the route accepted
+background work or wrote bytes without submit confirmation, and a refusal
+when no bytes were written. With `--json`, `delivery` and any `bytes_written`
+field carry the same distinction for one target; multi-target JSON includes
+`pending_written` for accepted writes that still lack submit confirmation.
+The resolved payload echo is emitted for confirmed delivery or a pending write.
 
-The CLI posts only to `/send` — `cli/src/cmd/send_text.rs:412` on the mesh
-relay path and `cli/src/cmd/send_text.rs:625` locally. A `codeterm send`
-therefore opens no ledger entry, and `GET .../chat-send` will not list it.
+`POST .../chat-send` is the Chat UI user turn. It accepts tabs with agent
+identity at any launch stage and chat-backend tabs; a PTY tab without an agent
+identity is refused before
+the send transaction so prose is never typed into a bare shell. Accepted sends
+open a ledger entry so the send can be reconciled later; `GET .../chat-send`
+reads that ledger, and `state` is one of `accepted`, `unknown`, `confirmed`,
+`failed` (`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
+
+Local and mesh `codeterm send` commands open no Chat send ledger entry, and
+`GET .../chat-send` will not list those messages.
 
 Neither route promises that the recipient has *answered*. A reply comes back
 through the return-address channel the sender was given (`codeterm send --tab
@@ -67,7 +77,7 @@ as one.
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` required (absent body: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
-| POST | `/api/workspaces/{id}/close` | `{force?}` or no body | Delete workspace. No body is the ordinary non-forced close. Agent tabs require `force: true`; without it the `403` response identifies the affected tabs and leaves the workspace open. |
+| POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request with no `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms; the service logs this as `human-attributed (headerless, confirmed)`. Without that body it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members in the workspace is closed through Team close before remaining workspace tabs are removed. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
 | POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` or no body | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | `{eager?}` or no body | Create tab; no body leaves eager PTY creation disabled. |
@@ -130,8 +140,8 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/tabs/{id}/delayed-messages` | — | List queued and failed delayed Chat UI messages for this tab |
-| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
-| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
+| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs, createdByTab?, recurrence?: {everyMs, untilMs?, count?}}` | Queue a one-shot or recurring message for delivery to this tab. Recurrence starts at `scheduledAtMs`, repeats at an anchored interval of at least one minute, and accepts at most one stop condition. Normal send is unaffected. |
+| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?, recurrence?: {everyMs, untilMs?, count?}}` | Edit a queued or failed delayed message, including its recurrence rule |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
 
@@ -236,4 +246,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 32 -->
+<!-- revision: 40 -->

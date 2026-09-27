@@ -82,6 +82,10 @@ let started = false;
 let lastFrameAt = 0;
 let forceImmediateRetry = false;
 
+export function replayOffsetsAfterBootChange(tabIds: Iterable<string>): Map<string, number> {
+  return new Map<string, number>([...tabIds].map((tabId): [string, number] => [tabId, 0]));
+}
+
 function readBoot(): string | null {
   try {
     return sessionStorage.getItem(BOOT_KEY);
@@ -150,6 +154,9 @@ function handleFrame(msg: OutputFrame): void {
     // boot-scoped offsets and reconnect — the boot-matched cursor full-replays.
     saveBoot(msg.boot);
     offsets.clear();
+    for (const [tabId, offset] of replayOffsetsAfterBootChange(sinks.keys())) {
+      offsets.set(tabId, offset);
+    }
     forceReconnect();
     return;
   }

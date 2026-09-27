@@ -4,49 +4,50 @@ use crate::service::launch_readiness::LaunchSettlement;
 use crate::service::ServiceContext;
 use std::time::Duration;
 
-pub(super) fn resume_waits_for_first_turn(
+pub(crate) fn launch_waits_for_first_turn_binding(
     svc: &ServiceContext,
     tab_id: &str,
     agent_cmd: &str,
+    has_startup_task_turn: bool,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) -> bool {
-    if !matches!(
+    let provider_starts_session_on_first_turn = svc
+        .agent_registry
+        .with_provider(agent_cmd, |provider| {
+            provider.session_starts_on_first_user_turn()
+        })
+        .unwrap_or(false);
+    let restored_resume = matches!(
         origin,
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
-    ) {
-        return false;
-    }
-    let has_saved_session = svc
+    ) && svc
         .mux
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.agent_session_id.as_deref())
         .is_some_and(|session_id| !session_id.trim().is_empty());
-    has_saved_session
-        && svc
-            .agent_registry
-            .with_provider(agent_cmd, |provider| {
-                provider.resume_binds_on_first_user_turn()
-            })
-            .unwrap_or(false)
+    first_turn_binding_required(
+        provider_starts_session_on_first_turn,
+        has_startup_task_turn,
+        restored_resume,
+    )
 }
 
-pub(super) fn input_ready_stage_after_provider_ready(resumes_on_first_turn: bool) -> BootStage {
-    if resumes_on_first_turn {
+pub(super) fn first_turn_binding_required(
+    provider_starts_session_on_first_turn: bool,
+    has_startup_task_turn: bool,
+    restored_resume: bool,
+) -> bool {
+    provider_starts_session_on_first_turn && (restored_resume || !has_startup_task_turn)
+}
+
+pub(super) fn input_ready_stage_after_provider_ready(
+    session_starts_on_first_turn: bool,
+) -> BootStage {
+    if session_starts_on_first_turn {
         BootStage::AgentReady
     } else {
         BootStage::ProviderReady
-    }
-}
-
-pub(super) fn provider_readiness_with_timeout(
-    strategy: &crate::agent::provider::ProviderReadinessStrategy,
-    timeout: std::time::Duration,
-) -> crate::agent::provider::ProviderReadinessStrategy {
-    if strategy.requires_composer() {
-        crate::agent::provider::ProviderReadinessStrategy::StructuralComposer { timeout }
-    } else {
-        crate::agent::provider::ProviderReadinessStrategy::TuiFrame { timeout }
     }
 }
 
@@ -60,7 +61,7 @@ pub(super) fn finish_waiting_for_first_turn(
     let finished = LAUNCH_REGISTRY.lock().finish(launch);
     if finished {
         log::info!(
-            "[launch-readiness] Tab {} remains available for its resume first turn",
+            "[launch-readiness] Tab {} remains available for its first turn",
             launch.tab_id
         );
     }
@@ -98,7 +99,7 @@ pub(super) fn emit_agent_ready(
             }
             LaunchSettlement::AwaitingFirstTurn => {
                 LAUNCH_REGISTRY.lock().finish(launch);
-                "resume awaiting first turn".into()
+                "launch awaits its first turn".into()
             }
             LaunchSettlement::Ready => fail_unbound_launch(
                 launch,

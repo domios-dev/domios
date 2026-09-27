@@ -1,8 +1,6 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::{
-    adopt_caller_actions, CallerAction, NotificationAction,
-};
+use codeterm_types::notification::{adopt_caller_actions, CallerAction, NotificationAction};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -428,14 +426,7 @@ impl ServiceContext {
         intent: PushIntent,
     ) -> String {
         self.create_notification_actions_reported(
-            title,
-            body,
-            severity,
-            actions,
-            sticky,
-            origin,
-            intent,
-            None,
+            title, body, severity, actions, sticky, origin, intent, None,
         )
         .0
     }
@@ -651,10 +642,21 @@ impl ServiceContext {
         tab_id: &str,
         identity: &codeterm_types::pty::PromptIdentity,
     ) -> Vec<String> {
-        let resolved = self
-            .notif
-            .lock()
-            .resolve_prompt_notifications(tab_id, identity);
+        self.resolve_prompt_transition(tab_id, Some(identity.clone()), None)
+    }
+
+    pub(crate) fn resolve_prompt_transition(
+        &self,
+        tab_id: &str,
+        previous: Option<codeterm_types::pty::PromptIdentity>,
+        current: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Vec<String> {
+        let resolved = {
+            let mut store = self.notif.lock();
+            super::prompt_resolution::resolve_displaced_prompt(
+                &mut store, tab_id, previous, current,
+            )
+        };
         for id in &resolved {
             let spent = { self.notif.lock().spent_question(id) };
             if let Some(spent) = spent {
@@ -665,12 +667,19 @@ impl ServiceContext {
         resolved
     }
 
-    fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
-        let prompt_answer = {
+    pub(crate) fn record_channel_placement(&self, id: &str, service: &str, locator: &str) {
+        let spent = {
             self.notif
                 .lock()
-                .prompt_option_answer(id, &standing)
+                .remember_channel_placement_and_spent_question(id, service, locator)
         };
+        if let Some(spent) = spent {
+            self.spend_on_channels(id, &spent);
+        }
+    }
+
+    fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let prompt_answer = { self.notif.lock().prompt_option_answer(id, &standing) };
         let prompt_standing = standing.clone();
         route_prompt_answer(
             prompt_answer,

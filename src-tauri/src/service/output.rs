@@ -13,10 +13,14 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
+#[path = "output/agent_idle.rs"]
+mod agent_idle;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
+#[path = "output/shell_markers.rs"]
+mod shell_markers;
 #[cfg(test)]
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
@@ -37,6 +41,7 @@ fn parse_manual_update_prompt(
         .flatten()
 }
 
+#[cfg(test)]
 fn parse_directory_trust_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     screen: &str,
@@ -125,52 +130,6 @@ impl ServiceContext {
                 false
             }
             None => false,
-        }
-    }
-
-    fn force_agent_idle_for_pty(&self, pty_id: &str) {
-        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
-        if let Some(tab_id) = tab_id {
-            self.force_agent_idle_for_tab(&tab_id);
-        }
-    }
-
-    fn force_agent_idle_for_tab(&self, tab_id: &str) {
-        use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
-
-        let idle_state: AgentLiveState = TabVerdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        }
-        .into();
-        let (changed, previous_identity) = {
-            let mut mux = self.mux.write();
-            match mux.get_tab_mut(tab_id) {
-                Some(tab) if tab.agent_type.is_some() => {
-                    let changed = tab.agent_state.as_ref() != Some(&idle_state)
-                        || tab.pending_prompt.is_some();
-                    let previous_identity = tab
-                        .pending_prompt
-                        .as_ref()
-                        .zip(tab.pending_prompt_kind)
-                        .map(|(prompt, kind)| {
-                            codeterm_types::pty::PromptIdentity::new(kind, prompt)
-                        });
-                    tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    tab.pending_prompt_kind = None;
-                    (changed, previous_identity)
-                }
-                _ => (false, None),
-            }
-        };
-        if let Some(identity) = previous_identity {
-            self.resolve_prompt_notifications(tab_id, &identity);
-        }
-        if changed {
-            self.emit_state_changed();
-            self.schedule_planner_replay(&tab_id);
-            self.heal_recovery_state_if_ready();
         }
     }
 
@@ -663,46 +622,6 @@ impl ServiceContext {
         }
     }
 
-    /// Feed a raw chunk into the tab's shell-integration accumulators and emit
-    /// command-lifecycle changes on the unified frontend event path (same
-    /// `emit_everywhere` channel `tab-status-changed` uses). OSC4 renders these.
-    fn process_shell_markers(
-        &self,
-        pty_id: &str,
-        tab_id: Option<&str>,
-        nonce: Option<String>,
-        data: &[u8],
-    ) {
-        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
-        if events.is_empty() {
-            return;
-        }
-        // nothing to surface to a chat view yet.
-        let Some(tab_id) = tab_id else {
-            return;
-        };
-        for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
-            {
-                if self.command_finished_proves_provider_exit(tab_id, pty_id, event) {
-                    self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                    let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
-                    self.note_provider_exit_in_surviving_shell(tab_id);
-                    if let Some(exited) = exited {
-                        self.publish_launch_exit(&exited);
-                    }
-                }
-            }
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "shell-command-changed",
-                serde_json::json!({ "tab_id": tab_id, "event": event }),
-            );
-        }
-    }
-
     /// Heuristic detection is limited to hookless, file-backed providers. A
     /// hooked provider that missed its launch deadline reads its own launch record.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
@@ -1002,20 +921,13 @@ impl ServiceContext {
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
-                        let previous_identity = tab
-                            .pending_prompt
-                            .as_ref()
-                            .zip(tab.pending_prompt_kind)
-                            .map(|(existing, kind)| {
-                                codeterm_types::pty::PromptIdentity::new(kind, existing)
-                            });
-                        let notify =
-                            should_notify_pending_prompt(
-                                decision,
-                                tab.pending_prompt.as_ref(),
-                                tab.pending_prompt_kind,
-                                prompt_kind,
-                            );
+                        let previous_identity = tab.prompt_identity();
+                        let notify = should_notify_pending_prompt(
+                            decision,
+                            tab.pending_prompt.as_ref(),
+                            tab.pending_prompt_kind,
+                            prompt_kind,
+                        );
                         tab.pending_prompt = Some(prompt.clone());
                         tab.pending_prompt_kind = Some(prompt_kind);
                         Some((notify, previous_identity))
@@ -1027,9 +939,7 @@ impl ServiceContext {
                     return;
                 };
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
-                if let Some(previous) = previous_identity.filter(|previous| previous != &identity) {
-                    self.resolve_prompt_notifications(tab_id, &previous);
-                }
+                self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",

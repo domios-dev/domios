@@ -200,7 +200,7 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
     : undefined;
   const wrappedContinuation = secondOptionLine >= 0 ? wrappedRows[secondOptionLine + 1]?.trim() : undefined;
   const splitsPathToken = Boolean(
-    secondOptionText?.match(/[\\/]\s*$/) || wrappedContinuation?.match(/^[\\/]/),
+    secondOptionText?.match(/[\\/]\s*$/),
   );
   assert(Boolean(secondOptionText && wrappedContinuation && splitsPathToken),
     "R5 approval fixture contains a wrapped path boundary");
@@ -215,6 +215,12 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
       assert(labelText.includes(joinedRows), `${label} parser joins the wrapped path token`);
       assert(!labelText.includes(spacedRows), `${label} parser does not add a path-boundary space`);
     }
+  }
+  const leadingSeparatorWrap = fixtureText("command-approval/wrapped-leading-separator-label.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(leadingSeparatorWrap);
+    eq(parsed?.options?.[0]?.[0], "alpha /beta",
+      `${label} parser keeps a space before a wrapped leading separator`);
   }
   const offScreen = screen.replace("  Press enter to continue", "  The session is ready");
   eq(plugin.parseDirectoryTrustPrompt?.(offScreen), null, "source trust parser refuses a dialog without its active footer");

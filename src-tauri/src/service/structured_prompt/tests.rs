@@ -3,7 +3,7 @@
 //! orchestrator against a real opencode server.
 
 use super::opencode_sse::{
-    parse_event, ChatPartEvent, ChatPartUpdate, MessageMeta, ParsedEvent, PromptKind, ResponseRoute,
+    parse_event, ChatPartUpdate, MessageMeta, ParsedEvent, PromptKind, ResponseRoute,
 };
 use super::*;
 use crate::multiplexer::types::PendingPrompt;
@@ -66,7 +66,9 @@ fn opencode_reasoning_delta_after_typed_update_emits_thinking() {
     let typed = captured_part(include_str!(
         "fixtures/captured_message_part_reasoning_empty.json"
     ));
-    let delta = captured_part(include_str!("fixtures/captured_message_part_delta_first.json"));
+    let delta = captured_part(include_str!(
+        "fixtures/captured_message_part_delta_first.json"
+    ));
 
     assert!(state.prepare_chat_part(&typed, &message).is_none());
     assert_eq!(
@@ -83,13 +85,18 @@ fn opencode_reasoning_delta_after_typed_update_emits_thinking() {
 fn opencode_delta_before_any_update_is_held_until_typed() {
     let mut state = ChatStreamState::default();
     let message = captured_message();
-    let delta = captured_part(include_str!("fixtures/captured_message_part_delta_first.json"));
+    let delta = captured_part(include_str!(
+        "fixtures/captured_message_part_delta_first.json"
+    ));
     let typed = captured_part(include_str!(
         "fixtures/captured_message_part_reasoning_empty.json"
     ));
 
     assert!(state.prepare_chat_part(&delta, &message).is_none());
-    assert_eq!(state.part_text.get("prt_text").map(String::as_str), Some("121"));
+    assert_eq!(
+        state.part_text.get("prt_text").map(String::as_str),
+        Some("121")
+    );
     assert!(state.part_kind.is_empty());
 
     let emitted = state.prepare_chat_part(&typed, &message).unwrap();
@@ -102,7 +109,9 @@ fn opencode_part_kind_is_cleared_with_part_text() {
     let mut state = ChatStreamState::default();
     state.reset_session("ses_1");
     state.part_text.insert("part_old".into(), "buffered".into());
-    state.part_kind.insert("part_old".into(), "reasoning".into());
+    state
+        .part_kind
+        .insert("part_old".into(), "reasoning".into());
     state.reset_session("ses_2");
     assert!(state.part_text.is_empty());
     assert!(state.part_kind.is_empty());
@@ -133,13 +142,24 @@ fn opencode_part_kind_is_cleared_with_part_text() {
     assert!(state.part_kind.is_empty());
 
     for index in 0..512 {
-        state.part_text.insert(format!("part-{index}"), "text".into());
+        state
+            .part_text
+            .insert(format!("part-{index}"), "text".into());
     }
-    state.part_kind.insert("prt_text".into(), "reasoning".into());
-    let delta = captured_part(include_str!("fixtures/captured_message_part_delta_first.json"));
-    let emitted = state.prepare_chat_part(&delta, &captured_message()).unwrap();
+    state
+        .part_kind
+        .insert("prt_text".into(), "reasoning".into());
+    let delta = captured_part(include_str!(
+        "fixtures/captured_message_part_delta_first.json"
+    ));
+    let emitted = state
+        .prepare_chat_part(&delta, &captured_message())
+        .unwrap();
     assert_eq!(emitted.kind, "thinking");
-    assert_eq!(state.part_text.get("prt_text").map(String::as_str), Some("121"));
+    assert_eq!(
+        state.part_text.get("prt_text").map(String::as_str),
+        Some("121")
+    );
     assert_eq!(state.part_kind.len(), 1);
     assert_eq!(
         state.part_kind.get("prt_text").map(String::as_str),
@@ -149,12 +169,16 @@ fn opencode_part_kind_is_cleared_with_part_text() {
     state.part_text.clear();
     state.part_kind.clear();
     for index in 0..512 {
-        state.part_kind.insert(format!("part-{index}"), "tool".into());
+        state
+            .part_kind
+            .insert(format!("part-{index}"), "tool".into());
     }
     let typed = captured_part(include_str!(
         "fixtures/captured_message_part_reasoning_empty.json"
     ));
-    assert!(state.prepare_chat_part(&typed, &captured_message()).is_none());
+    assert!(state
+        .prepare_chat_part(&typed, &captured_message())
+        .is_none());
     assert!(state.part_text.is_empty());
     assert_eq!(state.part_kind.len(), 1);
     assert_eq!(
@@ -164,8 +188,8 @@ fn opencode_part_kind_is_cleared_with_part_text() {
 }
 
 fn captured_message() -> MessageMeta {
-    let frame: Value = serde_json::from_str(include_str!("fixtures/captured_message_updated.json"))
-        .unwrap();
+    let frame: Value =
+        serde_json::from_str(include_str!("fixtures/captured_message_updated.json")).unwrap();
     let ParsedEvent::MessageUpdated { message } = parse_event(&frame) else {
         panic!("expected message metadata");
     };

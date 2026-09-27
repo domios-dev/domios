@@ -57,6 +57,7 @@ pub async fn get_tab_history_raw(
         .to_string())
 }
 
+/// Returns the current visible screen; historical output remains in scrollback.
 /// formatted=true preserves ANSI + cursor state (needed for TUI remount).
 #[tauri::command]
 pub async fn get_tab_text(
