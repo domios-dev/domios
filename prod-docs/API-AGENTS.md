@@ -3,7 +3,7 @@ REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestr
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart an agent whose process is currently observed live in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session. A provider observed to have exited into its surviving shell is recovered in place: CodeTerm skips the exit and teardown legs, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
+Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch, resuming the recorded provider session if it still exists on disk, else starting fresh. A provider observed to have exited into its surviving shell is recovered in place: CodeTerm skips the exit and teardown legs, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -24,7 +24,7 @@ Restart an agent whose process is currently observed live in a tab. The body is 
 }
 ```
 
-The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
+The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session JSONL no longer exists on disk; the restart proceeds without `--resume` in a fresh session.
 
 **Errors:**
 - `404` — tab id not found
@@ -33,13 +33,13 @@ The three transition fields are independent observations. `restart_accepted` mea
 - `500` — teardown or relaunch failed
 - `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
 
-Failures after acceptance include `error` plus the same transition fields. Every boolean remains false unless that leg was observed, and `new_pty_id` is included only if a replacement PTY was linked. Request rejections (`400`, `404`, and `429`) occur before acceptance and retain their compact error bodies. A failed restart is never returned in the ready `202` shape.
+Failures after acceptance include `error` plus the same transition fields. Every boolean stays false unless that leg was observed; `new_pty_id` appears only if a replacement PTY was linked. Rejections (`400`, `404`, `429`) precede acceptance and keep compact error bodies. A failed restart is never returned in the ready `202` shape.
 
-This is the same flow `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]` invokes from the CLI.
+CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]`.
 
 ### Plan Task Attempts
 
-Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` remains the executor identity and is not the primary key. `provider`, `model`, and `reasoning_effort` describe the dispatch values; `session_model` is the first model detected from that attempt's bound session and is null until observed. Respawning creates a new Worker tab and a new live attempt; it never reactivates the selected historical attempt.
+Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` is the executor identity, not the primary key. `provider`, `model`, and `reasoning_effort` describe the dispatch values; `session_model` is the first model detected from that attempt's bound session and is null until observed. Respawn creates a new Worker tab and live attempt, never reactivating the selected historical attempt.
 
 ### Team-bound plan creation
 
@@ -57,13 +57,13 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 A Team may have one optional Cartographer Manager. The first attachment spawns a tab with the built-in `cartographer` role kind; repeated attachments return the same `tab_id` with `reused: true` and do not create another tab. It is a non-anchoring Manager without Team-management, plan, or spawn authority. Team close removes the Cartographer tab and its Team binding with every other member; the default Orchestrator/Planner pair does not include one unless explicitly attached.
 
-A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs rather than a ban on the role: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. Unlinking the final Orchestrator atomically retires its owner reference while retaining the discoverable Team and active Plan id/history. The Team therefore accepts the documented replacement command, and the new anchor takes that same Plan over through the tab-gone owner rebind. Descendant role bindings follow the ordinary unlink rules. The response carries `plan_takeover: {plan_id, owner_tab_id}` when ownership moved. A takeover failure fails staffing, removes the spawned replacement and lane, and leaves the retained Team and Plan owner/history unchanged. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
+A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs, not a role ban: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. Unlinking the final Orchestrator atomically retires its owner reference while keeping the discoverable Team and active Plan id/history, so the Team accepts the documented replacement command and the new anchor takes that Plan over through the tab-gone owner rebind. Descendant role bindings follow the ordinary unlink rules. The response carries `plan_takeover: {plan_id, owner_tab_id}` when ownership moved. A takeover failure fails staffing, removes the spawned replacement and lane, and leaves the retained Team and Plan owner/history unchanged. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
 
-`X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker`, `planner`, and `cartographer` still need a spawn-capable member. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with the Team, the requested role, and the cause — `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
+`X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker`, `planner`, and `cartographer` still need a spawn-capable member. This bootstrap action only creates a member and cannot delete Team state; destructive Team and workspace closes without a caller tab require explicit target confirmation. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with Team, requested role, and cause: `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
 
 ### Close Team (POST /api/teams/{team_id}/close)
 
-Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes retain the Team record; the single automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
+Closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, finalizes open attempts and lanes, deletes Team crons, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes keep the Team record; the one automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. A present `X-CodeTerm-Tab-Id` header must identify the Team's Orchestrator or planner-profile Manager. With no caller tab header, a confirmed human sends `{force: true, confirm: "<team_id>"}` after the close dialog; the service logs this as `human-attributed (headerless, confirmed)`. Missing or mismatched confirmation is refused as Unattributed and logged. Unauthorized callers return `403`, and an unknown or already closed Team returns structured `404`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
@@ -77,19 +77,19 @@ Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). 
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
-Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not tab- or workspace-scoped. All three endpoints require the standard Bearer token.
+Prevents machine sleep (optionally display dimming) while long-running agents work. Global machine state, not tab- or workspace-scoped; all three endpoints require the Bearer token.
 
 **Status shape (`KeepAwakeStatus`):**
 ```json
 {"active": true, "display": false, "expires_at": 1744387200000}
 ```
-- `active` — whether a keep-awake session is currently running.
+- `active` — whether a keep-awake session is running.
 - `display` — whether the display is also kept on.
 - `expires_at` — unix milliseconds when the session auto-expires, or `null` for an indefinite session.
 
 **GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
 
-**POST /api/keepawake/start** — request body is optional; when present, all fields are optional:
+**POST /api/keepawake/start** — body and all its fields are optional:
 ```json
 {"duration_secs": 3600, "display": false}
 ```
@@ -100,14 +100,14 @@ Any existing session is stopped first, then the new one is started. Returns the 
 
 **POST /api/keepawake/stop** — no body. Stops any active session. Returns `{"ok": true}`.
 
-**Tauri event `keepawake-changed`** — emitted on every state transition: explicit start, explicit stop, natural expiry (when `duration_secs` elapses), and `caffeinate` spawn failure on macOS. Payload matches `KeepAwakeStatus`. Frontends subscribe with `listen("keepawake-changed", (ev) => ...)`.
+**Tauri event `keepawake-changed`** — emitted on every transition: start, stop, natural expiry (`duration_secs` elapsed), and macOS `caffeinate` spawn failure. Payload is `KeepAwakeStatus`. Frontends subscribe with `listen("keepawake-changed", (ev) => ...)`.
 
-**Persistence:** state is written to `~/.codeterm/keepawake.json` (or `~/.codeterm-dev/keepawake.json` on dev) and restored on startup — indefinite sessions resume as-is, timed sessions resume with the remaining duration, already-expired sessions are discarded.
+**Persistence:** state is written to `~/.codeterm/keepawake.json` (dev: `~/.codeterm-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
 
 **Platform support:**
 - **macOS** — spawns `caffeinate -i -s` (plus `-d` when `display=true`).
 - **Windows** — calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`, OR-ing in `ES_DISPLAY_REQUIRED` when `display=true`.
-- **Linux** — currently a no-op; logs a warning and still returns a status object so clients work unchanged.
+- **Linux** — no-op; logs a warning and still returns a status object.
 
 **Example:**
 ```bash
@@ -134,9 +134,9 @@ curl -X POST http://host:7685/api/keepawake/stop -H "Authorization: Bearer $TOKE
 
 ### Agent Spawn (POST /api/agents/spawn)
 
-Creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request. The response returns immediately (non-blocking) -- PTY readiness detection and agent launch happen in a background thread.
+One request creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. The response returns immediately; PTY readiness detection and agent launch run in a background thread.
 
-The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. Each agent gets its own tab. Agent spawns do not auto-switch the active tab -- the user stays on their current tab.
+The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts; each agent gets its own tab. Spawns never switch the user's active tab.
 
 **Request body:**
 ```json
@@ -161,11 +161,11 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
 }
 ```
 
-The selected model's advertised reasoning levels constrain `reasoning_effort`. The provider's flat list applies when the model has no per-model data; `codeterm agent models <provider>` shows the available sets.
+The selected model's advertised reasoning levels constrain `reasoning_effort`; the provider's flat list applies when the model has none (`codeterm agent models <provider>` shows the sets).
 
-Provider listings may include `default_reasoning_effort` on the provider descriptor as a fallback and on each `available_models` entry for that model's live default. `codeterm agent models <provider>` marks the model-specific default beside that model's reasoning levels, falling back to the provider value only when the model has none.
+Provider listings may include `default_reasoning_effort` on the provider descriptor (fallback) and on each `available_models` entry (that model's live default). `codeterm agent models <provider>` marks the model-specific default beside its reasoning levels, falling back to the provider value only when the model has none.
 
-All fields are optional. `agent` defaults to `"claude"`. Tab titles are one word; put activity summaries in `description`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. For providers with an authoritative model catalogue, an unknown `model` id is rejected before tab creation; run `codeterm agent models <provider>` to refresh and inspect valid ids. Free-form providers pass the requested model id through to the launch command. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: naming no checkout, naming a directory that is not a worktree on a branch, naming the plan's canonical checkout, or naming another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. Read-only verification keeps its existing contract and still runs in the canonical checkout. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
+All fields are optional; `agent` defaults to `"claude"`. Titles are one word; activity summaries go in `description`. Permissions come only from the global `agent.full_access` setting, which callers cannot override; before the user's first choice, spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. With an authoritative model catalogue, an unknown `model` is rejected before tab creation (`codeterm agent models <provider>` refreshes and lists valid ids); free-form providers pass it through to the launch command. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. `task` goes through the provider's declared launch delivery; `agent_name` maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` with `execution_intent: "read_only"` needs no task binding: this canonical verification Worker owns no task, so it reports against and transitions none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: no checkout, a directory that is not a worktree on a branch, the plan's canonical checkout, or another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. Read-only verification still runs in the canonical checkout. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
 
 An unknown id on an authoritative catalogue is refused before spawn or task
 dispatch creates a tab. REST spawn returns HTTP 422 with `error.code` set to
@@ -182,7 +182,7 @@ those fields under the error envelope's `data` for spawn, dispatch, and team pai
 
 A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab).
 
-The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--tab`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
+The worker just runs `codeterm agent report "..."` (no `--mesh`/`--tab`). Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint, never a silent drop.
 
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
@@ -190,11 +190,11 @@ Report routing precedence: **remote mesh target → `parent_tab_id` → `report_
 The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`.
 Authorization is capability-based; role labels grant nothing. An absent caller session is resolved from the exact registered tab only with a matching stored and hook-reported nonce; an explicitly wrong session still refuses. Foreign, unbound, stale/rebound, task-bound, or ungranted callers change no Plan history or report store. A session change requires a fresh owner grant. Registered Planner and task-bound Worker paths are unchanged.
 
-Each inbound mesh report registers the worker in the orchestrator-side registry exposed by `GET /api/remote-workers` and the `remote-workers-changed` event, which the sidebar renders as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
+Each inbound mesh report registers the worker in the orchestrator-side registry (`GET /api/remote-workers`, `remote-workers-changed` event); the sidebar renders it as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
 ### Batch Commands (POST /api/batch)
 
-Execute multiple operations in a single HTTP request. Commands run sequentially. Each command can have an `id` that other commands reference via `$id` (resolves to `tab_id` from that result).
+Run multiple operations sequentially in one HTTP request. Later commands reference a command's `id` as `$id`.
 
 **Request body:**
 ```json
@@ -210,14 +210,14 @@ Execute multiple operations in a single HTTP request. Commands run sequentially.
 
 **Available methods:** `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`
 
-**$ref syntax:** Any string value starting with `$` is replaced with the `tab_id` from the result of the command with that `id`. E.g. `"parent_tab_id": "$boss"` resolves to the tab_id returned by the "boss" spawn command.
+**$ref syntax:** any string value starting with `$` is replaced with the `tab_id` from the result of the command with that `id`, e.g. `"parent_tab_id": "$boss"` resolves to the "boss" spawn's tab_id.
 
 **Response:**
 ```json
 {"results": [{"tab_id": "...", "tab_id": "...", ...}, {"ok": true}, ...]}
 ```
 
-On error, individual commands return `{"error": "message", "method": "..."}` but subsequent commands still execute.
+A failing command returns `{"error": "message", "method": "..."}`; later commands still execute.
 
 **Batch method parameters:**
 
@@ -234,4 +234,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 32 -->
+<!-- revision: 34 -->

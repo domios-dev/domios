@@ -128,6 +128,18 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix(
+    "-=-codeterm:reminder id=series every_ms=600000 next_at=700000 skipped=2-=-tick",
+  );
+  eq(
+    r?.origin,
+    { kind: "reminder", id: "series", everyMs: "600000", nextAt: "700000", skippedTicks: "2" },
+    "recurring reminder metadata round-trips through its marker",
+  );
+  eq(r?.body, "tick", "recurring reminder marker keeps its payload");
+}
+
+{
   const r = splitChatPrefixedMessages(
     "-=-codeterm:tab label=Main tab=12e450b4 model=Sonnet-=-Hey" +
     "-=-codeterm:tab label=Claude tab=e8a0ac20-=-Rollo online",

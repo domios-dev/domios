@@ -8,7 +8,7 @@ import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, CronJob } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -45,6 +45,7 @@ import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { declaredAttentionByTab } from "./declaredAttention";
+import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -138,6 +139,7 @@ export function Sidebar({
     id: string;
     name: string;
     agentTitles: string[];
+    teams: TeamCloseResource[];
   } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{
     workspaceId: string;
@@ -225,20 +227,36 @@ export function Sidebar({
     setSessionPicker({ workspaceId, workspaceCwd });
   }, [firstRunActive]);
 
-  const requestWorkspaceClose = useCallback((workspaceId: string) => {
+  const requestWorkspaceClose = useCallback(async (workspaceId: string) => {
     const workspace = state.workspaces.find((workspace) => workspace.id === workspaceId);
     if (!workspace) return;
-    const agentTitles = workspace.tabs.reduce<string[]>((titles, tabId) => {
-      const tab = state.tabs[tabId];
-      if (tab?.agent_type) titles.push(tab.title);
-      return titles;
-    }, []);
-    if (agentTitles.length === 0) {
-      closeWorkspace(workspaceId);
-      return;
+    let crons: CronJob[] = [];
+    try {
+      crons = await invoke<CronJob[]>("cron_list", {});
+    } catch (error) {
+      addNotification({
+        tab_id: null,
+        workspace_id: workspaceId,
+        title: "Close inventory unavailable",
+        body: error instanceof Error ? error.message : String(error),
+        severity: "Error",
+        level: "failure",
+        sticky: true,
+      });
     }
-    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles });
-  }, [closeWorkspace, state.tabs, state.workspaces]);
+    const teams = teamCloseResourcesForWorkspace(
+      workspace,
+      state.tabs,
+      state.teams ?? [],
+      crons,
+      fullPlans.plans,
+    );
+    const teamMemberIds = new Set(teams.flatMap((team) => team.members.map((member) => member.tabId)));
+    const agentTitles = flattenSidebarTabs(workspace.tabs, state.tabs)
+      .filter((tab) => tab.agent_type && !teamMemberIds.has(tab.id))
+      .map((tab) => tab.title);
+    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, teams });
+  }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
   useEffect(() => {
     const openRequestedSession = (event: Event) => {
@@ -442,8 +460,11 @@ export function Sidebar({
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
+    workspaceId: string;
     teamName: string;
     members: OrchestrationGroupMember[];
+    crons: string[];
+    lanes: string[];
   } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
@@ -466,17 +487,34 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string) => {
+  const requestTeamClose = useCallback(async (wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
-    const teamTabs = tabsInWorkspace(ws.tabs, state.tabs).filter(
-      (tab) => (tab as typeof tab & { team_id?: string | null }).team_id === teamId,
+    let crons: CronJob[] = [];
+    try {
+      crons = await invoke<CronJob[]>("cron_list", {});
+    } catch (error) {
+      addNotification({
+        tab_id: null,
+        workspace_id: wsId,
+        title: "Close inventory unavailable",
+        body: error instanceof Error ? error.message : String(error),
+        severity: "Error",
+        level: "failure",
+        sticky: true,
+      });
+    }
+    const resources = teamCloseResourcesForId(
+      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans),
+      teamId,
     );
+    const teamTabs = flattenSidebarTabs(ws.tabs, state.tabs).filter((tab) => tab.team_id === teamId);
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
       teamId,
+      workspaceId: wsId,
       teamName: team?.name?.trim() || "Team",
-      members: teamTabs.map((tab) => {
+      members: resources?.members ?? teamTabs.map((tab) => {
         return {
           tabId: tab.id,
           title: tab.title || "Tab",
@@ -484,8 +522,31 @@ export function Sidebar({
           roleProfile: tab.role_profile ?? null,
         };
       }),
+      crons: resources?.crons ?? [],
+      lanes: resources?.lanes ?? [],
     });
-  }, [state.tabs, state.teams, state.workspaces]);
+  }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
+
+  const confirmTeamClose = useCallback(async () => {
+    const pending = pendingTeamClose;
+    const closeTeam = teamActions?.onCloseTeam;
+    if (!pending || !closeTeam) return;
+    try {
+      await closeTeam(pending.teamId);
+    } catch (error) {
+      addNotification({
+        tab_id: null,
+        workspace_id: pending.workspaceId,
+        title: "Team close failed",
+        body: error instanceof Error ? error.message : String(error),
+        severity: "Error",
+        level: "failure",
+        sticky: true,
+      });
+    } finally {
+      setPendingTeamClose(null);
+    }
+  }, [addNotification, pendingTeamClose, teamActions?.onCloseTeam]);
   useEffect(() => {
     const kb = config?.keybindings ?? {};
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -951,19 +1012,17 @@ export function Sidebar({
           mode="team"
           orchestratorTitle={pendingTeamClose.teamName}
           members={pendingTeamClose.members}
+          crons={pendingTeamClose.crons}
+          lanes={pendingTeamClose.lanes}
           onCancel={() => setPendingTeamClose(null)}
-          onConfirm={() => {
-            void teamActions?.onCloseTeam?.(
-              pendingTeamClose.teamId,
-            );
-            setPendingTeamClose(null);
-          }}
+          onConfirm={() => { void confirmTeamClose(); }}
         />
       )}
       {pendingWorkspaceClose && (
         <WorkspaceCloseConfirmDialog
           workspaceName={pendingWorkspaceClose.name}
           agentTitles={pendingWorkspaceClose.agentTitles}
+          teams={pendingWorkspaceClose.teams}
           onCancel={() => setPendingWorkspaceClose(null)}
           onConfirm={() => {
             closeWorkspace(pendingWorkspaceClose.id, true);

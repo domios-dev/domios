@@ -155,6 +155,14 @@ impl ServiceContext {
             .unwrap_or(false)
     }
 
+    /// Whether a tab is assigned to an agent, regardless of launch readiness.
+    pub(crate) fn tab_has_agent_identity(&self, tab_id: &str) -> bool {
+        let mux = self.mux.write();
+        mux.resolve_tab_id(tab_id)
+            .and_then(|resolved| mux.get_tab(&resolved).map(tab_has_agent_identity))
+            .unwrap_or(false)
+    }
+
     /// Run registered `chatPreprocessor` text stages over the outbound text (id order
     /// for determinism; no stages ⇒ identity; a broken stage fails safe to passthrough).
     pub fn run_outbound_stages(&self, tab_id: &str, text: String) -> String {
@@ -220,9 +228,13 @@ fn tab_accepts_agent_input(tab: &Tab) -> bool {
         )
 }
 
+fn tab_has_agent_identity(tab: &Tab) -> bool {
+    tab.agent_type.is_some()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{next_char_boundary, tab_accepts_agent_input};
+    use super::{next_char_boundary, tab_accepts_agent_input, tab_has_agent_identity};
     use crate::multiplexer::state::MultiplexerState;
     use codeterm_types::pty::BootStage;
 
@@ -246,5 +258,16 @@ mod tests {
 
         tab.boot_stage = Some(BootStage::PtyReattached);
         assert!(tab_accepts_agent_input(&tab));
+    }
+
+    #[test]
+    fn agent_identity_is_present_before_agent_ready() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).expect("initial Tab");
+        tab.agent_type = Some("codex".into());
+        tab.boot_stage = Some(BootStage::ShellReady);
+
+        assert!(!tab_accepts_agent_input(tab));
+        assert!(tab_has_agent_identity(tab));
     }
 }

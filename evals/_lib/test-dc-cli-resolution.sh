@@ -40,7 +40,7 @@ printf '%s\n' \
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then' \
-  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"named.sock","instance":"Named_Instance"}}\n'\'' "$HOME/.codeterm-dev---named-instance--"' \
+  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"named.sock","instance":"  Named_Instance  "}}\n'\'' "$HOME/.codeterm-dev---named-instance--"' \
   '  exit 0' \
   'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \

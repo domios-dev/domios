@@ -227,6 +227,9 @@ fn delivery_retry_hint(
     bytes_written: Option<bool>,
     status: u16,
 ) -> String {
+    if code == Some("peer_lacks_delayed_recurrence") {
+        return "update the peer or send a one-shot explicitly".to_string();
+    }
     if let Some(hint) = data
         .get("error")
         .and_then(|e| e.get("retry_hint"))

@@ -20,6 +20,16 @@ pub enum ProviderReadinessStrategy {
     StructuralComposer { timeout: Duration },
 }
 
+/// Terminal cursor placement accepted as composer evidence for a lazy session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerCursorPosition {
+    #[default]
+    BottomRegion,
+    /// Visible cursor on the provider's alternate-screen TUI may be centered.
+    VisibleAnywhere,
+}
+
 impl Default for ProviderReadinessStrategy {
     fn default() -> Self {
         Self::TuiFrame {
@@ -157,14 +167,16 @@ pub struct LaunchArtifactSweepReport {
     pub removed: Vec<String>,
 }
 
-/// Everything a resumed session needs beyond its id. `system_prompt` is the
-/// composed launch prompt, present only when the host has one to re-apply.
+/// Launch context passed to a provider when a session resumes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
     pub session_id: String,
     pub skip_permissions: bool,
+    pub agent_name: Option<String>,
     pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub instance_id: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
 }

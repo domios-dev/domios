@@ -23,6 +23,19 @@ function fixtureText(name: string): string {
   return fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
 }
 
+{
+  const screen = fixtureText("directory-trust/codex-update-available.txt");
+  const bundled = loadHostPlugin();
+  eq(plugin.classifiedPromptAutoResponse("update_prompt", screen), "skip",
+    "classified update dialog declares its exact Skip option role");
+  eq(plugin.classifiedPromptAutoResponse("clarifying_question", screen), null,
+    "other classified dialog kinds have no automatic response");
+  eq(plugin.classifiedPromptAutoResponse("update_prompt", screen.replace("2. Skip", "2. Skip this version")), null,
+    "an option label other than exact Skip is not automatically answered");
+  eq(bundled.classifiedPromptAutoResponse("update_prompt", screen), "skip",
+    "built provider bridge exposes the update-only Skip capability");
+}
+
 function loadHostPlugin() {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");
@@ -177,6 +190,51 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
   eq(plugin.parseDirectoryTrustPrompt?.(ordinaryApproval), null, "source trust parser ignores a generic yes/no approval");
   eq(bundled.parseDirectoryTrustPrompt(ordinaryApproval), null, "bundle trust parser ignores a generic yes/no approval");
 
+  const commandApproval = fixtureText("command-approval/command-approval-0.157.1.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(commandApproval);
+    eq(parsed?.options?.map(([, value]: [string, string]) => value), ["1", "2", "3"],
+      `${label} parser keeps wrapped command-approval options in order`);
+    assert(Boolean(parsed?.question.trim()), `${label} parser extracts a question from the active menu`);
+    assert(parsed?.options?.every(([optionLabel]: [string, string]) => optionLabel.trim().length > 0) ?? false,
+      `${label} parser retains wrapped option labels`);
+    eq(provider.parseDirectoryTrustPrompt?.(commandApproval), null,
+      `${label} trust parser does not classify command approval as directory trust`);
+  }
+  eq(bundled.buildPromptResponse(2, commandApproval), ["G1tC", "G1tC", "DQ=="],
+    "command approval can respond to the third visible choice");
+
+  const wrappedPathApproval = fixtureText("command-approval/command-approval-0.157.1-r5.txt");
+  const wrappedRows = wrappedPathApproval.split(/\r?\n/);
+  const secondOptionLine = wrappedRows.findIndex((line) => /^\s*2[.)]/.test(line));
+  const secondOptionRow = secondOptionLine >= 0 ? wrappedRows[secondOptionLine] : undefined;
+  const secondOptionText = secondOptionRow
+    ? /^\s*2[.)]\s+(.+?)\s*$/.exec(secondOptionRow)?.[1]
+    : undefined;
+  const wrappedContinuation = secondOptionLine >= 0 ? wrappedRows[secondOptionLine + 1]?.trim() : undefined;
+  const splitsPathToken = Boolean(
+    secondOptionText?.match(/[\\/]\s*$/),
+  );
+  assert(Boolean(secondOptionText && wrappedContinuation && splitsPathToken),
+    "R5 approval fixture contains a wrapped path boundary");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(wrappedPathApproval);
+    eq(parsed?.options?.map(([, value]: [string, string]) => value), ["1", "2", "3"],
+      `${label} parser keeps R5 command-approval options in order`);
+    if (secondOptionText && wrappedContinuation && splitsPathToken) {
+      const joinedRows = `${secondOptionText}${wrappedContinuation}`;
+      const spacedRows = `${secondOptionText} ${wrappedContinuation}`;
+      const labelText = parsed?.options?.[1]?.[0] ?? "";
+      assert(labelText.includes(joinedRows), `${label} parser joins the wrapped path token`);
+      assert(!labelText.includes(spacedRows), `${label} parser does not add a path-boundary space`);
+    }
+  }
+  const leadingSeparatorWrap = fixtureText("command-approval/wrapped-leading-separator-label.txt");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(leadingSeparatorWrap);
+    eq(parsed?.options?.[0]?.[0], "alpha /beta",
+      `${label} parser keeps a space before a wrapped leading separator`);
+  }
   const offScreen = screen.replace("  Press enter to continue", "  The session is ready");
   eq(plugin.parseDirectoryTrustPrompt?.(offScreen), null, "source trust parser refuses a dialog without its active footer");
   eq(bundled.parseDirectoryTrustPrompt(offScreen), null, "bundle trust parser refuses a dialog without its active footer");

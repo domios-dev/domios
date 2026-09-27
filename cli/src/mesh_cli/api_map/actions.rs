@@ -1,6 +1,5 @@
 use crate::{
     cmd::{
-        delayed::parse_schedule,
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
         team::split_provider_model,
     },
@@ -149,6 +148,9 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     from_stdin: bool,
     delay: &Option<String>,
     at: &Option<String>,
+    every: &Option<String>,
+    until: &Option<String>,
+    count: &Option<u32>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
@@ -169,17 +171,33 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
         eprintln!("Error: delayed message payload is empty (mesh path, source: {input_source})");
         std::process::exit(2);
     }
-    let scheduled_at_ms = match parse_schedule(delay.clone(), at.clone(), now_ms()) {
+    let scheduled_at_ms = match crate::cmd::delayed::parse_start_schedule(
+        delay.clone(),
+        at.clone(),
+        every.as_deref(),
+        now_ms(),
+    ) {
         Ok(ms) => ms,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(2);
         }
     };
-    let body = serde_json::json!({
+    let recurrence =
+        match crate::cmd::delayed::parse_recurrence(every.clone(), until.clone(), *count) {
+            Ok(recurrence) => recurrence,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(2);
+            }
+        };
+    let mut body = serde_json::json!({
         "text": body_text,
         "scheduledAtMs": scheduled_at_ms,
     });
+    if let Some(recurrence) = recurrence {
+        body["recurrence"] = recurrence;
+    }
     (
         "POST".into(),
         format!("/api/tabs/{}/delayed-messages", p),
@@ -733,7 +751,14 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             authorized_gates,
             provider_reserve_pct,
             non_user_facing,
+            unplanned,
+            reason: _,
         } => {
+            if *unplanned {
+                return unsupported(
+                    "agent spawn --unplanned is local-only: plan dispatch runs on the peer that owns the Plan",
+                );
+            }
             // Team membership is authorized against the caller's own tab, which
             // has no meaning on the peer that owns the Team.
             if team.is_some() {

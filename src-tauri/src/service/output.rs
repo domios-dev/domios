@@ -13,8 +13,12 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
+#[path = "output/agent_idle.rs"]
+mod agent_idle;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
+#[path = "output/manual_update.rs"]
+mod manual_update;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
 #[path = "output/shell_markers.rs"]
@@ -25,20 +29,14 @@ pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
 mod prompt_notifications;
 use prompt_notifications::should_notify_pending_prompt;
+pub(super) use manual_update::{
+    clear_manual_update_occurrence, manual_update_prompt_candidate,
+    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
+};
+#[cfg(test)]
+pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
 
-fn parse_manual_update_prompt(
-    provider: &dyn codeterm_plugin::provider::AgentProvider,
-    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
-) -> Option<crate::multiplexer::types::PendingPrompt> {
-    if !manual_update_prompt_candidate(&snapshot.screen_text) {
-        return None;
-    }
-    let classification = provider.classify_tab_state(snapshot);
-    crate::agent::state_reactor::is_manual_update_prompt(classification.as_ref())
-        .then(|| provider.parse_prompt(&snapshot.screen_text))
-        .flatten()
-}
-
+#[cfg(test)]
 fn parse_directory_trust_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     screen: &str,
@@ -49,48 +47,6 @@ fn parse_directory_trust_prompt(
         return None;
     }
     provider.parse_directory_trust_prompt(screen)
-}
-
-fn manual_update_prompt_candidate(screen: &str) -> bool {
-    let mut options = Vec::new();
-    let mut footer = false;
-    for row in screen.lines() {
-        let lower = row.to_ascii_lowercase();
-        if lower.contains("enter")
-            && ["confirm", "continue", "select"]
-                .iter()
-                .any(|word| lower.contains(word))
-        {
-            footer = true;
-        }
-        let row = row.trim_start();
-        let row = row
-            .strip_prefix('>')
-            .or_else(|| row.strip_prefix('❯'))
-            .or_else(|| row.strip_prefix('›'))
-            .unwrap_or(row)
-            .trim_start();
-        let digits = row.chars().take_while(char::is_ascii_digit).count();
-        if digits == 0 {
-            continue;
-        }
-        let Some(separator) = row[digits..].trim_start().chars().next() else {
-            continue;
-        };
-        if !matches!(separator, '.' | ')') {
-            continue;
-        }
-        let label = row[digits..]
-            .trim_start()
-            .get(separator.len_utf8()..)
-            .unwrap_or_default()
-            .trim_start()
-            .to_ascii_lowercase();
-        options.push(label);
-    }
-    footer
-        && options.iter().any(|label| label.contains("update"))
-        && options.iter().any(|label| label.contains("skip"))
 }
 
 /// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
@@ -127,41 +83,6 @@ impl ServiceContext {
                 false
             }
             None => false,
-        }
-    }
-
-    fn force_agent_idle_for_pty(&self, pty_id: &str) {
-        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
-        if let Some(tab_id) = tab_id {
-            self.force_agent_idle_for_tab(&tab_id);
-        }
-    }
-
-    fn force_agent_idle_for_tab(&self, tab_id: &str) {
-        use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
-
-        let idle_state: AgentLiveState = TabVerdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        }
-        .into();
-        let changed = {
-            let mut mux = self.mux.write();
-            match mux.get_tab_mut(tab_id) {
-                Some(tab) if tab.agent_type.is_some() => {
-                    let changed = tab.agent_state.as_ref() != Some(&idle_state)
-                        || tab.pending_prompt.is_some();
-                    tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    changed
-                }
-                _ => false,
-            }
-        };
-        if changed {
-            self.emit_state_changed();
-            self.schedule_planner_replay(&tab_id);
-            self.heal_recovery_state_if_ready();
         }
     }
 
@@ -307,6 +228,12 @@ impl ServiceContext {
                 let update_candidate = changed_screen
                     .as_deref()
                     .is_some_and(manual_update_prompt_candidate);
+                if changed_screen
+                    .as_deref()
+                    .is_some_and(|screen| !manual_update_prompt_candidate(screen))
+                {
+                    clear_manual_update_occurrence(pid);
+                }
                 let trust_prompt_candidate = trust_candidate::pending_prompt_candidate(
                     self,
                     pty_id,
@@ -360,28 +287,30 @@ impl ServiceContext {
                     };
                     self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
                 }
-                let (provider_prompt, directory_trust_prompt) =
+                let default_prompt_kind = if structured.is_some() {
+                    codeterm_types::pty::PromptKind::Structured
+                } else if manual_update_candidate {
+                    codeterm_types::pty::PromptKind::ManualUpdate
+                } else {
+                    codeterm_types::pty::PromptKind::Provider
+                };
+                let (provider_prompt, directory_trust_prompt, prompt_kind) =
                     if structured.is_none() && !manual_update_candidate {
                         clean_text
                             .as_deref()
-                            .map(|screen| {
-                                if trust_prompt_candidate {
-                                    let prompt = crate::agent::prompt::parse_prompt_safely(|| {
-                                        self.agent_registry
-                                            .with_provider(at, |provider| {
-                                                parse_directory_trust_prompt(provider, screen)
-                                            })
-                                            .flatten()
-                                    });
-                                    let parsed_trust_prompt = prompt.is_some();
-                                    (prompt, parsed_trust_prompt)
-                                } else {
-                                    (None, false)
-                                }
+                            .and_then(|screen| {
+                                crate::agent::prompt::parse_prompt_safely(|| {
+                                    self.agent_registry.parse_interactive_prompt(at, screen)
+                                })
                             })
-                            .unwrap_or((None, false))
+                            .map(|(prompt, kind)| {
+                                let is_directory_trust =
+                                    kind == codeterm_types::pty::PromptKind::DirectoryTrust;
+                                (Some(prompt), is_directory_trust, kind)
+                            })
+                            .unwrap_or((None, false, default_prompt_kind))
                     } else {
-                        (None, false)
+                        (None, false, default_prompt_kind)
                     };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
@@ -411,10 +340,14 @@ impl ServiceContext {
                     )
                 };
 
-                self.apply_prompt_decision_with_screen(
+                self.apply_prompt_decision_with_kind(
                     &decision,
                     clean_text.as_deref(),
-                    trust_candidate || directory_trust_prompt,
+                    if trust_candidate || directory_trust_prompt {
+                        codeterm_types::pty::PromptKind::DirectoryTrust
+                    } else {
+                        prompt_kind
+                    },
                     manual_update_candidate,
                 );
 
@@ -740,34 +673,20 @@ impl ServiceContext {
     ) {
         let svc = self.clone();
         std::thread::spawn(move || {
-            let prompt = svc
+            let classified = svc
                 .agent_registry
                 .with_provider(&snapshot.agent_type, |provider| {
-                    parse_manual_update_prompt(provider, &snapshot)
+                    parse_manual_update_prompt_with_response(provider, &snapshot)
                 })
                 .flatten();
-            let Some(prompt) = prompt else {
+            let Some((prompt, skip_value)) = classified else {
                 return;
             };
             let screen = svc.screen_state.lock().get_screen_text(&pty_id);
             if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
                 return;
             }
-            let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
-                &snapshot.tab_id,
-                true,
-                true,
-                Some(crate::agent::prompt::ResolvedPrompt {
-                    prompt,
-                    explicit: false,
-                }),
-            );
-            svc.apply_prompt_decision_with_screen(
-                &decision,
-                Some(&snapshot.screen_text),
-                false,
-                true,
-            );
+            resolve_classified_manual_update_prompt(&svc, &snapshot, prompt, skip_value);
         });
     }
 
@@ -789,6 +708,9 @@ impl ServiceContext {
                 return;
             }
             tab.pending_prompt = prompt.clone();
+            tab.pending_prompt_kind = prompt
+                .as_ref()
+                .map(|_| codeterm_types::pty::PromptKind::Structured);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -805,6 +727,44 @@ impl ServiceContext {
         directory_trust_prompt: bool,
         require_user_confirmation: bool,
     ) {
+        let prompt_kind = if directory_trust_prompt {
+            codeterm_types::pty::PromptKind::DirectoryTrust
+        } else {
+            codeterm_types::pty::PromptKind::Provider
+        };
+        self.apply_prompt_decision_with_kind(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+        );
+    }
+
+    pub(crate) fn apply_prompt_decision_with_kind(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+    ) {
+        self.apply_prompt_decision_with_kind_and_notice(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            true,
+        );
+    }
+
+    fn apply_prompt_decision_with_kind_and_notice(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+        notify_owner: bool,
+    ) {
+        let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust;
         match decision {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { tab_id, prompt }
@@ -923,17 +883,25 @@ impl ServiceContext {
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
-                        let notify =
-                            should_notify_pending_prompt(decision, tab.pending_prompt.as_ref());
+                        let previous_identity = tab.prompt_identity();
+                        let notify = should_notify_pending_prompt(
+                            decision,
+                            tab.pending_prompt.as_ref(),
+                            tab.pending_prompt_kind,
+                            prompt_kind,
+                        );
                         tab.pending_prompt = Some(prompt.clone());
-                        Some(notify)
+                        tab.pending_prompt_kind = Some(prompt_kind);
+                        Some((notify, previous_identity))
                     } else {
                         None
                     }
                 };
-                let Some(notify_prompt) = notify_prompt else {
+                let Some((notify_prompt, previous_identity)) = notify_prompt else {
                     return;
                 };
+                let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
+                self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -943,16 +911,14 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
-                if notify_prompt {
-                    self.notify_pending_prompt(tab_id, prompt);
+                if notify_prompt && notify_owner {
+                    self.notify_pending_prompt(tab_id, prompt, prompt_kind);
                 }
             }
             PromptDecision::PromptCleared { tab_id } => {
-                let mut mux = self.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    tab.pending_prompt = None;
+                if let Some(identity) = self.clear_pending_prompt(tab_id) {
+                    self.resolve_prompt_notifications(tab_id, &identity);
                 }
-                drop(mux);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",

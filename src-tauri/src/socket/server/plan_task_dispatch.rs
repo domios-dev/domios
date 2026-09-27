@@ -31,6 +31,7 @@ mod routing;
 mod startup;
 mod tab_reservation;
 mod workspace_admission;
+mod unplanned;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use attempt_rollback::roll_back_dispatch_attempt;
@@ -62,6 +63,7 @@ use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
 use workspace_admission::preflight_dispatch_workspace;
+pub(crate) use unplanned::dispatch_unplanned;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -404,6 +406,34 @@ where
     ) -> Result<crate::service::SpawnResult, String>,
     O: FnOnce(),
 {
+    dispatch_with_spawn_approval_exemption(
+        params,
+        app,
+        svc,
+        now,
+        None,
+        spawn_agent,
+        after_startup_owner_observation,
+    )
+}
+
+fn dispatch_with_spawn_approval_exemption<S, O>(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+    approval_exempt_task_id: Option<&str>,
+    spawn_agent: S,
+    after_startup_owner_observation: O,
+) -> Result<Value, JsonRpcError>
+where
+    S: FnOnce(
+        &ServiceState,
+        SpawnAgentParams,
+        Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<crate::service::SpawnResult, String>,
+    O: FnOnce(),
+{
     let store = &svc.plan_store;
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
@@ -418,14 +448,19 @@ where
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-    svc.authorize_execution_action(
-        &plan_id,
-        &crate::service::AuthenticatedPlanCaller {
-            tab_id: owned_str(p, "caller_tab_id"),
-            session_id: owned_str(p, "session_id"),
-            binding_nonce: owned_str(p, "session_binding_nonce"),
-        },
-    )
+    let caller = crate::service::AuthenticatedPlanCaller {
+        tab_id: owned_str(p, "caller_tab_id"),
+        session_id: owned_str(p, "session_id"),
+        binding_nonce: owned_str(p, "session_binding_nonce"),
+    };
+    let unplanned_dispatch = approval_exempt_task_id == Some(task_id.as_str())
+        && detail.task.tags.iter().any(|tag| tag == "unplanned")
+        && detail.task.kind == "unplanned";
+    (if unplanned_dispatch {
+        svc.authorize_plan_orchestrator(&plan_id, &caller)
+    } else {
+        svc.authorize_execution_action(&plan_id, &caller)
+    })
     .map_err(|message| JsonRpcError {
         code: -32003,
         message,

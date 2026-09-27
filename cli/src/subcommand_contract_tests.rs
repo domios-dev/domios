@@ -10,6 +10,7 @@ use clap::{CommandFactory, Parser};
 
 mod agent;
 mod context;
+mod recurrence;
 mod sessions;
 mod tab_adopt;
 mod tab_repair;
@@ -68,12 +69,18 @@ struct SendOnly {
     from_file: Option<String>,
     #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
     stdin: bool,
-    #[arg(long, conflicts_with_all = ["delay", "at"])]
+    #[arg(long, conflicts_with_all = ["delay", "at", "every", "until", "count"])]
     actions: Option<String>,
     #[arg(long, conflicts_with = "at")]
     delay: Option<String>,
     #[arg(long, conflicts_with = "delay")]
     at: Option<String>,
+    #[arg(long)]
+    every: Option<String>,
+    #[arg(long, conflicts_with = "count")]
+    until: Option<String>,
+    #[arg(long, conflicts_with = "until")]
+    count: Option<u32>,
 }
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
@@ -1049,19 +1056,6 @@ fn send_delay_conflicts_with_at() {
         Ok(_) => panic!("--delay and --at must conflict"),
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }
-}
-
-#[test]
-fn delayed_create_parses() {
-    let parsed = DelayedOnly::try_parse_from(["delayed", "create", "--delay", "5m", "hello"])
-        .expect("delayed create parses");
-    assert!(matches!(
-        parsed.action,
-        DelayedAction::Create {
-            delay: Some(ref v),
-            ..
-        } if v == "5m"
-    ));
 }
 
 #[test]

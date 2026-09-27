@@ -20,10 +20,7 @@ import {
   completeInitialTerminalHistory,
   type TerminalHistoryClaim,
 } from "./terminalHistoryReplay";
-import {
-  replayScrollbackBeforeLiveAttach,
-  shouldReplayScrollbackSidecar,
-} from "./scrollbackReplay";
+import { terminalHistorySource } from "./scrollbackReplay";
 
 async function fetchTabHistory(tabId: string): Promise<string> {
   try {
@@ -46,7 +43,7 @@ export function shouldFetchInitialTerminalHistory(
   isWeb: boolean,
   isRemote: boolean,
 ): boolean {
-  return Boolean(ptyId) && !isWeb && !isRemote;
+  return terminalHistorySource(ptyId, isWeb, isRemote) === "backend-buffer";
 }
 
 export interface UsePtyConnectionOptions {
@@ -92,7 +89,6 @@ export function usePtyConnection({
   const replayRequestRef = useRef(0);
   const replayTerminalRef = useRef<Terminal | null>(null);
   const viewportRestoreRequestRef = useRef(0);
-  // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
 
   const cancelReplay = useCallback(() => {
@@ -190,16 +186,16 @@ export function usePtyConnection({
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
       const isRemote = parseCompositeTabId(tabId) !== null;
       const useOutputStream = webOutputStreamActive() || isRemote;
+      const historySource = terminalHistorySource(ptyId, IS_WEB, isRemote);
 
-      // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
-      if (ptyId && IS_WEB) {
-        if (!webReplayedPtysRef.current.has(ptyId)) {
-          webReplayedPtysRef.current.add(ptyId);
-          // Stream mode replays via its own tab-keyed offset tracking (outputStream.ts);
-          // the long-poll tail cursor only matters to the read_pty fallback transport.
-          if (!useOutputStream) resetWebPtyTail(ptyId);
+      if (historySource === "transport") {
+        if (ptyId && IS_WEB) {
+          if (!webReplayedPtysRef.current.has(ptyId)) {
+            webReplayedPtysRef.current.add(ptyId);
+            if (!useOutputStream) resetWebPtyTail(ptyId);
+          }
         }
-      } else if (shouldFetchInitialTerminalHistory(ptyId, IS_WEB, isRemote)) {
+      } else if (historySource === "backend-buffer") {
         const claim = claimInitialTerminalHistory(tabId, term);
         if (claim) {
           historyClaim = claim;
@@ -231,29 +227,6 @@ export function usePtyConnection({
             completeInitialTerminalHistory(claim);
             historyClaim = null;
           }
-        }
-      } else if (shouldReplayScrollbackSidecar(ptyId, IS_WEB, isRemote)) {
-        // Daemon-restart restore: the sidecar tail must settle into the display
-        // buffer before the live transport below starts.
-        const claim = claimInitialTerminalHistory(tabId, term);
-        if (claim) {
-          historyClaim = claim;
-          historySettled = false;
-          const outcome = await replayScrollbackBeforeLiveAttach({
-            loadTail: async () => {
-              const tail = await invoke<number[] | null>("load_scrollback_tail", { tabId });
-              return tail && tail.length > 0 ? new Uint8Array(tail) : null;
-            },
-            isDisposed: () => disposed,
-            replay: (tail, onComplete, onCancel) =>
-              replayHistory(term, tail, { followOutput: true, line: 0 }, onComplete, onCancel),
-          });
-          if (outcome === "cancelled") abandonInitialTerminalHistory(claim);
-          else completeInitialTerminalHistory(claim);
-          historyClaim = null;
-          historySettled = true;
-          reportConnectionReady();
-          if (disposed) return;
         }
       }
 
