@@ -338,7 +338,7 @@ impl ServiceContext {
             ),
             LaunchSettlement::Provisional { stage, reason } => match stage {
                 BootStage::LaunchDeadlineElapsed => {
-                    self.record_launch_output_deadline(&attempt, reason)
+                    self.record_launch_output_deadline(attempt, reason)
                 }
                 stage => self.record_provisional_launch(&attempt, *stage, reason),
             },

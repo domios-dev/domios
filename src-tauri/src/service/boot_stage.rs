@@ -187,6 +187,23 @@ fn apply_late_readiness(tab: &mut Tab, evidence: &crate::service::ProviderSessio
     true
 }
 
+fn commit_boot_stage_transition(
+    mux: &crate::MuxState,
+    tab_id: &str,
+    transition: impl FnOnce(&mut Tab) -> bool,
+    publish: impl FnOnce(),
+) -> bool {
+    let mut mux = mux.write();
+    let Some(tab) = mux.get_tab_mut(tab_id) else {
+        return false;
+    };
+    if !transition(tab) {
+        return false;
+    }
+    publish();
+    true
+}
+
 /// The smallest authoritative late-readiness event: a nonce-verified session
 /// binding naming both the PTY and the launch attempt the stage was latched on,
 /// while the tab still owns that PTY, that nonce, and an accepted session. One
@@ -269,23 +286,17 @@ impl ServiceContext {
         transition: impl FnOnce(&mut Tab) -> bool,
     ) -> bool {
         let reason = stage.carries_reason().then_some(reason).flatten();
-        let mut mux = self.mux.write();
-        let Some(tab) = mux.get_tab_mut(tab_id) else {
-            return false;
-        };
-        if !transition(tab) {
-            return false;
-        }
-        crate::api::events::emit_everywhere(
-            &self.app_handle,
-            "tab-boot-stage",
-            serde_json::json!({
-                "tab_id": tab_id,
-                "stage": stage,
-                "reason": reason,
-            }),
-        );
-        true
+        commit_boot_stage_transition(&self.mux, tab_id, transition, || {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "tab-boot-stage",
+                serde_json::json!({
+                    "tab_id": tab_id,
+                    "stage": stage,
+                    "reason": reason,
+                }),
+            );
+        })
     }
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {

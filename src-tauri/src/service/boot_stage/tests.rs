@@ -27,12 +27,11 @@ fn happy_path_emits_stages_in_order() {
         sink.record("tab-1", stage, None);
     }
     assert_eq!(sink.stages(), BootStage::HAPPY_PATH.to_vec());
-    assert!(
-        sink.events
-            .lock()
-            .iter()
-            .all(|(pid, _, r)| pid == "tab-1" && r.is_none())
-    );
+    assert!(sink
+        .events
+        .lock()
+        .iter()
+        .all(|(pid, _, r)| pid == "tab-1" && r.is_none()));
 }
 
 #[test]
@@ -414,6 +413,101 @@ fn provisional_deadline_never_overwrites_recorded_agent_ready() {
     ));
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
     assert_eq!(tab.provisional_launch, None);
+}
+
+#[test]
+fn concurrent_ready_and_deadline_commits_keep_generation_evidence_atomic() {
+    use std::sync::{Arc, Barrier};
+
+    let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    let tab_id = state.create_tab(&workspace_id).unwrap();
+    {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-a".into());
+        tab.agent_type = Some("codex".into());
+        tab.agent_session_id = Some("01a090f2".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.reported_session_binding_nonce = Some("nonce-a".into());
+        tab.boot_stage = Some(BootStage::ShellReady);
+    }
+    let mux: crate::MuxState = Arc::new(crate::lock_hold::TimedRwLock::new("mux", state));
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-a".into(),
+        binding_nonce: "nonce-a".into(),
+    };
+    let evidence = binding(&attempt.pty_id, &attempt.binding_nonce);
+    let barrier = Arc::new(Barrier::new(3));
+    let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+
+    let deadline_mux = mux.clone();
+    let deadline_tab_id = tab_id.clone();
+    let deadline_attempt = attempt.clone();
+    let deadline_barrier = barrier.clone();
+    let deadline_events = events.clone();
+    let deadline = std::thread::spawn(move || {
+        deadline_barrier.wait();
+        commit_boot_stage_transition(
+            &deadline_mux,
+            &deadline_tab_id,
+            |tab| {
+                apply_provisional_launch(
+                    tab,
+                    &deadline_attempt.pty_id,
+                    &deadline_attempt.binding_nonce,
+                    BootStage::LaunchDeadlineElapsed,
+                    DEADLINE_REASON,
+                )
+            },
+            || {
+                deadline_events
+                    .lock()
+                    .push(BootStage::LaunchDeadlineElapsed)
+            },
+        )
+    });
+
+    let ready_mux = mux.clone();
+    let ready_tab_id = tab_id.clone();
+    let ready_attempt = attempt.clone();
+    let ready_evidence = evidence.clone();
+    let ready_barrier = barrier.clone();
+    let ready_events = events.clone();
+    let ready = std::thread::spawn(move || {
+        ready_barrier.wait();
+        commit_boot_stage_transition(
+            &ready_mux,
+            &ready_tab_id,
+            |tab| {
+                let owns_evidence = ready_evidence.pty_id == ready_attempt.pty_id
+                    && ready_evidence.binding_nonce == ready_attempt.binding_nonce
+                    && tab.pty_id.as_deref() == Some(ready_evidence.pty_id.as_str())
+                    && tab.session_binding_nonce.as_deref()
+                        == Some(ready_evidence.binding_nonce.as_str())
+                    && tab.launch_session_authenticated();
+                if !owns_evidence {
+                    return false;
+                }
+                if tab.boot_stage.is_some_and(BootStage::is_provisional) {
+                    return apply_late_readiness(tab, &ready_evidence);
+                }
+                apply_boot_stage(tab, BootStage::AgentReady, None);
+                true
+            },
+            || ready_events.lock().push(BootStage::AgentReady),
+        )
+    });
+
+    barrier.wait();
+    deadline.join().unwrap();
+    ready.join().unwrap();
+
+    let state = mux.read();
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert_eq!(tab.provisional_launch, None);
+    assert_eq!(events.lock().last(), Some(&BootStage::AgentReady));
 }
 
 #[test]
