@@ -162,6 +162,29 @@ fn pair_creation_refusal_for_leaf(
     (is_leaf && !leaf_creation_acknowledged).then(leaf_pair_creation_refusal)
 }
 
+fn validate_pair_creator(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    creator_tab_id: Option<&str>,
+    leaf_creation_acknowledged: bool,
+) -> Result<(), String> {
+    let Some(creator_tab_id) = creator_tab_id else {
+        return Ok(());
+    };
+    let creator_tab_id = creator_tab_id.trim();
+    if creator_tab_id.is_empty() {
+        return Err("spawned_by_tab_id must identify the calling Tab".into());
+    }
+    let tab = mux
+        .get_tab(creator_tab_id)
+        .ok_or_else(|| format!("calling Tab '{creator_tab_id}' does not exist"))?;
+    if let Some(refusal) =
+        pair_creation_refusal_for_leaf(is_pair_creation_leaf(tab), leaf_creation_acknowledged)
+    {
+        return Err(refusal);
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
@@ -420,21 +443,11 @@ impl ServiceContext {
         });
 
         // The General Agent is a machine coordinator represented by Manager storage, not a Team leaf, so it is exempt regardless of the flag.
-        if let Some(ref spawner_id) = params.spawned_by_tab_id {
-            if !spawner_id.is_empty() {
-                let is_leaf = {
-                    let mux = self.mux.write();
-                    mux.get_tab(spawner_id)
-                        .map(is_pair_creation_leaf)
-                        .unwrap_or(false)
-                };
-                if let Some(refusal) =
-                    pair_creation_refusal_for_leaf(is_leaf, params.leaf_creation_acknowledged)
-                {
-                    return Err(refusal);
-                }
-            }
-        }
+        validate_pair_creator(
+            &self.mux.read(),
+            params.spawned_by_tab_id.as_deref(),
+            params.leaf_creation_acknowledged,
+        )?;
 
         let workspace_id = {
             let mux = self.mux.write();
@@ -454,6 +467,8 @@ impl ServiceContext {
 
         let orchestrator_model = explicit_pair_model(params.orchestrator_model.clone());
         let planner_model = explicit_pair_model(params.planner_model.clone());
+        self.require_agent_provider_ready(&params.orchestrator_agent)?;
+        self.require_agent_provider_ready(&params.planner_agent)?;
         crate::service::spawn::validate_agent_model(
             &self.agent_registry,
             &params.orchestrator_agent,

@@ -432,6 +432,93 @@ fn declared_leaf_and_every_non_leaf_are_never_refused() {
 }
 
 #[test]
+fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let error = validate_pair_creator(&mux, Some("missing-caller"), false)
+        .expect_err("a supplied but unknown caller must not bypass the hierarchy check");
+    assert!(error.contains("missing-caller"), "{error}");
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_pair_from_a_worker_tab_is_refused_without_acknowledge_leaf() {
+    use crate::multiplexer::types::AgentRole;
+
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let worker_id = mux.create_tab(&workspace_id).unwrap();
+    let manager_id = mux.create_tab(&workspace_id).unwrap();
+    for (tab_id, role) in [
+        (worker_id.as_str(), AgentRole::Worker),
+        (manager_id.as_str(), AgentRole::Manager),
+    ] {
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.role = Some(role);
+        tab.agent_type = Some("provider".into());
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for creator_tab_id in [&worker_id, &manager_id] {
+        let error = runtime
+            .block_on(fixture.service.create_orchestration_pair(OrchestrationPairParams {
+                orchestrator_agent: "unknown-orchestrator".into(),
+                planner_agent: "unknown-planner".into(),
+                workspace_id: Some(workspace_id.clone()),
+                spawned_by_tab_id: Some(creator_tab_id.clone()),
+                ..Default::default()
+            }))
+            .expect_err("a Team leaf without the explicit acknowledgement must be refused");
+        assert!(error.contains("--acknowledge-leaf"), "{error}");
+    }
+
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_pair_with_unknown_provider_creates_no_tab() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "valid-orchestrator",
+        )));
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+    let teams_before = fixture.service.mux.read().team_count();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(fixture.service.create_orchestration_pair(OrchestrationPairParams {
+            orchestrator_agent: "valid-orchestrator".into(),
+            planner_agent: "unknown-planner".into(),
+            workspace_id: Some(workspace_id),
+            ..Default::default()
+        }))
+        .expect_err("an unknown Planner must be rejected before the Orchestrator Tab is reserved");
+
+    assert!(error.contains("unknown-planner"), "{error}");
+    let mux = fixture.service.mux.read();
+    assert_eq!(mux.snapshot().tabs.len(), tabs_before);
+    assert_eq!(mux.team_count(), teams_before);
+    assert!(fixture.service.plan_store.list_index().is_empty());
+}
+
+#[test]
 fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
     // The declared Manager or Worker must be the recorded creator, never an intermediary shell.
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
