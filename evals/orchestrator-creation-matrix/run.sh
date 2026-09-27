@@ -182,41 +182,8 @@ tab_exists() {
 }
 tab_session() { dev_get "/api/tabs" | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
 
-# grep a tab's parsed chat transcript for a fixed string. Returns 0 if found.
-tab_chat_has() {
-  local tab="$1" needle="$2"
-  dc tab chat --tab "$tab" --json 2>/dev/null \
-    | "$PYTHON_BIN" -c '
-import json,sys
-needle=sys.argv[1]
-try:
-    d=json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-blob=json.dumps(d)
-sys.exit(0 if needle in blob else 1)
-' "$needle"
-}
-
 # grep the UI chat-start snapshot for a fixed string. This is the deterministic
 # oracle for pending_greeting; `tab chat` only reads the durable transcript.
-CHAT_RAW_JSON=""
-CHAT_RAW_SUBSCRIPTION=""
-CHAT_RAW_ERROR=""
-chat_raw_start() {
-  local tab="$1" subscription body rc
-  subscription="orchmatrix-$$-${RANDOM}-${tab}"
-  body=$(printf '{"subscriptionId":"%s"}' "$subscription")
-  CHAT_RAW_JSON=$(dev_post "/api/tabs/$tab/chat-raw/start" "$body" 2>&1)
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    CHAT_RAW_ERROR="$CHAT_RAW_JSON"
-    return "$rc"
-  fi
-  CHAT_RAW_SUBSCRIPTION="$subscription"
-  CHAT_RAW_ERROR=""
-}
-
 chat_raw_stop() {
   local tab="$1" subscription="$2" body output rc
   body=$(printf '{"subscriptionId":"%s"}' "$subscription")
@@ -228,114 +195,58 @@ chat_raw_stop() {
   return "$rc"
 }
 
-tab_chat_start_has() {
-  local tab="$1" needle="$2" rc
-  if ! chat_raw_start "$tab"; then
-    FAILURE_ERROR_BODY="$CHAT_RAW_ERROR"
-    return 1
-  fi
-  printf '%s' "$CHAT_RAW_JSON" | "$PYTHON_BIN" -c '
-import json,sys
-needle=sys.argv[1]
-raw=sys.stdin.read()
-decoder=json.JSONDecoder()
-for i,char in enumerate(raw):
-    if char not in "[{": continue
-    try:
-        d,_=decoder.raw_decode(raw[i:])
-        break
-    except json.JSONDecodeError:
-        pass
-else:
-    sys.exit(1)
-blob=json.dumps(d)
-sys.exit(0 if needle in blob else 1)
-' "$needle"
+run_tab_event_wait() {
+  local mode="$1" tab="$2" timeout_seconds="$3" subscription="$4" api auth output rc previous_pipefail=0 needles
+  shift 4
+  api=$(dev_api_url) || { FAILURE_ERROR_BODY="could not resolve the dev API URL"; return 1; }
+  auth=$(dev_auth_header) || { FAILURE_ERROR_BODY="could not resolve the dev API auth header"; return 1; }
+  needles=$(printf '%s\n' "$@" | "$PYTHON_BIN" -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))')
+  shopt -qo pipefail && previous_pipefail=1
+  set -o pipefail
+  output=$(timeout "$timeout_seconds" curl -N --silent --show-error --include \
+    -H "$auth" "$api/api/events/stream?tab_id=$tab" \
+    | env WAIT_API_URL="$api" WAIT_AUTH_HEADER="$auth" WAIT_TAB_ID="$tab" \
+      WAIT_MODE="$mode" WAIT_SUBSCRIPTION_ID="$subscription" \
+      WAIT_SECONDS="$timeout_seconds" WAIT_NEEDLES="$needles" \
+      "$PYTHON_BIN" "$ROOT/evals/orchestrator-creation-matrix/wait_tab_event.py" 2>&1)
   rc=$?
-  chat_raw_stop "$tab" "$CHAT_RAW_SUBSCRIPTION" || true
-  return "$rc"
-}
-
-CHAT_TOOL_STATS=""
-tab_chat_tool_stats() {
-  local tab="$1" rc
-  CHAT_TOOL_STATS=""
-  if ! chat_raw_start "$tab"; then
-    FAILURE_ERROR_BODY="$CHAT_RAW_ERROR"
-    return 1
+  [ "$previous_pipefail" -eq 1 ] || set +o pipefail
+  if echo "$output" | grep -q '^MATCH:'; then
+    note "tab event satisfied $mode for $tab: $(echo "$output" | grep '^MATCH:' | tail -1)"
+    return 0
   fi
-  CHAT_TOOL_STATS=$(printf '%s' "$CHAT_RAW_JSON" | "$PYTHON_BIN" -c '
-import json,sys
-raw=sys.stdin.read()
-decoder=json.JSONDecoder()
-for i,char in enumerate(raw):
-    if char not in "[{": continue
-    try:
-        d,_=decoder.raw_decode(raw[i:])
-        break
-    except json.JSONDecodeError:
-        pass
-else:
-    raise SystemExit(2)
-
-tool_names = []
-def walk(x):
-    if isinstance(x, dict):
-        typ = str(x.get("type") or x.get("message_type") or "")
-        name = str(x.get("tool_name") or x.get("tool") or x.get("name") or "")
-        if "tool" in typ.lower() or name:
-            lower = name.lower()
-            if lower:
-                tool_names.append(lower)
-        for v in x.values():
-            walk(v)
-    elif isinstance(x, list):
-        for v in x:
-            walk(v)
-
-walk(d)
-file_reads = [n for n in tool_names if n in {"read", "grep", "glob", "ls"}]
-print(f"{len(tool_names)} {len(file_reads)}")
-' 2>&1)
-  rc=$?
-  chat_raw_stop "$tab" "$CHAT_RAW_SUBSCRIPTION" || true
-  [ "$rc" -eq 0 ] || return "$rc"
+  if [ "$mode" = "idle" ] && [ "$rc" -eq 124 ] \
+     && echo "$output" | grep -q '^QUIET_WINDOW_COMPLETE$'; then
+    return 0
+  fi
+  FAILURE_ERROR_BODY="$output (wait exit=$rc)"
+  return 1
 }
 
 wait_for_chat_start_has() {
-  local tab="$1" timeout_seconds="$2" deadline needle
+  local tab="$1" timeout_seconds="$2" subscription rc
   shift 2
-  deadline=$((SECONDS + timeout_seconds))
-  while (( SECONDS <= deadline )); do
-    local found=1
-    for needle in "$@"; do
-      if tab_chat_start_has "$tab" "$needle"; then
-        found=0
-        break
-      fi
-    done
-    [ "$found" -eq 0 ] && return 0
-    [ -n "${FAILURE_ERROR_BODY:-}" ] && return 1
-    (( SECONDS >= deadline )) && break
-    # The next chat snapshot, not elapsed time, decides whether the condition holds.
-    sleep 1
-  done
-  return 1
+  subscription="orchmatrix-$$-${RANDOM}-${tab}"
+  run_tab_event_wait chat_start "$tab" "$timeout_seconds" "$subscription" "$@"
+  rc=$?
+  chat_raw_stop "$tab" "$subscription" || true
+  return "$rc"
+}
+
+wait_for_chat_start_all() {
+  local tab="$1" timeout_seconds="$2" subscription rc
+  shift 2
+  subscription="orchmatrix-$$-${RANDOM}-${tab}"
+  run_tab_event_wait chat_start_all "$tab" "$timeout_seconds" "$subscription" "$@"
+  rc=$?
+  chat_raw_stop "$tab" "$subscription" || true
+  return "$rc"
 }
 
 wait_for_chat_transcript_has() {
-  local tab="$1" timeout_seconds="$2" deadline needle
+  local tab="$1" timeout_seconds="$2"
   shift 2
-  deadline=$((SECONDS + timeout_seconds))
-  while (( SECONDS <= deadline )); do
-    for needle in "$@"; do
-      if tab_chat_has "$tab" "$needle"; then return 0; fi
-    done
-    (( SECONDS >= deadline )) && break
-    # The next transcript read, not elapsed time, decides whether the condition holds.
-    sleep 1
-  done
-  return 1
+  run_tab_event_wait transcript "$tab" "$timeout_seconds" "" "$@"
 }
 
 SPAWN_TAB=""
@@ -410,27 +321,14 @@ scenario_B_idle() {
     fail B.idle "route B did not produce a planner tab; cannot assert idle behavior"
     return
   fi
-  note "observing the no-goal state for 60s with bounded chat snapshots (planner=$SCENARIO_B_PLANNER)"
-  local idle_deadline=$((SECONDS + 60)) stats tool_count file_read_count plan_count_now
-  while (( SECONDS < idle_deadline )); do
-    tab_chat_tool_stats "$SCENARIO_B_PLANNER"
-    if [ $? -ne 0 ]; then
-      FAILURE_ERROR_BODY="$CHAT_RAW_ERROR${CHAT_RAW_JSON:+
-$CHAT_RAW_JSON}"
-      fail B.idle "could not read the Planner chat snapshot"
-      return
-    fi
-    stats="$CHAT_TOOL_STATS"
-    tool_count=$(echo "$stats" | awk '{print $1}')
-    file_read_count=$(echo "$stats" | awk '{print $2}')
-    if [ "${tool_count:-?}" != "0" ] || [ "${file_read_count:-?}" != "0" ]; then
-      FAILURE_ERROR_BODY="$CHAT_RAW_JSON"
-      fail B.idle "fresh Planner acted before a goal: tool_calls=${tool_count:-?} file_reads=${file_read_count:-?}"
-      return
-    fi
-    # This one-second sample cadence observes the explicit 60s idle interval.
-    sleep 1
-  done
+  note "observing Planner idleness on one tab-filtered event stream for 60s (planner=$SCENARIO_B_PLANNER)"
+  local idle_subscription="orchmatrix-$$-${RANDOM}-${SCENARIO_B_PLANNER}" plan_count_now
+  if ! run_tab_event_wait idle "$SCENARIO_B_PLANNER" 60 "$idle_subscription"; then
+    chat_raw_stop "$SCENARIO_B_PLANNER" "$idle_subscription" || true
+    fail B.idle "Planner acted before a goal or the bounded event observation failed"
+    return
+  fi
+  chat_raw_stop "$SCENARIO_B_PLANNER" "$idle_subscription" || true
   plan_count_now=$(plan_count)
   if [ -n "$plan_count_now" ] && [ "$plan_count_now" = "$SCENARIO_B_PLAN_COUNT" ] && [ -z "$SCENARIO_B_PLAN" ]; then
     pass B.idle "fresh Planner stayed idle for 60s and no Plan existed before the first goal"
@@ -489,20 +387,16 @@ scenario_C() {
   if wait_for_chat_start_has "$tab" 30 "Planner specialist" "attached Planner specialist"; then
     pass C.mandate "onboarding carries the peer-pairing mandate block"
   else
-    [ -z "${FAILURE_ERROR_BODY:-}" ] && FAILURE_ERROR_BODY="$CHAT_RAW_JSON"
     fail C.mandate "onboarding did not carry the peer-pairing mandate block within 30s"
   fi
-  # pre-filled planner spawn command — real parent tab, but plan id?
-  if tab_chat_start_has "$tab" "--parent $tab"; then
+  # One subscription and one event wait cover both pre-filled command fragments.
+  if wait_for_chat_start_all "$tab" 30 "--parent $tab" "--plan PLAN_ID"; then
     pass C.prefill_parent "planner spawn command is pre-filled with the real orchestrator tab id (--parent $tab)"
-  else
-    FAILURE_ERROR_BODY="$CHAT_RAW_JSON"
-    fail C.prefill_parent "planner spawn command was not pre-filled with real parent tab id"
-  fi
-  if tab_chat_start_has "$tab" "--plan PLAN_ID"; then
     pass C.prefill_plan "onboarding leaves the Plan unbound until the first goal and uses a placeholder"
   else
-    FAILURE_ERROR_BODY="$CHAT_RAW_JSON"
+    local prefill_error="$FAILURE_ERROR_BODY"
+    fail C.prefill_parent "planner spawn command was not pre-filled with real parent tab id"
+    FAILURE_ERROR_BODY="$prefill_error"
     fail C.prefill_plan "onboarding did not show the unbound-plan placeholder"
   fi
   # unpaired nudge within one reminder cycle — timer gated (default 1800s)
@@ -554,7 +448,6 @@ scenario_D() {
   if wait_for_chat_start_has "$tab" 30 "Planner specialist" "now the Orchestrator"; then
     pass D.mandate "promotion onboarding (with mandate block) delivered to the tab"
   else
-    [ -z "${FAILURE_ERROR_BODY:-}" ] && FAILURE_ERROR_BODY="$CHAT_RAW_JSON"
     fail D.mandate "promotion onboarding/mandate not found in chat-raw within 30s"
   fi
   if echo "$resp" | grep -qi "Planner specialist\\|mandate"; then

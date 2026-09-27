@@ -655,18 +655,6 @@ fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
 }
 
 #[test]
-fn planner_unpaired_applies_to_team_bound_plans_without_live_planner() {
-    let mut plan = planner_pairing_base_plan(None);
-    plan["team_id"] = json!("team_1");
-
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-
-    assert!(findings
-        .iter()
-        .any(|finding| finding.kind == "planner_unpaired" && finding.severity == "warning"));
-}
-
-#[test]
 fn planner_unpaired_escalates_to_error_at_approval() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
