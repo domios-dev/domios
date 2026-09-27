@@ -104,6 +104,58 @@ pub(crate) fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -
     }
 }
 
+pub(crate) fn catalogue_models_match(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    left: &str,
+    right: &str,
+) -> bool {
+    let capability = model_catalogue_capability(registry, provider_id);
+    let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
+    let catalogue = if live {
+        crate::agent::model_catalog::resolve_live_models(provider_id)
+    } else if capability.live_discovery_required {
+        None
+    } else {
+        Some(crate::agent::model_catalog::resolve_models(provider_id))
+    };
+    let Some(catalogue) = catalogue else {
+        return false;
+    };
+    let left = catalogue_model_identity(provider_id, left, &catalogue, live);
+    let right = catalogue_model_identity(provider_id, right, &catalogue, live);
+    matches!((left, right), (Some(left), Some(right)) if left.eq_ignore_ascii_case(&right))
+}
+
+fn catalogue_model_identity(
+    provider_id: &str,
+    requested: &str,
+    catalogue: &[ModelInfo],
+    live: bool,
+) -> Option<String> {
+    let lookup = catalogue_lookup_model(requested, catalogue);
+    let resolved = if live {
+        crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
+    } else {
+        crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
+    };
+    if let Some(model) = resolved {
+        return Some(model.id);
+    }
+    let matches = catalogue
+        .iter()
+        .filter(|model| model.available != Some(false))
+        .filter(|model| {
+            model
+                .id
+                .rsplit('/')
+                .next()
+                .is_some_and(|leaf| leaf.eq_ignore_ascii_case(requested.trim()))
+        })
+        .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| matches[0].id.clone())
+}
+
 pub(crate) fn preserve_context_suffix(resolved: String, requested: &str) -> String {
     if requested.to_ascii_lowercase().ends_with("[1m]") {
         format!("{resolved}[1m]")
