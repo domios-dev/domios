@@ -180,6 +180,10 @@ impl AgentProvider for DiscoverModelsNativeStub {
         }
     }
 
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        crate::provider::ComposerCursorPosition::VisibleAnywhere
+    }
+
     fn detect_from_title(&self, _: &str) -> bool {
         false
     }
@@ -511,6 +515,7 @@ fn provider_readiness_native_js_parity() {
             "readinessStrategy": {"kind": "poll_shell_prompt", "timeoutSecs": 30},
             "taskDelivery": "pty_input",
             "providerReadiness": {"kind": "structural_composer", "timeoutSecs": 17},
+            "composerCursorPosition": "visible_anywhere",
             "verifySubmit": {"kind": "none"}
         }
     }"#;
@@ -527,6 +532,30 @@ fn provider_readiness_native_js_parity() {
         js.provider_readiness_strategy(),
         native.provider_readiness_strategy()
     );
+    assert_eq!(
+        js.composer_cursor_position(),
+        native.composer_cursor_position()
+    );
+
+    if require_plugins().is_some() {
+        let opencode = load_js("opencode");
+        assert_eq!(
+            opencode.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::VisibleAnywhere
+        );
+        let codex = load_js("codex");
+        assert!(codex.provider_readiness_strategy().requires_composer());
+        assert_eq!(
+            codex.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::BottomRegion
+        );
+        let claude = load_js("claude");
+        assert!(!claude.provider_readiness_strategy().requires_composer());
+        assert_eq!(
+            claude.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::BottomRegion
+        );
+    }
 }
 
 fn classify_tab_state_snapshot() -> crate::tab_state::TabStateSnapshot {
