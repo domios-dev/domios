@@ -95,6 +95,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture
         .service
+        .pty
+        .lock()
+        .spawn_with_id(Some("pty-update".into()), None, None, 80, 24, Default::default())
+        .expect("spawn live shell PTY for structured prompt response");
+    fixture
+        .service
         .agent_registry
         .register_provider(Box::new(provider));
     assert!(
@@ -140,6 +146,12 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     clear_manual_update_occurrence(&tab_id);
     assert!(claim_manual_update_occurrence(&tab_id, &occurrence));
     clear_manual_update_occurrence(&tab_id);
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill("pty-update")
+        .expect("stop live shell PTY");
 }
 
 #[test]
