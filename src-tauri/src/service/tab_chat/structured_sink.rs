@@ -62,6 +62,18 @@ pub struct TauriStructuredSink {
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        if let (Some(session_id), Some(binding_nonce)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+        ) {
+            crate::service::public_send_readiness::note_bootstrap_turn(
+                &self.mux,
+                tab_id,
+                session_id,
+                binding_nonce,
+                &messages,
+            );
+        }
         reconcile_current_session_turns(
             &self.app,
             &self.mux,
@@ -196,6 +208,18 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         }
         if out.is_empty() {
             return;
+        }
+        if let (Some(session_id), Some(binding_nonce)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+        ) {
+            crate::service::public_send_readiness::note_bootstrap_turn(
+                &self.mux,
+                tab_id,
+                session_id,
+                binding_nonce,
+                &out,
+            );
         }
         reconcile_current_session_turns(
             &self.app,

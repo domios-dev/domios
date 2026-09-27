@@ -109,9 +109,10 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
         true,
         crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
-    harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("claude-like-resume-fixture"),
-    ));
+    harness
+        .service
+        .agent_registry
+        .register_provider(Box::new(MockProvider::new("claude-like-resume-fixture")));
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
@@ -150,7 +151,10 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     let lazy = MockProvider::new("session-prompt-lazy")
         .with_session_config_delivery()
         .with_session_starts_on_first_user_turn();
-    assert_eq!(lazy.system_prompt_delivery(), SystemPromptDelivery::SessionConfig);
+    assert_eq!(
+        lazy.system_prompt_delivery(),
+        SystemPromptDelivery::SessionConfig
+    );
     assert!(lazy.session_starts_on_first_user_turn());
 
     let taskless_params = crate::service::orchestrator::SpawnAgentParams {
@@ -163,6 +167,7 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     );
     assert!(taskless_params.system_prompt.is_some());
     assert!(!no_task_turn);
+
     assert!(first_turn_binding_required(
         lazy.session_starts_on_first_user_turn(),
         no_task_turn,
@@ -189,10 +194,8 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
         channel: PendingDeliveryChannel::InteractiveInput,
         payload: "opaque-dispatch-brief-80bd".into(),
     };
-    let fallback_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-        None,
-        Some(&dispatch_brief),
-    );
+    let fallback_task_turn =
+        crate::service::launch_delivery::has_startup_task_turn(None, Some(&dispatch_brief));
     assert!(fallback_task_turn);
     assert!(!first_turn_binding_required(
         lazy.session_starts_on_first_user_turn(),
@@ -252,10 +255,8 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
         no_task_turn,
         crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
-    let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-        Some("opaque-task-4209"),
-        None,
-    );
+    let assigned_task_turn =
+        crate::service::launch_delivery::has_startup_task_turn(Some("opaque-task-4209"), None);
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,

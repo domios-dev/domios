@@ -130,6 +130,36 @@ fn startup_ack_with_an_armed_attempt_still_acknowledges() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn startup_ack_after_binding_auto_ack_reports_already_acknowledged() {
+    let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    let authority =
+        StartupAuthority::new(&parent_tab_id, &tab_id, "launch-a").for_binding(None, "nonce-a");
+    let _receiver = startup_receiver(&fixture.service.worker_ack, authority);
+
+    assert_eq!(
+        fixture
+            .service
+            .worker_ack
+            .resolve_startup_ack_for_binding(
+                &tab_id,
+                "launch-a",
+                None,
+                "nonce-a",
+            )
+            .expect("the session binding acknowledges its launch"),
+        AgentStartupAcknowledgement::Acknowledged
+    );
+    assert_eq!(
+        fixture
+            .service
+            .acknowledge_agent_startup(&tab_id, "launch-a", "nonce-a")
+            .expect("the injected instruction succeeds after binding auto-ack"),
+        AgentStartupAcknowledgement::AlreadyAcknowledged
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_from_a_superseded_attempt_keeps_its_explicit_refusal() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =

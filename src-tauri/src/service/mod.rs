@@ -51,6 +51,8 @@ mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
 mod prompt_resolution;
+pub(crate) mod public_send_readiness;
+pub(crate) mod startup_turn;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{

@@ -10,18 +10,6 @@ pub(crate) fn skip_local_worker_role(
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
-pub(crate) fn worker_brief_delivery_incident(tab_id: &str, error: &str) -> (String, String) {
-    (
-        "Orchestration incident: launch brief undelivered".to_string(),
-        format!(
-            "Impact: Tab {tab_id} was not marked ready, so its assigned work must not proceed. \
-             Cleanup: confirmed-delivery cleanup was skipped and the pending brief was retained. \
-             Fallback: the launch failed after the bounded submit-key attempt; retry the pending assignment explicitly. \
-             Cause: {error}"
-        ),
-    )
-}
-
 pub(crate) use crate::agent::registry::AgentRegistry;
 #[derive(Default)]
 pub(crate) struct LaunchRegistry {
@@ -36,17 +24,18 @@ mod exit_recovery_shell_tests;
 mod failure;
 #[path = "launch/generation.rs"]
 mod generation;
+mod public_send;
 mod startup_readiness;
-#[cfg(test)]
-pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
 };
 #[cfg(test)]
+pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
+#[cfg(test)]
 #[path = "launch/tests.rs"]
 mod tests;
-use failure::LaunchFailure;
+use failure::{worker_brief_delivery_incident, LaunchFailure};
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -426,6 +415,7 @@ pub(crate) fn launch_agent_in_background(
         agent_cmd,
         origin,
         false,
+        None,
         task,
         fallback_spec,
         Default::default(),
@@ -442,6 +432,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
+    startup_turn_text: Option<String>,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
@@ -454,6 +445,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
         agent_cmd,
         origin,
         has_startup_task_turn,
+        startup_turn_text,
         task,
         fallback_spec,
         Default::default(),
@@ -470,6 +462,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
+    startup_turn_text: Option<String>,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     launch_env: std::collections::HashMap<String, String>,
@@ -527,10 +520,12 @@ pub(crate) fn launch_agent_in_background_with_env(
         model.as_deref(),
         reasoning_effort.as_deref(),
     );
+    let public_send_key = public_send::arm(&svc, &tab_id, startup_turn_text);
     // thread spawns: callers get the tab id immediately and may send right away.
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
+        let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
@@ -705,7 +700,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        if let Err(error) = launch.capture_binding_nonce(&svc, task_identity.as_ref()) {
+        if let Err(error) =
+            launch.capture_binding_nonce(&svc, task_identity.as_ref(), public_send_key)
+        {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
             set_booting(false);
@@ -820,9 +817,11 @@ pub(crate) fn launch_agent_in_background_with_env(
                                 }
                             };
                         launch.replace(pty_id.clone());
-                        if let Err(error) =
-                            launch.capture_binding_nonce(&svc, task_identity.as_ref())
-                        {
+                        if let Err(error) = launch.capture_binding_nonce(
+                            &svc,
+                            task_identity.as_ref(),
+                            public_send_key,
+                        ) {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);
                             set_booting(false);
@@ -1148,7 +1147,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
         });
         if let Some(finished) =
-            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness)
+            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc)
         {
             if finished {
                 if let Some(tx) = ready_tx {
@@ -1166,6 +1165,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
+        public_send_guard.complete();
         log::info!(
             "launch_agent: agent ready in Tab {} after {}ms",
             tab_id,

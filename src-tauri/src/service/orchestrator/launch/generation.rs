@@ -9,6 +9,7 @@ impl LaunchGeneration {
         &mut self,
         svc: &ServiceContext,
         task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
+        public_send_key: Option<crate::service::public_send_readiness::PublicSendGateKey>,
     ) -> Result<(), String> {
         let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
@@ -18,7 +19,16 @@ impl LaunchGeneration {
             &self.pty_id,
             self.binding_nonce.as_deref().expect("launch binding nonce"),
             task_identity,
-        )
+        )?;
+        svc.bind_public_send_launch_attempt(
+            crate::service::launch_readiness::LaunchAttempt {
+                tab_id: self.tab_id.clone(),
+                pty_id: self.pty_id.clone(),
+                binding_nonce: self.binding_nonce.clone().expect("launch binding nonce"),
+            },
+            public_send_key,
+        );
+        Ok(())
     }
 
     pub(super) fn adopt_authenticated_binding(&mut self, binding_nonce: String) -> bool {
@@ -69,8 +79,19 @@ impl LaunchGeneration {
             svc.void_launch_session_proof(&self.tab_id);
         }
         let reason = failure.reason();
+        if let Some(attempt) = self.attempt() {
+            svc.retire_public_send_launch_attempt(&attempt);
+        }
         self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
+        })
+    }
+
+    pub(super) fn attempt(&self) -> Option<crate::service::launch_readiness::LaunchAttempt> {
+        Some(crate::service::launch_readiness::LaunchAttempt {
+            tab_id: self.tab_id.clone(),
+            pty_id: self.pty_id.clone(),
+            binding_nonce: self.binding_nonce.clone()?,
         })
     }
 
