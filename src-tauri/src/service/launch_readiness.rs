@@ -126,25 +126,14 @@ impl LaunchExitProof {
         attempt: &LaunchAttempt,
         observation: &ProviderTreeObservation,
         exit_code: Option<i32>,
-        command_line: Option<&str>,
+        finished_event_proves_exit_before_first_seen: bool,
         may_have_named_process: Option<bool>,
     ) -> Option<Self> {
-        let finished_command = exit_code.is_some()
-            && command_line.is_some_and(|command_line| !command_line.trim().is_empty());
         let tree_evidence = match observation.state() {
             crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
-                if exit_code.is_some_and(|code| code != 0) || finished_command =>
+                if finished_event_proves_exit_before_first_seen && exit_code.is_some() =>
             {
-                format!(
-                    "{}+shell_exit_code={}{}",
-                    observation.evidence(),
-                    exit_code?,
-                    if command_line.is_some_and(|line| !line.trim().is_empty()) {
-                        "+shell_command_line_present"
-                    } else {
-                        ""
-                    }
-                )
+                format!("{}+shell_reported_exit", observation.evidence())
             }
             crate::service::process_tree::ProviderTreeState::AbsentBeforeSeen
                 if observation.has_distinct_absence_observations()
