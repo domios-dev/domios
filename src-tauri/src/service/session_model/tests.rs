@@ -990,7 +990,8 @@ mod model_refresh_tests {
         fixture
             .service
             .refresh_session_model_for_current_tab(&tab_id);
-        let notifications = fixture.service.notif.lock().list(false);
+        let notif = fixture.service.notif.lock();
+        let notifications = notif.list(false);
         assert_eq!(notifications.len(), 1);
         assert_eq!(
             notifications[0].title,
