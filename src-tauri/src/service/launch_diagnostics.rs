@@ -17,14 +17,16 @@ struct LaunchEnvironmentSummary {
     path_entry_count: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentLaunchOrigin {
     AtomicSpawn,
+    AutomaticExitRecovery,
     ExitRecovery,
     GeneralAgent,
     HiddenSpawn,
     OrchestratedSpawn,
     Restart,
+    Resume,
     RestoredSnapshot,
     VisibleSpawn,
 }
@@ -33,11 +35,13 @@ impl AgentLaunchOrigin {
     fn label(self) -> &'static str {
         match self {
             Self::AtomicSpawn => "atomic_spawn",
+            Self::AutomaticExitRecovery => "automatic_exit_recovery",
             Self::ExitRecovery => "exit_recovery",
             Self::GeneralAgent => "general_agent",
             Self::HiddenSpawn => "hidden_spawn",
             Self::OrchestratedSpawn => "orchestrated_spawn",
             Self::Restart => "restart",
+            Self::Resume => "resume",
             Self::RestoredSnapshot => "restored_snapshot",
             Self::VisibleSpawn => "visible_spawn",
         }

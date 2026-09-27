@@ -340,6 +340,7 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let closed = closed_tabs(records);
     let retained_agent_type_writes = retained_agent_type_write_sequences(records);
     let retained_permission_audits = retained_permission_auto_confirm_sequences(records);
+    let retained_verified_sessions = retained_verified_session_sequences(records);
     let mut compacted: Vec<JournalRecord> = checkpoints
         .iter()
         .cloned()
@@ -363,8 +364,13 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
             &entry.transition,
             LifecycleTransition::PermissionAutoConfirm { .. }
         );
+        let is_verified_session = matches!(
+            &entry.transition,
+            LifecycleTransition::SessionBound { .. }
+        );
         if (is_agent_type_write && retained_agent_type_writes.contains(&entry.seq))
             || (is_permission_audit && retained_permission_audits.contains(&entry.seq))
+            || (is_verified_session && retained_verified_sessions.contains(&entry.seq))
             || (!is_agent_type_write && !is_permission_audit && !is_covered)
         {
             compacted.push(record.clone());
@@ -372,6 +378,21 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     }
     compacted.sort_by_key(JournalRecord::seq);
     compacted
+}
+
+fn retained_verified_session_sequences(
+    records: &[JournalRecord],
+) -> std::collections::HashSet<JournalSeq> {
+    let mut latest = HashMap::<&str, JournalSeq>::new();
+    for record in records {
+        let JournalRecord::Transition { entry } = record else {
+            continue;
+        };
+        if matches!(&entry.transition, LifecycleTransition::SessionBound { .. }) {
+            latest.insert(entry.key.tab_id.as_str(), entry.seq);
+        }
+    }
+    latest.into_values().collect()
 }
 
 /// Per-tab audit rows kept through compaction; older ones are telemetry only.

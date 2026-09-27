@@ -703,6 +703,52 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
 }
 
 #[test]
+fn compaction_preserves_latest_verified_session_per_tab() {
+    let (journal, _dir) = new_journal();
+    let original = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &original, "session-a");
+    let restored = key("tab-a", 2, "op-b");
+    journal
+        .append(restored.clone(), LifecycleTransition::EpochOpened)
+        .unwrap();
+    journal
+        .append(
+            restored.clone(),
+            LifecycleTransition::RolledBack {
+                reason: "restored without a live agent".into(),
+            },
+        )
+        .unwrap();
+    journal
+        .append(
+            restored,
+            LifecycleTransition::RestoreAwaitingAgentRestart {
+                session_id: "session-a".into(),
+            },
+        )
+        .unwrap();
+
+    journal.compact().unwrap();
+
+    let compacted = journal.load().records;
+    assert!(!compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Checkpoint { checkpoint }
+            if checkpoint.authority.session_id == "session-a"
+    )));
+    assert!(compacted.iter().any(|record| matches!(
+        record,
+        JournalRecord::Transition { entry }
+            if entry.key.tab_id == "tab-a"
+                && matches!(
+                    &entry.transition,
+                    LifecycleTransition::SessionBound { session_id, binding_nonce, .. }
+                        if session_id == "session-a" && binding_nonce == "nonce-a"
+                )
+    )));
+}
+
+#[test]
 fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
     let (journal, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");

@@ -54,6 +54,14 @@ impl ServiceContext {
                     }
                     if let Some(exited) = exited {
                         self.publish_launch_exit(&exited);
+                        if note_surviving_shell_exit {
+                            self.notify_surviving_shell_restart_required(
+                                tab_id,
+                                &exited.attempt.pty_id,
+                            );
+                        } else {
+                            self.handoff_launch_exit_after_teardown(&exited);
+                        }
                     }
                 } else if tree.is_none() {
                     log::info!(
