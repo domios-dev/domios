@@ -220,7 +220,7 @@ fn launch_readiness_local_exit_emits_bounded_failure() {
     let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, exit_code, _) =
+    let (claimed, exit_code, _, _) =
         claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof)
             .expect("an armed launch claims the exit observed against it");
     assert_eq!(claimed, attempt);
@@ -452,7 +452,7 @@ fn launch_readiness_shared_owner_is_not_duplicated() {
     let launch = include_str!("../orchestrator/launch.rs");
     let startup = include_str!("../orchestrator/launch/startup_readiness.rs");
 
-    assert!(launch.contains("launch_readiness::arm("));
+    assert!(launch.contains("launch_readiness::arm_with_origin("));
     assert!(launch.contains("observe_launch_readiness"));
     assert!(launch.contains("startup_readiness::emit_agent_ready"));
     assert!(!launch.contains("take_published_failure"));
@@ -523,7 +523,7 @@ fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
     let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, exit_code, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof)
+    let (claimed, exit_code, _, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof)
         .expect("an exit with no shell-reported detail still claims the launch");
     assert_eq!(claimed, attempt);
     assert_eq!(exit_code, None);
@@ -534,6 +534,141 @@ fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
 
     let owner = include_str!("../launch_readiness.rs");
     assert!(!owner.contains("command_line"));
+}
+
+#[test]
+fn pre_ready_exit_in_restore_auto_resumes_once() {
+    let tab = launching_tab("pty-auto-restore", "nonce-auto-restore");
+    let attempt = attempt_of(&tab);
+    arm_with_origin(
+        attempt.clone(),
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    );
+
+    let (_, _, _, origin) = claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .expect("the proven early exit claims its armed launch");
+    assert!(matches!(
+        origin,
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot)
+    ));
+    assert!(claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .is_none());
+}
+
+#[test]
+fn pre_ready_exit_in_resume_auto_resumes_once() {
+    let tab = launching_tab("pty-auto-resume", "nonce-auto-resume");
+    let attempt = attempt_of(&tab);
+    arm_with_origin(
+        attempt.clone(),
+        crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+    );
+
+    let (_, _, _, origin) = claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .expect("the proven early exit claims its resumed launch");
+    assert_eq!(
+        origin,
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::Resume)
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn second_pre_ready_exit_notifies_and_stops() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
+    tab.pty_id = Some("pty-auto-retry".into());
+    tab.boot_stage = Some(BootStage::ShellReady);
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-auto-retry".into(),
+        binding_nonce: "nonce-auto-retry".into(),
+    };
+    arm_with_origin(
+        attempt.clone(),
+        crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery,
+    );
+    let (_, _, proof, action) = claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .expect("the automatic resume exit claims its armed launch");
+    assert!(matches!(
+        action,
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery)
+    ));
+    assert!(claim_exit(
+        &attempt.tab_id,
+        Some(&attempt.pty_id),
+        None,
+        &exit_proof(&attempt),
+    )
+    .is_none());
+
+    let failure = LaunchExitFailure {
+        attempt: attempt.clone(),
+        origin: action,
+        auto_recovery_claimed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        exit_code: None,
+        reason: exited_before_readiness_reason(&attempt, None),
+        source: LaunchExitSource::LifecycleClear,
+        tree_evidence: proof.tree_evidence().to_string(),
+    };
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.recover_pre_ready_exit(&failure);
+    fixture.service.recover_pre_ready_exit(&failure);
+
+    {
+        let notification_store = fixture.service.notif.lock();
+        let notifications = notification_store.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert!(notifications[0]
+            .body
+            .as_deref()
+            .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
+    }
+    let mux = fixture.service.mux.read();
+    let shell = mux.get_tab(&tab_id).expect("the surviving shell remains");
+    assert_eq!(shell.pty_id.as_deref(), Some("pty-auto-retry"));
+    assert_eq!(shell.boot_stage, Some(BootStage::ShellReady));
+}
+
+#[test]
+fn exit_after_readiness_is_never_auto_restarted() {
+    let tab = launching_tab("pty-ready-exit", "nonce-ready-exit");
+    let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
+    arm_with_origin(
+        attempt.clone(),
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+    );
+    assert!(note_acknowledged(
+        &attempt.tab_id,
+        &attempt.pty_id,
+        &attempt.binding_nonce,
+    ));
+
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof).is_none());
 }
 
 /// The second half of the same live failure: every observer that sees an exit
@@ -777,7 +912,7 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
     let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, _, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof)
+    let (claimed, _, _, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof)
         .expect("the armed launch claims its exit");
     let reason = exited_before_readiness_reason(&claimed, Some(3));
     record_published_failure(&claimed, &reason);

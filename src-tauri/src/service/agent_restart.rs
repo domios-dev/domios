@@ -142,7 +142,7 @@ impl ServiceContext {
             return outcome;
         }
         if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
-            return self.recover_exited_provider(&exited_tab_id, force);
+            return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
         if let Some(reason) = evidenced_transcript_block(&snap) {
@@ -201,7 +201,11 @@ impl ServiceContext {
             snap.tab_id.clone(),
             launch_cmd,
             snap.provider.clone(),
-            crate::service::launch_diagnostics::AgentLaunchOrigin::Restart,
+            if session_present {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
+            } else {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Restart
+            },
             launch_task,
             None,
             None,

@@ -94,6 +94,56 @@ fn journal_proves_only_this_tabs_verified_bindings() {
 }
 
 #[test]
+fn compacted_journal_with_restore_awaiting_recovers_via_agent_restart() {
+    let records = [
+        bound(4, "tab-a", "session-a"),
+        sealed(8, "tab-a", "session-a"),
+        JournalRecord::Transition {
+            entry: LifecycleEntry {
+                seq: 9,
+                key: key("tab-a"),
+                transition: LifecycleTransition::RestoreAwaitingAgentRestart {
+                    session_id: "session-a".into(),
+                },
+                recorded_at: String::new(),
+            },
+        },
+    ];
+    let verified_ids = verified_session_ids(&records, "tab-a");
+
+    assert!(verified_ids.iter().any(|id| id == "session-a"));
+    assert_eq!(
+        select_recovery_session(&lineage(&[Some("session-a")]), &verified_ids).unwrap(),
+        "session-a"
+    );
+}
+
+#[test]
+fn unknown_or_foreign_session_still_refuses_with_guidance() {
+    let records = [
+        bound(1, "other-tab", "foreign-session"),
+        JournalRecord::Transition {
+            entry: LifecycleEntry {
+                seq: 2,
+                key: key("tab-a"),
+                transition: LifecycleTransition::RestoreAwaitingAgentRestart {
+                    session_id: "foreign-session".into(),
+                },
+                recorded_at: String::new(),
+            },
+        },
+    ];
+    let verified = verified_session_ids(&records, "tab-a");
+    let message = refusal_message(select_recovery_session(
+        &lineage(&[Some("foreign-session")]),
+        &verified,
+    ));
+
+    assert!(message.starts_with(EXIT_RECOVERY_NO_VERIFIED_SESSION));
+    assert!(message.contains("spawn a fresh agent"));
+}
+
+#[test]
 fn newest_lineage_session_is_recovered_when_the_journal_verified_it() {
     let session = select_recovery_session(
         &lineage(&[Some("older"), Some("s2")]),
