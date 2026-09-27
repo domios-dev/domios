@@ -119,8 +119,8 @@ mod payload_preflight_tests {
 mod restored_fresh_launch_tests {
     use super::super::restored_fresh_launch_input;
 
-    const WORKER_IDENTITY_MARKER: &str = "You are a CodeTerm Worker.";
     const HISTORICAL_TASK: &str = "historical assigned task";
+    const RESTORED_INSTRUCTIONS: &str = "opaque-restored-instructions-61d9";
 
     fn worker_params(
         provider: &str,
@@ -133,19 +133,28 @@ mod restored_fresh_launch_tests {
             role: Some("Worker".into()),
             role_profile: Some("fixture-profile".into()),
             task: historical_task.map(str::to_string),
+            system_prompt: Some(RESTORED_INSTRUCTIONS.into()),
             ..Default::default()
         }
     }
 
     #[test]
-    fn restored_fresh_launch_preserves_worker_identity_without_starter_turn() {
+    fn restored_fresh_launch_preserves_saved_parameters_without_starter_turn() {
         let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture-provider")
+                .with_session_config_delivery(),
+        ));
         for historical_task in [Some(HISTORICAL_TASK), None] {
             let input = restored_fresh_launch_input(
                 &registry,
                 worker_params("fixture-provider", historical_task),
+                crate::multiplexer::types::RestorableLaunchParameters {
+                    captured: true,
+                    identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
+                    ..Default::default()
+                },
             );
-            let identity = input.launch_task.as_deref().unwrap();
 
             assert_eq!(input.params.task, None);
             assert_eq!(input.params.role.as_deref(), Some("Worker"));
@@ -159,17 +168,17 @@ mod restored_fresh_launch_tests {
                 input.params.starter_prompt,
                 crate::agent::provider::StarterPrompt::NoStarter
             );
-            assert_eq!(identity.matches(WORKER_IDENTITY_MARKER).count(), 1);
-            assert!(!identity.contains("## Assignment"));
-            assert!(!identity.contains(HISTORICAL_TASK));
+            assert_eq!(input.launch_task.as_deref(), Some(RESTORED_INSTRUCTIONS));
+            assert!(!input
+                .launch_task
+                .as_deref()
+                .unwrap()
+                .contains(HISTORICAL_TASK));
         }
     }
 
-    /// The struct assertions above stop one call short of the command, which is
-    /// where the identity was being discarded. A registered provider is what
-    /// makes the command reachable at all — an unregistered id returns None.
     #[test]
-    fn restored_fresh_launch_command_carries_the_identity_exactly_once() {
+    fn restored_fresh_launch_command_carries_the_supplied_instruction() {
         let fixture = crate::service::test_fixture::ServiceFixture::new(
             crate::multiplexer::state::MultiplexerState::new().0,
         );
@@ -177,8 +186,15 @@ mod restored_fresh_launch_tests {
         registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
         for historical_task in [Some(HISTORICAL_TASK), None] {
-            let input =
-                restored_fresh_launch_input(registry, worker_params("claude", historical_task));
+            let input = restored_fresh_launch_input(
+                registry,
+                worker_params("claude", historical_task),
+                crate::multiplexer::types::RestorableLaunchParameters {
+                    captured: true,
+                    identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
+                    ..Default::default()
+                },
+            );
             let command = input
                 .command(&fixture.service, "tab-restored-identity")
                 .expect("restored launch command");
@@ -191,8 +207,9 @@ mod restored_fresh_launch_tests {
                 .trim()
                 .trim_matches(['\'', '"']);
             let delivered = std::fs::read_to_string(path).expect("prompt file the command names");
-            assert_eq!(delivered.matches(WORKER_IDENTITY_MARKER).count(), 1);
-            assert_eq!(delivered.matches(HISTORICAL_TASK).count(), 0);
+            let delivered = delivered.strip_prefix('\u{feff}').unwrap_or(&delivered);
+            assert_eq!(delivered, RESTORED_INSTRUCTIONS);
+            assert!(!delivered.contains(HISTORICAL_TASK));
             assert!(command.contains("--model "));
         }
     }
@@ -209,9 +226,13 @@ mod restored_fresh_launch_tests {
             "restored-marked",
         )));
 
-        let fresh = restored_fresh_launch_input(registry, worker_params("restored-marked", None))
-            .command(&fixture.service, "tab-restored-fresh")
-            .expect("restored fresh launch command");
+        let fresh = restored_fresh_launch_input(
+            registry,
+            worker_params("restored-marked", None),
+            crate::multiplexer::types::RestorableLaunchParameters::default(),
+        )
+        .command(&fixture.service, "tab-restored-fresh")
+        .expect("restored fresh launch command");
         let marker = registered_launch_marker("tab-restored-fresh")
             .expect("restored fresh launch registers its launch marker");
         assert!(!marker.is_empty());
@@ -219,10 +240,157 @@ mod restored_fresh_launch_tests {
 
         let mut resume_params = worker_params("restored-marked", None);
         resume_params.resume_session_id = Some("session-restored".into());
-        let resumed = restored_fresh_launch_input(registry, resume_params)
-            .command(&fixture.service, "tab-restored-resume")
-            .expect("restored resume command");
+        let resumed = restored_fresh_launch_input(
+            registry,
+            resume_params,
+            crate::multiplexer::types::RestorableLaunchParameters::default(),
+        )
+        .command(&fixture.service, "tab-restored-resume")
+        .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
         assert_eq!(registered_launch_marker("tab-restored-resume"), None);
+    }
+}
+
+mod spawn_pty_restore_tests {
+    use std::sync::Arc;
+
+    use super::super::{kill_pty_idempotent, spawn_pty_core};
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::RestorableLaunchParameters;
+    use crate::service::test_fixture::ServiceFixture;
+
+    const PROVIDER: &str = "restore-record";
+    const SESSION: &str = "restore-record-session";
+    const INSTRUCTIONS: &str = "opaque-restore-system-input-c531";
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn spawn_pty_core_restore_branch_builds_record_and_selects_first_turn_readiness() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some(PROVIDER.into());
+        tab.agent_session_id = Some(SESSION.into());
+        tab.cwd = Some("restore-cwd".into());
+        tab.restored_from_snapshot = true;
+        tab.restorable_launch = RestorableLaunchParameters {
+            captured: true,
+            requested_model: Some("gpt-6-luna".into()),
+            model: Some("gpt-6-luna".into()),
+            requested_reasoning_effort: Some("xhigh".into()),
+            resolved_reasoning_effort: Some("xhigh".into()),
+            args: Some(vec!["--opaque-launch-arg".into(), "restored-value".into()]),
+            agent_name: Some("restored-agent-name".into()),
+            identity_instructions: Some(INSTRUCTIONS.into()),
+            permission_bypass_requested: false,
+        };
+
+        let fixture = ServiceFixture::new(mux);
+        let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_session(PROVIDER, SESSION)
+                .with_session_config_delivery()
+                .with_session_starts_on_first_user_turn()
+                .with_models(vec![crate::agent::provider::ModelInfo {
+                    id: "gpt-6-luna".into(),
+                    display_name: "gpt-6-luna".into(),
+                    reasoning_efforts: Some(vec![crate::agent::provider::ReasoningEffortInfo {
+                        id: "xhigh".into(),
+                        display_name: "xhigh".into(),
+                        description: None,
+                    }]),
+                    ..Default::default()
+                }])
+                .with_resume_context_log(resume_context.clone()),
+        ));
+
+        let service = Arc::new(fixture.service.clone());
+        let pty_id = spawn_pty_core(&service, None, None, 80, 24, None, Some(tab_id.clone()))
+            .await
+            .expect("restore PTY spawn succeeds");
+        let built = resume_context
+            .lock()
+            .first()
+            .cloned()
+            .expect("spawn_pty_core reaches the contextual resume builder");
+
+        assert_eq!(built.session_id, SESSION);
+        assert_eq!(built.agent_name.as_deref(), Some("restored-agent-name"));
+        assert_eq!(built.system_prompt.as_deref(), Some(INSTRUCTIONS));
+        assert!(built.instance_id.is_some());
+        assert_eq!(
+            built.args,
+            vec![
+                "--opaque-launch-arg".to_string(),
+                "restored-value".to_string(),
+                "--model".to_string(),
+                "gpt-6-luna".to_string(),
+                "--effort".to_string(),
+                "xhigh".to_string(),
+            ]
+        );
+        assert!(!built.skip_permissions);
+
+        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+        assert_eq!(tab.agent_requested_model.as_deref(), Some("gpt-6-luna"));
+        assert_eq!(
+            tab.agent_provider_resolved_model.as_deref(),
+            Some("gpt-6-luna")
+        );
+        assert_eq!(
+            tab.reasoning_effort_identity.resolved.as_deref(),
+            Some("xhigh")
+        );
+        assert!(!tab.auto_approve);
+        assert!(crate::service::orchestrator::launch_waits_for_first_turn_binding(
+            &fixture.service,
+            &tab_id,
+            PROVIDER,
+            true,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        ));
+
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
+    }
+}
+
+mod restored_scrollback_tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+    async fn frontend_first_spawn_seeds_history_before_reader_start() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tail = b"restored frontend spawn history\r\n";
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(tail.to_vec()));
+        let fixture = ServiceFixture::new(mux);
+        let service = Arc::new(fixture.service.clone());
+
+        let pty_id = crate::commands::pty::spawn_pty_core(
+            &service,
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend spawn should materialize the restored PTY");
+
+        let buffer = service.output_buf.lock();
+        assert!(buffer.get_full(&pty_id).unwrap().starts_with(tail));
+        assert_eq!(
+            buffer.read_since(&pty_id, 0).0.get(..tail.len()),
+            Some(tail.as_slice())
+        );
+        drop(buffer);
+        service.kill_ptys(&[pty_id]);
     }
 }

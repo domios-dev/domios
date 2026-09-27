@@ -378,7 +378,13 @@ impl ServiceContext {
         );
         let binding = match binding {
             Ok(binding) => binding,
-            Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
+            Err(error) => {
+                return Err(self.rollback_failed_agent_spawn_if_created(
+                    tab_id,
+                    &error,
+                    params.existing_tab_id.is_none(),
+                ))
+            }
         };
         self.persist_current_attempt_session_model(tab_id);
         crate::api::events::emit_everywhere(

@@ -110,7 +110,7 @@ fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
         Some("warning"),
         Some(actions),
         Some(true),
-        crate::notification::NotificationOrigin::local_tab(tab_id),
+        crate::service::notification::NotificationOrigin::local_tab(tab_id),
         PushIntent {
             level: Some(NotifyLevel::ActionNeeded),
             event_key: Some("stale-prompt-answer-test".into()),

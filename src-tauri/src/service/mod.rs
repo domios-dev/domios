@@ -50,6 +50,7 @@ mod orchestration_pair;
 mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
+mod prompt_resolution;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
@@ -109,6 +110,7 @@ mod status_reconciliation;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
+pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
@@ -161,6 +163,8 @@ mod workspace;
 mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
+pub(crate) const TEAM_CLOSE_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED]";
+pub(crate) const WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX: &str = "[WORKSPACE CLOSE CLEANUP FAILED]";
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -247,6 +251,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.

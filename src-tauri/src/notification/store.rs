@@ -485,27 +485,20 @@ impl NotificationStore {
     ) -> Vec<String> {
         let mut resolved = Vec::new();
         for notification in &mut self.notifications {
-            let matching_prompt = notification
-                .actions
-                .as_deref()
-                .is_some_and(|actions| {
-                    actions.iter().any(|action| {
-                        matches!(
-                            action,
-                            NotificationAction::RespondPromptOption {
-                                identity: offered,
-                                ..
-                            } if offered == identity
-                        )
-                    })
-                });
-            let unanswered = notification
-                .answer
-                .as_ref()
-                .is_some_and(|answer| {
-                    answer.answered.is_none()
-                        && answer.asked_from_tab.as_deref() == Some(tab_id)
-                });
+            let matching_prompt = notification.actions.as_deref().is_some_and(|actions| {
+                actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        NotificationAction::RespondPromptOption {
+                            identity: offered,
+                            ..
+                        } if offered == identity
+                    )
+                })
+            });
+            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
+                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
+            });
             if notification.tab_id.as_deref() == Some(tab_id)
                 && matching_prompt
                 && unanswered
@@ -630,6 +623,20 @@ impl NotificationStore {
     /// a locator means whatever the channel that wrote it means by it.
     pub fn remember_channel_placement(&mut self, id: &str, service: &str, locator: &str) -> bool {
         channel_placement::remember(&mut self.notifications, id, service, locator)
+    }
+
+    /// Remember a receipt and return any closed question that must be rewritten.
+    pub fn remember_channel_placement_and_spent_question(
+        &mut self,
+        id: &str,
+        service: &str,
+        locator: &str,
+    ) -> Option<SpentQuestion> {
+        if self.remember_channel_placement(id, service, locator) {
+            self.spent_question(id)
+        } else {
+            None
+        }
     }
 
     pub fn channel_placements(&self, id: &str) -> Vec<ChannelPlacement> {

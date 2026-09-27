@@ -94,8 +94,12 @@ assert(
   /mux_add_team_member:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/members[\s\S]*?provider: a\.provider[\s\S]*?role: a\.role[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 assert(
-  "mux_close_team maps to the Team close route with caller-tab identity",
-  /mux_close_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/close[\s\S]*?a\.callerTabId/.test(httpBlock),
+  "workspace close posts force and a matching human confirmation",
+  /mux_close_workspace:\s*\(a\)\s*=>[\s\S]*?\/api\/workspaces\/\$\{enc\(s\(a, "workspaceId"\)\)\}\/close[\s\S]*?force: a\.force === true[\s\S]*?confirm: s\(a, "workspaceId"\)/.test(httpBlock),
+);
+assert(
+  "Team close posts force and a matching human confirmation",
+  /mux_close_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/close[\s\S]*?force: true[\s\S]*?confirm: s\(a, "teamId"\)[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 
 for (const [cmd, reason] of Object.entries(WEB_UNSUPPORTED)) {

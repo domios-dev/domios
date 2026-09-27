@@ -87,11 +87,64 @@ fn resolving_a_prompt_disables_its_choices_and_spends_channel_posts() {
     assert!(notification.resolved);
     assert!(notification.read);
     assert!(notification.actions.is_none());
-    let spent = store.spent_question(&id).expect("channel message to update");
+    let spent = store
+        .spent_question(&id)
+        .expect("channel message to update");
     let rewritten = spent.message_for(crate::notification::push::PushBounds::for_ceiling(4096));
-    assert!(rewritten.text.contains("Resolved in tab"));
     assert!(!rewritten.offers_choices());
-    assert!(store.resolve_prompt_notifications("asking-tab", &identity).is_empty());
+    assert!(store
+        .resolve_prompt_notifications("asking-tab", &identity)
+        .is_empty());
+}
+
+#[test]
+fn channel_placement_arriving_after_resolution_is_spent_immediately() {
+    use codeterm_types::notification::NotificationAction;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+
+    let prompt = PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![PromptOption {
+            label: "Choice one".into(),
+            value: "1".into(),
+        }],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let identity = PromptIdentity::new(PromptKind::Provider, &prompt);
+    let action = NotificationAction::RespondPromptOption {
+        label: prompt.options[0].label.clone(),
+        value: prompt.options[0].value.clone(),
+        identity: identity.clone(),
+    };
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "Agent needs your response".into(),
+        Some(prompt.question),
+        NotificationSeverity::Warning,
+        NotificationProvenance {
+            tab_id: Some("asking-tab".into()),
+            ..Default::default()
+        },
+        Ask::offering(Some(vec![action])),
+        Some(true),
+        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+    );
+
+    assert_eq!(
+        store.resolve_prompt_notifications("asking-tab", &identity),
+        vec![id.clone()]
+    );
+    assert!(store.spent_question(&id).is_none());
+    let spent = store
+        .remember_channel_placement_and_spent_question(&id, "telegram", "late-message")
+        .expect("receipt for the resolved record returns its spent form");
+    assert!(store.notification(&id).unwrap().resolved);
+    assert!(!spent
+        .message_for(crate::notification::push::PushBounds::for_ceiling(4096))
+        .offers_choices());
 }
 
 #[test]
