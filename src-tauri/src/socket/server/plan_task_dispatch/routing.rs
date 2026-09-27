@@ -65,6 +65,18 @@ pub(super) fn resolve_dispatch_routing(
     task_model: Option<String>,
     provider_ids: &[String],
 ) -> DispatchRouting {
+    resolve_dispatch_routing_with_model_owners(
+        explicit_agent, rpc_model, task_model, provider_ids, &[],
+    )
+}
+
+pub(super) fn resolve_dispatch_routing_with_model_owners(
+    explicit_agent: Option<String>,
+    rpc_model: Option<String>,
+    task_model: Option<String>,
+    provider_ids: &[String],
+    model_owners: &[(String, Vec<String>)],
+) -> DispatchRouting {
     let clean = |s: Option<String>| s.filter(|v| !v.trim().is_empty());
     let requested_model = clean(rpc_model).or_else(|| clean(task_model));
     if let Some(agent) = clean(explicit_agent) {
@@ -104,6 +116,16 @@ pub(super) fn resolve_dispatch_routing(
             return DispatchRouting {
                 agent: Some(model),
                 model: None,
+                qualified_provider_mismatch: None,
+            };
+        }
+        let owners = model_owners.iter().filter(|(_, models)| {
+            models.iter().any(|id| id.eq_ignore_ascii_case(&model))
+        }).map(|(provider, _)| provider).collect::<Vec<_>>();
+        if owners.len() == 1 {
+            return DispatchRouting {
+                agent: Some(owners[0].clone()),
+                model: Some(model),
                 qualified_provider_mismatch: None,
             };
         }

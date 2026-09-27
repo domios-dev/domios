@@ -326,6 +326,7 @@ impl ServiceContext {
                         );
                     }
                     tab.agent_session_model = model.clone();
+                    tab.agent_provider_resolved_model = model.clone();
                     let model_identity = session_model_identity(tab, &sid);
                     tab.agent_session_model_identity = model_identity;
                     tab.model_fallback = identity_update.fallback;

@@ -39,6 +39,26 @@ fn free_form_provider_keeps_unknown_model_ids() {
 }
 
 #[test]
+fn free_form_provider_refuses_unknown_ids_when_live_models_are_published() {
+    let provider_id = "free-form-live-fixture";
+    let registry = registry_with(ModelProvider::new(provider_id, &[]));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "vendor/model-a".into(),
+            display_name: "Model A".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+    let error = validate_agent_model(&registry, provider_id, Some("sonnet"))
+        .expect_err("a live provider model list constrains free-form ids");
+    assert!(error.to_string().contains("vendor/model-a"), "{error}");
+    assert!(validate_agent_model(&registry, provider_id, Some("vendor/model-a")).is_ok());
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
 fn validate_agent_model_accepts_claude_alias() {
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));

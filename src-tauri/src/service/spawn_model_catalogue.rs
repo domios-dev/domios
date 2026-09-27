@@ -34,11 +34,7 @@ impl fmt::Display for InvalidModelError {
         } else {
             self.closest_model_ids.join(", ")
         };
-        write!(
-            formatter,
-            "model id '{}' is not in provider '{}' authoritative catalogue; closest catalogue ids: {}",
-            self.requested_model, self.provider_id, suggestions
-        )
+        write!(formatter, "model id '{}' is not available from provider '{}'; valid model ids: {}", self.requested_model, self.provider_id, suggestions)
     }
 }
 
@@ -101,19 +97,22 @@ pub(crate) fn validate_agent_model(
         return Ok(());
     };
     let capability = model_catalogue_capability(registry, provider_id);
-    if capability.authority != ModelCatalogueAuthority::Authoritative {
+    let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
+    if capability.authority != ModelCatalogueAuthority::Authoritative && !live {
         return Ok(());
     }
-    let models = if capability.live_discovery_required {
+    let models = if live {
         let Some(models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
             return Ok(());
         };
         models
+    } else if capability.live_discovery_required {
+        return Ok(());
     } else {
         crate::agent::model_catalog::resolve_models(provider_id)
     };
     let lookup = catalogue_lookup_model(&requested, &models);
-    let resolved = if capability.live_discovery_required {
+    let resolved = if live {
         crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
     } else {
         crate::agent::model_catalog::resolve_catalog_model(provider_id, &lookup)
@@ -121,7 +120,11 @@ pub(crate) fn validate_agent_model(
     if resolved.is_some() {
         return Ok(());
     }
-    let closest_model_ids = closest_catalogue_ids(&models, &lookup);
+    let closest_model_ids = if capability.authority == ModelCatalogueAuthority::FreeForm {
+        models.iter().filter(|model| model.available != Some(false)).map(|model| model.id.clone()).collect()
+    } else {
+        closest_catalogue_ids(&models, &lookup)
+    };
     Err(InvalidModelError {
         provider_id: provider_id.to_string(),
         requested_model: requested,

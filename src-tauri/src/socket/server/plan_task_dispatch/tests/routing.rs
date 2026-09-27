@@ -83,6 +83,19 @@ fn routing_unknown_model_stays_a_model_for_default_provider() {
 }
 
 #[test]
+fn claude_alias_routes_to_its_only_advertising_provider() {
+    let owners = vec![
+        ("claude".into(), vec!["sonnet".into(), "opus".into()]),
+        ("opencode".into(), vec!["anthropic/claude-sonnet-4-6".into()]),
+    ];
+    let r = super::super::routing::resolve_dispatch_routing_with_model_owners(
+        None, Some("sonnet".into()), None, &providers(), &owners,
+    );
+    assert_eq!(r.agent.as_deref(), Some("claude"));
+    assert_eq!(r.model.as_deref(), Some("sonnet"));
+}
+
+#[test]
 fn routing_qualified_model_selects_its_registered_provider() {
     let r = resolve_dispatch_routing(None, Some("claude:opus".into()), None, &providers());
     assert_eq!(r.agent.as_deref(), Some("claude"));

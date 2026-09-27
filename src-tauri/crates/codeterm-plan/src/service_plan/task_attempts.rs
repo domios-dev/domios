@@ -678,6 +678,7 @@ impl PlanStore {
                 return Ok(None);
             };
             attempt.session_model = Some(model.into());
+            attempt.model = Some(model.into());
             task.updated_at = now_ms;
             Ok(Some(true))
         })
