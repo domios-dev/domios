@@ -24,11 +24,7 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 
 ### Text input routes: `/send` vs `/chat-send`
 
-Both text-input routes already exist, so no new agent send primitive is
-required. `src-tauri/src/api/tab_agent_routes.rs:16` mounts
-`/api/tabs/{id}/chat-send` next to `/api/tabs/{id}/send`, and the two are
-distinct handlers. Choosing between them is route selection, not a missing
-integration surface.
+Both text-input routes already exist, so no new agent send primitive is required. `src-tauri/src/api/tab_agent_routes.rs:16` mounts `/api/tabs/{id}/chat-send` next to `/api/tabs/{id}/send`, and the two are distinct handlers. Choosing between them is route selection, not a missing integration surface.
 
 | Route | Handler | Returns |
 |-------|---------|---------|
@@ -36,38 +32,15 @@ integration surface.
 | `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` â€” `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
 | `GET /api/tabs/{id}/chat-send` | `tab_routes::chat_send_status` (`src-tauri/src/api/tab_routes/send.rs:50`) | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
 
-`POST .../send` is the synchronous REST write path used by mesh relays, service
-push-token writes, and low-level `actions` / `raw` / `batch` terminal input.
-Responses include `delivery: "sent"` after the route confirms its write, or
-`delivery: "pending"` when an enveloped message was accepted by a background
-route. A failure serializes the delivery taxonomy
-(`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`,
-`submit_unconfirmed`) documented in `.agents/skills/pty-delivery/SKILL.md`.
+`POST .../send` is the synchronous REST write path used by mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input. Responses include `delivery: "sent"` after the route confirms its write, or `delivery: "pending"` when an enveloped message was accepted by a background route. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`) documented in `.agents/skills/pty-delivery/SKILL.md`.
 
-Local `codeterm send` uses the socket `tab.send_text` route. It reports
-`OK (sent)` after a confirmed write, `OK (pending)` when the route accepted
-background work or wrote bytes without submit confirmation, and a refusal
-when no bytes were written. With `--json`, `delivery` and any `bytes_written`
-field carry the same distinction for one target; multi-target JSON includes
-`pending_written` for accepted writes that still lack submit confirmation.
-The resolved payload echo is emitted for confirmed delivery or a pending write.
+Local `codeterm send` uses the socket `tab.send_text` route. It reports `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, and a refusal when no bytes were written. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
-`POST .../chat-send` is the Chat UI user turn. It accepts tabs with agent
-identity at any launch stage and chat-backend tabs; a PTY tab without an agent
-identity is refused before
-the send transaction so prose is never typed into a bare shell. Accepted sends
-open a ledger entry so the send can be reconciled later; `GET .../chat-send`
-reads that ledger, and `state` is one of `accepted`, `unknown`, `confirmed`,
-`failed` (`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
+`POST .../chat-send` is the Chat UI user turn. It accepts tabs with agent identity at any launch stage and chat-backend tabs; a PTY tab without an agent identity is refused before the send transaction so prose is never typed into a bare shell. Accepted sends open a ledger entry so the send can be reconciled later; `GET .../chat-send` reads that ledger, and `state` is one of `accepted`, `unknown`, `confirmed`, `failed` (`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
 
-Local and mesh `codeterm send` commands open no Chat send ledger entry, and
-`GET .../chat-send` will not list those messages.
+Local and mesh `codeterm send` commands open no Chat send ledger entry, and `GET .../chat-send` will not list those messages.
 
-Neither route promises that the recipient has *answered*. A reply comes back
-through the return-address channel the sender was given (`codeterm send --tab
-ID [--mesh PEER]`, or `codeterm agent report` for a Worker). Reading the
-recipient's visible terminal text is not a delivery signal and must not be used
-as one.
+Neither route promises that the recipient has *answered*. A reply comes back through the return-address channel the sender was given (`codeterm send --tab ID [--mesh PEER]`, or `codeterm agent report` for a Worker). Reading the recipient's visible terminal text is not a delivery signal and must not be used as one.
 
 ### Workspace routes
 
@@ -246,4 +219,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
