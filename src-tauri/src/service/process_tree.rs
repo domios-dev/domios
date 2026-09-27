@@ -52,6 +52,9 @@ pub(crate) struct ProviderTreeWitnesses {
     observations: Mutex<HashMap<ProviderTreeKey, ProviderTreeHistory>>,
     #[cfg(test)]
     scripted: Mutex<HashMap<ProviderTreeKey, VecDeque<ProviderProcessTreeSnapshot>>>,
+    #[cfg(test)]
+    observation_senders:
+        Mutex<HashMap<ProviderTreeKey, std::sync::mpsc::Sender<ProviderTreeObservation>>>,
 }
 
 impl Default for ProviderTreeWitnesses {
@@ -60,6 +63,8 @@ impl Default for ProviderTreeWitnesses {
             observations: Mutex::new(HashMap::new()),
             #[cfg(test)]
             scripted: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            observation_senders: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -170,6 +175,15 @@ impl ProviderTreeWitnesses {
             .push_back(snapshot);
     }
 
+    #[cfg(test)]
+    pub(crate) fn report_next_observation(
+        &self,
+        key: &ProviderTreeKey,
+        sender: std::sync::mpsc::Sender<ProviderTreeObservation>,
+    ) {
+        self.observation_senders.lock().insert(key.clone(), sender);
+    }
+
     pub(crate) fn unavailable(&self, key: &ProviderTreeKey) -> ProviderTreeObservation {
         self.record(key, ProviderProcessTreeSnapshot::Unknown)
     }
@@ -210,12 +224,18 @@ impl ProviderTreeWitnesses {
                 ProviderTreeState::Unknown
             }
         };
-        ProviderTreeObservation {
+        let observation = ProviderTreeObservation {
             key: key.clone(),
             state,
             provider_seen_before,
             consecutive_absent_observations: history.consecutive_absent_observations,
+        };
+        drop(observations);
+        #[cfg(test)]
+        if let Some(sender) = self.observation_senders.lock().remove(key) {
+            let _ = sender.send(observation.clone());
         }
+        observation
     }
 
     #[cfg(test)]

@@ -31,7 +31,7 @@ fn restored_opencode_fixture_with_launch(
         tab.agent_session_id = Some("restored-opencode-session".into());
         tab.session_binding_nonce = Some("restored-opencode-nonce".into());
         tab.shell_integration_nonce = Some("restored-opencode-shell".into());
-        tab.restored_from_snapshot = !launch_in_flight;
+        tab.restored_from_snapshot = true;
         tab.agent_booting = launch_in_flight;
         tab.boot_stage = Some(if launch_in_flight {
             codeterm_types::pty::BootStage::LaunchWritten
@@ -114,6 +114,11 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
         tab.agent_booting = false;
         tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
     }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .report_next_observation(&key, sender);
     fixture
         .service
         .provider_tree_witnesses
@@ -121,8 +126,19 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
     fixture
         .service
         .reconcile_boot_stage_with_session_binding(&tab_id);
+    let observed = receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("provider readiness tree snapshot completes off the runtime");
+    assert_eq!(
+        observed.state(),
+        crate::service::process_tree::ProviderTreeState::Present
+    );
     assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
 
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, live_opencode_process());
     fixture.service.process_pty_output(
         &pty_id,
         b"\x1b]633;E;;restored-opencode-shell\x07\x1b]633;D\x07",
@@ -155,6 +171,13 @@ fn restored_opencode_with_live_child_is_never_reported_exited() {
 )]
 fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.restored_from_snapshot));
+    assert!(launch_readiness::attempt_is_armed(&attempt));
     fixture
         .service
         .provider_tree_witnesses
@@ -219,6 +242,49 @@ fn restored_without_relaunch_absent_provider_clears_identity() {
         .lock()
         .kill(&pty_id)
         .expect("stop the tab's PTY shell");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn expired_provisional_launch_stages_allow_clear_in_surviving_shell() {
+    for stage in [
+        codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
+        codeterm_types::pty::BootStage::LaunchBindingUnconfirmed,
+    ] {
+        let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).expect("launching tab");
+            tab.restored_from_snapshot = false;
+            tab.agent_booting = false;
+            tab.boot_stage = Some(stage);
+        }
+
+        assert!(launch_readiness::attempt_is_armed(&attempt));
+        assert_eq!(
+            launch_readiness::observe(&attempt, std::time::Instant::now()),
+            launch_readiness::LaunchObservation::Deadline
+        );
+        assert!(!launch_readiness::attempt_is_armed(&attempt));
+
+        fixture
+            .service
+            .provider_tree_witnesses
+            .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+        assert!(fixture
+            .service
+            .clear_tab_restored_identity_if_absent(&tab_id, "restored without a live agent"));
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.agent_type.is_none()));
+        assert!(fixture.service.pty.lock().get_session(&pty_id).is_some());
+    }
 }
 
 #[test]

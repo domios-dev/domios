@@ -442,8 +442,6 @@ fn launch_stage_before_readiness(tab: &crate::multiplexer::types::Tab) -> bool {
                     | BootStage::ProviderReady
                     | BootStage::PreparingRoleInstructions
                     | BootStage::DeliveringInstructions
-                    | BootStage::LaunchDeadlineElapsed
-                    | BootStage::LaunchBindingUnconfirmed
             )
         )
 }
