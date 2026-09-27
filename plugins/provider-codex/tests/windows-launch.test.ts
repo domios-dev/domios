@@ -42,7 +42,7 @@ function Invoke-RestMethod {
   foreach ($profilePath in $profilePaths) {
     $profileText = [IO.File]::ReadAllText($profilePath)
     Add-Content -LiteralPath ${quote(releaseLogPath)} -Value $profileText
-    if ($script:ReleaseResult -and (($profileText -split "`r?`n")[0] -eq '# codeterm-instance: instance-launch-test')) {
+    if ($script:ReleaseResult -and (($profileText -split "\`r?\`n")[0] -eq '# codeterm-instance: instance-launch-test')) {
       Remove-Item -LiteralPath $profilePath -Force
     }
   }
