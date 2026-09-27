@@ -27,10 +27,10 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
-    if state.svc.tab_chat_backing(&tab_id).is_none() {
-        if state.svc.has_public_send_launch_gate(&tab_id) {
-            await_public_send_readiness(&state.svc, &tab_id).await?;
-        }
+    if state.svc.tab_chat_backing(&tab_id).is_none()
+        && state.svc.has_public_send_launch_gate(&tab_id)
+    {
+        await_public_send_readiness(&state.svc, &tab_id).await?;
     }
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let (text, pad_file) = state
@@ -371,10 +371,11 @@ pub async fn send_text(
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.tab_has_agent(&tab_id);
 
-    if transport == TabInputTransport::Pty && target_has_agent {
-        if state.svc.has_public_send_launch_gate(&tab_id) {
-            await_public_send_readiness(&state.svc, &tab_id).await?;
-        }
+    if transport == TabInputTransport::Pty
+        && target_has_agent
+        && state.svc.has_public_send_launch_gate(&tab_id)
+    {
+        await_public_send_readiness(&state.svc, &tab_id).await?;
     }
 
     if body.kind.as_deref() == Some("report") {

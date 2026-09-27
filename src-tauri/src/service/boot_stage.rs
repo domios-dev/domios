@@ -312,7 +312,7 @@ impl ServiceContext {
             if let Some(pty_id) = pty_id {
                 if let Some(key) = self.provider_tree_key_for_tab(tab_id, &pty_id) {
                     let service = self.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                    drop(tauri::async_runtime::spawn_blocking(move || {
                         let tree = service.observe_provider_process_tree_for_key(&key);
                         log::info!(
                             "[provider-tree] observed source=provider-readiness tree_evidence={} tab={} pty={}",
@@ -320,7 +320,7 @@ impl ServiceContext {
                             key.tab_id,
                             key.pty_id,
                         );
-                    });
+                    }));
                 }
             }
         }

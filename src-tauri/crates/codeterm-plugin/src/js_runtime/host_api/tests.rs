@@ -559,7 +559,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
     assert!(!locks.contains_key("first-call-lock"));
     assert!(locks.contains_key("second-call-lock"));
     drop(locks);
-    let mut probe = std::fs::OpenOptions::new()
+    let probe = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(second_path)

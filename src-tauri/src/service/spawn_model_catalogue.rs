@@ -301,10 +301,7 @@ fn provider_lists_model(registry: &AgentRegistry, provider_id: &str, model_id: &
     })
 }
 
-fn qualified_provider_model<'a>(
-    model: &'a str,
-    provider_ids: &[String],
-) -> Option<(String, String)> {
+fn qualified_provider_model(model: &str, provider_ids: &[String]) -> Option<(String, String)> {
     let (provider, model) = model.split_once(':')?;
     if provider_ids
         .iter()

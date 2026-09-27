@@ -228,23 +228,21 @@ pub(super) fn dispatch(
                 .map(|s| s.to_string())
                 .and_then(|s| mux.write().resolve_tab_id(&s));
             let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
-            if writes_pty {
-                if svc.as_ref().has_public_send_launch_gate(&resolved_target) {
-                    if let Err(detail) = svc.as_ref().await_public_send_readiness(
-                        &resolved_target,
-                        std::time::Duration::from_secs(30),
-                    ) {
-                        return Ok(local_send_response(
-                            Err(
-                                crate::service::delivery_error::DeliveryError::TabBusyRefused {
-                                    tab: resolved_target,
-                                    detail,
-                                },
-                            ),
-                            true,
-                            None,
-                        ));
-                    }
+            if writes_pty && svc.as_ref().has_public_send_launch_gate(&resolved_target) {
+                if let Err(detail) = svc.as_ref().await_public_send_readiness(
+                    &resolved_target,
+                    std::time::Duration::from_secs(30),
+                ) {
+                    return Ok(local_send_response(
+                        Err(
+                            crate::service::delivery_error::DeliveryError::TabBusyRefused {
+                                tab: resolved_target,
+                                detail,
+                            },
+                        ),
+                        true,
+                        None,
+                    ));
                 }
             }
             let response = if let Some(src) = source_tab.as_deref() {
