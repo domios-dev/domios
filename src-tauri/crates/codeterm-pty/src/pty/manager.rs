@@ -132,8 +132,8 @@ pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
     /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
     full_buffers: HashMap<String, Vec<u8>>,
-    /// Monotonic count of bytes ever written per pty, surviving ring-buffer
-    /// rotation. SSE clients use this as a stable absolute offset.
+    /// Monotonic logical output byte count per PTY, including seeded history.
+    /// SSE clients use this as a stable absolute offset.
     total_written: HashMap<String, u64>,
     max_size: usize,
     max_full: usize,
@@ -175,6 +175,20 @@ impl OutputBuffer {
         *self.total_written.entry(pty_id.to_string()).or_insert(0) += data.len() as u64;
     }
 
+    pub fn prepend(&mut self, pty_id: &str, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+
+        let buf = self.buffers.entry(pty_id.to_string()).or_default();
+        prepend_capped(buf, data, self.max_size);
+
+        let full = self.full_buffers.entry(pty_id.to_string()).or_default();
+        prepend_capped(full, data, self.max_full);
+
+        *self.total_written.entry(pty_id.to_string()).or_insert(0) += data.len() as u64;
+    }
+
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
         self.buffers.get(pty_id).map(|v| v.as_slice())
     }
@@ -195,7 +209,7 @@ impl OutputBuffer {
             .map(|b| String::from_utf8_lossy(b).to_string())
     }
 
-    /// Total bytes ever written to this pty (monotonic).
+    /// Total logical output bytes represented for this PTY (monotonic).
     pub fn total_written(&self, pty_id: &str) -> u64 {
         self.total_written.get(pty_id).copied().unwrap_or(0)
     }
@@ -225,6 +239,16 @@ impl OutputBuffer {
         self.full_buffers.remove(pty_id);
         self.total_written.remove(pty_id);
     }
+}
+
+fn prepend_capped(buffer: &mut Vec<u8>, prefix: &[u8], max_size: usize) {
+    let mut combined = Vec::with_capacity(prefix.len().saturating_add(buffer.len()));
+    combined.extend_from_slice(prefix);
+    combined.extend_from_slice(buffer);
+    if combined.len() > max_size {
+        combined.drain(..combined.len() - max_size);
+    }
+    *buffer = combined;
 }
 
 #[cfg(test)]
@@ -268,6 +292,43 @@ mod output_buffer_tests {
         let (chunk, total) = ob.read_since("p", 5);
         assert_eq!(total, 5);
         assert!(chunk.is_empty());
+    }
+
+    #[test]
+    fn output_buffer_seed_precedes_live_output_with_consistent_offsets() {
+        let mut buffer = OutputBuffer::new(64);
+        buffer.prepend("p", b"restored history\n");
+        let history_end = buffer.total_written("p");
+        buffer.append("p", b"fresh banner\n");
+
+        assert_eq!(
+            buffer.get("p"),
+            Some(&b"restored history\nfresh banner\n"[..])
+        );
+        assert_eq!(buffer.total_written("p"), history_end + 13);
+        assert_eq!(
+            buffer.read_since("p", 0),
+            (
+                b"restored history\nfresh banner\n".to_vec(),
+                history_end + 13
+            )
+        );
+        assert_eq!(
+            buffer.read_since("p", history_end),
+            (b"fresh banner\n".to_vec(), history_end + 13)
+        );
+    }
+
+    #[test]
+    fn output_buffer_seed_keeps_only_the_tail_and_adjusts_offsets() {
+        let mut buffer = OutputBuffer::new_with_caps(6, 8);
+        buffer.prepend("p", b"old history");
+        buffer.append("p", b"fresh");
+
+        assert_eq!(buffer.get("p"), Some(&b"yfresh"[..]));
+        assert_eq!(buffer.get_full("p"), Some(&b"oryfresh"[..]));
+        assert_eq!(buffer.total_written("p"), 16);
+        assert_eq!(buffer.read_since("p", 11).0, b"fresh");
     }
 
     #[test]

@@ -401,7 +401,6 @@ mod tests {
         restored_backend_tab_ids, select_web_dist, should_materialize_restored_backend,
     };
     use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::TabBacking;
     use crate::service::test_fixture::ServiceFixture;
     use codeterm_types::pty::BootStage;
     use std::sync::{mpsc, Arc};
@@ -515,6 +514,7 @@ mod tests {
         assert_eq!(materialized, vec!["worker"]);
     }
 
+    #[test]
     fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
         let dist = parent.join(name);
         std::fs::create_dir_all(&dist).unwrap();
