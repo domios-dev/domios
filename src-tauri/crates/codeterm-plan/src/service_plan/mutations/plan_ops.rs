@@ -303,6 +303,12 @@ impl PlanStore {
         let verify_sections = !task.section_ids.is_empty();
         let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
+            if let Some(parent_id) = task.parent_task_id.as_deref() {
+                let parent = p.tasks.iter().find(|candidate| candidate.id == parent_id).ok_or(PlanError::TaskNotFound)?;
+                if parent.parent_task_id.is_some() || matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    return Err(PlanError::BadMode);
+                }
+            }
             let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
             task.depends_on = resolved_depends_on.clone();
             if task.section_ids.is_empty() {

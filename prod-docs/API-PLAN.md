@@ -205,4 +205,17 @@ the deadline — is not a dispatch failure: the dispatch stays spawned-and-await
 and the provider's own launch detection or the worker-ack deadline settles it.
 Only a confirmed-gone tab fails the dispatch.
 
-<!-- revision: 10 -->
+### Splitting an in-progress task
+
+The Plan Orchestrator can create child tasks beneath an in-progress task with
+`codeterm plan task split <plan> <task> --child <name>` or a JSON child file.
+Children inherit the parent's sections, executor role, model routing, and
+quality fields unless overridden. They retain the same plan approval and may
+be dispatched while the parent remains in progress; each dispatch provisions
+the child's own lane. Task detail and plan state expose child statuses, and the
+parent presents as `blocked_on_subtasks` while any child is open. Closing the
+parent is refused until all children are done or cancelled. Worker briefs carry
+the parent task id; a Worker may propose children in its report but cannot
+dispatch or spawn them.
+
+<!-- revision: 11 -->

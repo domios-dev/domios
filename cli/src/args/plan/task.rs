@@ -22,6 +22,15 @@ pub enum PlanTaskAction {
         #[arg(long, help = "With --siblings, include done/cancelled tasks")]
         all: bool,
     },
+    /// Split a task into dispatchable child tasks
+    Split {
+        plan_id: String,
+        task_id: String,
+        #[arg(long = "child", allow_hyphen_values = true, conflicts_with = "from_file")]
+        children: Vec<String>,
+        #[arg(long = "from-file", value_name = "PATH", conflicts_with = "children")]
+        from_file: Option<String>,
+    },
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
@@ -483,6 +492,20 @@ mod tests {
                     },
             } => canonical_writer,
             _ => panic!("expected plan task dispatch"),
+        }
+    }
+
+    #[test]
+    fn plan_task_split_parses_children_and_file() {
+        use clap::Parser;
+        for argv in [
+            vec!["codeterm", "plan", "task", "split", "pl", "parent", "--child", "alpha", "--child", "beta"],
+            vec!["codeterm", "plan", "task", "split", "pl", "parent", "--from-file", "children.json"],
+        ] {
+            assert!(matches!(
+                Cli::try_parse_from(argv).expect("split syntax parses").command,
+                crate::Commands::Plan { action: crate::PlanAction::Task { action: super::PlanTaskAction::Split { .. } } }
+            ));
         }
     }
 

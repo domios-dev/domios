@@ -385,6 +385,7 @@ fn task_presentation_line(val: &Value) -> Option<String> {
         Some("handoff_required") => {
             Some("presentation: handoff required (sealed checkpoint awaits adoption)".into())
         }
+        Some("blocked_on_subtasks") => Some("presentation: blocked on subtasks".into()),
         Some("waiting_on_dependencies") => {
             let dependencies = val
                 .get("dependency_waits")
@@ -737,13 +738,16 @@ fn print_strides(task: &Value) {
 }
 
 fn print_label_list(label: &str, value: Option<&Value>) {
+    println!("{}", label_list_line(label, value));
+}
+
+fn label_list_line(label: &str, value: Option<&Value>) -> String {
     let items = value
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
     if items.is_empty() {
-        println!("{label}: none");
-        return;
+        return format!("{label}: none");
     }
     let rendered = items
         .iter()
@@ -761,7 +765,7 @@ fn print_label_list(label: &str, value: Option<&Value>) {
         })
         .collect::<Vec<_>>()
         .join("; ");
-    println!("{label}: {rendered}");
+    format!("{label}: {rendered}")
 }
 
 fn print_single_label(label: &str, value: Option<&Value>) {

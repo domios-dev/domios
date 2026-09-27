@@ -275,7 +275,7 @@ function TaskDetail({
   const agentTab = resolveTab(tabId, tabs);
   const persona = task.personality?.trim() || agentTab?.title || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
-  const statusLabel = canonicalTaskStatusLabel(task);
+  const statusLabel = canonicalTaskStatusLabel(task, plan);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
