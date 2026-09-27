@@ -425,6 +425,35 @@ pub(crate) fn launch_agent_in_background(
         launch_cmd,
         agent_cmd,
         origin,
+        false,
+        task,
+        fallback_spec,
+        Default::default(),
+        task_identity,
+        ready_tx,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn launch_agent_in_background_with_task_turn(
+    svc: ServiceContext,
+    tab_id: String,
+    launch_cmd: String,
+    agent_cmd: String,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    has_startup_task_turn: bool,
+    task: Option<String>,
+    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
+    ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+) {
+    launch_agent_in_background_with_env(
+        svc,
+        tab_id,
+        launch_cmd,
+        agent_cmd,
+        origin,
+        has_startup_task_turn,
         task,
         fallback_spec,
         Default::default(),
@@ -440,6 +469,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     launch_cmd: String,
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+    has_startup_task_turn: bool,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     launch_env: std::collections::HashMap<String, String>,
@@ -447,7 +477,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
-    let has_startup_task_turn = task.is_some() || fallback_spec.is_some();
+    let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
     let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
         &svc,
         &tab_id,

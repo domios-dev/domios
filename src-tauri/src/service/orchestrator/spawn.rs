@@ -1,7 +1,7 @@
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
-use super::launch::{launch_agent_in_background, skip_local_worker_role};
+use super::launch::{launch_agent_in_background_with_task_turn, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
@@ -868,12 +868,17 @@ impl ServiceContext {
         if let Some(spec) = fallback_spec.as_ref() {
             create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
-        launch_agent_in_background(
+        let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+            params.task.as_deref(),
+            fallback_spec.as_ref(),
+        );
+        launch_agent_in_background_with_task_turn(
             self.clone(),
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
+            has_startup_task_turn,
             bg_task,
             fallback_spec,
             task_identity,
