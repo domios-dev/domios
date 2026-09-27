@@ -783,7 +783,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 Ok(t) => t,
                 Err(e) => return unsupported(&format!("agent spawn charter input error: {}", e)),
             };
-            let agent_name = agent.as_str();
+            let agent_name = agent.as_deref();
             let title = crate::cmd::agent::join_cli_words(title.clone());
             let mut body = serde_json::json!({
                 "agent": agent_name,

@@ -84,6 +84,7 @@ pub struct DeliveryReceipt {
     /// The underlying delivery record when the path produces one (enveloped
     /// PTY/chat); `None` for plain text / keys / batch, which return unit today.
     pub delivery: Option<Delivery>,
+    pub pad_file: Option<std::path::PathBuf>,
     /// True when this receipt was replayed from the idempotency cache.
     pub dedup_hit: bool,
     /// Echoes the submitted idempotency key when one was provided.
@@ -124,6 +125,15 @@ pub trait DeliverySeam {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String>;
+    fn deliver_enveloped_with_path(
+        &self,
+        to_tab: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        self.deliver_enveloped(to_tab, envelope, body)
+            .map(|delivery| (delivery, None))
+    }
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String>;
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
@@ -160,6 +170,15 @@ impl DeliverySeam for super::ServiceContext {
         body: &str,
     ) -> Result<Delivery, String> {
         Messenger::deliver(self, to_tab, envelope, body)
+    }
+
+    fn deliver_enveloped_with_path(
+        &self,
+        to_tab: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        Messenger::deliver_with_pad_file(self, to_tab, envelope, body)
     }
 
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
@@ -200,6 +219,17 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<Delivery, String> {
+        self.gateway_deliver_with_pad_file(target, envelope, body, class)
+            .map(|(delivery, _)| delivery)
+    }
+
+    pub(crate) fn gateway_deliver_with_pad_file(
+        &self,
+        target: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+        class: DeliveryClass,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let receipt = self
             .gateway
             .submit(
@@ -225,9 +255,12 @@ impl super::ServiceContext {
         {
             self.gateway.require_worker_report(target);
         }
-        Ok(receipt.delivery.unwrap_or(Delivery::Pty {
-            text: body.to_string(),
-        }))
+        Ok((
+            receipt.delivery.unwrap_or(Delivery::Pty {
+                text: body.to_string(),
+            }),
+            receipt.pad_file,
+        ))
     }
 }
 
@@ -372,34 +405,39 @@ impl MessageGateway {
         match &msg.body {
             MessageBody::Text { body } => match &msg.envelope {
                 Some(envelope) => {
-                    let delivery = seam
-                        .deliver_enveloped(&msg.target, envelope.clone(), body)
+                    let (delivery, pad_file) = seam
+                        .deliver_enveloped_with_path(&msg.target, envelope.clone(), body)
                         .map_err(|e| classify(&msg.target, e))?;
-                    Ok(receipt(Some(delivery), key))
+                    Ok(receipt(Some(delivery), pad_file, key))
                 }
                 None => {
                     seam.deliver_text(&msg.target, body)
                         .map_err(|e| classify(&msg.target, e))?;
-                    Ok(receipt(None, key))
+                    Ok(receipt(None, None, key))
                 }
             },
             MessageBody::Batch(items) => {
                 seam.deliver_batch(&msg.target, items.clone())
                     .map_err(|e| classify(&msg.target, e))?;
-                Ok(receipt(None, key))
+                Ok(receipt(None, None, key))
             }
             MessageBody::Keys { text, strokes } => {
                 seam.deliver_keys(&msg.target, text, strokes)
                     .map_err(|e| classify(&msg.target, e))?;
-                Ok(receipt(None, key))
+                Ok(receipt(None, None, key))
             }
         }
     }
 }
 
-fn receipt(delivery: Option<Delivery>, key: Option<String>) -> DeliveryReceipt {
+fn receipt(
+    delivery: Option<Delivery>,
+    pad_file: Option<std::path::PathBuf>,
+    key: Option<String>,
+) -> DeliveryReceipt {
     DeliveryReceipt {
         delivery,
+        pad_file,
         dedup_hit: false,
         idempotency_key: key,
     }

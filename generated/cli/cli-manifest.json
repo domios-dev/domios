@@ -474,8 +474,8 @@
               "required": false,
               "value_name": "AGENT",
               "possible_values": [],
-              "default": "claude",
-              "help": "Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude",
+              "default": null,
+              "help": "Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used",
               "aliases": []
             },
             {

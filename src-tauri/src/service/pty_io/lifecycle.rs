@@ -648,11 +648,7 @@ impl ServiceContext {
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return false;
             };
-            let proven_up = matches!(
-                tab.boot_stage,
-                Some(BootStage::ProviderReady) | Some(BootStage::AgentReady)
-            );
-            if !proven_up || tab.agent_booting || tab.agent_type.is_none() {
+            if !crate::service::launch_readiness::surviving_shell_exit_is_after_launch_ack(tab) {
                 return false;
             }
             // Marks the observation on the record so every reader of

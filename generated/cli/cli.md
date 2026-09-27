@@ -142,7 +142,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 
 Spawn a new agent; roleless unless --role is provided.
 
-- `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
+- `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
 - `--args` — Extra provider args. Put this after all CodeTerm spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
