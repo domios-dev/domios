@@ -15,6 +15,8 @@ use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
+#[path = "output/launch_exit.rs"]
+mod launch_exit;
 use prompt_steps::write_prompt_steps;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 #[cfg(test)]
@@ -663,19 +665,16 @@ impl ServiceContext {
             return;
         };
         for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
+            if let crate::agent::command_detection::CommandLifecycle::Finished { exit_code, .. } =
+                event
             {
-                self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                // Claimed before the teardown clears the launch it names, published
-                // after so the teardown still sees the boot stage it decides on.
-                let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
-                // The shell finished its foreground command: if that command was
-                // a proven-up agent, the agent process is gone.
-                self.note_provider_exit_in_surviving_shell(tab_id);
-                if let Some(exited) = exited {
-                    self.publish_launch_exit(&exited);
+                if self.command_finished_proves_provider_exit(tab_id, pty_id, event) {
+                    self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
+                    let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
+                    self.note_provider_exit_in_surviving_shell(tab_id);
+                    if let Some(exited) = exited {
+                        self.publish_launch_exit(&exited);
+                    }
                 }
             }
             crate::api::events::emit_everywhere(
