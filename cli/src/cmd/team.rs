@@ -85,6 +85,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
 
 /// Model catalogue refusals add the catalogue refresh command; other errors
 /// keep the daemon's message intact with the CLI's standard error prefix.
+#[cfg(test)]
 pub(crate) fn render_daemon_error(error: &SocketCallError) -> String {
     crate::cmd::model_error::render_socket_error(error)
 }

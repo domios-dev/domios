@@ -78,13 +78,6 @@ pub enum NotificationSeverity {
     Error,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum DedupAdmission {
-    Added(String),
-    Duplicate(String),
-    Coalesced(String),
-}
-
 /// Outcome of push admission. Only `Deliver` and `Supersede` may reach a sink;
 /// every variant still leaves the caller with a durable record id.
 #[derive(Debug, Clone, PartialEq, Eq)]
