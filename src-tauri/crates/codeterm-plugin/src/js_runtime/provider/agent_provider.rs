@@ -97,11 +97,11 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.provider_readiness).into()
     }
 
-    fn resume_binds_on_first_user_turn(&self) -> bool {
-        self.manifest.spawn.resume_binds_on_first_user_turn
+    fn session_starts_on_first_user_turn(&self) -> bool {
+        self.manifest.spawn.session_starts_on_first_user_turn
             || self
                 .native()
-                .is_some_and(|native| native.resume_binds_on_first_user_turn())
+                .is_some_and(|native| native.session_starts_on_first_user_turn())
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {

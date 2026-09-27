@@ -111,7 +111,7 @@ pub(crate) fn attempt_owns_tab(tab: &Tab, attempt: &LaunchAttempt) -> bool {
         && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
 }
 
-fn resume_attempt_is_waiting_for_first_turn(tab: &Tab, attempt: &LaunchAttempt) -> bool {
+fn launch_attempt_is_waiting_for_first_turn(tab: &Tab, attempt: &LaunchAttempt) -> bool {
     attempt_owns_tab(tab, attempt)
         && tab.boot_stage == Some(BootStage::AgentReady)
         && tab.exit_suspected_at.is_none()
@@ -332,7 +332,7 @@ impl ServiceContext {
                 attempt.pty_id
             ),
             LaunchSettlement::AwaitingFirstTurn => log::info!(
-                "[launch-readiness] Tab {} resume awaiting first turn on PTY {}",
+                "[launch-readiness] Tab {} awaiting first turn on PTY {}",
                 attempt.tab_id,
                 attempt.pty_id
             ),
@@ -430,7 +430,7 @@ impl ServiceContext {
         &self,
         attempt: LaunchAttempt,
         deadline: std::time::Duration,
-        resume_binds_on_first_user_turn: bool,
+        session_starts_on_first_user_turn: bool,
     ) -> std::sync::mpsc::Receiver<LaunchSettlement> {
         let (settled, receiver) = std::sync::mpsc::sync_channel(1);
         let svc = self.clone();
@@ -438,8 +438,8 @@ impl ServiceContext {
             let evidence = match observe(&attempt, Instant::now() + deadline) {
                 LaunchObservation::Evidence(evidence) => evidence,
                 LaunchObservation::Deadline
-                    if resume_binds_on_first_user_turn
-                        && svc.resume_launch_attempt_is_waiting_for_first_turn(&attempt) =>
+                    if session_starts_on_first_user_turn
+                        && svc.launch_attempt_is_waiting_for_first_turn(&attempt) =>
                 {
                     let authenticated = {
                         let mux = svc.mux.read();
@@ -450,7 +450,7 @@ impl ServiceContext {
                         LaunchEvidence::Acknowledged
                     } else {
                         log::info!(
-                            "[launch-readiness] Tab {} resume awaiting first turn on live PTY {}",
+                            "[launch-readiness] Tab {} awaits first turn on live PTY {}",
                             attempt.tab_id,
                             attempt.pty_id
                         );
@@ -483,11 +483,11 @@ impl ServiceContext {
         receiver
     }
 
-    fn resume_launch_attempt_is_waiting_for_first_turn(&self, attempt: &LaunchAttempt) -> bool {
+    fn launch_attempt_is_waiting_for_first_turn(&self, attempt: &LaunchAttempt) -> bool {
         let awaiting_first_turn = {
             let mux = self.mux.read();
             mux.get_tab(&attempt.tab_id)
-                .is_some_and(|tab| resume_attempt_is_waiting_for_first_turn(tab, attempt))
+                .is_some_and(|tab| launch_attempt_is_waiting_for_first_turn(tab, attempt))
         };
         awaiting_first_turn && self.pty.lock().get_session(&attempt.pty_id).is_some()
     }
