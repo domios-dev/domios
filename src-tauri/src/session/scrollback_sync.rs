@@ -10,6 +10,12 @@ use crate::session::store::SaveOutcome;
 use crate::session::SessionState;
 use crate::OutputBufferState;
 
+#[derive(Default)]
+pub(crate) struct SidecarSyncReport {
+    pub written: Vec<(String, usize)>,
+    pub skipped: Vec<(String, String)>,
+}
+
 fn sidecar_state(app: &tauri::AppHandle) -> Option<(MuxState, OutputBufferState, SessionState)> {
     let (Some(mux), Some(output_buf), Some(session)) = (
         app.try_state::<MuxState>(),
@@ -39,11 +45,11 @@ pub(crate) fn sync_scrollback_sidecars_after_save_with(
     mux: &MuxState,
     output_buf: &OutputBufferState,
     session: &SessionState,
-) {
+) -> SidecarSyncReport {
     if !matches!(outcome, SaveOutcome::Saved) {
-        return;
+        return skipped_report(mux, "session_snapshot_not_saved");
     }
-    sync_scrollback_sidecars_with(mux, output_buf, session);
+    sync_scrollback_sidecars_with(mux, output_buf, session)
 }
 
 pub(crate) fn sync_scrollback_sidecars(app: &tauri::AppHandle) {
@@ -56,16 +62,46 @@ pub(crate) fn sync_scrollback_sidecars_with(
     mux: &MuxState,
     output_buf: &OutputBufferState,
     session: &SessionState,
-) {
+) -> SidecarSyncReport {
     let capture = capture_scrollback_tails(mux, output_buf, DEFAULT_SCROLLBACK_TAIL_BYTES);
+    let mut report = SidecarSyncReport {
+        written: Vec::new(),
+        skipped: capture
+            .skipped_tabs
+            .into_iter()
+            .map(|(tab_id, reason)| (tab_id, reason.to_string()))
+            .collect(),
+    };
     let store = session.lock();
     for (tab_id, tail) in &capture.tails {
-        if let Err(error) = store.save_scrollback_tail(tab_id, tail, DEFAULT_SCROLLBACK_TAIL_BYTES)
-        {
-            log::warn!("[scrollback] sidecar save failed for {tab_id}: {error}");
+        match store.save_scrollback_tail(tab_id, tail, DEFAULT_SCROLLBACK_TAIL_BYTES) {
+            Ok(()) => report.written.push((tab_id.clone(), tail.len())),
+            Err(error) => {
+                log::warn!("[scrollback] sidecar save failed for {tab_id}: {error}");
+                report
+                    .skipped
+                    .push((tab_id.clone(), format!("write_failed: {error}")));
+            }
         }
     }
     store.prune_scrollback_tails(&capture.live_tab_ids);
+    report
+}
+
+pub(crate) fn skipped_report(mux: &MuxState, reason: &str) -> SidecarSyncReport {
+    let skipped = {
+        let state = mux.read();
+        state
+            .all_tabs()
+            .into_iter()
+            .filter(crate::pty::scrollback_capture::scrollback_eligible)
+            .map(|tab| (tab.id.clone(), reason.to_string()))
+            .collect()
+    };
+    SidecarSyncReport {
+        written: Vec::new(),
+        skipped,
+    }
 }
 
 #[cfg(test)]
@@ -203,6 +239,38 @@ mod tests {
             store.load_scrollback_tail(&agent_tab).is_none(),
             "agent tab sidecar must be pruned — provider resume owns restoration"
         );
+    }
+
+    #[test]
+    fn pending_seed_keeps_prior_sidecar_during_autosave() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        let mut state = MultiplexerState::empty();
+        let ws = state.create_workspace("ws".to_string(), None);
+        let tab_id = state.create_tab(&ws.id).unwrap();
+        state.link_pty(&tab_id, "pty-pending-seed".to_string());
+        let prior = b"restored history survives a deferred seed";
+        store
+            .save_scrollback_tail(&tab_id, prior, DEFAULT_SCROLLBACK_TAIL_BYTES)
+            .unwrap();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(prior.to_vec()));
+
+        let mut buf = OutputBuffer::new(65536);
+        buf.append("pty-pending-seed", b"fresh shell banner");
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", state));
+        let output_buf: OutputBufferState = Arc::new(TimedMutex::new("output_buf", buf));
+        let session: SessionState = Arc::new(Mutex::new(store));
+
+        let report = sync_scrollback_sidecars_with(&mux, &output_buf, &session);
+
+        assert!(report.written.is_empty());
+        assert_eq!(
+            report.skipped,
+            vec![(tab_id.clone(), "scrollback_seed_pending".into())]
+        );
+        assert_eq!(session.lock().load_scrollback_tail(&tab_id).unwrap(), prior);
     }
 
     #[test]

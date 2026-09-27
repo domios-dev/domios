@@ -912,6 +912,7 @@ pub async fn get_tab_usage(
     Ok(Json(serde_json::json!({ "usage": usage })))
 }
 
+/// Returns the current visible screen; history remains in the tab's scrollback buffer.
 pub async fn get_tab_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
