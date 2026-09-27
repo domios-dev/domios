@@ -127,6 +127,7 @@ fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     assert!(notification.resolved);
     assert!(notification.read);
     assert!(notification.actions.is_none());
+    assert!(notification.answer.as_ref().unwrap().delivered);
 }
 
 #[test]

@@ -556,6 +556,7 @@ impl NotificationStore {
             };
             slot.answered = Some(label.to_string());
             slot.answered_via = Some(answered_via.to_string());
+            slot.delivered = true;
             notification.resolved = true;
             notification.read = true;
             notification.actions = None;
