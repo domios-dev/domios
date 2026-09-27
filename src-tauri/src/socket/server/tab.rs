@@ -255,12 +255,8 @@ pub(super) fn dispatch(
             } else {
                 let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
                 local_send_response(
-                    svc.as_ref().send_text_input_delivery(
-                        &resolved_target,
-                        &raw_text,
-                        enter,
-                        None,
-                    ),
+                    svc.as_ref()
+                        .send_text_input_delivery(&resolved_target, &raw_text, enter, None),
                     writes_pty,
                 )
             };
@@ -480,7 +476,9 @@ mod tests {
     #[test]
     fn enveloped_pty_send_remains_pending_until_background_write() {
         assert_eq!(
-            gateway_send_response(Delivery::Pty { text: "body".into() }),
+            gateway_send_response(Delivery::Pty {
+                text: "body".into()
+            }),
             serde_json::json!({
                 "ok": true,
                 "delivery": "pending",

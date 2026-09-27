@@ -186,10 +186,7 @@ impl ServiceContext {
                 )
             };
             let provider_process_alive = mode == LaunchInputMode::Standard
-                || self.provider_process_alive_in_tab_tree(
-                    &attempt.pty_id,
-                    &provider_binary_name,
-                );
+                || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
             let (screen, input) = {
                 let screen_state = self.screen_state.lock();
                 (
@@ -230,12 +227,8 @@ impl ServiceContext {
                     classification,
                 )
             });
-            let (
-                composer_ready,
-                directory_trust_prompt,
-                active_interactive_prompt,
-                classification,
-            ) = provider_observation.unwrap_or((false, false, false, None));
+            let (composer_ready, directory_trust_prompt, active_interactive_prompt, classification) =
+                provider_observation.unwrap_or((false, false, false, None));
             match decide_launch_input(
                 LaunchInputObservation {
                     session_bound,
@@ -277,9 +270,8 @@ impl ServiceContext {
             };
             child.process_id()
         };
-        root_pid.is_some_and(|root| {
-            crate::service::process_tree::has_named_process(root, binary_name)
-        })
+        root_pid
+            .is_some_and(|root| crate::service::process_tree::has_named_process(root, binary_name))
     }
 }
 

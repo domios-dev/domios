@@ -11,7 +11,9 @@ pub(super) fn launch_waits_for_first_turn_binding(
 ) -> bool {
     let provider_starts_session_on_first_turn = svc
         .agent_registry
-        .with_provider(agent_cmd, |provider| provider.session_starts_on_first_user_turn())
+        .with_provider(agent_cmd, |provider| {
+            provider.session_starts_on_first_user_turn()
+        })
         .unwrap_or(false);
     first_turn_binding_without_startup_task(
         provider_starts_session_on_first_turn,
