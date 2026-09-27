@@ -38,7 +38,6 @@ pub async fn spawn_pty_core(
     };
     let state = &svc.pty;
     let mux_state = &svc.mux;
-    let screen_state = &svc.screen_state;
     // Protected tabs reuse their backend PTY; wait briefly to avoid duplicate launch.
     if let Some(ref pid) = tab_id {
         let (is_protected, existing) = {
@@ -262,135 +261,20 @@ pub async fn spawn_pty_core(
                 let resume_cmd = input.command(svc.as_ref(), pid);
                 if let Some(cmd) = resume_cmd {
                     if resume_enabled {
-                        crate::service::restored_launch::persist_restored_launch_identity(
-                            mux_state,
+                        dispatch_restored_snapshot_launch(
+                            svc.as_ref(),
                             pid,
                             &provider_id,
-                            &input.params,
-                            &input.launch_parameters,
+                            &input,
+                            cmd,
                         );
+                    } else {
+                        if let Some(tab) = mux_state.write().get_tab_mut(pid) {
+                            tab.agent_booting = false;
+                        }
+                        svc.clear_tab_restored_flag(pid);
+                        svc.emit_boot_stage(pid, BootStage::AgentReady, None);
                     }
-                    let pty_id_for_poll = pty_id.clone();
-                    let pty_id_for_launch = pty_id.clone();
-                    let screen_state_clone = screen_state.clone();
-                    let svc_for_launch = svc.clone();
-                    let tab_id_for_boot = pid.clone();
-                    let provider_for_ready = provider_id.clone();
-                    tokio::spawn(async move {
-                        if !resume_enabled {
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::AgentReady,
-                                None,
-                            );
-                            return;
-                        }
-
-                        let shell_ready = tokio::task::spawn_blocking(move || {
-                            crate::service::pty_io::poll_bare_shell_prompt(
-                                &screen_state_clone,
-                                &pty_id_for_poll,
-                                std::time::Duration::from_secs(60),
-                            )
-                        })
-                        .await
-                        .unwrap_or(false);
-                        if !shell_ready {
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::SpawnFailed,
-                                Some("shell did not become ready for session resume"),
-                            );
-                            return;
-                        }
-
-                        log::info!("[resume] sending: {}", cmd);
-                        svc_for_launch.emit_boot_stage(
-                            &tab_id_for_boot,
-                            BootStage::ShellReady,
-                            None,
-                        );
-                        svc_for_launch.emit_boot_stage(
-                            &tab_id_for_boot,
-                            BootStage::AgentLaunching,
-                            None,
-                        );
-                        let svc_for_blocking = svc_for_launch.clone();
-                        let launch_result = tokio::task::spawn_blocking(move || {
-                            svc_for_blocking
-                                .send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
-                            Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
-                                &pty_id_for_launch,
-                                &provider_for_ready,
-                                std::time::Duration::from_secs(30),
-                            ))
-                        })
-                        .await;
-                        match launch_result {
-                            Ok(Ok(true)) => {
-                                if let Some(tab) =
-                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                                {
-                                    tab.agent_booting = false;
-                                }
-                                svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
-                                svc_for_launch.emit_boot_stage(
-                                    &tab_id_for_boot,
-                                    BootStage::AgentReady,
-                                    None,
-                                );
-                            }
-                            Ok(Ok(false)) => {
-                                if let Some(tab) =
-                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                                {
-                                    tab.agent_booting = false;
-                                }
-                                svc_for_launch.emit_boot_stage(
-                                    &tab_id_for_boot,
-                                    BootStage::SpawnFailed,
-                                    Some("provider TUI did not become ready after session resume"),
-                                );
-                            }
-                            Ok(Err(e)) => {
-                                log::error!("[resume] launch write failed: {}", e);
-                                if let Some(tab) =
-                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                                {
-                                    tab.agent_booting = false;
-                                }
-                                svc_for_launch.emit_boot_stage(
-                                    &tab_id_for_boot,
-                                    BootStage::SpawnFailed,
-                                    Some(&format!("resume launch write failed: {}", e)),
-                                );
-                            }
-                            Err(e) => {
-                                log::error!("[resume] launch task failed: {}", e);
-                                if let Some(tab) =
-                                    svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                                {
-                                    tab.agent_booting = false;
-                                }
-                                svc_for_launch.emit_boot_stage(
-                                    &tab_id_for_boot,
-                                    BootStage::SpawnFailed,
-                                    Some(&format!("resume launch task failed: {}", e)),
-                                );
-                            }
-                        }
-                    });
                     should_fresh_launch = false;
                 } else {
                     log::warn!(
@@ -429,151 +313,7 @@ pub async fn spawn_pty_core(
             );
             let launch_cmd = input.command(svc.as_ref(), pid);
             if let Some(cmd) = launch_cmd {
-                crate::service::restored_launch::persist_restored_launch_identity(
-                    mux_state,
-                    pid,
-                    &provider_id,
-                    &input.params,
-                    &input.launch_parameters,
-                );
-                let prompt_delivery = svc
-                    .agent_registry
-                    .with_provider(&provider_id, |provider| {
-                        match provider.system_prompt_delivery() {
-                            crate::agent::provider::SystemPromptDelivery::CliFlag(_) => "cli_flag",
-                            crate::agent::provider::SystemPromptDelivery::SessionConfig => {
-                                "session_config"
-                            }
-                            crate::agent::provider::SystemPromptDelivery::External => {
-                                "confirmed_fallback"
-                            }
-                        }
-                    })
-                    .unwrap_or("unknown");
-                crate::service::launch_diagnostics::log_launch_with_parameters(
-                    crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-                    pid,
-                    &provider_id,
-                    &cmd,
-                    input.launch_task.as_deref(),
-                    tab_role.as_deref(),
-                    tab_role_profile.as_deref(),
-                    prompt_delivery,
-                    input.params.model.as_deref(),
-                    input.params.reasoning_effort.as_deref(),
-                );
-                let pty_id_for_poll = pty_id.clone();
-                let pty_id_for_launch = pty_id.clone();
-                let screen_state_clone = screen_state.clone();
-                let provider_label = provider_id.clone();
-                let svc_for_launch = svc.clone();
-                let tab_id_for_boot = pid.clone();
-                tokio::spawn(async move {
-                    let shell_ready = tokio::task::spawn_blocking(move || {
-                        crate::service::pty_io::poll_bare_shell_prompt(
-                            &screen_state_clone,
-                            &pty_id_for_poll,
-                            std::time::Duration::from_secs(60),
-                        )
-                    })
-                    .await
-                    .unwrap_or(false);
-                    if !shell_ready {
-                        if let Some(tab) = svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                        {
-                            tab.agent_booting = false;
-                        }
-                        svc_for_launch.emit_boot_stage(
-                            &tab_id_for_boot,
-                            BootStage::SpawnFailed,
-                            Some("shell did not become ready for restored fresh launch"),
-                        );
-                        return;
-                    }
-                    log::info!(
-                        "[restore-fresh] launching {} (no session): {}",
-                        provider_label,
-                        cmd
-                    );
-                    svc_for_launch.emit_boot_stage(&tab_id_for_boot, BootStage::ShellReady, None);
-                    svc_for_launch.emit_boot_stage(
-                        &tab_id_for_boot,
-                        BootStage::AgentLaunching,
-                        None,
-                    );
-                    let svc_for_blocking = svc_for_launch.clone();
-                    let provider_for_ready = provider_label.clone();
-                    let launch_result = tokio::task::spawn_blocking(move || {
-                        svc_for_blocking.send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
-                        Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
-                            &pty_id_for_launch,
-                            &provider_for_ready,
-                            std::time::Duration::from_secs(30),
-                        ))
-                    })
-                    .await;
-                    match launch_result {
-                        Ok(Ok(true)) => {
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::AgentReady,
-                                None,
-                            );
-                        }
-                        Ok(Ok(false)) => {
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::SpawnFailed,
-                                Some("provider TUI did not become ready after fresh restore"),
-                            );
-                        }
-                        Ok(Err(e)) => {
-                            log::error!(
-                                "[restore-fresh] launch write failed for {} tab: {}",
-                                provider_label,
-                                e
-                            );
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::SpawnFailed,
-                                Some(&format!("restored fresh launch write failed: {}", e)),
-                            );
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "[restore-fresh] launch task failed for {} tab: {}",
-                                provider_label,
-                                e
-                            );
-                            if let Some(tab) =
-                                svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
-                            {
-                                tab.agent_booting = false;
-                            }
-                            svc_for_launch.emit_boot_stage(
-                                &tab_id_for_boot,
-                                BootStage::SpawnFailed,
-                                Some(&format!("restored fresh launch task failed: {}", e)),
-                            );
-                        }
-                    }
-                });
+                dispatch_restored_snapshot_launch(svc.as_ref(), pid, &provider_id, &input, cmd);
             } else {
                 log::error!(
                     "[restore-fresh] provider {} has no launch command for Tab {}",
@@ -593,6 +333,33 @@ pub async fn spawn_pty_core(
     }
 
     Ok(pty_id)
+}
+
+fn dispatch_restored_snapshot_launch(
+    svc: &ServiceState,
+    tab_id: &str,
+    provider_id: &str,
+    input: &restored_launch::RestoredFreshLaunchInput,
+    launch_cmd: String,
+) {
+    crate::service::restored_launch::persist_restored_launch_identity(
+        &svc.mux,
+        tab_id,
+        provider_id,
+        &input.params,
+        &input.launch_parameters,
+    );
+    crate::service::orchestrator::launch_agent_in_background(
+        svc.clone(),
+        tab_id.to_string(),
+        launch_cmd,
+        provider_id.to_string(),
+        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        input.launch_task.clone(),
+        None,
+        None,
+        None,
+    );
 }
 
 #[tauri::command]
