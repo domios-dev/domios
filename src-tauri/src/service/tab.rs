@@ -652,7 +652,11 @@ impl ServiceContext {
         let pending_option_count = structured_prompt
             .as_ref()
             .map(|prompt| prompt.options.len())
-            .or_else(|| tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()));
+            .or_else(|| {
+                tab.pending_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.options.len())
+            });
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
         }
@@ -678,9 +682,9 @@ impl ServiceContext {
             })
         });
         if let Some(expected) = expected_identity {
-            let current_identity = provider_prompt.as_ref().map(|(prompt, kind)| {
-                codeterm_types::pty::PromptIdentity::new(*kind, prompt)
-            });
+            let current_identity = provider_prompt
+                .as_ref()
+                .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(*kind, prompt));
             if current_identity.as_ref() != Some(expected) {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }

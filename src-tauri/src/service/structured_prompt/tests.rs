@@ -3,7 +3,7 @@
 //! orchestrator against a real opencode server.
 
 use super::opencode_sse::{
-    parse_event, ChatPartEvent, ChatPartUpdate, MessageMeta, ParsedEvent, PromptKind, ResponseRoute,
+    parse_event, ChatPartUpdate, MessageMeta, ParsedEvent, PromptKind, ResponseRoute,
 };
 use super::*;
 use crate::multiplexer::types::PendingPrompt;

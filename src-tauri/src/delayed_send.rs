@@ -312,8 +312,8 @@ impl DelayedSendQueue {
             if stash == Some(true) && scheduled_at_ms.is_none() {
                 updated.scheduled_at_ms = now_ms();
             }
-            let schedule_changed = scheduled_at_ms.is_some()
-                || (stash == Some(true) && scheduled_at_ms.is_none());
+            let schedule_changed =
+                scheduled_at_ms.is_some() || (stash == Some(true) && scheduled_at_ms.is_none());
             if schedule_changed || recurrence_changed {
                 if let Some(rule) = &updated.recurrence {
                     recurrence::validate(rule, updated.scheduled_at_ms)?;
@@ -730,16 +730,14 @@ pub fn update_message(
         .iter()
         .find(|message| message.id == id)
         .map(|message| latest_ledger_sequence(svc, &message.tab_id));
-    let msg = svc
-        .delayed_send
-        .update_with_recurrence_at_sequence(
-            &id,
-            text,
-            scheduled_at_ms,
-            stash,
-            recurrence,
-            last_tick_send_sequence,
-        )?;
+    let msg = svc.delayed_send.update_with_recurrence_at_sequence(
+        &id,
+        text,
+        scheduled_at_ms,
+        stash,
+        recurrence,
+        last_tick_send_sequence,
+    )?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -885,9 +883,10 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     let body = svc
         .plan_store
         .prepend_worker_charter_for_tab(&tab_id, &body);
+    let deliver_tab_id = tab_id.clone();
     let result = tokio::task::spawn_blocking(move || {
         svc_for_deliver.gateway_deliver(
-            &tab_id,
+            &deliver_tab_id,
             envelope,
             &body,
             crate::service::message_gateway::DeliveryClass::AgentTraffic,

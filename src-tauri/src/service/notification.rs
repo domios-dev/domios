@@ -1,8 +1,6 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::{
-    adopt_caller_actions, CallerAction, NotificationAction,
-};
+use codeterm_types::notification::{adopt_caller_actions, CallerAction, NotificationAction};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -428,14 +426,7 @@ impl ServiceContext {
         intent: PushIntent,
     ) -> String {
         self.create_notification_actions_reported(
-            title,
-            body,
-            severity,
-            actions,
-            sticky,
-            origin,
-            intent,
-            None,
+            title, body, severity, actions, sticky, origin, intent, None,
         )
         .0
     }
@@ -647,11 +638,7 @@ impl ServiceContext {
     }
 
     fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
-        let prompt_answer = {
-            self.notif
-                .lock()
-                .prompt_option_answer(id, &standing)
-        };
+        let prompt_answer = { self.notif.lock().prompt_option_answer(id, &standing) };
         let prompt_standing = standing.clone();
         route_prompt_answer(
             prompt_answer,
