@@ -65,7 +65,9 @@ fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
         .nth(1)
         .and_then(|remaining| remaining.split("pub async fn read_pty(").next())
         .expect("the frontend spawn command remains present");
-    assert_eq!(spawn.matches("dispatch_restored_snapshot_launch(").count(), 2);
+    let call_sites = spawn.matches("dispatch_restored_snapshot_launch(").count()
+        - spawn.matches("fn dispatch_restored_snapshot_launch(").count();
+    assert_eq!(call_sites, 2);
     assert!(!spawn.contains("poll_bare_shell_prompt"));
     assert!(!spawn.contains("await_agent_tui_frame_on_screen"));
 
