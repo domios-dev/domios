@@ -22,12 +22,15 @@ pub(crate) enum TeamPlanError {
     Plan(PlanError),
 }
 
-/// Who is asking to mutate a Team. `Human` is a named value rather than an
-/// absent caller id, so "nobody supplied a tab" can never read as authority.
+/// Who is asking to mutate a Team. Headerless REST callers need a confirmed
+/// target echo; Tauri and local socket callers carry their own local identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TeamMutationCaller {
     AgentTab(String),
+    AuthenticatedMeshPeer(String),
     Human,
+    HumanConfirmedHeaderless,
+    Unattributed,
 }
 
 impl TeamMutationCaller {
@@ -41,7 +44,20 @@ impl TeamMutationCaller {
     fn tab_id(&self) -> Option<&str> {
         match self {
             Self::AgentTab(tab_id) => Some(tab_id),
-            Self::Human => None,
+            Self::AuthenticatedMeshPeer(_)
+            | Self::Human
+            | Self::HumanConfirmedHeaderless
+            | Self::Unattributed => None,
+        }
+    }
+
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::AgentTab(_) => "AgentTab",
+            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            Self::Human => "Human",
+            Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
+            Self::Unattributed => "Unattributed",
         }
     }
 }
@@ -268,6 +284,19 @@ impl ServiceContext {
     }
 
     pub(crate) async fn close_team(
+        &self,
+        team_id: &str,
+        caller: TeamMutationCaller,
+    ) -> Result<Team, String> {
+        let caller_kind = caller.kind();
+        let result = self.close_team_inner(team_id, caller).await;
+        if let Err(error) = &result {
+            log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
+        }
+        result
+    }
+
+    async fn close_team_inner(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
@@ -717,7 +746,10 @@ transfers ownership, then new owner adopts."
         )),
         // A human has no destination-owner identity to fall back on, so the
         // source refusal (missing or remote-owned Team) stands verbatim.
-        TeamMutationCaller::Human => Err(source_denial),
+        TeamMutationCaller::AuthenticatedMeshPeer(_)
+        | TeamMutationCaller::Human
+        | TeamMutationCaller::HumanConfirmedHeaderless
+        | TeamMutationCaller::Unattributed => Err(source_denial),
     }
 }
 
@@ -837,6 +869,16 @@ pub(super) fn authorize_team_manager(
         return Err(format!("Team {team_id} not found"));
     }
     reject_remote_team_mutation(mux, team_id)?;
+    if matches!(caller, TeamMutationCaller::Unattributed) {
+        return Err(format!(
+            "Unattributed caller is not authorized to manage Team {team_id}"
+        ));
+    }
+    if matches!(caller, TeamMutationCaller::AuthenticatedMeshPeer(_)) {
+        return Err(format!(
+            "Authenticated mesh peer is not authorized to manage Team {team_id}"
+        ));
+    }
     let Some(caller_tab_id) = caller.tab_id() else {
         return Ok(());
     };
@@ -873,6 +915,17 @@ pub(super) fn authorize_team_close(
         return Err(format!("Team {team_id} not found"));
     }
     reject_remote_team_mutation(mux, team_id)?;
+    match caller {
+        TeamMutationCaller::Unattributed => {
+            return Err(format!(
+                "Unattributed caller cannot close Team {team_id}; explicit human confirmation is required"
+            ));
+        }
+        TeamMutationCaller::AuthenticatedMeshPeer(_) => return Ok(()),
+        TeamMutationCaller::AgentTab(_)
+        | TeamMutationCaller::Human
+        | TeamMutationCaller::HumanConfirmedHeaderless => {}
+    }
     if member_tab_ids.is_empty() {
         return Ok(());
     }

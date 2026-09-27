@@ -860,14 +860,10 @@ async fn close_workspace_from_mesh_peer(
     workspace_id: &str,
     force: bool,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
-    let service = state.svc.clone();
-    let peer_id = peer_id.to_string();
-    let workspace_id = workspace_id.to_string();
-    let result = tokio::task::spawn_blocking(move || {
-        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
-    })
-    .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let result = state
+        .svc
+        .close_workspace_from_authenticated_mesh_peer_async(peer_id, workspace_id, force)
+        .await;
     match result {
         Ok(()) => Ok(crate::mesh::types::RelayResponse {
             ok: true,

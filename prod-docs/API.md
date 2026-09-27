@@ -91,7 +91,7 @@ REST chat/transcript routes parse a bounded 4 MiB tail on blocking workers.
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
-POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, workspace close, reopen-closed, workspace tab create) accept no body and apply documented defaults. `POST /api/workspaces` requires `name` (`400`).
+POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed, workspace tab create) accept no body and apply documented defaults. Workspace close has a caller-sensitive confirmation body; see [API-TABS](API-TABS.md). `POST /api/workspaces` requires `name` (`400`).
 
 #### Closed History & Restore
 
@@ -228,4 +228,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related docs: `API-PLAN`, `API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`,
 `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 165 -->
+<!-- revision: 166 -->

@@ -55,9 +55,29 @@ pub(super) fn dispatch(
         "team.close" => {
             let team_id = get_string_param(params, "team_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
+            let caller = caller_tab_id
+                .filter(|tab_id| !tab_id.trim().is_empty())
+                .map(crate::service::TeamMutationCaller::AgentTab)
+                .unwrap_or_else(|| {
+                    let confirmed = params
+                        .as_ref()
+                        .and_then(|params| params.get("force"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        && params
+                            .as_ref()
+                            .and_then(|params| params.get("confirm"))
+                            .and_then(Value::as_str)
+                            == Some(team_id.as_str());
+                    if confirmed {
+                        crate::service::TeamMutationCaller::HumanConfirmedHeaderless
+                    } else {
+                        crate::service::TeamMutationCaller::Unattributed
+                    }
+                });
             let team = tauri::async_runtime::block_on(svc.close_team(
                 &team_id,
-                crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+                caller,
             ))
             .map_err(|message| JsonRpcError {
                 code: -32602,
