@@ -193,7 +193,8 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
 pub(crate) use orchestrator::{
-    arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
+    arm_provider_session_for_test, launch_waits_for_first_turn_binding, spawn_onboarding_task,
+    LaunchGeneration,
 };
 pub(crate) use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
