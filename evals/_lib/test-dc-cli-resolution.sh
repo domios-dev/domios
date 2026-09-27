@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# WHAT: Proves dc and HTTP helpers select the CLI-resolved dev instance.
-# WHY: Named lanes received the canonical token and failed with a misleading HTTP 401.
-# ORACLE: A deliberately non-canonical instance spelling reaches its fixture CLI and API;
-# missing resolution names the instance, resolved path, and expected data directory.
+# WHY: Named lanes must use the dev CLI directory derived from the exact instance slug.
+# WHY: This guards dc against falling back to the canonical dev instance.
 
 set -euo pipefail
 
@@ -13,11 +11,12 @@ trap 'status=$?; rm -rf "$FIXTURE"; exit "$status"' EXIT
 
 mkdir -p \
   "$FIXTURE/home/.codeterm-dev/bin" \
-  "$FIXTURE/home/.codeterm-dev-named-instance/bin" \
+  "$FIXTURE/home/.codeterm-dev---named-instance--/bin" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin" \
   "$FIXTURE/hostile"
 
 printf '%s\n' 'token = "canonical-token"' > "$FIXTURE/home/.codeterm-dev/config.toml"
-printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.codeterm-dev-named-instance/config.toml"
+printf '%s\n' 'token = "named-token"' > "$FIXTURE/home/.codeterm-dev---named-instance--/config.toml"
 
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -25,7 +24,7 @@ printf '%s\n' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    "") data_dir="$HOME/.codeterm-dev"; port=7686; instance=null;;' \
   '    missing) data_dir="$HOME/.codeterm-dev-missing"; port=7799; instance='\''"missing"'\'';;' \
-  '    *) data_dir="$HOME/.codeterm-dev-named-instance"; port=7788; instance='\''"  Named_Instance  "'\'';;' \
+  '    *) data_dir="$HOME/.codeterm-dev---named-instance--"; port=7788; instance='\''"  Named_Instance  "'\'';;' \
   '  esac' \
   '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":%s,"socket_path":"fixture.sock","instance":%s}}\n'\'' "$data_dir" "$port" "$instance"' \
   '  exit 0' \
@@ -40,6 +39,10 @@ printf '%s\n' \
   > "$FIXTURE/home/.codeterm-dev/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then' \
+  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"named.sock","instance":"Named_Instance"}}\n'\'' "$HOME/.codeterm-dev---named-instance--"' \
+  '  exit 0' \
+  'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
@@ -47,7 +50,9 @@ printf '%s\n' \
   '  esac' \
   'fi' \
   'printf "NAMED_DEV_CLI_WON token=%s port=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT"' \
-  > "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm"
+  > "$FIXTURE/home/.codeterm-dev---named-instance--/bin/codeterm"
+cp "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'echo FAKE_PROD_CLI_WON' \
@@ -63,7 +68,8 @@ printf '%s\n' \
   > "$FIXTURE/hostile/curl"
 chmod +x \
   "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
-  "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm" \
+  "$FIXTURE/home/.codeterm-dev---named-instance--/bin/codeterm" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm" \
   "$FIXTURE/hostile/codeterm" \
   "$FIXTURE/hostile/curl"
 
