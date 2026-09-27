@@ -132,7 +132,8 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(!cmd.includes("[guid]::NewGuid()"), "Windows never writes a profile without a matching tab id");
   assert(cmd.includes("$ctInstanceId = 'instance-test';"), "Windows carries the writing instance into the profile");
-  assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
+  assert(cmd.includes("[System.IO.File]::WriteAllText($ctProfilePath,"), "Windows writes a temporary Codex profile");
+  assert(cmd.includes("[System.Text.UTF8Encoding]::new($false)"), "Windows writes the profile as UTF-8 without a BOM that TOML parsers reject");
   assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine"), "the owner marker starts the TOML profile");
   const profileValueAssignment = /'developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
   assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
@@ -170,7 +171,7 @@ console.log("\n--- task instructions launch ---\n");
   // per-call random value, so a relaunch overwrites instead of accumulating.
   const profileComputation = (cmd: string): string => {
     const start = cmd.indexOf("$ctTabId = $env:CODETERM_TAB_ID;");
-    const end = cmd.indexOf("Set-Content -LiteralPath $ctProfilePath");
+    const end = cmd.indexOf("[System.IO.File]::WriteAllText($ctProfilePath,");
     assert(start !== -1 && end !== -1 && end > start, "profile-path computation fragment is present");
     return cmd.slice(start, end);
   };

@@ -22,7 +22,7 @@ export interface ProfileSweepReport {
   removed: string[];
 }
 
-const CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
+const CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 const INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 
 export function codexProfileTabId(fileName: string): string | null {
@@ -56,6 +56,7 @@ function profiles(host: ProfileSweepHost): string[] | null {
 
 function readProfile(host: ProfileSweepHost, path: string): string | null {
   try {
+    if (host.fs.isSymlink(path) !== false) return null;
     return host.fs.readFile(path);
   } catch {
     return null;
@@ -64,6 +65,7 @@ function readProfile(host: ProfileSweepHost, path: string): string | null {
 
 function removeProfile(host: ProfileSweepHost, path: string): boolean {
   try {
+    if (host.fs.isSymlink(path) !== false) return false;
     return host.fs.removeFile(path);
   } catch {
     return false;
@@ -73,8 +75,11 @@ function removeProfile(host: ProfileSweepHost, path: string): boolean {
 function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string): boolean {
   const home = host.homeDir();
   if (!home) return false;
+  const original = readProfile(host, path);
+  if (original === null) return false;
   const configPath = `${home}\\.codex\\config.toml`;
-  return carryCodexProjectTrust(host, path, configPath) && removeProfile(host, path);
+  if (!carryCodexProjectTrust(host, path, configPath)) return false;
+  return readProfile(host, path) === original && removeProfile(host, path);
 }
 
 export function inspectCodexProfiles(
@@ -138,10 +143,17 @@ export function releaseCodexProfile(
   instanceId: string,
 ): boolean {
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
-  const name = `codeterm-${suffix}.config.toml`;
-  const path = profilePath(host, name);
-  if (!path || codexProfileTabId(name) === null) return false;
-  const contents = readProfile(host, path);
-  if (contents === null || codexProfileInstanceId(contents) !== instanceId) return false;
-  return removeProfileAfterTrustCarry(host, path);
+  const listing = profiles(host);
+  if (!listing) return false;
+  const ownedPaths = listing
+    .filter((name) => codexProfileTabId(name) === suffix)
+    .map((name) => profilePath(host, name))
+    .filter((path): path is string => path !== null)
+    .filter((path) => codexProfileInstanceId(readProfile(host, path) || "") === instanceId);
+  if (ownedPaths.length === 0) return false;
+  let released = true;
+  for (const path of ownedPaths) {
+    if (!removeProfileAfterTrustCarry(host, path)) released = false;
+  }
+  return released;
 }

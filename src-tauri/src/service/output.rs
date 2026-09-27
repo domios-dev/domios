@@ -21,6 +21,8 @@ mod prompt_steps;
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
+mod prompt_notifications;
+use prompt_notifications::should_notify_pending_prompt;
 
 fn parse_manual_update_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
@@ -839,7 +841,7 @@ impl ServiceContext {
         decision: &PromptDecision,
         screen_text: Option<&str>,
         directory_trust_prompt: bool,
-        manual_update_prompt: bool,
+        require_user_confirmation: bool,
     ) {
         match decision {
             PromptDecision::None => {}
@@ -861,7 +863,7 @@ impl ServiceContext {
                     )
                 };
 
-                let trust = if manual_update_prompt {
+                let trust = if require_user_confirmation {
                     super::directory_trust::TrustDecision::NotApplicable
                 } else {
                     self.respond_to_directory_trust(tab_id, screen_text)
@@ -869,7 +871,7 @@ impl ServiceContext {
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve && !directory_trust_prompt && !manual_update_prompt {
+                if auto_approve && !directory_trust_prompt && !require_user_confirmation {
                     if is_general_tab {
                         let provider_classified_safety_dialog = agent_type
                             .as_deref()
@@ -949,19 +951,27 @@ impl ServiceContext {
                     );
                 }
                 if !directory_trust_prompt
-                    && !manual_update_prompt
+                    && !require_user_confirmation
                     && self
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()
                 {
                     return;
                 }
-                {
+                let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        let notify =
+                            should_notify_pending_prompt(decision, tab.pending_prompt.as_ref());
                         tab.pending_prompt = Some(prompt.clone());
+                        Some(notify)
+                    } else {
+                        None
                     }
-                }
+                };
+                let Some(notify_prompt) = notify_prompt else {
+                    return;
+                };
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -971,6 +981,9 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                if notify_prompt {
+                    self.notify_pending_prompt(tab_id, prompt);
+                }
             }
             PromptDecision::PromptCleared { tab_id } => {
                 let mut mux = self.mux.write();
