@@ -336,7 +336,7 @@ pub async fn spawn_pty_core(
 }
 
 fn dispatch_restored_snapshot_launch(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,
     input: &restored_launch::RestoredFreshLaunchInput,
@@ -349,7 +349,7 @@ fn dispatch_restored_snapshot_launch(
         &input.params,
         &input.launch_parameters,
     );
-    crate::service::orchestrator::launch_agent_in_background(
+    crate::service::launch_agent_in_background(
         svc.clone(),
         tab_id.to_string(),
         launch_cmd,
