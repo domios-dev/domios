@@ -134,9 +134,6 @@ pub async fn create(
             ),
         })?;
     let plan = outcome.plan.clone();
-    let _ = state
-        .svc
-        .bind_pending_paired_planner(&plan.id, &plan.owner, now);
     emit_plan_changed(&state, &plan.id);
     let mut response = serde_json::json!({
         "plan_id": plan.id,
