@@ -568,7 +568,7 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
         ),
         (
             include_str!("../tab/lifecycle_exit.rs"),
-            "is_some_and(clear_agent_identity_for_lifecycle_exit)",
+            "map_or((false, None), clear_agent_identity_with_prompt)",
         ),
     ] {
         let claim = source
@@ -595,7 +595,7 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
 
     let tab_source = include_str!("../tab/lifecycle_exit.rs");
     let clear = tab_source
-        .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
+        .find("map_or((false, None), clear_agent_identity_with_prompt)")
         .expect("the funnel clears identity");
     let publish = tab_source
         .find("publish_launch_exit")
