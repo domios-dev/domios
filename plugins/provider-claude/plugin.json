@@ -19,7 +19,8 @@
       "flag": "--append-system-prompt-file"
     },
     "verifySubmit": {
-      "kind": "tui_input_drained"
+      "kind": "tui_input_drained",
+      "initialKeyDelayMs": 100
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,

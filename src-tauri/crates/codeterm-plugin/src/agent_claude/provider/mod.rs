@@ -139,6 +139,7 @@ impl AgentProvider for ClaudeProvider {
             // The composer swallows a submit key glued to a paste it is still
             // ingesting, which leaves the text sitting unsent.
             initial_key_delay: Duration::from_millis(100),
+            retry_offsets: crate::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
         }
     }
 

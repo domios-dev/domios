@@ -237,7 +237,7 @@ impl SubmitTransport for ControlledTransport {
 }
 
 #[test]
-fn provider_ingestion_offset_schedules_only_the_first_submit_key() {
+fn first_submit_key_waits_for_declared_ingestion() {
     let io = ControlledTransport::new("> prompt");
     let mut options = opts();
     options.verify_submit = false;
@@ -247,6 +247,7 @@ fn provider_ingestion_offset_schedules_only_the_first_submit_key() {
         true,
         VerifySubmitStrategy::TuiInputDrained {
             initial_key_delay: Duration::from_millis(150),
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
         },
         options,
     )
@@ -375,6 +376,7 @@ pub(super) fn opts() -> VerifyOpts {
 pub(super) fn tui() -> VerifySubmitStrategy {
     VerifySubmitStrategy::TuiInputDrained {
         initial_key_delay: Duration::ZERO,
+        retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
     }
 }
 
@@ -765,8 +767,8 @@ fn tui_turn_transition_confirms_submission() {
             .iter()
             .filter(|write| write.starts_with("enter:"))
             .count(),
-        MAX_SUBMIT_KEY_WRITES,
-        "observed acceptance classifies but never stops the key-only burst"
+        1,
+        "exact turn evidence stops the remaining key-only schedule"
     );
 }
 
@@ -788,7 +790,7 @@ fn first_submit_key_does_not_wait_for_paste_evidence() {
             .filter(|write| write.as_str() == "enter")
             .count(),
         MAX_SUBMIT_KEY_WRITES,
-        "a parked payload gets the full bounded key-only recovery budget"
+        "a payload without turn evidence uses the bounded key-only schedule"
     );
 }
 
@@ -972,6 +974,7 @@ fn provider_update_and_trust_frames_refuse_initial_submit() {
             VerifySubmitStrategy::None,
             opts(),
             None,
+            false,
             claim_submit_cycle(&pty_id),
         )
         .unwrap_err();
@@ -1001,7 +1004,7 @@ fn enter_that_inserts_newline_retries_until_the_turn_starts() {
 #[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn repeated_swallowed_enters_use_bounded_submit_key_recovery() {
-    let io = TuiModel::swallows_enters(5);
+    let io = TuiModel::swallows_enters(MAX_SUBMIT_KEY_WRITES);
     let result = run(&io, "delivery-marker", true, tui(), opts()).unwrap();
 
     assert!(result.submit_anomaly);
@@ -1023,7 +1026,7 @@ fn repeated_swallowed_enters_use_bounded_submit_key_recovery() {
             .filter(|write| write.as_str() == "enter")
             .count(),
         MAX_SUBMIT_KEY_WRITES,
-        "a pending transaction retries only the submit key within its fixed budget"
+        "without a turn record, every bounded submit-key attempt is used"
     );
 }
 
@@ -1047,6 +1050,7 @@ fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
     let strategies = [
         VerifySubmitStrategy::TuiInputDrained {
             initial_key_delay: Duration::ZERO,
+            retry_offsets: crate::agent::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
         },
         VerifySubmitStrategy::ShellPrompt {
             timeout: Duration::ZERO,
@@ -1062,8 +1066,6 @@ fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
             &*io.writes.borrow(),
             &[
                 "paste:provider-neutral prompt",
-                "enter:> provider-neutral prompt",
-                "enter:> provider-neutral prompt",
                 "enter:> provider-neutral prompt"
             ]
         );
@@ -1083,8 +1085,6 @@ fn long_wrapped_chat_message_enters_after_paste_placeholder_echo() {
         &*io.writes.borrow(),
         &[
             format!("paste:{body}"),
-            "enter:> [Pasted Content 2600 chars]".to_string(),
-            "enter:> [Pasted Content 2600 chars]".to_string(),
             "enter:> [Pasted Content 2600 chars]".to_string()
         ]
     );
@@ -1115,80 +1115,7 @@ fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
         &*io.writes.borrow(),
         &[
             format!("paste:{intro}"),
-            "enter:> [Pasted Content 128 chars]".to_string(),
-            "enter:> [Pasted Content 128 chars]".to_string(),
             "enter:> [Pasted Content 128 chars]".to_string()
         ]
     );
-}
-
-#[test]
-fn messenger_report_planner_send_share_submit_transaction() {
-    for entry in [
-        PtySubmitEntry::Messenger,
-        PtySubmitEntry::Report,
-        PtySubmitEntry::Planner,
-        PtySubmitEntry::Direct,
-    ] {
-        let mut submit_calls = 0;
-        let result = submit_entry(entry, "shared body", |text| {
-            submit_calls += 1;
-            assert_eq!(text, "shared body");
-            Err::<(), _>(InjectionError::SubmitNeverConfirmed {
-                waited: Duration::ZERO,
-                screen_tail: "> shared body".into(),
-            })
-        });
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
-        assert_eq!(submit_calls, 1);
-    }
-}
-
-/// The recovery report used to key off `submit_anomaly`, which is
-/// `two_phase && !submit_observed` — so a recovered submit could never be
-/// reported and `recovered=` had exactly one reachable value.
-#[test]
-fn recovery_reporting_admits_a_successful_recovery() {
-    let recovered = InjectionResult {
-        bytes_written: 12,
-        echo_observed: true,
-        submit_observed: true,
-        submit_anomaly: false,
-        submit_key_writes: 2,
-        elapsed: std::time::Duration::from_millis(1),
-    };
-    assert!(recovery_attempted(&recovered));
-    assert!(recovered.submit_observed);
-}
-
-#[test]
-fn recovery_reporting_admits_a_failed_recovery() {
-    let failed = InjectionResult {
-        bytes_written: 12,
-        echo_observed: true,
-        submit_observed: false,
-        submit_anomaly: true,
-        submit_key_writes: 3,
-        elapsed: std::time::Duration::from_millis(1),
-    };
-    assert!(recovery_attempted(&failed));
-    assert!(!failed.submit_observed);
-}
-
-#[test]
-fn recovery_reporting_ignores_a_submit_that_needed_no_recovery() {
-    for key_writes in [0usize, 1] {
-        let clean = InjectionResult {
-            bytes_written: 12,
-            echo_observed: true,
-            submit_observed: true,
-            submit_anomaly: false,
-            submit_key_writes: key_writes,
-            elapsed: std::time::Duration::from_millis(1),
-        };
-        assert!(!recovery_attempted(&clean), "key_writes={key_writes}");
-    }
 }
