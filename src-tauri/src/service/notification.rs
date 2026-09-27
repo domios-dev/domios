@@ -690,6 +690,7 @@ impl ServiceContext {
                 serde_json::json!({
                     "id": id,
                     "answered_via": answered_via,
+                    "delivered": true,
                     "resolved": true,
                 }),
             );

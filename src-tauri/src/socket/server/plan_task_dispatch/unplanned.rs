@@ -57,11 +57,12 @@ where
         )
     })?;
     let brief = owned_str(p, "brief").unwrap_or_default();
-    let acceptance = if brief.trim().is_empty() {
+    let task_body = if brief.trim().is_empty() {
         format!("Complete the unplanned work: {reason}")
     } else {
         brief.clone()
     };
+    let acceptance = task_body.clone();
     let caller = crate::service::AuthenticatedPlanCaller {
         tab_id: owned_str(p, "caller_tab_id"),
         session_id: owned_str(p, "session_id"),
@@ -79,6 +80,33 @@ where
         .and_then(|tab| svc.plan_store.task_binding_for_tab(tab))
         .filter(|(bound_plan, _)| bound_plan == &plan_id)
         .map(|(_, task)| task);
+    let plan = svc.plan_store.get(&plan_id).ok_or_else(|| JsonRpcError {
+        code: -32004,
+        message: "unplanned task plan disappeared before creation".into(),
+        data: Some(json!({ "type": "plan_not_found" })),
+    })?;
+    let inherited_section_id = parent_task_id
+        .as_deref()
+        .and_then(|task_id| plan.tasks.iter().find(|task| task.id == task_id))
+        .and_then(|task| task.section_ids.first().cloned());
+    let section_id = match inherited_section_id
+        .or_else(|| plan.sections.first().map(|section| section.id.clone()))
+    {
+        Some(section_id) => section_id,
+        None => svc
+            .plan_store
+            .add_section(
+                &plan_id,
+                "Unplanned work",
+                "Urgent work dispatched outside the planned task list.",
+                None,
+                &[],
+                None,
+                None,
+                now,
+            )
+            .map_err(plan_rpc_err)?,
+    };
     let task_id = svc
         .plan_store
         .add_task(
@@ -86,11 +114,13 @@ where
             crate::service::plan::NewTask {
                 name: format!("unplanned: {reason}"),
                 kind: "unplanned".into(),
-                body: brief,
+                body: task_body,
                 executor_role: Some("Worker".into()),
                 parent_task_id,
                 tags: vec!["unplanned".into()],
-                acceptance_criteria: vec![acceptance],
+                section_ids: vec![section_id],
+                acceptance_criteria: vec![acceptance.clone()],
+                correctness: Some(acceptance),
                 test_plan: Some(
                     "The Orchestrator verifies the reported result against the brief.".into(),
                 ),
