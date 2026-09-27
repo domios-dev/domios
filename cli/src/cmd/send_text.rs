@@ -47,19 +47,28 @@ fn strip_fenced_code_blocks(text: &str) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum SendTextOutcome {
     Success(String),
+    Pending(String),
     Error { msg: String, exit_code: i32 },
     Other,
 }
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
-    if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
+    if let Some(err) = value.get("error") {
+        let message = err
+            .as_str()
+            .or_else(|| err.get("message").and_then(serde_json::Value::as_str))
+            .or_else(|| err.get("code").and_then(serde_json::Value::as_str))
+            .unwrap_or("send was refused before the payload was written");
         return SendTextOutcome::Error {
-            msg: err.to_string(),
+            msg: message.to_string(),
             exit_code: 2,
         };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-        return SendTextOutcome::Success("OK (sent)".to_string());
+        return match value.get("delivery").and_then(serde_json::Value::as_str) {
+            Some("sent") => SendTextOutcome::Success("OK (sent)".to_string()),
+            _ => SendTextOutcome::Pending("OK (pending)".to_string()),
+        };
     }
     SendTextOutcome::Other
 }
@@ -82,6 +91,7 @@ pub fn handle_send_text_result(
                         println!("{}", resolved_text_echo(text));
                     }
                 }
+                SendTextOutcome::Pending(msg) => println!("{}", msg),
                 SendTextOutcome::Error { msg, exit_code } => {
                     eprintln!("Error: {}", msg);
                     std::process::exit(exit_code);
@@ -251,6 +261,7 @@ fn send_text_to_targets(
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
     let source_tab = std::env::var("CODETERM_TAB_ID")
         .ok()
         .filter(|t| !t.is_empty());
@@ -281,8 +292,13 @@ fn send_text_to_targets(
         };
         match result {
             Ok(value) => match analyze_send_text_response(&value) {
+                SendTextOutcome::Success(_) => delivered.push(tab_id.clone()),
+                SendTextOutcome::Pending(_) => pending.push(tab_id.clone()),
                 SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
-                _ => delivered.push(tab_id.clone()),
+                SendTextOutcome::Other => failures.push((
+                    tab_id.clone(),
+                    "send route returned no delivery status".into(),
+                )),
             },
             Err(e) => failures.push((tab_id.clone(), e)),
         }
@@ -293,6 +309,7 @@ fn send_text_to_targets(
             serde_json::to_string_pretty(&serde_json::json!({
                 "ok": failures.is_empty(),
                 "delivered": delivered,
+                "pending": pending,
                 "failed": failures
                     .iter()
                     .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
@@ -304,15 +321,20 @@ fn send_text_to_targets(
         for tab_id in &delivered {
             println!("OK (sent) {tab_id}");
         }
+        for tab_id in &pending {
+            println!("OK (pending) {tab_id}");
+        }
         for (tab_id, err) in &failures {
             eprintln!("Error {tab_id}: {err}");
         }
         println!(
-            "{} of {} target(s) delivered",
+            "{} sent, {} pending, {} refused of {} target(s)",
             delivered.len(),
+            pending.len(),
+            failures.len(),
             targets.len()
         );
-        if failures.is_empty() {
+        if failures.is_empty() && pending.is_empty() {
             println!("{}", resolved_text_echo(resolved_text));
         }
     }
@@ -899,12 +921,39 @@ mod tests {
     }
 
     #[test]
-    fn ok_response_is_success() {
+    fn send_reports_pending_or_refused_never_sent_when_nothing_written() {
         let v = serde_json::json!({ "ok": true });
         match analyze_send_text_response(&v) {
-            SendTextOutcome::Success(_) => {}
-            other => panic!("expected Success, got {:?}", other),
+            SendTextOutcome::Pending(message) => assert_eq!(message, "OK (pending)"),
+            other => panic!("expected Pending, got {:?}", other),
         }
+
+        let refusal = serde_json::json!({
+            "ok": false,
+            "error": { "code": "tab_busy_refused", "message": "nothing was written" }
+        });
+        match analyze_send_text_response(&refusal) {
+            SendTextOutcome::Error { msg, exit_code } => {
+                assert_eq!(exit_code, 2);
+                assert_eq!(msg, "nothing was written");
+            }
+            other => panic!("expected explicit refusal, got {:?}", other),
+        }
+
+        let sent = serde_json::json!({ "ok": true, "delivery": "sent" });
+        assert_eq!(
+            analyze_send_text_response(&sent),
+            SendTextOutcome::Success("OK (sent)".into()),
+        );
+    }
+
+    #[test]
+    fn pending_route_result_is_not_rendered_as_sent() {
+        let pending = serde_json::json!({ "ok": true, "delivery": "pending" });
+        assert_eq!(
+            analyze_send_text_response(&pending),
+            SendTextOutcome::Pending("OK (pending)".into()),
+        );
     }
 
     #[test]

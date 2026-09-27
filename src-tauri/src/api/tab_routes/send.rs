@@ -19,6 +19,13 @@ pub async fn chat_send_text(
 ) -> Result<Json<crate::service::chat_send_transaction::ChatSendStatus>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    if let Some(error) = chat_send_target_refusal(
+        &tab_id,
+        state.svc.tab_has_agent(&tab_id),
+        state.svc.tab_chat_backing(&tab_id).is_some(),
+    ) {
+        return Err(error.into());
+    }
     let text = body.text.unwrap_or_default();
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, state.svc.tab_has_agent(&tab_id));
@@ -44,6 +51,20 @@ pub async fn chat_send_text(
             detail,
         }
         .into()
+    })
+}
+
+fn chat_send_target_refusal(
+    tab_id: &str,
+    has_live_agent: bool,
+    has_chat_backend: bool,
+) -> Option<DeliveryError> {
+    if has_live_agent || has_chat_backend {
+        return None;
+    }
+    Some(DeliveryError::TabBusyRefused {
+        tab: tab_id.to_string(),
+        detail: "tab has no live agent identity; refusing to send prose to a shell".into(),
     })
 }
 
@@ -607,7 +628,11 @@ pub async fn send_text(
             format!("{} <actions:{}>", raw_text, action_preview(&actions))
         };
         record_push_activity(&state, &svc_token_match, &tab_id, &preview);
-        return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "actions": true,
+            "delivery": "sent"
+        })));
     }
 
     if let Some(batch) = body.batch {
@@ -635,7 +660,11 @@ pub async fn send_text(
             })?
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &preview);
-        return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "batch": true,
+            "delivery": "sent"
+        })));
     }
 
     if body.raw {
@@ -650,7 +679,10 @@ pub async fn send_text(
                 detail: e.to_string(),
             })?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({"ok": true})));
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": "sent"
+        })));
     }
 
     let raw_text = body.text.unwrap_or_default();
@@ -664,13 +696,20 @@ pub async fn send_text(
         let text = prepend(&raw_text);
         state.svc.send_text_when_ready(&tab_id, &text).await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({"ok": true, "mesh": true})));
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "mesh": true,
+            "delivery": "sent"
+        })));
     }
     if let Some(envelope) = source_envelope {
         crate::service::messenger::Messenger::deliver(&state.svc, &tab_id, envelope, &raw_text)
             .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({"ok": true})));
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": "pending"
+        })));
     }
 
     let text = prepend(&stage(raw_text));
@@ -678,12 +717,15 @@ pub async fn send_text(
     // `actions` or `raw`.
     state.svc.send_text_when_ready(&tab_id, &text).await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &text);
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "delivery": "sent"
+    })))
 }
 
 #[cfg(test)]
 mod delivery_classification_tests {
-    use super::{classify_delivery_failure, SendRejection};
+    use super::{chat_send_target_refusal, classify_delivery_failure, SendRejection};
     use crate::service::delivery_error::DeliveryError;
     use axum::http::StatusCode;
 
@@ -741,6 +783,27 @@ mod delivery_classification_tests {
         assert_eq!(rejection.status, StatusCode::BAD_GATEWAY);
         assert_eq!(rejection.body["error"]["code"], "submit_unconfirmed");
         assert_eq!(rejection.body["error"]["bytes_written"], true);
+    }
+
+    #[test]
+    fn chat_send_to_tab_without_live_agent_refuses_without_writing() {
+        let error = chat_send_target_refusal("shell-tab", false, false).unwrap();
+        let rejection = SendRejection::from(error);
+
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["ok"], false);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
+        assert!(rejection.body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothing written"));
+    }
+
+    #[test]
+    fn chat_send_target_guard_allows_live_agent_or_chat_backend() {
+        assert!(chat_send_target_refusal("agent-tab", true, false).is_none());
+        assert!(chat_send_target_refusal("backend-tab", false, true).is_none());
     }
 }
 
