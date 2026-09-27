@@ -318,6 +318,12 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        /// Create and dispatch a visible exceptional task for this Worker.
+        #[arg(long)]
+        unplanned: bool,
+        /// Why this Worker needs an unplanned task.
+        #[arg(long, allow_hyphen_values = true)]
+        reason: Option<String>,
         /// Attach this roleless agent to an existing Team, mirroring `tab new
         /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
         /// that Team. Rejected together with --plan-task, and with every --role
@@ -604,6 +610,32 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn agent_spawn_unplanned_parses_reason() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--unplanned",
+            "--reason",
+            "urgent probe",
+        ])
+        .expect("unplanned Worker spawn parses");
+        match action {
+            AgentAction::Spawn {
+                role,
+                unplanned,
+                reason,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert!(unplanned);
+                assert_eq!(reason.as_deref(), Some("urgent probe"));
             }
             _ => panic!("expected agent spawn"),
         }
