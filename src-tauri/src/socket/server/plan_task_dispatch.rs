@@ -63,7 +63,7 @@ use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
 use workspace_admission::preflight_dispatch_workspace;
-pub(super) use unplanned::dispatch_unplanned;
+pub(crate) use unplanned::dispatch_unplanned;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
