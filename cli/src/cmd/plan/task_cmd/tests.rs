@@ -538,8 +538,16 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         "attempt": {
             "provider": "codex",
             "model": "gpt-6-luna",
+            "requested_model": "gpt-6-luna",
+            "provider_resolved_model": "gpt-6-luna",
             "reasoning_effort": "xhigh",
-            "session_model": null,
+            "session_model": "other-model",
+            "model_identity_mismatch": {
+                "requested_model": "gpt-6-luna",
+                "provider_resolved_model": "gpt-6-luna",
+                "actual_model": "other-model",
+                "reason": "runtime_session_model_mismatch",
+            },
         }
     }));
 
@@ -555,7 +563,7 @@ fn attempt_detail_labels_dispatched_and_session_models() {
     );
     assert!(rendered.contains("reasoning_effort: xhigh\n"), "{rendered}");
     assert!(
-        rendered.contains("session_model: gpt-6-luna\n"),
+        rendered.contains("session_model: other-model\n"),
         "{rendered}"
     );
     assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
