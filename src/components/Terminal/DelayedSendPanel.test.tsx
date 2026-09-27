@@ -1,5 +1,5 @@
 import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   DelayedSendQueuePanel,
@@ -15,6 +15,8 @@ const windowAny = windowInstance as unknown as Window & typeof globalThis;
 (globalThis as any).Node = windowAny.Node;
 (globalThis as any).Event = windowAny.Event;
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+// react-dom probes input-event support at load, so it must load after the DOM globals exist.
+let createRoot: typeof import("react-dom/client").createRoot;
 
 let passed = 0;
 let failed = 0;
@@ -43,6 +45,7 @@ async function click(host: HTMLElement, selector: string) {
 }
 
 async function main() {
+  ({ createRoot } = await import("react-dom/client"));
   {
     let scheduledAt = 0;
     let recurrence: RecurrenceRule | undefined;
