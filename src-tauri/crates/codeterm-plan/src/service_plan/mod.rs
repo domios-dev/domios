@@ -138,7 +138,7 @@ pub use task_dispatch::{
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
+    SplitParentReason, TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
     RPC_UNAUTHORIZED_GATE_CLAIM,
 };
 
