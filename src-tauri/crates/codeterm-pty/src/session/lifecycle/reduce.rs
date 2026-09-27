@@ -348,7 +348,7 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     compacted.extend(
         retained_verified_sessions
             .iter()
-            .filter(|(tab_id, _)| !closed.contains(tab_id))
+            .filter(|(tab_id, _)| !closed.contains(*tab_id))
             .map(|(_, record)| (*record).clone()),
     );
     for record in records {
