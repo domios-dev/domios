@@ -4,16 +4,32 @@ use crate::multiplexer::types::{
 
 fn take_parked_user_send(
     pending: &mut Option<PendingDeliveryRecord>,
-    send_id: &str,
+    record_id: &str,
 ) -> Option<PendingDeliveryRecord> {
     let record = pending.as_ref()?;
     if record.channel != PendingDeliveryChannel::InteractiveInput
-        || record.send_id() != Some(send_id)
+        || record.record_id() != record_id
         || record.state() != PendingDeliveryState::Pending
     {
         return None;
     }
     pending.take()
+}
+
+fn return_after_send_failure(
+    pending: &mut Option<PendingDeliveryRecord>,
+    record: PendingDeliveryRecord,
+    bytes_written: bool,
+) -> Result<(), PendingDeliveryRecord> {
+    if bytes_written
+        || pending
+            .as_ref()
+            .is_some_and(|current| current.record_id() != record.record_id())
+    {
+        return Err(record);
+    }
+    *pending = Some(record);
+    Ok(())
 }
 
 impl super::ServiceContext {
@@ -47,12 +63,18 @@ impl super::ServiceContext {
                 record.channel == PendingDeliveryChannel::InteractiveInput
                     && record.state() == PendingDeliveryState::Pending
             })
-            .and_then(|record| {
-                record
+            .map(|record| {
+                let delivery_id = record
                     .send_id()
-                    .map(|send_id| (send_id.to_string(), record.content_digest.clone()))
+                    .unwrap_or_else(|| record.record_id())
+                    .to_string();
+                (
+                    record.record_id().to_string(),
+                    delivery_id,
+                    record.content_digest.clone(),
+                )
             });
-        let Some((send_id, digest)) = parked else {
+        let Some((record_id, delivery_id, digest)) = parked else {
             return;
         };
         let text = match self.pending_delivery_payloads.resolve(&digest) {
@@ -60,7 +82,7 @@ impl super::ServiceContext {
             Err(error) => {
                 log::warn!(
                     "[chat-send] parked send {} payload could not be resolved: {error}",
-                    send_id
+                    delivery_id
                 );
                 return;
             }
@@ -70,7 +92,7 @@ impl super::ServiceContext {
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
             };
-            take_parked_user_send(&mut tab.pending_delivery, &send_id)
+            take_parked_user_send(&mut tab.pending_delivery, &record_id)
         };
         let Some(record) = record else {
             return;
@@ -87,16 +109,46 @@ impl super::ServiceContext {
             }
             log::warn!(
                 "[chat-send] parked send {} claim was not persisted: {message}",
-                send_id
+                delivery_id
             );
             return;
         }
         if let Err(error) = self.send_chat_text_claimed(tab_id, &text, None) {
             log::warn!(
-                "[chat-send] parked send {} for Tab {tab_id} failed after its single delivery attempt: {}",
-                send_id,
+                "[chat-send] parked send {} for Tab {tab_id} failed: {}",
+                delivery_id,
                 error.code()
             );
+            if !error.bytes_written() {
+                let restored = {
+                    let mut mux = self.mux.write();
+                    mux.get_tab_mut(tab_id).is_some_and(|tab| {
+                        return_after_send_failure(
+                            &mut tab.pending_delivery,
+                            record,
+                            error.bytes_written(),
+                        )
+                        .is_ok()
+                    })
+                };
+                if restored {
+                    if let Err(message) = super::session_persist::persist_session_after_mutation(
+                        self,
+                        super::session_persist::SessionPersistUrgency::Prompt,
+                    ) {
+                        log::warn!(
+                            "[chat-send] parked send {} retry state was not persisted: {message}",
+                            delivery_id
+                        );
+                    }
+                } else {
+                    log::error!(
+                        "[chat-send] parked send {} pre-write failure could not be restored",
+                        delivery_id
+                    );
+                }
+                return;
+            }
         }
         let digest_is_live =
             super::pending_delivery_payloads::live_payload_digests(&self.mux.read().snapshot())
@@ -109,7 +161,7 @@ impl super::ServiceContext {
             {
                 log::warn!(
                     "[chat-send] parked send {} payload cleanup failed: {error}",
-                    send_id
+                    delivery_id
                 );
             }
         }
@@ -126,10 +178,11 @@ mod tests {
     };
 
     #[test]
-    fn duplicate_ready_triggers_atomically_claim_one_send_id_once() {
+    fn duplicate_ready_triggers_atomically_claim_one_pending_record_once() {
         let record =
             PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput)
                 .with_send_id("send-1".into());
+        let record_id = record.record_id().to_string();
         let pending = Arc::new(Mutex::new(Some(record)));
         let writes = Arc::new(AtomicUsize::new(0));
         let ready = Arc::new(Barrier::new(3));
@@ -138,9 +191,10 @@ mod tests {
                 let pending = pending.clone();
                 let writes = writes.clone();
                 let ready = ready.clone();
+                let record_id = record_id.clone();
                 std::thread::spawn(move || {
                     ready.wait();
-                    if take_parked_user_send(&mut pending.lock(), "send-1").is_some() {
+                    if take_parked_user_send(&mut pending.lock(), &record_id).is_some() {
                         writes.fetch_add(1, Ordering::SeqCst);
                     }
                 })
@@ -156,14 +210,44 @@ mod tests {
     }
 
     #[test]
-    fn parked_send_claim_requires_the_originating_send_id() {
+    fn parked_send_claim_requires_the_exact_pending_record_id() {
         let mut pending = Some(
             PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput)
                 .with_send_id("send-1".into()),
         );
+        let record_id = pending.as_ref().unwrap().record_id().to_string();
 
-        assert!(take_parked_user_send(&mut pending, "send-2").is_none());
-        assert!(take_parked_user_send(&mut pending, "send-1").is_some());
+        assert!(take_parked_user_send(&mut pending, "other-record").is_none());
+        assert!(take_parked_user_send(&mut pending, &record_id).is_some());
+    }
+
+    #[test]
+    fn legacy_pending_record_without_send_id_is_deliverable_by_record_id() {
+        let legacy: PendingDeliveryRecord = serde_json::from_str(
+            r#"{"content_digest":"digest","channel":"interactive_input","state":"pending","attempt_provenance":null}"#,
+        )
+        .unwrap();
+        let mut pending = Some(legacy);
+        let record_id = pending.as_ref().unwrap().record_id().to_string();
+
+        assert_eq!(pending.as_ref().unwrap().send_id(), None);
+        assert!(take_parked_user_send(&mut pending, &record_id).is_some());
+        assert!(pending.is_none());
+    }
+
+    #[test]
+    fn prewrite_failure_restores_but_postwrite_failure_does_not() {
+        let record =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        let record_id = record.record_id().to_string();
+        let mut pending = None;
+
+        assert!(return_after_send_failure(&mut pending, record, false).is_ok());
+        assert_eq!(pending.as_ref().unwrap().record_id(), record_id);
+
+        let claimed = pending.take().unwrap();
+        assert!(return_after_send_failure(&mut pending, claimed, true).is_err());
+        assert!(pending.is_none());
     }
 
     #[test]
@@ -173,8 +257,9 @@ mod tests {
                 .with_send_id("send-1".into()),
         );
         pending.as_mut().unwrap().mark_unconfirmed();
+        let record_id = pending.as_ref().unwrap().record_id().to_string();
 
-        assert!(take_parked_user_send(&mut pending, "send-1").is_none());
+        assert!(take_parked_user_send(&mut pending, &record_id).is_none());
         assert!(pending.is_some());
     }
 }

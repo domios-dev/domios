@@ -319,6 +319,7 @@ impl PendingDeliveryState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PendingDeliveryRecord {
+    record_id: String,
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
     pub provenance: PendingDeliveryProvenance,
@@ -330,6 +331,8 @@ pub struct PendingDeliveryRecord {
 
 #[derive(Deserialize)]
 struct PendingDeliveryRecordWire {
+    #[serde(default)]
+    record_id: Option<String>,
     content_digest: String,
     channel: PendingDeliveryChannel,
     #[serde(default)]
@@ -350,6 +353,9 @@ impl<'de> Deserialize<'de> for PendingDeliveryRecord {
             .provenance
             .unwrap_or_else(|| PendingDeliveryProvenance::for_channel(&wire.channel));
         Ok(Self {
+            record_id: wire
+                .record_id
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             content_digest: wire.content_digest,
             channel: wire.channel,
             provenance,
@@ -370,6 +376,7 @@ impl PendingDeliveryRecord {
     pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
         let provenance = PendingDeliveryProvenance::for_channel(&channel);
         Self {
+            record_id: uuid::Uuid::new_v4().to_string(),
             content_digest,
             channel,
             provenance,
@@ -382,6 +389,10 @@ impl PendingDeliveryRecord {
     pub fn with_send_id(mut self, send_id: String) -> Self {
         self.send_id = Some(send_id);
         self
+    }
+
+    pub fn record_id(&self) -> &str {
+        &self.record_id
     }
 
     pub fn send_id(&self) -> Option<&str> {
@@ -998,6 +1009,7 @@ mod tests {
             PendingDeliveryProvenance::FallbackBootstrap
         );
         assert_eq!(record.send_id(), None);
+        assert!(!record.record_id().is_empty());
     }
 
     #[test]
@@ -1010,6 +1022,7 @@ mod tests {
         let decoded: PendingDeliveryRecord = serde_json::from_str(&encoded).unwrap();
 
         assert_eq!(decoded.send_id(), Some("send-1"));
+        assert_eq!(decoded.record_id(), record.record_id());
     }
 
     #[test]

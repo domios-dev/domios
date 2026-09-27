@@ -1,29 +1,10 @@
+use crate::agent::command_detection::CommandLifecycle;
+
 pub(super) fn finished_event_proves_provider_exit(
-    command_line: Option<&str>,
-    binary_name: &str,
+    event: &CommandLifecycle,
     provider_process_may_be_alive: bool,
 ) -> bool {
-    command_line.is_some_and(|command| command_mentions_binary(command, binary_name))
-        && !provider_process_may_be_alive
-}
-
-fn command_mentions_binary(command: &str, binary_name: &str) -> bool {
-    fn normalize(name: &str) -> &str {
-        let base = name.rsplit(['\\', '/']).next().unwrap_or(name);
-        base.strip_suffix(".exe")
-            .or_else(|| base.strip_suffix(".EXE"))
-            .unwrap_or(base)
-    }
-    let expected = normalize(binary_name);
-    command
-        .split(|character: char| {
-            character.is_whitespace()
-                || matches!(character, ';' | '&' | '|' | '{' | '}' | '(' | ')')
-        })
-        .any(|token| {
-            let token = token.trim_matches(['\'', '"', '`']);
-            normalize(token).eq_ignore_ascii_case(expected)
-        })
+    matches!(event, CommandLifecycle::Finished { .. }) && !provider_process_may_be_alive
 }
 
 impl super::super::ServiceContext {
@@ -31,7 +12,7 @@ impl super::super::ServiceContext {
         &self,
         tab_id: &str,
         pty_id: &str,
-        command_line: Option<&str>,
+        event: &CommandLifecycle,
     ) -> bool {
         let provider_id = self
             .mux
@@ -48,9 +29,6 @@ impl super::super::ServiceContext {
         else {
             return false;
         };
-        if !command_line.is_some_and(|command| command_mentions_binary(command, &binary_name)) {
-            return false;
-        }
         let root_pid = {
             let pty = self.pty.lock();
             let Some(session) = pty.get_session(pty_id) else {
@@ -64,40 +42,37 @@ impl super::super::ServiceContext {
         let provider_process_may_be_alive = root_pid.is_none_or(|root| {
             super::super::process_tree::may_have_named_process(root, &binary_name)
         });
-        finished_event_proves_provider_exit(
-            command_line,
-            &binary_name,
-            provider_process_may_be_alive,
-        )
+        finished_event_proves_provider_exit(event, provider_process_may_be_alive)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::finished_event_proves_provider_exit;
+    use crate::agent::command_detection::CommandLifecycle;
+
+    fn finished(command_line: Option<&str>) -> CommandLifecycle {
+        CommandLifecycle::Finished {
+            command_line: command_line.map(str::to_string),
+            exit_code: Some(3),
+            cwd: None,
+        }
+    }
 
     #[test]
-    fn opencode_staging_wrapper_finishes_do_not_claim_a_live_provider_exit() {
-        let wrapper = "Set-Location -LiteralPath D:/project -ErrorAction Stop; New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath C:/tmp/task.md -Destination .codeterm/task.md -Force; $env:OPENCODE_CONFIG_CONTENT = '{}'; try { opencode --session ses_saved -m big-pickle } finally { Remove-Item -LiteralPath .codeterm/task.md }";
-        for staging in [
-            "Set-Location -LiteralPath D:/project -ErrorAction Stop",
-            "New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null",
-            "Copy-Item -LiteralPath C:/tmp/task.md -Destination .codeterm/task.md -Force",
-        ] {
-            assert!(!finished_event_proves_provider_exit(
-                Some(staging),
-                "opencode",
-                false,
-            ));
+    fn finished_marker_exit_uses_process_tree_for_real_shell_marker_shapes() {
+        let powershell = finished(None);
+        let unix_spawn_wrapper = finished(Some("/bin/bash /tmp/codeterm-spawn-0123.sh"));
+
+        for marker in [&powershell, &unix_spawn_wrapper] {
+            assert!(finished_event_proves_provider_exit(marker, false));
+            assert!(!finished_event_proves_provider_exit(marker, true));
         }
         assert!(!finished_event_proves_provider_exit(
-            Some(wrapper),
-            "opencode",
-            true,
-        ));
-        assert!(finished_event_proves_provider_exit(
-            Some(wrapper),
-            "opencode.exe",
+            &CommandLifecycle::Started {
+                command_line: None,
+                cwd: None,
+            },
             false,
         ));
     }
