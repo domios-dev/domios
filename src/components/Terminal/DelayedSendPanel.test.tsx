@@ -127,10 +127,14 @@ async function main() {
     assert((host.textContent ?? "").includes("skipped 2"), "queued series shows skipped count");
     await click(host, 'button[aria-label="Edit"]');
     const interval = host.querySelector<HTMLInputElement>('[data-testid="delayed-send-edit-interval"]');
+    assert(interval != null, "series edit renders its interval input");
     if (interval) {
       const setter = Object.getOwnPropertyDescriptor(windowAny.HTMLInputElement.prototype, "value")?.set;
-      setter?.call(interval, "15");
-      await act(async () => interval.dispatchEvent(new windowAny.Event("input", { bubbles: true })));
+      await act(async () => {
+        setter?.call(interval, "15");
+        interval.dispatchEvent(new windowAny.Event("input", { bubbles: true }));
+        interval.dispatchEvent(new windowAny.Event("change", { bubbles: true }));
+      });
     }
     await click(host, 'button[aria-label="Save"]');
     assert(updated?.recurrence?.everyMs === 900_000, "editing a series updates its interval");
