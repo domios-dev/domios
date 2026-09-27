@@ -871,6 +871,7 @@ impl ServiceContext {
         let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
             params.task.as_deref(),
             fallback_spec.as_ref(),
+            params.starter_prompt,
         );
         launch_agent_in_background_with_task_turn(
             self.clone(),

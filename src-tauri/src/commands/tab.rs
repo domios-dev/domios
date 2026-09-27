@@ -417,6 +417,13 @@ pub fn chat_start_core(
                 p.read_structured_chat(&cwd, &session_id, None)
             })
             .unwrap_or_default();
+        crate::service::public_send_readiness::note_bootstrap_turn(
+            &svc.mux,
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref().unwrap_or_default(),
+            &delta.messages,
+        );
         let cursor = delta.cursor.clone();
         if !svc
             .chat_registry
@@ -530,6 +537,13 @@ pub fn chat_start_core(
         &format!("tab:{tab_id}/{subscription_id}"),
         &provider_id,
         &snap,
+    );
+    crate::service::public_send_readiness::note_bootstrap_turn(
+        &svc.mux,
+        &tab_id,
+        &session_id,
+        session_binding_nonce.as_deref().unwrap_or_default(),
+        &snap.messages,
     );
     let read_ms = read_started.elapsed().as_millis();
     // Resume at the parsed end, not the file size: a held-back partial record

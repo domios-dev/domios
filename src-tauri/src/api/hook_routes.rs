@@ -943,6 +943,9 @@ pub(crate) async fn finish_session_binding(
     crate::service::general_agent::binding_wait::notify_binding_state_changed();
     let launch_identity =
         acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
+    if claim.nonce_verified {
+        crate::service::public_send_readiness::notify_lifecycle_changed();
+    }
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {

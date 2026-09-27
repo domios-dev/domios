@@ -40,6 +40,7 @@ pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
+pub(crate) mod public_send_readiness;
 pub(crate) mod launch_session_detection;
 pub mod message_gateway;
 pub mod messenger;

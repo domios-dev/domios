@@ -707,7 +707,11 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        if let Err(error) = launch.capture_binding_nonce(&svc, task_identity.as_ref()) {
+        if let Err(error) = launch.capture_binding_nonce(
+            &svc,
+            task_identity.as_ref(),
+            has_startup_task_turn,
+        ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
             set_booting(false);
@@ -823,7 +827,11 @@ pub(crate) fn launch_agent_in_background_with_env(
                             };
                         launch.replace(pty_id.clone());
                         if let Err(error) =
-                            launch.capture_binding_nonce(&svc, task_identity.as_ref())
+                            launch.capture_binding_nonce(
+                                &svc,
+                                task_identity.as_ref(),
+                                has_startup_task_turn,
+                            )
                         {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);

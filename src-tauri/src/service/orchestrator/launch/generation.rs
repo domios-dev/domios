@@ -9,6 +9,7 @@ impl LaunchGeneration {
         &mut self,
         svc: &ServiceContext,
         task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
+        startup_turn_required: bool,
     ) -> Result<(), String> {
         let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
@@ -18,7 +19,16 @@ impl LaunchGeneration {
             &self.pty_id,
             self.binding_nonce.as_deref().expect("launch binding nonce"),
             task_identity,
-        )
+        )?;
+        svc.arm_public_send_launch(
+            crate::service::launch_readiness::LaunchAttempt {
+                tab_id: self.tab_id.clone(),
+                pty_id: self.pty_id.clone(),
+                binding_nonce: self.binding_nonce.clone().expect("launch binding nonce"),
+            },
+            startup_turn_required,
+        );
+        Ok(())
     }
 
     pub(super) fn adopt_authenticated_binding(&mut self, binding_nonce: String) -> bool {

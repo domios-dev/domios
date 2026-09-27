@@ -27,6 +27,16 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
+    if state.svc.tab_chat_backing(&tab_id).is_none() {
+        state
+            .svc
+            .ensure_tab_pty_for_send(&tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.clone(),
+                detail,
+            })?;
+        await_public_send_readiness(&state.svc, &tab_id).await?;
+    }
     let text = body.text.unwrap_or_default();
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let text = if run_stages {
@@ -269,6 +279,31 @@ pub(super) async fn await_pty_link(state: &AppState, tab_id: &str) -> bool {
     .unwrap_or(false)
 }
 
+async fn await_public_send_readiness(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+) -> Result<(), SendRejection> {
+    let svc = svc.clone();
+    let tab = tab_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        svc.await_public_send_readiness(&tab, std::time::Duration::from_secs(30))
+    })
+    .await
+    .map_err(|_| {
+        SendRejection::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "public send readiness wait failed",
+        ))
+    })?
+    .map_err(|detail| {
+        DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        }
+        .into()
+    })
+}
+
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, tab_id: &str, text: &str) {
     let Some(svc_id) = svc_id else { return };
     let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
@@ -329,6 +364,17 @@ pub async fn send_text(
     // The return-address marker is meaningful only to an AGENT reading its input.
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.tab_has_agent(&tab_id);
+
+    if transport == TabInputTransport::Pty && target_has_agent {
+        state
+            .svc
+            .ensure_tab_pty_for_send(&tab_id)
+            .map_err(|detail| DeliveryError::PtyUnavailable {
+                tab: tab_id.clone(),
+                detail,
+            })?;
+        await_public_send_readiness(&state.svc, &tab_id).await?;
+    }
 
     if body.kind.as_deref() == Some("report") {
         if let (Some(peer), Some(src)) = (
