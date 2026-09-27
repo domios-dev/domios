@@ -67,6 +67,18 @@ pub async fn spawn_pty_core(
                     pid,
                     selected.pty_id,
                 );
+                let restored = mux_state.read().get_tab(pid).is_some_and(|tab| {
+                    tab.restored_from_snapshot && !tab.protected
+                });
+                if restored {
+                    let restore_service = svc.clone();
+                    let restore_tab = pid.clone();
+                    tokio::task::spawn_blocking(move || {
+                        restore_service.materialize_restored_agent_for_send(&restore_tab)
+                    })
+                    .await
+                    .map_err(|error| format!("restore launch join error: {error}"))??;
+                }
                 return Ok(selected.pty_id);
             }
         }
@@ -300,6 +312,7 @@ pub async fn spawn_pty_core(
                             BootStage::ShellReady,
                             None,
                         );
+                        svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                         svc_for_launch.emit_boot_stage(
                             &tab_id_for_boot,
                             BootStage::AgentLaunching,
@@ -475,6 +488,7 @@ pub async fn spawn_pty_core(
                         cmd
                     );
                     svc_for_launch.emit_boot_stage(&tab_id_for_boot, BootStage::ShellReady, None);
+                    svc_for_launch.clear_tab_restored_flag(&tab_id_for_boot);
                     svc_for_launch.emit_boot_stage(
                         &tab_id_for_boot,
                         BootStage::AgentLaunching,
