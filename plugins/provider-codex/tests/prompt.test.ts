@@ -23,6 +23,19 @@ function fixtureText(name: string): string {
   return fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
 }
 
+{
+  const screen = fixtureText("directory-trust/codex-update-available.txt");
+  const bundled = loadHostPlugin();
+  eq(plugin.classifiedPromptAutoResponse("update_prompt", screen), "skip",
+    "classified update dialog declares its exact Skip option role");
+  eq(plugin.classifiedPromptAutoResponse("clarifying_question", screen), null,
+    "other classified dialog kinds have no automatic response");
+  eq(plugin.classifiedPromptAutoResponse("update_prompt", screen.replace("2. Skip", "2. Skip this version")), null,
+    "an option label other than exact Skip is not automatically answered");
+  eq(bundled.classifiedPromptAutoResponse("update_prompt", screen), "skip",
+    "built provider bridge exposes the update-only Skip capability");
+}
+
 function loadHostPlugin() {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
   const source = fs.readFileSync(pluginPath, "utf8");

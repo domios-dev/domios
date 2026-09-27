@@ -15,6 +15,8 @@ use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
+#[path = "output/manual_update.rs"]
+mod manual_update;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
 #[path = "output/shell_markers.rs"]
@@ -25,19 +27,13 @@ pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
 mod prompt_notifications;
 use prompt_notifications::should_notify_pending_prompt;
-
-fn parse_manual_update_prompt(
-    provider: &dyn codeterm_plugin::provider::AgentProvider,
-    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
-) -> Option<crate::multiplexer::types::PendingPrompt> {
-    if !manual_update_prompt_candidate(&snapshot.screen_text) {
-        return None;
-    }
-    let classification = provider.classify_tab_state(snapshot);
-    crate::agent::state_reactor::is_manual_update_prompt(classification.as_ref())
-        .then(|| provider.parse_prompt(&snapshot.screen_text))
-        .flatten()
-}
+pub(super) use manual_update::{
+    claim_manual_update_occurrence, clear_manual_update_occurrence,
+    manual_update_prompt_candidate, parse_manual_update_prompt_with_response,
+    resolve_classified_manual_update_prompt,
+};
+#[cfg(test)]
+pub(super) use manual_update::parse_manual_update_prompt;
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(
@@ -50,48 +46,6 @@ fn parse_directory_trust_prompt(
         return None;
     }
     provider.parse_directory_trust_prompt(screen)
-}
-
-fn manual_update_prompt_candidate(screen: &str) -> bool {
-    let mut options = Vec::new();
-    let mut footer = false;
-    for row in screen.lines() {
-        let lower = row.to_ascii_lowercase();
-        if lower.contains("enter")
-            && ["confirm", "continue", "select"]
-                .iter()
-                .any(|word| lower.contains(word))
-        {
-            footer = true;
-        }
-        let row = row.trim_start();
-        let row = row
-            .strip_prefix('>')
-            .or_else(|| row.strip_prefix('❯'))
-            .or_else(|| row.strip_prefix('›'))
-            .unwrap_or(row)
-            .trim_start();
-        let digits = row.chars().take_while(char::is_ascii_digit).count();
-        if digits == 0 {
-            continue;
-        }
-        let Some(separator) = row[digits..].trim_start().chars().next() else {
-            continue;
-        };
-        if !matches!(separator, '.' | ')') {
-            continue;
-        }
-        let label = row[digits..]
-            .trim_start()
-            .get(separator.len_utf8()..)
-            .unwrap_or_default()
-            .trim_start()
-            .to_ascii_lowercase();
-        options.push(label);
-    }
-    footer
-        && options.iter().any(|label| label.contains("update"))
-        && options.iter().any(|label| label.contains("skip"))
 }
 
 /// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
@@ -309,6 +263,12 @@ impl ServiceContext {
                 let update_candidate = changed_screen
                     .as_deref()
                     .is_some_and(manual_update_prompt_candidate);
+                if changed_screen
+                    .as_deref()
+                    .is_some_and(|screen| !manual_update_prompt_candidate(screen))
+                {
+                    clear_manual_update_occurrence(pid);
+                }
                 let trust_prompt_candidate = trust_candidate::pending_prompt_candidate(
                     self,
                     pty_id,
@@ -748,34 +708,20 @@ impl ServiceContext {
     ) {
         let svc = self.clone();
         std::thread::spawn(move || {
-            let prompt = svc
+            let classified = svc
                 .agent_registry
                 .with_provider(&snapshot.agent_type, |provider| {
-                    parse_manual_update_prompt(provider, &snapshot)
+                    parse_manual_update_prompt_with_response(provider, &snapshot)
                 })
                 .flatten();
-            let Some(prompt) = prompt else {
+            let Some((prompt, skip_value)) = classified else {
                 return;
             };
             let screen = svc.screen_state.lock().get_screen_text(&pty_id);
             if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
                 return;
             }
-            let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
-                &snapshot.tab_id,
-                true,
-                true,
-                Some(crate::agent::prompt::ResolvedPrompt {
-                    prompt,
-                    explicit: false,
-                }),
-            );
-            svc.apply_prompt_decision_with_screen(
-                &decision,
-                Some(&snapshot.screen_text),
-                false,
-                true,
-            );
+            resolve_classified_manual_update_prompt(&svc, &snapshot, prompt, skip_value);
         });
     }
 
@@ -835,6 +781,23 @@ impl ServiceContext {
         screen_text: Option<&str>,
         prompt_kind: codeterm_types::pty::PromptKind,
         require_user_confirmation: bool,
+    ) {
+        self.apply_prompt_decision_with_kind_and_notice(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            true,
+        );
+    }
+
+    fn apply_prompt_decision_with_kind_and_notice(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+        notify_owner: bool,
     ) {
         let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust;
         match decision {
@@ -980,7 +943,7 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
-                if notify_prompt {
+                if notify_prompt && notify_owner {
                     self.notify_pending_prompt(tab_id, prompt, prompt_kind);
                 }
             }
