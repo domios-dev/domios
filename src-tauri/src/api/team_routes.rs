@@ -146,7 +146,7 @@ pub async fn close_team(
         &headers,
         team_id,
         body.unwrap_or_default(),
-        |team_id, caller| async move { service.close_team(&team_id, caller).await },
+        |team_id: String, caller| async move { service.close_team(&team_id, caller).await },
     )
     .await?;
     Ok(Json(team))
