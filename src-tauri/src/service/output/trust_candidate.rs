@@ -1,5 +1,10 @@
 pub(super) fn may_be_directory_trust_prompt(screen: &str) -> bool {
-    let tail = screen.lines().rev().take(24).collect::<Vec<_>>();
+    let tail = screen
+        .lines()
+        .rev()
+        .skip_while(|line| line.trim().is_empty())
+        .take(24)
+        .collect::<Vec<_>>();
     let context = tail.join("\n").to_lowercase();
     let has_directory_question = context.contains('?')
         && ["folder", "directory", "workspace"]

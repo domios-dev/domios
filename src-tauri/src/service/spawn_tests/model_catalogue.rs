@@ -58,6 +58,139 @@ fn validate_agent_model_accepts_claude_alias() {
 }
 
 #[test]
+fn concrete_claude_model_stays_concrete_when_provider_does_not_offer_alias() {
+    let provider_id = "concrete-model-without-alias";
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["claude-opus-5"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        provider_id,
+        Some("claude-opus-5".into()),
+        None,
+    );
+
+    assert_eq!(resolved.model.as_deref(), Some("claude-opus-5"));
+    let launch_args = registry
+        .with_provider(provider_id, |provider| {
+            provider.model_launch_args(resolved.model.as_deref().expect("resolved model"))
+        })
+        .expect("fixture provider remains registered");
+    assert_eq!(
+        launch_args,
+        vec!["--model".to_string(), "claude-opus-5".to_string()]
+    );
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
+fn restore_with_model_missing_from_authoritative_catalogue_records_notice() {
+    let provider_id = "restore-missing-model-fixture";
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["provider-default", "other-model"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+
+    let resumed = resolve_fresh_agent_model_with_notice(
+        &registry,
+        provider_id,
+        Some("removed-model".into()),
+        Some("restored-session"),
+    );
+
+    assert_eq!(resumed.model.as_deref(), Some("provider-default"));
+    assert_eq!(resumed.requested_model.as_deref(), Some("removed-model"));
+    let notice = resumed
+        .restore_notification
+        .as_deref()
+        .expect("a removed saved model is notification-worthy");
+    assert!(notice.contains("removed-model"), "{notice}");
+    assert!(notice.contains("provider-default"), "{notice}");
+    let warning = resumed
+        .warning
+        .expect("a removed saved model must produce a restore notice");
+    assert!(warning.contains("removed-model"), "{warning}");
+    assert!(warning.contains("provider-default"), "{warning}");
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn restore_with_undiscovered_live_catalogue_posts_no_notification() {
+    let provider_id = "restore-undiscovered-live-catalogue-fixture";
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["seed-model"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative_live(),
+        ),
+    );
+    let params = SpawnAgentParams {
+        agent: Some(provider_id.into()),
+        model: Some("saved-model".into()),
+        resume_session_id: Some("restore-session".into()),
+        ..Default::default()
+    };
+
+    crate::service::orchestrator::build_agent_command_for_service(
+        &fixture.service,
+        &tab_id,
+        provider_id,
+        &params,
+        None,
+        None,
+        &registry,
+    );
+
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn restore_with_removed_authoritative_model_posts_notification() {
+    let provider_id = "restore-removed-model-notification-fixture";
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let registry = registry_with(
+        ModelProvider::new(provider_id, &["provider-default", "other-model"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+    let params = SpawnAgentParams {
+        agent: Some(provider_id.into()),
+        model: Some("removed-model".into()),
+        resume_session_id: Some("restore-session".into()),
+        ..Default::default()
+    };
+
+    crate::service::orchestrator::build_agent_command_for_service(
+        &fixture.service,
+        &tab_id,
+        provider_id,
+        &params,
+        None,
+        None,
+        &registry,
+    );
+
+    {
+        let store = fixture.service.notif.lock();
+        let notifications = store.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert!(notifications[0].title.contains("restored model"));
+        assert!(notifications[0].body.as_deref().is_some_and(|body| {
+            body.contains("removed-model") && body.contains("provider-default")
+        }));
+    }
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
 fn free_form_provider_preserves_shortened_unknown_ids() {
     let registry = registry_with(ModelProvider::new(
         "opencode",
