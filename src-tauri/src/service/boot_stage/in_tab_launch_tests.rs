@@ -190,6 +190,39 @@ fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
     );
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
+    let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
+    let key = provider_tree_key(&fixture, &tab_id);
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
+
+    fixture
+        .service
+        .reconcile_boot_stage_with_session_binding(&tab_id);
+
+    assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    let absent = fixture
+        .service
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .expect("the ready tab has a provider process tree");
+    assert_eq!(
+        absent.state(),
+        crate::service::process_tree::ProviderTreeState::GoneAfterSeen
+    );
+    assert_eq!(absent.evidence(), "provider_seen_then_absent_snapshot");
+}
+
 /// A provider observed under this tab's shell and then absent from one
 /// finished-marker snapshot proves exit, so the tab no longer claims it.
 #[test]

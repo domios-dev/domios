@@ -303,6 +303,23 @@ impl ServiceContext {
         super::boot_wait::notify_boot_changed();
         crate::service::general_agent::binding_wait::notify_binding_state_changed();
         self.emit_session_binding_state(tab_id);
+        if matches!(stage, BootStage::ProviderReady | BootStage::AgentReady) {
+            let pty_id = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
+            if let Some(pty_id) = pty_id {
+                if let Some(tree) = self.observe_provider_process_tree(tab_id, &pty_id) {
+                    log::info!(
+                        "[provider-tree] observed source=provider-readiness tree_evidence={} tab={} pty={}",
+                        tree.evidence(),
+                        tab_id,
+                        pty_id,
+                    );
+                }
+            }
+        }
         // A boot stage is the only moment a tab's agent liveness can change on
         // the launch side; the restore wave settles here rather than on a tick.
         self.settle_restore_report();
