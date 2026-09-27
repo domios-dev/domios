@@ -272,8 +272,7 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts: string[] = [];
-    parts.push("codex");
+    const parts: string[] = ["codex", "-c", "check_for_update_on_startup=false"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -313,7 +312,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -327,7 +326,7 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");

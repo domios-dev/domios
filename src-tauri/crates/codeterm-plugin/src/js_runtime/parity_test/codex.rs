@@ -47,6 +47,7 @@ fn build_launch_command_shape() {
     // Plain launch: codex binary only, no bypass flags.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
     assert!(plain.starts_with("codex"), "must invoke codex: {plain}");
+    assert_eq!(plain.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(
         !plain.contains("--dangerously-bypass-hook-trust"),
         "removed Codex CLI flag must stay absent: {plain}"
@@ -65,6 +66,7 @@ fn build_launch_command_shape() {
         skip.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip must add approval bypass: {skip}"
     );
+    assert_eq!(skip.matches("-c check_for_update_on_startup=false").count(), 1);
 
     // Caller args are shell-quoted onto the tail.
     let with_args = j.build_launch_command(&AgentLaunchParams {
@@ -75,6 +77,7 @@ fn build_launch_command_shape() {
         with_args.contains("'a b'") || with_args.contains("\"a b\""),
         "arg must be quoted: {with_args}"
     );
+    assert_eq!(with_args.matches("-c check_for_update_on_startup=false").count(), 1);
 }
 
 #[test]
@@ -107,6 +110,9 @@ fn idle_starter_case() {
         instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
+    for command in [&assigned, &idle, &team, &startup] {
+        assert_eq!(command.matches("-c check_for_update_on_startup=false").count(), 1);
+    }
     let assigned_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
         .expect("Codex plugin must provide the assigned-task starter");
@@ -142,17 +148,18 @@ fn build_resume_command_shape() {
     // Animations stay on: the repainting status band is what the offline state
     // classifier reads as a live turn, so silencing it would blind activity.
     assert!(
-        cmd.starts_with("codex resume"),
+        cmd.contains(" resume"),
         "resume subcommand shape: {cmd}"
     );
+    assert_eq!(cmd.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip flag must propagate: {cmd}"
     );
-
     // Without skip, no approval bypass.
     let no_skip = j.build_resume_command(CODEX_UUID, false).unwrap();
+    assert_eq!(no_skip.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(!no_skip.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(!no_skip.contains("--dangerously-bypass-hook-trust"));
     assert!(no_skip.contains(CODEX_UUID));
@@ -182,14 +189,15 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
         .expect("codex resume command");
 
     if cfg!(windows) {
-        assert!(command.contains("codex resume"));
+        assert!(command.contains(" resume"));
     } else {
-        assert!(command.starts_with("codex resume"));
+        assert!(command.contains(" resume"));
     }
     assert!(command.contains(CODEX_UUID));
     assert!(command.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(command.contains("--dangerously-bypass-hook-trust"));
     assert!(command.contains("gpt-6-sol"));
+    assert_eq!(command.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(command.contains("model_reasoning_effort"));
     assert!(command.contains("xhigh"));
     assert!(!command.contains("parity-sentinel-91c3"));
@@ -233,7 +241,7 @@ fn resume_with_context_keeps_the_conservative_default() {
         assert_eq!(
             command,
             format!(
-                "codex resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
+                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
             )
         );
         assert_eq!(
