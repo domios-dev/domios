@@ -1,9 +1,9 @@
+use super::super::JsonRpcError;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, PlanMode, PlanningState, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::{SpawnAgentParams, TeamMutationCaller};
-use super::super::JsonRpcError;
 use serde_json::{json, Value};
 
 struct UnplannedFixture {
@@ -32,7 +32,10 @@ fn fixture() -> UnplannedFixture {
     let fixture = ServiceFixture::new(mux);
     let project = tempfile::tempdir().unwrap();
     super::git(project.path(), &["init", "-q"]);
-    super::git(project.path(), &["config", "user.email", "test@example.com"]);
+    super::git(
+        project.path(),
+        &["config", "user.email", "test@example.com"],
+    );
     super::git(project.path(), &["config", "user.name", "Test"]);
     std::fs::write(project.path().join("README.md"), "fixture").unwrap();
     super::git(project.path(), &["add", "README.md"]);
@@ -91,7 +94,7 @@ fn dispatch(harness: &UnplannedFixture, params: &Option<Value>) -> Result<Value,
     super::super::unplanned::dispatch_unplanned_with_spawn(
         params,
         harness.fixture._app.handle(),
-        &harness.fixture.service,
+        &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |service, spawn_params, ready_tx| {
             let tab_id = spawn_params.existing_tab_id.unwrap();
@@ -116,7 +119,13 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     let harness = fixture();
     let response = dispatch(&harness, &params(&harness, "urgent probe")).unwrap();
     let task_id = response["task_id"].as_str().unwrap();
-    let task = harness.fixture.service.plan_store.show_task(task_id).unwrap().task;
+    let task = harness
+        .fixture
+        .service
+        .plan_store
+        .show_task(task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.kind, "unplanned");
     assert!(task.tags.iter().any(|tag| tag == "unplanned"));
     assert_eq!(task.name, "unplanned: urgent probe");
@@ -124,7 +133,10 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     assert_eq!(task.status, TaskStatus::Pending);
     assert_eq!(task.execution_attempts.len(), 1);
     assert!(task.lane.worktree_path.is_some());
-    assert_ne!(task.lane.worktree_path.as_deref(), Some(harness.project.path().to_str().unwrap()));
+    assert_ne!(
+        task.lane.worktree_path.as_deref(),
+        Some(harness.project.path().to_str().unwrap())
+    );
     let tab_id = response["tab_id"].as_str().unwrap();
     let attempt_id = response["attempt_id"].as_str().unwrap();
     harness
@@ -134,7 +146,14 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
         .acknowledge_task_attempt(&harness.plan_id, task_id, tab_id, attempt_id, 11)
         .unwrap();
     assert_eq!(
-        harness.fixture.service.plan_store.show_task(task_id).unwrap().task.status,
+        harness
+            .fixture
+            .service
+            .plan_store
+            .show_task(task_id)
+            .unwrap()
+            .task
+            .status,
         TaskStatus::InProgress
     );
     let sibling_id = harness
@@ -157,7 +176,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
     let sibling_error = super::super::dispatch_with_spawn(
         &Some(sibling_params),
         harness.fixture._app.handle(),
-        &harness.fixture.service,
+        &std::sync::Arc::new(harness.fixture.service.clone()),
         13,
         |_, _, _| panic!("an unapproved sibling must not inherit the exemption"),
         || {},
@@ -173,18 +192,23 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
     let empty_reason = dispatch(&harness, &params(&harness, "   ")).unwrap_err();
     assert!(empty_reason.message.contains("non-empty --reason"));
     let mut canonical = params(&harness, "urgent probe").unwrap();
-    canonical["canonical_writer"] = json!(true);
+    canonical["placement"] = json!("canonical_writer");
     let canonical_error = dispatch(&harness, &Some(canonical)).unwrap_err();
-    assert!(canonical_error.message.contains("canonical_writer"));
+    assert!(canonical_error.message.contains("isolated lane"));
     let mut gates = params(&harness, "urgent probe").unwrap();
     gates["authorized_gates"] = json!(["gate-token"]);
     let gate_error = dispatch(&harness, &Some(gates)).unwrap_err();
     assert!(gate_error.message.contains("authorized_gates"));
 
     let mut mux = harness.fixture.service.mux.write();
-    let worker = mux.create_tab(&mux.list_workspaces()[0].id).unwrap();
-    mux.set_tab_role(&worker, crate::multiplexer::types::AgentRole::Worker, Some(&harness.owner_tab))
-        .unwrap();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    let worker = mux.create_tab(&workspace).unwrap();
+    mux.set_tab_role(
+        &worker,
+        crate::multiplexer::types::AgentRole::Worker,
+        Some(&harness.owner_tab),
+    )
+    .unwrap();
     let worker_tab = mux.get_tab_mut(&worker).unwrap();
     worker_tab.agent_session_id = Some("worker-session".into());
     worker_tab.session_binding_nonce = Some("worker-nonce".into());
@@ -195,16 +219,24 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
     worker_params["session_id"] = json!("worker-session");
     worker_params["session_binding_nonce"] = json!("worker-nonce");
     let worker_error = dispatch(&harness, &Some(worker_params)).unwrap_err();
-    assert_eq!(worker_error.data.unwrap()["type"], "plan_orchestrator_authorization_required");
+    assert_eq!(
+        worker_error.data.unwrap()["type"],
+        "plan_orchestrator_authorization_required"
+    );
 
     let mut planner_params = params(&harness, "urgent probe").unwrap();
     let planner_tab = {
         let mut mux = harness.fixture.service.mux.write();
         let workspace = mux.list_workspaces()[0].id.clone();
         let planner = mux.create_tab(&workspace).unwrap();
-        mux.set_tab_role(&planner, crate::multiplexer::types::AgentRole::Planner, Some(&harness.owner_tab))
-            .unwrap();
+        mux.set_tab_role(
+            &planner,
+            crate::multiplexer::types::AgentRole::Manager,
+            Some(&harness.owner_tab),
+        )
+        .unwrap();
         let tab = mux.get_tab_mut(&planner).unwrap();
+        tab.role_profile = Some("planner".into());
         tab.agent_session_id = Some("planner-session".into());
         tab.session_binding_nonce = Some("planner-nonce".into());
         tab.reported_session_binding_nonce = Some("planner-nonce".into());
@@ -214,7 +246,10 @@ fn unplanned_worker_requires_reason_and_orchestrator_authority() {
     planner_params["session_id"] = json!("planner-session");
     planner_params["session_binding_nonce"] = json!("planner-nonce");
     let planner_error = dispatch(&harness, &Some(planner_params)).unwrap_err();
-    assert_eq!(planner_error.data.unwrap()["type"], "plan_orchestrator_authorization_required");
+    assert_eq!(
+        planner_error.data.unwrap()["type"],
+        "plan_orchestrator_authorization_required"
+    );
 }
 
 #[test]
@@ -229,8 +264,20 @@ fn team_close_cleans_up_unplanned_worker() {
         TeamMutationCaller::AgentTab(harness.owner_tab.clone()),
     ))
     .unwrap();
-    assert!(harness.fixture.service.mux.read().get_tab(&tab_id).is_none());
-    let task = harness.fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert!(harness
+        .fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_none());
+    let task = harness
+        .fixture
+        .service
+        .plan_store
+        .show_task(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.status, TaskStatus::Cancelled);
     assert!(task.execution_attempts[0].closed_at.is_some());
 }
@@ -239,11 +286,18 @@ fn team_close_cleans_up_unplanned_worker() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_dispatch_failure_removes_created_task() {
     let harness = fixture();
-    let before = harness.fixture.service.plan_store.get(&harness.plan_id).unwrap().tasks.len();
+    let before = harness
+        .fixture
+        .service
+        .plan_store
+        .get(&harness.plan_id)
+        .unwrap()
+        .tasks
+        .len();
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(
         &params(&harness, "urgent probe"),
         harness.fixture._app.handle(),
-        &harness.fixture.service,
+        &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |_, _: SpawnAgentParams, _| Err("simulated provider launch failure".into()),
     )
@@ -269,7 +323,7 @@ fn unplanned_worker_refuses_unbound_team() {
     let error = super::super::unplanned::dispatch_unplanned_with_spawn(
         &Some(json!({ "reason": "urgent probe", "team_id": "unbound-team" })),
         harness.fixture._app.handle(),
-        &harness.fixture.service,
+        &std::sync::Arc::new(harness.fixture.service.clone()),
         10,
         |_, _, _| panic!("unbound Team must be refused before launch"),
     )
