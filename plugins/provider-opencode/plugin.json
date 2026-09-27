@@ -32,6 +32,7 @@
     "supportsLazySkills": false,
     "hasHooks": true,
     "sessionStartsOnFirstUserTurn": true,
+    "publicSendWaitsForStartupTurnCompletion": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",

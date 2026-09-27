@@ -71,6 +71,10 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    fn public_send_waits_for_startup_turn_completion(&self) -> bool {
+        false
+    }
+
     /// How to verify that submitted text was actually processed. Default is
     /// shell-prompt polling — providers running TUIs or non-observable flows
     /// override (TuiInputDrained / None).
