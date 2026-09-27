@@ -1089,6 +1089,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                             ..Default::default()
                         },
                         None,
+                        false,
                     )
                 },
             );

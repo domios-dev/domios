@@ -60,6 +60,87 @@ fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> V
     }
 }
 
+pub(crate) fn contains_exact_user_turn(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    payload: &str,
+) -> bool {
+    let expected = normalize_turn_evidence(payload);
+    !expected.is_empty()
+        && window_user_turns(registry, anchor)
+            .iter()
+            .any(|turn| normalize_turn_evidence(turn) == expected)
+}
+
+#[derive(Default)]
+pub(crate) struct ExactTurnCursor {
+    jsonl_offset: Option<u64>,
+    confirmed: bool,
+}
+
+impl ExactTurnCursor {
+    pub(crate) fn for_anchor(anchor: Option<&SendEvidenceAnchor>) -> Self {
+        let mut cursor = Self::default();
+        if let Some(SendEvidenceAnchor {
+            window: EvidenceWindow::Jsonl { transcript_offset },
+            ..
+        }) = anchor
+        {
+            cursor.jsonl_offset = Some(*transcript_offset);
+        }
+        cursor
+    }
+}
+
+pub(crate) fn contains_exact_user_turn_since(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    payload: &str,
+    cursor: &mut ExactTurnCursor,
+) -> bool {
+    if cursor.confirmed {
+        return true;
+    }
+    let expected = normalize_turn_evidence(payload);
+    if expected.is_empty() {
+        return false;
+    }
+    let found = match &anchor.window {
+        EvidenceWindow::Jsonl { transcript_offset } => {
+            let Some(path) = registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
+                })
+                .flatten()
+            else {
+                return false;
+            };
+            let from_offset = cursor.jsonl_offset.unwrap_or(*transcript_offset);
+            let Some(delta) = registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    provider.parse_session_delta(&path, from_offset)
+                })
+            else {
+                return false;
+            };
+            cursor.jsonl_offset = Some(delta.new_offset.max(from_offset));
+            delta.messages.iter().enumerate().any(|(index, rich)| {
+                crate::service::tab_chat::rich_to_chat_msgs(rich, index)
+                    .iter()
+                    .any(|message| {
+                        message.kind == "user"
+                            && normalize_turn_evidence(&message.content) == expected
+                    })
+            })
+        }
+        EvidenceWindow::Structured { .. } => window_user_turns(registry, anchor)
+            .iter()
+            .any(|turn| normalize_turn_evidence(turn) == expected),
+    };
+    cursor.confirmed = found;
+    found
+}
+
 /// A cursor-less NON-empty structured store has no bounded append window and
 /// stays live-sink-only.
 pub(crate) fn structured_boundary(
@@ -196,12 +277,14 @@ mod tests {
     use crate::agent::provider::AgentProvider;
     use crate::service::chat_send_transaction::ChatSendState;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`
     /// lines strictly from `from_offset`, so the boundary semantics under test
     /// are the real append-window semantics, not a mock's.
     struct WindowedJsonlProvider {
         root: PathBuf,
+        parse_offsets: Arc<Mutex<Vec<u64>>>,
     }
 
     impl AgentProvider for WindowedJsonlProvider {
@@ -246,8 +329,12 @@ mod tests {
             Some(self.root.join(format!("{session_id}.jsonl")))
         }
         fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
-            let bytes = std::fs::read(path).unwrap_or_default();
-            let window = &bytes[(from_offset as usize).min(bytes.len())..];
+            self.parse_offsets.lock().unwrap().push(from_offset);
+            use std::io::{Read, Seek, SeekFrom};
+            let mut file = std::fs::File::open(path).unwrap();
+            file.seek(SeekFrom::Start(from_offset)).unwrap();
+            let mut window = Vec::new();
+            file.read_to_end(&mut window).unwrap();
             let messages = window
                 .split(|byte| *byte == b'\n')
                 .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
@@ -262,10 +349,10 @@ mod tests {
                         }],
                         ..Default::default()
                     })
-                })
-                .collect();
+            })
+            .collect();
             SessionDelta {
-                new_offset: bytes.len() as u64,
+                new_offset: from_offset + window.len() as u64,
                 messages,
             }
         }
@@ -276,6 +363,7 @@ mod tests {
         root: PathBuf,
         registry: AgentRegistry,
         ledger: ChatSendLedger,
+        parse_offsets: Arc<Mutex<Vec<u64>>>,
     }
 
     impl Fixture {
@@ -283,12 +371,17 @@ mod tests {
             let tmp = tempfile::tempdir().unwrap();
             let root = tmp.path().to_path_buf();
             let registry = AgentRegistry::new();
-            registry.register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
+            let parse_offsets = Arc::new(Mutex::new(Vec::new()));
+            registry.register_provider(Box::new(WindowedJsonlProvider {
+                root: root.clone(),
+                parse_offsets: Arc::clone(&parse_offsets),
+            }));
             Self {
                 _tmp: tmp,
                 root,
                 registry,
                 ledger: ChatSendLedger::default(),
+                parse_offsets,
             }
         }
 
@@ -374,6 +467,59 @@ mod tests {
         assert_eq!(confirmed[0].send_id, send.send_id);
         assert_eq!(confirmed[0].state, ChatSendState::Sent);
         assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
+    }
+
+    #[test]
+    fn exact_turn_lookup_requires_the_anchored_session_append_window() {
+        let fx = Fixture::new();
+        let anchor = fx.anchor_now("sess-a");
+        fx.append_user_turn("sess-a", "payload");
+        fx.append_user_turn("sess-other", "payload");
+
+        assert!(contains_exact_user_turn(&fx.registry, &anchor, "payload"));
+        let other_session = SendEvidenceAnchor {
+            session_id: "sess-other".into(),
+            ..anchor
+        };
+        assert!(!contains_exact_user_turn(
+            &fx.registry,
+            &other_session,
+            "payload"
+        ));
+    }
+
+    #[test]
+    fn submit_turn_cursor_reads_only_appended_jsonl_since_last_wake() {
+        let fx = Fixture::new();
+        let anchor = fx.anchor_now("sess-a");
+        let mut cursor = ExactTurnCursor::for_anchor(Some(&anchor));
+        fx.append_user_turn("sess-a", "unrelated turn");
+
+        assert!(!contains_exact_user_turn_since(
+            &fx.registry,
+            &anchor,
+            "payload",
+            &mut cursor,
+        ));
+        let expected_offset = std::fs::metadata(fx.session_path("sess-a"))
+            .unwrap()
+            .len();
+        fx.append_user_turn("sess-a", "payload");
+
+        assert!(contains_exact_user_turn_since(
+            &fx.registry,
+            &anchor,
+            "payload",
+            &mut cursor,
+        ));
+        assert_eq!(fx.parse_offsets.lock().unwrap()[1], expected_offset);
+        assert!(contains_exact_user_turn_since(
+            &fx.registry,
+            &anchor,
+            "payload",
+            &mut cursor,
+        ));
+        assert_eq!(fx.parse_offsets.lock().unwrap().len(), 2);
     }
 
     #[test]
