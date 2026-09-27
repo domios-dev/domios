@@ -1,7 +1,9 @@
 use super::*;
 use crate::agent::chat_types::ChatMsg;
 use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
-use crate::agent::provider::AgentProvider;
+use crate::agent::provider::{
+    AgentProvider, HookEventBinding, HookIngestionRoute, ProviderStateVerdict,
+};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::boot_stage::BootStage;
 use crate::service::test_fixture::ServiceFixture;
@@ -13,6 +15,7 @@ const STARTER: &str = "opaque startup token 8871";
 
 struct LaunchEvidenceProvider {
     root: PathBuf,
+    wait_for_completion: bool,
 }
 
 impl AgentProvider for LaunchEvidenceProvider {
@@ -50,6 +53,21 @@ impl AgentProvider for LaunchEvidenceProvider {
         Some(self.root.join(format!("{session_id}.jsonl")))
     }
 
+    fn public_send_waits_for_startup_turn_completion(&self) -> bool {
+        self.wait_for_completion
+    }
+
+    fn hook_event_roster(&self) -> Vec<HookEventBinding> {
+        self.wait_for_completion
+            .then(|| HookEventBinding {
+                event: "session.idle".into(),
+                route: HookIngestionRoute::SessionState,
+                verdict: Some(ProviderStateVerdict::Idle),
+            })
+            .into_iter()
+            .collect()
+    }
+
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None
     }
@@ -64,14 +82,23 @@ impl AgentProvider for LaunchEvidenceProvider {
 
     fn parse_session_delta(&self, path: &Path, from_offset: u64) -> SessionDelta {
         let Ok(mut file) = std::fs::File::open(path) else {
-            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
+            return SessionDelta {
+                new_offset: from_offset,
+                messages: Vec::new(),
+            };
         };
         if file.seek(SeekFrom::Start(from_offset)).is_err() {
-            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
+            return SessionDelta {
+                new_offset: from_offset,
+                messages: Vec::new(),
+            };
         }
         let mut bytes = Vec::new();
         if file.read_to_end(&mut bytes).is_err() {
-            return SessionDelta { new_offset: from_offset, messages: Vec::new() };
+            return SessionDelta {
+                new_offset: from_offset,
+                messages: Vec::new(),
+            };
         }
         let messages = bytes
             .split(|byte| *byte == b'\n')
@@ -116,7 +143,7 @@ fn launch_fixture() -> (ServiceFixture, String, LaunchAttempt) {
 }
 
 fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
-    let key = readiness.arm(tab_id.to_string(), Some(STARTER.into()), None);
+    let key = readiness.arm(tab_id.to_string(), Some(STARTER.into()), None, false);
     readiness.bind_attempt(attempt, key);
     assert!(readiness.bound(tab_id, "launch-nonce", "launch-session"));
 }
@@ -125,7 +152,7 @@ fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
 fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = Arc::new(ReadinessRegistry::default());
-    let key = readiness.arm(tab_id.clone(), Some(STARTER.into()), None);
+    let key = readiness.arm(tab_id.clone(), Some(STARTER.into()), None, false);
     let events = Arc::new(Mutex::new(Vec::new()));
     let (started_tx, started_rx) = mpsc::channel();
     let wait_readiness = readiness.clone();
@@ -182,7 +209,7 @@ fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
 fn public_send_before_readiness_never_reports_success_without_a_turn() {
     let (fixture, tab_id, _attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
-    readiness.arm(tab_id.clone(), Some(STARTER.into()), None);
+    readiness.arm(tab_id.clone(), Some(STARTER.into()), None, false);
     let mut payload_writes = 0;
 
     let result = readiness.await_ready(&fixture.service.mux, &tab_id, Duration::ZERO);
@@ -230,7 +257,7 @@ fn launch_without_startup_turn_retires_previous_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
     arm(&readiness, &tab_id, attempt);
-    readiness.arm(tab_id.clone(), None, None);
+    readiness.arm(tab_id.clone(), None, None, false);
     assert!(readiness
         .await_ready(&fixture.service.mux, &tab_id, Duration::ZERO)
         .is_ok());
@@ -241,14 +268,14 @@ fn old_launch_guard_cannot_retire_new_launch_gate() {
     let (fixture, tab_id, _) = launch_fixture();
     let old_key = fixture
         .service
-        .arm_public_send_launch(&tab_id, Some("old starter turn".into()), None)
+        .arm_public_send_launch(&tab_id, Some("old starter turn".into()), None, false)
         .unwrap();
     let old_guard = fixture
         .service
         .public_send_launch_guard_for_key(&tab_id, Some(old_key));
     let new_key = fixture
         .service
-        .arm_public_send_launch(&tab_id, Some("new starter turn".into()), None)
+        .arm_public_send_launch(&tab_id, Some("new starter turn".into()), None, false)
         .unwrap();
 
     drop(old_guard);
@@ -343,14 +370,17 @@ fn headless_launch_confirms_from_bound_session_evidence() {
     fixture
         .service
         .agent_registry
-        .register_provider(Box::new(LaunchEvidenceProvider { root: root.clone() }));
+        .register_provider(Box::new(LaunchEvidenceProvider {
+            root: root.clone(),
+            wait_for_completion: false,
+        }));
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: "launch-pty".into(),
         binding_nonce: "launch-nonce".into(),
     };
     let service = fixture.service.clone();
-    let key = service.arm_public_send_launch(&tab_id, Some(STARTER.into()), None);
+    let key = service.arm_public_send_launch(&tab_id, Some(STARTER.into()), None, false);
     service.bind_public_send_launch_attempt(attempt, key);
     crate::service::public_send_readiness::observe_session_binding(
         &service,
@@ -379,4 +409,69 @@ fn headless_launch_confirms_from_bound_session_evidence() {
     )
     .unwrap();
     assert!(send.join().unwrap().is_ok());
+}
+
+#[test]
+fn opencode_capability_holds_public_send_until_startup_turn_idle() {
+    let (fixture, tab_id, attempt) = launch_fixture();
+    let root = fixture.temp.path().to_path_buf();
+    let transcript = root.join("launch-session.jsonl");
+    std::fs::write(&transcript, b"").unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("launch-evidence".into());
+        tab.cwd = Some(root.to_string_lossy().into_owned());
+    }
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(LaunchEvidenceProvider {
+            root: root.clone(),
+            wait_for_completion: true,
+        }));
+    let service = fixture.service.clone();
+    let wait_for_turn_completion = service
+        .agent_registry
+        .with_provider("launch-evidence", |provider| {
+            provider.public_send_waits_for_startup_turn_completion()
+        })
+        .unwrap();
+    let key = service.arm_public_send_launch(
+        &tab_id,
+        Some(STARTER.into()),
+        None,
+        wait_for_turn_completion,
+    );
+    service.bind_public_send_launch_attempt(attempt, key);
+    observe_session_binding(&service, &tab_id, "launch-session", "launch-nonce");
+    std::fs::write(
+        &transcript,
+        format!(
+            "{}\n",
+            serde_json::json!({"role":"user", "content":STARTER})
+        ),
+    )
+    .unwrap();
+    assert!(note_bootstrap_turn(
+        &service.mux,
+        &tab_id,
+        "launch-session",
+        "launch-nonce",
+        &[ChatMsg {
+            id: "startup-turn".into(),
+            kind: "user".into(),
+            content: STARTER.into(),
+            ..Default::default()
+        }],
+    ));
+    assert!(service
+        .await_public_send_readiness(&tab_id, Duration::ZERO)
+        .is_err());
+
+    observe_bootstrap_turn_idle(&service, &tab_id, "session.idle", "launch-session");
+
+    assert!(service
+        .await_public_send_readiness(&tab_id, Duration::ZERO)
+        .is_ok());
 }

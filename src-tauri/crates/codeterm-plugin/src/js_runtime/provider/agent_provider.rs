@@ -112,6 +112,15 @@ impl AgentProvider for JsProvider {
                 .is_some_and(|native| native.session_starts_on_first_user_turn())
     }
 
+    fn public_send_waits_for_startup_turn_completion(&self) -> bool {
+        self.manifest
+            .spawn
+            .public_send_waits_for_startup_turn_completion
+            || self
+                .native()
+                .is_some_and(|native| native.public_send_waits_for_startup_turn_completion())
+    }
+
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         (&self.manifest.spawn.verify_submit).into()
     }

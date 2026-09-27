@@ -16,11 +16,15 @@ fn opencode() -> JsProvider {
 fn opencode_invocation(command: &str) -> &str {
     let start = command.find("opencode ").expect("opencode invocation");
     let invocation = &command[start..];
-    let end = [" } finally", "; ct_status=", "; unset OPENCODE_CONFIG_CONTENT"]
-        .iter()
-        .filter_map(|delimiter| invocation.find(*delimiter))
-        .min()
-        .unwrap_or(invocation.len());
+    let end = [
+        " } finally",
+        "; ct_status=",
+        "; unset OPENCODE_CONFIG_CONTENT",
+    ]
+    .iter()
+    .filter_map(|delimiter| invocation.find(*delimiter))
+    .min()
+    .unwrap_or(invocation.len());
     &invocation[..end]
 }
 
@@ -44,7 +48,10 @@ fn staged_prompt_source(command: &str) -> &str {
             .expect("quoted staged source path");
         &source[1..end]
     } else {
-        source.split_whitespace().next().expect("staged source path")
+        source
+            .split_whitespace()
+            .next()
+            .expect("staged source path")
     }
 }
 
@@ -162,6 +169,14 @@ fn uses_structured_chat_is_true() {
     }
     // opencode chat lives in sqlite (part JOIN message), not a tailable JSONL.
     assert!(opencode().uses_structured_chat());
+}
+
+#[test]
+fn public_sends_wait_for_startup_turn_completion() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert!(opencode().public_send_waits_for_startup_turn_completion());
 }
 
 #[test]

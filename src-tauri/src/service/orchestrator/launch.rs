@@ -527,7 +527,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         model.as_deref(),
         reasoning_effort.as_deref(),
     );
-    let public_send_key = public_send::arm(&svc, &tab_id, startup_turn_text);
+    let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
     // thread spawns: callers get the tab id immediately and may send right away.
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
