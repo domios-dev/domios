@@ -13,18 +13,16 @@ use base64::Engine;
 use futures_core::Stream;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::future::Future;
 
 use crate::agent::status::TabStatus;
 use crate::api::routes::{check_auth, AppState};
 use crate::api::stream_diagnostics::{configured_level, StreamDiagnostics, StreamTabStart};
 use crate::service::ServiceState;
 
-/// Per-tick per-tab byte cap: round-robin fairness so one noisy tab can't
-/// starve the others. Leftover bytes are read on the next tick.
-const PER_TAB_TICK_CAP: usize = 128 * 1024;
-/// Output sweep cadence (matches the retired per-tab SSE precedent).
-const TICK: Duration = Duration::from_millis(200);
+/// Per-sweep per-tab byte cap: round-robin fairness so one noisy tab can't
+/// starve the others. Leftover bytes are read on the next sweep.
+const PER_TAB_SWEEP_CAP: usize = 128 * 1024;
 
 #[derive(Deserialize)]
 pub(crate) struct OutputStreamQuery {
@@ -54,6 +52,12 @@ fn data_frame(v: serde_json::Value) -> Event {
     Event::default().data(v.to_string())
 }
 
+fn arm_output_wake(wake: &tokio::sync::Notify) -> impl Future<Output = ()> + '_ {
+    let mut notified = Box::pin(wake.notified());
+    notified.as_mut().enable();
+    async move { notified.await }
+}
+
 fn build_stream_diagnostics(
     level: Option<log::Level>,
     session_id: Option<String>,
@@ -66,13 +70,14 @@ fn build_stream_diagnostics(
     })
 }
 
-/// One tab's read result for a tick: at most one capped data chunk plus an
+/// One tab's read result for a sweep: at most one capped data chunk plus an
 /// optional under-retention marker. `new_offset` is where the client resumes.
 #[derive(Debug, PartialEq)]
 struct TabRead {
     truncated_from: Option<u64>,
     output: Vec<u8>,
     new_offset: u64,
+    has_more: bool,
 }
 
 /// Pure emit planner over a raw `read_since` result. Split out from the buffer
@@ -84,6 +89,7 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
             truncated_from: None,
             output: Vec::new(),
             new_offset: total,
+            has_more: false,
         };
     }
     // first byte's absolute offset is therefore `total - chunk.len()`.
@@ -95,17 +101,19 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
         None
     };
     let mut take = chunk.len().min(cap);
-    // would corrupt it via `from_utf8_lossy` here and on the next tick.
+    // would corrupt it via `from_utf8_lossy` here and on the next sweep.
     while take > 0 && take < chunk.len() && (chunk[take] & 0b1100_0000) == 0b1000_0000 {
         take -= 1;
     }
     if take == 0 {
         take = chunk.len().min(cap); // guarantee forward progress
     }
+    let new_offset = base + take as u64;
     TabRead {
         truncated_from,
         output: chunk[..take].to_vec(),
-        new_offset: base + take as u64,
+        new_offset,
+        has_more: new_offset < total,
     }
 }
 
@@ -237,7 +245,7 @@ fn sweep(
     svc: &ServiceState,
     tracked: &mut HashMap<String, Tracked>,
     tab_id: Option<&str>,
-) -> (Vec<serde_json::Value>, Vec<StreamTabStart>) {
+) -> (Vec<serde_json::Value>, Vec<StreamTabStart>, bool) {
     let live: HashMap<String, String> = svc
         .mux
         .read()
@@ -266,6 +274,7 @@ fn sweep(
     let mut frames = Vec::new();
     let mut starts = Vec::with_capacity(new_tabs.len());
     let mut silent: Vec<String> = Vec::new();
+    let mut has_more_output = false;
     let boot = svc.events.boot_id().to_string();
     {
         let buf = svc.output_buf.lock();
@@ -297,7 +306,8 @@ fn sweep(
                 continue;
             }
             let (chunk, total) = buf.read_since(pty, t.offset);
-            let read = plan_emit(t.offset, &chunk, total, PER_TAB_TICK_CAP);
+            let read = plan_emit(t.offset, &chunk, total, PER_TAB_SWEEP_CAP);
+            has_more_output |= read.has_more;
             if let Some(from) = read.truncated_from {
                 frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
             }
@@ -333,7 +343,7 @@ fn sweep(
             }
         }
     }
-    (frames, starts)
+    (frames, starts, has_more_output)
 }
 
 /// `GET /api/output/stream?since=<b64url cursor>` — all tabs' PTY output over
@@ -393,15 +403,16 @@ pub async fn output_stream(
             yield Ok(data_frame(bf));
         }
         loop {
+            let output_ready = arm_output_wake(&svc.output_stream_wake);
             let svc1 = svc.clone();
             let tab_id = tab_id.clone();
             let mut owned = std::mem::take(&mut tracked);
             let result = tokio::task::spawn_blocking(move || {
-                let (frames, starts) = sweep(&svc1, &mut owned, tab_id.as_deref());
-                (frames, starts, owned)
+                let (frames, starts, has_more) = sweep(&svc1, &mut owned, tab_id.as_deref());
+                (frames, starts, has_more, owned)
             })
             .await;
-            let (frames, starts, owned) = match result {
+            let (frames, starts, has_more_output, owned) = match result {
                 Ok(v) => v,
                 Err(_) => {
                     if let Some(diagnostics) = diagnostics.as_mut() {
@@ -422,7 +433,10 @@ pub async fn output_stream(
                 }
                 yield Ok(data_frame(f));
             }
-            tokio::time::sleep(TICK).await;
+            if has_more_output {
+                continue;
+            }
+            output_ready.await;
         }
     };
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))

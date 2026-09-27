@@ -4,6 +4,14 @@ import { invoke } from "../../lib/bridge";
 import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
 import { createTerminalReplyFilter } from "./terminalReplyFilter";
+import { PtyInputWriteQueue } from "./ptyInputWriteQueue";
+
+const ptyInputWriteQueue = new PtyInputWriteQueue(
+  (ptyId, data) => invoke("write_pty_string", { ptyId, data }),
+  (ptyId, _dataLength, error) => {
+    console.error("[terminal-input] PTY write failed", { ptyId, error });
+  },
+);
 
 export interface UseTerminalInputOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -113,7 +121,7 @@ export function useTerminalInput({
       if (data === "\t" && onTabKey()) return;
       if (data !== "\t") onNonTabKey();
       onInputData(data);
-      if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
+      if (currentPty) void ptyInputWriteQueue.enqueue(currentPty, data);
     };
 
     // execCommand("paste"), etc. Capture phase + stopImmediatePropagation cancels xterm.js's own bubble-phase listener (#1803, #3516) so routeClipboardToTerm fires exactly once.

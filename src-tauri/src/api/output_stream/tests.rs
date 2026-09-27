@@ -1,5 +1,6 @@
 use super::*;
 use crate::pty::manager::OutputBuffer;
+use tokio::sync::Notify;
 
 // ── cursor wire form ──
 
@@ -29,21 +30,21 @@ fn resume_from_offset_yields_exact_tail_no_dup() {
 
     // Client resumes after "hello " (offset 6): must get exactly "world".
     let (chunk, t) = ob.read_since("p", 6);
-    let r = plan_emit(6, &chunk, t, PER_TAB_TICK_CAP);
+    let r = plan_emit(6, &chunk, t, PER_TAB_SWEEP_CAP);
     assert_eq!(r.truncated_from, None);
     assert_eq!(r.output, b"world");
     assert_eq!(r.new_offset, total);
 
     // A second read from the advanced offset yields nothing (no duplication).
     let (chunk2, t2) = ob.read_since("p", r.new_offset);
-    let r2 = plan_emit(r.new_offset, &chunk2, t2, PER_TAB_TICK_CAP);
+    let r2 = plan_emit(r.new_offset, &chunk2, t2, PER_TAB_SWEEP_CAP);
     assert!(r2.output.is_empty());
     assert_eq!(r2.new_offset, total);
 
     // Fresh output after resume is delivered exactly once.
     ob.append("p", b"!");
     let (chunk3, t3) = ob.read_since("p", r2.new_offset);
-    let r3 = plan_emit(r2.new_offset, &chunk3, t3, PER_TAB_TICK_CAP);
+    let r3 = plan_emit(r2.new_offset, &chunk3, t3, PER_TAB_SWEEP_CAP);
     assert_eq!(r3.output, b"!");
     assert_eq!(r3.new_offset, total + 1);
 }
@@ -53,7 +54,7 @@ fn resume_from_offset_yields_exact_tail_no_dup() {
 #[test]
 fn evicted_front_emits_truncated_from_oldest() {
     // total=8, but only the last 4 bytes are retained; a cursor at 0 lost 4.
-    let r = plan_emit(0, b"4567", 8, PER_TAB_TICK_CAP);
+    let r = plan_emit(0, b"4567", 8, PER_TAB_SWEEP_CAP);
     assert_eq!(r.truncated_from, Some(4));
     assert_eq!(r.output, b"4567");
     assert_eq!(r.new_offset, 8);
@@ -62,29 +63,35 @@ fn evicted_front_emits_truncated_from_oldest() {
 #[test]
 fn retained_offset_has_no_truncation() {
     // Cursor at 4, retained chunk is exactly bytes 4..8 → no loss.
-    let r = plan_emit(4, b"4567", 8, PER_TAB_TICK_CAP);
+    let r = plan_emit(4, b"4567", 8, PER_TAB_SWEEP_CAP);
     assert_eq!(r.truncated_from, None);
     assert_eq!(r.new_offset, 8);
 }
 
-// ── fairness: per-tab byte cap, leftover carried to the next tick ──
+// ── fairness: per-tab byte cap, leftover carried to the next sweep ──
 
 #[test]
-fn byte_cap_splits_across_ticks_without_loss() {
+fn byte_cap_splits_across_sweeps_without_loss() {
     let data: Vec<u8> = (0..100u8).collect();
     let total = 100u64;
 
-    // Tick 1: cap=10 delivers the first 10 bytes only.
+    // Sweep 1: cap=10 delivers the first 10 bytes only.
     let r1 = plan_emit(0, &data, total, 10);
     assert_eq!(r1.output.len(), 10);
     assert_eq!(r1.output, &data[..10]);
     assert_eq!(r1.new_offset, 10);
+    assert!(r1.has_more);
 
-    // Tick 2: the retained chunk now starts at the cursor; next 10 bytes.
+    // Sweep 2: the retained chunk now starts at the cursor; next 10 bytes.
     let r2 = plan_emit(10, &data[10..], total, 10);
     assert_eq!(r2.output, &data[10..20]);
     assert_eq!(r2.new_offset, 20);
     assert_eq!(r2.truncated_from, None);
+
+    let last = plan_emit(90, &data[90..], total, 10);
+    assert_eq!(last.output, &data[90..]);
+    assert_eq!(last.new_offset, total);
+    assert!(!last.has_more);
 }
 
 // ── UTF-8 boundary: the cap never splits a multibyte codepoint ──
@@ -96,7 +103,7 @@ fn cap_backs_off_to_utf8_boundary() {
     let r = plan_emit(0, bytes, bytes.len() as u64, 2);
     assert_eq!(r.output, b"a");
     assert_eq!(r.new_offset, 1);
-    // Next tick delivers the whole codepoint.
+    // Next sweep delivers the whole codepoint.
     let r2 = plan_emit(1, &bytes[1..], bytes.len() as u64, 2);
     assert_eq!(r2.output, "é".as_bytes());
     assert_eq!(r2.new_offset, 3);
@@ -104,7 +111,7 @@ fn cap_backs_off_to_utf8_boundary() {
 
 #[test]
 fn empty_read_advances_to_total() {
-    let r = plan_emit(5, b"", 5, PER_TAB_TICK_CAP);
+    let r = plan_emit(5, b"", 5, PER_TAB_SWEEP_CAP);
     assert!(r.output.is_empty());
     assert_eq!(r.truncated_from, None);
     assert_eq!(r.new_offset, 5);
@@ -122,6 +129,18 @@ fn output_stream_builds_no_diagnostics_when_level_is_none() {
     let diagnostics =
         build_stream_diagnostics(None, Some("unused-session".into()), "*".into(), None, None);
     assert!(diagnostics.is_none());
+}
+
+#[tokio::test]
+async fn output_activity_wakes_every_stream_armed_before_its_sweep() {
+    let wake = Notify::new();
+    let first = arm_output_wake(&wake);
+    let second = arm_output_wake(&wake);
+
+    wake.notify_waiters();
+
+    first.await;
+    second.await;
 }
 
 #[test]

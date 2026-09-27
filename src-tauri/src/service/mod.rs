@@ -318,6 +318,7 @@ pub struct ServiceContext {
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
     pub mux_emit_stats: Arc<MuxEmitStats>,
+    pub(crate) output_stream_wake: Arc<tokio::sync::Notify>,
     /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
     pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -625,6 +626,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+        self.output_stream_wake.notify_waiters();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
@@ -676,6 +678,7 @@ impl ServiceContext {
     /// The socket handlers use this so fault injection (`frozen`) covers EVERY
     /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
     pub(crate) fn emit_mux_state_changed_empty(&self) {
+        self.output_stream_wake.notify_waiters();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
