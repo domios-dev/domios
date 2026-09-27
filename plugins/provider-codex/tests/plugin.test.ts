@@ -1094,7 +1094,7 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex resume Q(windows:11111111-1111-1111-1111-111111111111) --no-daemon",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {

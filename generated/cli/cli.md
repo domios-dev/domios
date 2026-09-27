@@ -392,12 +392,15 @@ Manage delayed Chat UI sends
 Queue a delayed message
 
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--every` — Repeat delivery at an anchored interval (minimum 1m)
 - `--from-file` — Read text from a file instead of the positional arg
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
+- `--until` — Stop recurring delivery at an absolute time
 
 #### `codeterm delayed delete`
 
@@ -410,12 +413,15 @@ Delete a delayed message
 Edit a queued or failed delayed message
 
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Replace the recurrence tick limit
 - `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--every` — Replace the recurrence interval (minimum 1m)
 - `--from-file` — Read replacement text from a file
 - `--from-pad` — Read replacement text from the current agent tab's pad
 - `<id>` — Delayed message ID
 - `--stdin` — Read replacement text from stdin
 - `--text` — Replacement text
+- `--until` — Replace the recurrence end time
 
 #### `codeterm delayed list`
 
@@ -2617,7 +2623,9 @@ Send text to a tab (default: current tab)
 
 - `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
+- `--every` — Repeat delivery to this existing tab at an anchored interval (minimum 1m)
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
@@ -2625,6 +2633,7 @@ Send text to a tab (default: current tab)
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
+- `--until` — Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time
 
 #### `codeterm service`
 

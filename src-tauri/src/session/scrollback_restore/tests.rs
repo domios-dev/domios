@@ -37,7 +37,7 @@ fn restored_snapshot_marks_plain_shells_for_scrollback_seeding() {
 fn restored_tail_is_loaded_once_into_pending_tab_state() {
     let (mut mux, tab_id) = pending_shell();
     let directory = tempfile::tempdir().unwrap();
-    let mut store = SessionStore::for_test_dir(directory.path().to_path_buf());
+    let store = SessionStore::for_test_dir(directory.path().to_path_buf());
     let tail = b"prior shell history\r\n";
     store
         .save_scrollback_tail(&tab_id, tail, DEFAULT_SCROLLBACK_TAIL_BYTES)

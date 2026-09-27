@@ -1763,6 +1763,16 @@
               "aliases": []
             },
             {
+              "name": "count",
+              "positional": false,
+              "required": false,
+              "value_name": "COUNT",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop after this many delivered or skipped ticks",
+              "aliases": []
+            },
+            {
               "name": "delay",
               "positional": false,
               "required": false,
@@ -1770,6 +1780,16 @@
               "possible_values": [],
               "default": null,
               "help": "Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Repeat delivery at an anchored interval (minimum 1m)",
               "aliases": []
             },
             {
@@ -1823,6 +1843,16 @@
               "default": null,
               "help": "Text to queue (positional, or omit and use --from-file/--stdin)",
               "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop recurring delivery at an absolute time",
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -1861,6 +1891,16 @@
               "aliases": []
             },
             {
+              "name": "count",
+              "positional": false,
+              "required": false,
+              "value_name": "COUNT",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence tick limit",
+              "aliases": []
+            },
+            {
               "name": "delay",
               "positional": false,
               "required": false,
@@ -1868,6 +1908,16 @@
               "possible_values": [],
               "default": null,
               "help": "Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence interval (minimum 1m)",
               "aliases": []
             },
             {
@@ -1920,6 +1970,16 @@
               "possible_values": [],
               "default": null,
               "help": "Replacement text",
+              "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence end time",
               "aliases": []
             }
           ],
@@ -12237,6 +12297,16 @@
           "aliases": []
         },
         {
+          "name": "count",
+          "positional": false,
+          "required": false,
+          "value_name": "COUNT",
+          "possible_values": [],
+          "default": null,
+          "help": "Stop after this many delivered or skipped ticks",
+          "aliases": []
+        },
+        {
           "name": "delay",
           "positional": false,
           "required": false,
@@ -12244,6 +12314,16 @@
           "possible_values": [],
           "default": null,
           "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered",
+          "aliases": []
+        },
+        {
+          "name": "every",
+          "positional": false,
+          "required": false,
+          "value_name": "EVERY",
+          "possible_values": [],
+          "default": null,
+          "help": "Repeat delivery to this existing tab at an anchored interval (minimum 1m)",
           "aliases": []
         },
         {
@@ -12321,6 +12401,16 @@
           "aliases": [
             "force"
           ]
+        },
+        {
+          "name": "until",
+          "positional": false,
+          "required": false,
+          "value_name": "UNTIL",
+          "possible_values": [],
+          "default": null,
+          "help": "Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time",
+          "aliases": []
         }
       ],
       "subcommands": []

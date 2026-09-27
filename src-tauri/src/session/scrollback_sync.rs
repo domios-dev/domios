@@ -94,7 +94,7 @@ pub(crate) fn skipped_report(mux: &MuxState, reason: &str) -> SidecarSyncReport 
         state
             .all_tabs()
             .into_iter()
-            .filter(crate::pty::scrollback_capture::scrollback_eligible)
+            .filter(|tab| crate::pty::scrollback_capture::scrollback_eligible(tab))
             .map(|tab| (tab.id.clone(), reason.to_string()))
             .collect()
     };

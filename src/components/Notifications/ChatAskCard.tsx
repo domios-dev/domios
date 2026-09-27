@@ -39,7 +39,9 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
   const slot = notification.answer;
   const chosen = slot?.answered ?? null;
   const askedFrom = slot?.asked_from_tab ?? null;
-  const choices = (notification.actions ?? []).filter((action) => action.type === "answer");
+  const choices = (notification.actions ?? []).filter((action) =>
+    action.type === "answer" || action.type === "respond_prompt_option",
+  );
   const edge = { borderColor: `color-mix(in srgb, ${tone} 18%, transparent)` };
 
   return (

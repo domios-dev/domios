@@ -264,6 +264,9 @@ export type ChatOrigin =
       fireAt?: string;
       /** Originating delayed-message id. */
       id?: string;
+      everyMs?: string;
+      nextAt?: string;
+      skippedTicks?: string;
     }
   | { kind: "command"; commands: SlashCommand[] };
 

@@ -1,4 +1,5 @@
 [
+  "packages/chat-ui/src/codeterm/ReminderCard.test.tsx",
   "packages/chat-ui/src/timelineMarkers.test.tsx",
   "packages/chat-ui/src/toolcard/commandFacts.test.tsx",
   "packages/chat-ui/src/toolcard/commandGroup.test.tsx",
@@ -18,6 +19,9 @@
   "src/components/Notifications/notificationDeepLink.test.tsx",
   "src/components/Notifications/notification_status_row_truncation.test.tsx",
   "src/components/Sidebar/hover_reveal_scrollbar.test.tsx",
+  "src/components/Sidebar/GroupCloseConfirmDialog.closeInventory.test.tsx",
+  "src/components/Sidebar/WorkspaceCloseConfirmDialog.test.tsx",
+  "src/lib/closeFlow.contract.test.ts",
   "src/components/Canvas/missionControl/teamMissionControlState.test.ts",
   "src/components/AgentRun/toolActivityStream.test.tsx",
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",

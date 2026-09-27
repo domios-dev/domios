@@ -88,7 +88,7 @@ mod tests {
         let mut mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
         let tail = b"restored frontend history\r\n";
         let directory = tempfile::tempdir().unwrap();
-        let mut store = SessionStore::for_test_dir(directory.path().to_path_buf());
+        let store = SessionStore::for_test_dir(directory.path().to_path_buf());
         store.save_scrollback_tail(&tab_id, tail, 65_536).unwrap();
         let session: SessionState = Arc::new(Mutex::new(store));
         assert!(load_restored_scrollback_tails(&mut mux, &session).is_empty());
