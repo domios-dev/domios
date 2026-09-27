@@ -45,6 +45,10 @@ impl RemotePtyIdCache {
 pub(super) static REMOTE_PTY_IDS: LazyLock<RemotePtyIdCache> =
     LazyLock::new(RemotePtyIdCache::default);
 
+pub(super) fn is_missing_pty_write(suffix: &str, status: u16) -> bool {
+    suffix == "/pty/write" && status == 404
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +87,12 @@ mod tests {
             .unwrap();
         assert_eq!(refreshed, "pty-b");
         assert_eq!(lookups, 2);
+    }
+
+    #[test]
+    fn only_missing_pty_write_responses_invalidate_the_remote_id() {
+        assert!(is_missing_pty_write("/pty/write", 404));
+        assert!(!is_missing_pty_write("/pty/write", 502));
+        assert!(!is_missing_pty_write("/pty/resize", 404));
     }
 }

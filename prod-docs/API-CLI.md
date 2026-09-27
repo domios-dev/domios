@@ -27,6 +27,20 @@ non-zero. Structured daemon error data stays under `data`, including
 `invalid_model` fields such as the provider, requested id, closest catalogue
 ids, and refresh command.
 
+### Mesh CLI failures
+
+`codeterm mesh discover`, `codeterm mesh broadcast`, and
+`codeterm mesh stop-broadcast` check the HTTP result before printing success.
+When the listener is not remotely ready, the daemon returns HTTP 409 and the
+CLI exits non-zero with that refusal. Run these commands again after the mesh
+listener is ready.
+
+`codeterm tab list --mesh <peer>` exits non-zero when the peer has no online
+mesh route; `(no tabs)` is reserved for a successful response from an online
+peer. `codeterm tab get-text --mesh <peer>` requires a PTY-backed remote tab.
+If the tab has no PTY, the CLI reports that condition and suggests choosing a
+PTY-backed tab.
+
 ### Internal Tauri Commands
 
 These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST endpoints.
@@ -173,4 +187,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

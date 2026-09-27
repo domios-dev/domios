@@ -1,5 +1,5 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { RemotePtyIdCache } from "./remotePtyIdCache";
+import { RemotePtyIdCache, writeRemotePty } from "./remotePtyIdCache";
 
 describe("remote PTY id cache", () => {
   it("resolves once for repeated writes and refreshes after invalidation", async () => {
@@ -13,6 +13,42 @@ describe("remote PTY id cache", () => {
 
     cache.invalidate("mesh:peer/tab");
     expect(await cache.resolve("mesh:peer/tab", lookup)).toBe("pty-2");
+    expect(lookups).toBe(2);
+  });
+
+  it("uses one relay call per write after the initial PTY resolve", async () => {
+    const cache = new RemotePtyIdCache();
+    const calls: string[] = [];
+    const resolve = async () => {
+      calls.push("inspect");
+      return "pty-a";
+    };
+    const write = async (ptyId: string) => {
+      calls.push(`write:${ptyId}`);
+      return { ok: true as const, data: undefined };
+    };
+
+    await writeRemotePty(cache, "mesh:peer/tab", resolve, write);
+    await writeRemotePty(cache, "mesh:peer/tab", resolve, write);
+
+    expect(calls).toEqual(["inspect", "write:pty-a", "write:pty-a"]);
+  });
+
+  it("invalidates a cached PTY only when its write reports it missing", async () => {
+    const cache = new RemotePtyIdCache();
+    let lookups = 0;
+    const resolve = async () => `pty-${++lookups}`;
+    const failure = async (status: number) =>
+      writeRemotePty(cache, "mesh:peer/tab", resolve, async () => ({
+        ok: false,
+        status,
+        error: `HTTP ${status}`,
+      }));
+
+    await expect(failure(502)).rejects.toThrow("HTTP 502");
+    expect(await cache.resolve("mesh:peer/tab", resolve)).toBe("pty-1");
+    await expect(failure(404)).rejects.toThrow("HTTP 404");
+    expect(await cache.resolve("mesh:peer/tab", resolve)).toBe("pty-2");
     expect(lookups).toBe(2);
   });
 

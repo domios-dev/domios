@@ -14,6 +14,7 @@ trap 'status=$?; rm -rf "$FIXTURE"; exit "$status"' EXIT
 mkdir -p \
   "$FIXTURE/home/.codeterm-dev/bin" \
   "$FIXTURE/home/.codeterm-dev-named-instance/bin" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin" \
   "$FIXTURE/hostile"
 
 printf '%s\n' 'token = "canonical-token"' > "$FIXTURE/home/.codeterm-dev/config.toml"
@@ -40,6 +41,10 @@ printf '%s\n' \
   > "$FIXTURE/home/.codeterm-dev/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then' \
+  '  printf '\''{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7788,"socket_path":"named.sock","instance":"Named_Instance"}}\n'\'' "$HOME/.codeterm-dev-named-instance"' \
+  '  exit 0' \
+  'fi' \
   'if [ "${1:-}" = config ] && [ "${2:-}" = get ] && [ "${3:-}" = api.token ]; then' \
   '  case "${CODETERM_INSTANCE:-}" in' \
   '    *missing*) echo "Error: CodeTerm socket '\''codeterm-dev-missing.sock'\'' is not live" >&2; exit 1;;' \
@@ -48,6 +53,8 @@ printf '%s\n' \
   'fi' \
   'printf "NAMED_DEV_CLI_WON token=%s port=%s\n" "$CODETERM_API_TOKEN" "$CODETERM_API_PORT"' \
   > "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm"
+cp "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'echo FAKE_PROD_CLI_WON' \
@@ -64,6 +71,7 @@ printf '%s\n' \
 chmod +x \
   "$FIXTURE/home/.codeterm-dev/bin/codeterm" \
   "$FIXTURE/home/.codeterm-dev-named-instance/bin/codeterm" \
+  "$FIXTURE/home/.codeterm-dev-missing/bin/codeterm" \
   "$FIXTURE/hostile/codeterm" \
   "$FIXTURE/hostile/curl"
 

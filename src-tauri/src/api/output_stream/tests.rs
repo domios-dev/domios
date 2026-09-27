@@ -1,6 +1,5 @@
 use super::*;
 use crate::pty::manager::OutputBuffer;
-use tokio::sync::Notify;
 
 // ── cursor wire form ──
 
@@ -132,15 +131,71 @@ fn output_stream_builds_no_diagnostics_when_level_is_none() {
 }
 
 #[tokio::test]
-async fn output_activity_wakes_every_stream_armed_before_its_sweep() {
-    let wake = Notify::new();
-    let first = arm_output_wake(&wake);
-    let second = arm_output_wake(&wake);
+async fn output_written_to_pty_wakes_subscriber_and_preserves_resume_offsets() {
+    use crate::service::output_stream_activity::{self, OutputStreamActivity};
 
-    wake.notify_waiters();
+    let activity = output_stream_activity::channel();
+    let mut subscriber = activity.subscribe();
+    let mut output = OutputBuffer::new(1 << 20);
 
-    first.await;
-    second.await;
+    output.append("pty-x", b"first");
+    activity
+        .send(OutputStreamActivity::Pty("pty-x".into()))
+        .unwrap();
+    assert_eq!(
+        subscriber.recv().await.unwrap(),
+        OutputStreamActivity::Pty("pty-x".into())
+    );
+    let (chunk, total) = output.read_since("pty-x", 0);
+    let first = plan_emit(0, &chunk, total, PER_TAB_SWEEP_CAP);
+    assert_eq!(first.output, b"first");
+    assert_eq!(first.new_offset, 5);
+
+    output.append("pty-x", b" second");
+    activity
+        .send(OutputStreamActivity::Pty("pty-x".into()))
+        .unwrap();
+    assert_eq!(
+        subscriber.recv().await.unwrap(),
+        OutputStreamActivity::Pty("pty-x".into())
+    );
+    let (chunk, total) = output.read_since("pty-x", first.new_offset);
+    let resumed = plan_emit(first.new_offset, &chunk, total, PER_TAB_SWEEP_CAP);
+    assert_eq!(resumed.output, b" second");
+    assert_eq!(resumed.new_offset, 12);
+}
+
+#[test]
+fn sweep_reads_only_tabs_with_dirty_ptys() {
+    let live = HashMap::from([
+        ("tab-x".to_string(), "pty-x".to_string()),
+        ("tab-y".to_string(), "pty-y".to_string()),
+    ]);
+    let dirty = HashSet::from(["pty-x".to_string()]);
+
+    assert_eq!(
+        selected_tabs(&live, &dirty, &HashSet::new(), false),
+        vec![("tab-x".to_string(), "pty-x".to_string())]
+    );
+    assert_eq!(
+        selected_tabs(&live, &dirty, &HashSet::new(), true).len(),
+        2,
+        "a broadcast lag still triggers a full output rescan"
+    );
+}
+
+#[test]
+fn mux_refresh_reads_only_new_or_replaced_ptys() {
+    let live = HashMap::from([
+        ("tab-x".to_string(), "pty-x".to_string()),
+        ("tab-y".to_string(), "pty-y".to_string()),
+    ]);
+    let changed = HashSet::from(["tab-y".to_string()]);
+
+    assert_eq!(
+        selected_tabs(&live, &HashSet::new(), &changed, false),
+        vec![("tab-y".to_string(), "pty-y".to_string())]
+    );
 }
 
 #[test]
