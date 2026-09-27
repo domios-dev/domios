@@ -11,6 +11,7 @@ use crate::plan::{
 };
 
 mod plan_writer;
+mod subtasks;
 
 pub(super) fn gen_id(prefix: &str) -> String {
     crate::plan::ids::short_id(prefix)

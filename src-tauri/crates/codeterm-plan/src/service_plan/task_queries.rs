@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::readback::pending_after_verified;
-use super::state::{dependency_waits, task_presentation, DependencyWait, TaskPresentation};
+use super::state::{dependency_waits, DependencyWait, TaskPresentation};
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
     OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID,
@@ -335,16 +335,7 @@ impl PlanStore {
                     .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
                     .map(task_label)
                     .collect(),
-                presentation: if task.interruption.handoff_required {
-                    TaskPresentation::HandoffRequired
-                } else {
-                    task_presentation(
-                        &task.status,
-                        &dependency_waits,
-                        &task.review_stage,
-                        &task.qa_state,
-                    )
-                },
+                presentation: super::state::task_projection(&plan, task).presentation,
                 dependency_waits,
                 task: task.clone(),
             });
