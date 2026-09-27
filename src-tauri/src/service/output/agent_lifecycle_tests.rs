@@ -8,9 +8,11 @@ use crate::plan::{OrchestratorRef, PlannerRef};
 use crate::service::boot_stage::BootStage;
 use crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit;
 use crate::service::plan::PlanStore;
+use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot};
 use crate::service::tab::clear_agent_identity_for_lifecycle_exit;
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::pty::AgentLiveness;
+use std::collections::HashSet;
 
 const SHELL_SUFFIXES: [char; 4] = ['>', '$', '%', '#'];
 
@@ -221,6 +223,9 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     let (mut mux, tab_id, _, _) = seed_live_planner();
     mux.get_tab_mut(&tab_id).unwrap().shell_integration_nonce = Some("nonce-current".into());
     let harness = ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("codex").with_launch_binary("codex"),
+    ));
     harness
         .service
         .pty
@@ -234,6 +239,10 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
             Default::default(),
         )
         .expect("spawn live backing PTY");
+    let key = harness
+        .service
+        .provider_tree_key_for_tab(&tab_id, "pty-planner")
+        .expect("provider capability supplies the process name");
 
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
@@ -242,7 +251,12 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
 
     harness
         .service
-        .process_pty_output("pty-planner", b"\x1b]633;D\x07");
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    harness.service.process_pty_output(
+        "pty-planner",
+        b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
+    );
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
         AgentLiveness::Live
@@ -255,6 +269,10 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .unwrap()
         .agent_type
         .is_some());
+    harness
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
     harness
         .service
         .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07");
@@ -270,10 +288,23 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .unwrap()
         .agent_type
         .is_some());
-    harness.service.process_pty_output(
-        "pty-planner",
-        b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
+    harness.service.provider_tree_witnesses.script_snapshot(
+        &key,
+        ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+            pid: 52_520,
+            start_token: "codex-child-start".into(),
+        }])),
     );
+    harness
+        .service
+        .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-current\x07");
+    harness
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    harness
+        .service
+        .process_pty_output("pty-planner", b"\x1b]633;D\x07");
 
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),

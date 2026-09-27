@@ -246,6 +246,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.

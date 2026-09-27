@@ -31,6 +31,144 @@ fn attempt_of(tab: &Tab) -> LaunchAttempt {
     }
 }
 
+fn exit_proof(attempt: &LaunchAttempt) -> LaunchExitProof {
+    use crate::service::process_tree::{
+        ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeWitnesses,
+    };
+
+    let witnesses = ProviderTreeWitnesses::default();
+    let key = provider_tree_key(attempt, "claude");
+    witnesses.record_for_test(
+        &key,
+        ProviderProcessTreeSnapshot::Present(
+            [ProcessIdentity {
+                pid: 900_001,
+                start_token: "test-provider-start".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+    witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    let observation = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    LaunchExitProof::from_lifecycle_clear(attempt, &observation)
+        .expect("the attempt's tree evidence proves the provider is gone")
+}
+
+fn provider_tree_key(
+    attempt: &LaunchAttempt,
+    executable_name: &str,
+) -> crate::service::process_tree::ProviderTreeKey {
+    crate::service::process_tree::ProviderTreeKey {
+        tab_id: attempt.tab_id.clone(),
+        pty_id: attempt.pty_id.clone(),
+        binding_nonce: Some(attempt.binding_nonce.clone()),
+        executable_name: executable_name.into(),
+    }
+}
+
+#[test]
+fn provider_tree_witnesses_reject_live_restored_provider() {
+    use crate::service::process_tree::{
+        ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeWitnesses,
+    };
+
+    let attempt = LaunchAttempt {
+        tab_id: "restored-opencode-tab".into(),
+        pty_id: "restored-opencode-pty".into(),
+        binding_nonce: "restored-opencode-nonce".into(),
+    };
+    let key = provider_tree_key(&attempt, "opencode");
+    let witnesses = ProviderTreeWitnesses::default();
+    for _prompt_frame in 0..2 {
+        let prompt = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+        assert!(!prompt.proves_exit_from_lifecycle_clear());
+        assert!(!prompt.proves_exit_from_finished_marker());
+    }
+
+    let live_child = witnesses.record_for_test(
+        &key,
+        ProviderProcessTreeSnapshot::Present(
+            [ProcessIdentity {
+                pid: 52_520,
+                start_token: "opencode-start".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+    assert_eq!(
+        live_child.state(),
+        crate::service::process_tree::ProviderTreeState::Present
+    );
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &live_child, Some(3), None, None).is_none()
+    );
+    assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &live_child).is_none());
+}
+
+#[test]
+fn provider_absent_before_first_seen_is_not_exit_evidence() {
+    use crate::service::process_tree::{
+        ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeState, ProviderTreeWitnesses,
+    };
+
+    let attempt = LaunchAttempt {
+        tab_id: "starting-provider-tab".into(),
+        pty_id: "starting-provider-pty".into(),
+        binding_nonce: "starting-provider-nonce".into(),
+    };
+    let key = provider_tree_key(&attempt, "opencode");
+    let witnesses = ProviderTreeWitnesses::default();
+    for _ in 0..3 {
+        let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+        assert_eq!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
+        assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &absent).is_none());
+        assert!(
+            LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, None).is_none()
+        );
+    }
+    let absent = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    let explicit_failure =
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(3), None, None);
+    assert!(explicit_failure.is_some());
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, Some(0), None, None).is_none()
+    );
+    assert!(LaunchExitProof::from_finished_marker(
+        &attempt,
+        &absent,
+        Some(0),
+        Some("opencode"),
+        None
+    )
+    .is_some());
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, Some(false)).is_some()
+    );
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absent, None, None, Some(true)).is_none()
+    );
+
+    witnesses.record_for_test(
+        &key,
+        ProviderProcessTreeSnapshot::Present(
+            [ProcessIdentity {
+                pid: 70_001,
+                start_token: "starting-opencode".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+    let one_absence = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    assert_eq!(one_absence.state(), ProviderTreeState::GoneAfterSeen);
+    assert!(LaunchExitProof::from_lifecycle_clear(&attempt, &one_absence).is_some());
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &one_absence, None, None, None).is_some()
+    );
+}
+
 #[test]
 fn provider_exit_evidence_ends_resume_first_turn_waiting() {
     let mut tab = launching_tab("pty-resume-exit", "nonce-resume-exit");
@@ -61,18 +199,19 @@ const BOUND: Duration = Duration::from_secs(30);
 fn launch_readiness_only_the_first_observer_claims_one_exit() {
     let tab = launching_tab("pty-once", "nonce-once");
     let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
     assert!(
-        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_some(),
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof).is_some(),
         "the first observer of an exit claims it"
     );
     assert!(
-        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_none(),
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof).is_none(),
         "a second observer must not claim the same exit before it is published"
     );
     assert!(
-        claim_exit(&attempt.tab_id, None, None).is_none(),
+        claim_exit(&attempt.tab_id, None, None, &proof).is_none(),
         "nor may the funnel that reports no pty claim it again"
     );
 }
@@ -81,10 +220,12 @@ fn launch_readiness_only_the_first_observer_claims_one_exit() {
 fn launch_readiness_local_exit_emits_bounded_failure() {
     let tab = launching_tab("pty-local", "nonce-local");
     let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, exit_code) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3))
-        .expect("an armed launch claims the exit observed against it");
+    let (claimed, exit_code, _) =
+        claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof)
+            .expect("an armed launch claims the exit observed against it");
     assert_eq!(claimed, attempt);
     assert_eq!(exit_code, Some(3));
     // A claim leaves no evidence behind it, so the waiting observer finds none.
@@ -93,11 +234,7 @@ fn launch_readiness_local_exit_emits_bounded_failure() {
         LaunchObservation::Deadline
     );
 
-    let settlement = settle_evidence(
-        &tab,
-        &attempt,
-        LaunchEvidence::ProcessExited { exit_code: Some(3) },
-    );
+    let settlement = settle_proven_exit(&tab, &attempt, Some(3), &proof);
     let LaunchSettlement::Failed { reason, exit_code } = settlement else {
         panic!("a pre-readiness exit is a launch failure, not uncertainty");
     };
@@ -116,23 +253,16 @@ fn launch_readiness_mesh_exit_emits_bounded_failure() {
     tab.report_target_mesh_peer = Some("dev-peer".into());
     tab.spawned_by_tab_id = Some("origin-tab".into());
     let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(1)).is_some());
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(1), &proof).is_some());
 
     let mut local = tab.clone();
     local.report_target_mesh_peer = None;
     local.spawned_by_tab_id = None;
-    let relayed = settle_evidence(
-        &tab,
-        &attempt,
-        LaunchEvidence::ProcessExited { exit_code: Some(1) },
-    );
-    let direct = settle_evidence(
-        &local,
-        &attempt,
-        LaunchEvidence::ProcessExited { exit_code: Some(1) },
-    );
+    let relayed = settle_proven_exit(&tab, &attempt, Some(1), &proof);
+    let direct = settle_proven_exit(&local, &attempt, Some(1), &proof);
     assert_eq!(relayed, direct);
     assert!(matches!(relayed, LaunchSettlement::Failed { .. }));
 }
@@ -161,12 +291,13 @@ fn launch_readiness_healthy_ack_is_not_failure() {
     );
 
     arm(attempt.clone());
+    let proof = exit_proof(&attempt);
     assert!(note_acknowledged(
         &attempt.tab_id,
         &attempt.pty_id,
         &attempt.binding_nonce
     ));
-    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(0)).is_none());
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(0), &proof).is_none());
     assert_eq!(
         observe(&attempt, Instant::now() + BOUND),
         LaunchObservation::Evidence(LaunchEvidence::Acknowledged),
@@ -269,11 +400,7 @@ fn launch_readiness_stale_session_does_not_settle_current_attempt() {
     let mut relinked = tab.clone();
     relinked.pty_id = Some("pty-prior".into());
     assert_eq!(
-        settle_evidence(
-            &relinked,
-            &attempt,
-            LaunchEvidence::ProcessExited { exit_code: Some(3) }
-        ),
+        settle_proven_exit(&relinked, &attempt, Some(3), &exit_proof(&attempt)),
         LaunchSettlement::Superseded,
     );
 
@@ -285,8 +412,9 @@ fn launch_readiness_stale_session_does_not_settle_current_attempt() {
     );
 
     arm(attempt.clone());
-    assert!(claim_exit(&attempt.tab_id, Some("pty-foreign"), Some(3)).is_none());
-    assert!(claim_exit("tab-foreign", None, Some(3)).is_none());
+    let proof = exit_proof(&attempt);
+    assert!(claim_exit(&attempt.tab_id, Some("pty-foreign"), Some(3), &proof).is_none());
+    assert!(claim_exit("tab-foreign", None, Some(3), &proof).is_none());
     assert!(!note_acknowledged(
         &attempt.tab_id,
         &attempt.pty_id,
@@ -395,18 +523,15 @@ fn launch_readiness_fixture_exposes_both_deterministic_modes() {
 fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
     let tab = launching_tab("pty-marker-less", "nonce-marker-less");
     let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, exit_code) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None)
+    let (claimed, exit_code, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof)
         .expect("an exit with no shell-reported detail still claims the launch");
     assert_eq!(claimed, attempt);
     assert_eq!(exit_code, None);
     assert!(matches!(
-        settle_evidence(
-            &tab,
-            &attempt,
-            LaunchEvidence::ProcessExited { exit_code: None }
-        ),
+        settle_proven_exit(&tab, &attempt, None, &proof),
         LaunchSettlement::Failed { .. }
     ));
 
@@ -422,10 +547,10 @@ fn launch_readiness_exit_settles_without_a_shell_reported_command_line() {
 fn launch_readiness_exit_settles_before_identity_teardown() {
     let tab = launching_tab("pty-teardown", "nonce-teardown");
     let attempt = attempt_of(&tab);
-    let exited = LaunchEvidence::ProcessExited { exit_code: Some(3) };
+    let proof = exit_proof(&attempt);
 
     assert!(matches!(
-        settle_evidence(&tab, &attempt, exited.clone()),
+        settle_proven_exit(&tab, &attempt, Some(3), &proof),
         LaunchSettlement::Failed { .. }
     ));
 
@@ -433,7 +558,7 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
     assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(&mut torn_down));
     assert!(torn_down.session_binding_nonce.is_none());
     assert_eq!(
-        settle_evidence(&torn_down, &attempt, exited),
+        settle_proven_exit(&torn_down, &attempt, Some(3), &proof),
         LaunchSettlement::Superseded,
     );
 
@@ -441,11 +566,11 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
     // tab still carries the launch, and recorded after the teardown resets it.
     for (source, teardown_anchor) in [
         (
-            include_str!("../output.rs"),
-            "note_provider_exit_in_surviving_shell",
+            include_str!("../output/shell_markers.rs"),
+            "clear_tab_agent_identity_after_exit_with_proof",
         ),
         (
-            include_str!("../tab.rs"),
+            include_str!("../tab/lifecycle_exit.rs"),
             "is_some_and(clear_agent_identity_for_lifecycle_exit)",
         ),
     ] {
@@ -471,7 +596,7 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
     assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(&mut torn_down));
     assert_eq!(torn_down.boot_stage, Some(BootStage::ShellReady));
 
-    let tab_source = include_str!("../tab.rs");
+    let tab_source = include_str!("../tab/lifecycle_exit.rs");
     let clear = tab_source
         .find("is_some_and(clear_agent_identity_for_lifecycle_exit)")
         .expect("the funnel clears identity");
@@ -483,9 +608,9 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
         "the verdict must be published after the clear"
     );
 
-    let output = include_str!("../output.rs");
+    let output = include_str!("../output/shell_markers.rs");
     let teardown = output
-        .find("note_provider_exit_in_surviving_shell")
+        .find("clear_tab_agent_identity_after_exit_with_proof")
         .expect("the shell exit source tears identity down");
     let published = output
         .find("publish_launch_exit")
@@ -508,11 +633,7 @@ fn launch_readiness_exit_is_evidence_whether_or_not_agent_ready_was_claimed() {
         let attempt = attempt_of(&tab);
         assert!(
             matches!(
-                settle_evidence(
-                    &tab,
-                    &attempt,
-                    LaunchEvidence::ProcessExited { exit_code: Some(3) }
-                ),
+                settle_proven_exit(&tab, &attempt, Some(3), &exit_proof(&attempt)),
                 LaunchSettlement::Failed { .. }
             ),
             "stage {stage:?} must still settle as a launch failure"
@@ -558,11 +679,27 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
             Default::default(),
         )
         .expect("spawn live backing PTY");
-    arm(LaunchAttempt {
+    let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),
         pty_id: "pty-launch-readiness".into(),
         binding_nonce: "nonce-live".into(),
-    });
+    };
+    let tree_key = harness
+        .service
+        .provider_tree_key_for_tab(&tab_id, &attempt.pty_id)
+        .expect("the tab provider exposes its executable capability");
+    harness.service.provider_tree_witnesses.record_for_test(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+            [crate::service::process_tree::ProcessIdentity {
+                pid: 900_001,
+                start_token: "synthetic-provider-start".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+    arm(attempt);
 
     // Empty command line, shell nonce, then command end: what the live shell sends.
     harness
@@ -640,15 +777,16 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
 fn launch_readiness_published_failure_stops_the_launch_thread() {
     let tab = launching_tab("pty-tombstone", "nonce-tombstone");
     let attempt = attempt_of(&tab);
+    let proof = exit_proof(&attempt);
 
     arm(attempt.clone());
-    let (claimed, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3))
+    let (claimed, _, _) = claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof)
         .expect("the armed launch claims its exit");
     let reason = exited_before_readiness_reason(&claimed, Some(3));
     record_published_failure(&claimed, &reason);
 
     // A second observer of the same exit finds nothing left to claim.
-    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3)).is_none());
+    assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), Some(3), &proof).is_none());
     assert_eq!(
         observe(&attempt, Instant::now() + BOUND),
         LaunchObservation::Retired

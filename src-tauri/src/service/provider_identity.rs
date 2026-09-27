@@ -160,7 +160,10 @@ impl ServiceContext {
                 );
             }
             None => {
-                self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+                self.clear_tab_agent_identity_explicitly(
+                    tab_id,
+                    "UI explicitly cleared agent identity",
+                );
             }
         }
     }
