@@ -145,6 +145,39 @@ console.log("\n--- profile release carries project trust before removal ---\n");
   assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
 }
 
+console.log("\n--- dead tab profile carries trust before startup sweep removes it ---\n");
+{
+  const config = [
+    "[hooks.state.'C:\\Users\\test\\.codex\\hooks.json:session_start:0:0']",
+    'trusted_hash = "sha256:unchanged"',
+    "",
+  ].join("\r\n");
+  const profileName = "codeterm-tab-lost-without-release.config.toml";
+  const { host, files, removed } = makeHost({
+    [profileName]: [
+      "# codeterm-instance: instance-dev",
+      "",
+      "[projects.'C:\\Users\\test\\modeprobe-scratch\\codex']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "config.toml": config,
+  });
+
+  const report = sweepCodexProfiles(host, ["new-tab"], "instance-dev");
+
+  eq(report.dead, [profileName], "finds a same-instance profile whose tab disappeared");
+  eq(report.removed, [profileName], "removes the dead profile only after trust carry-over");
+  eq(removed, [profileName], "cleanup removes the dead profile after persistence");
+  assert.equal(files[profileName], undefined, "the lost tab profile is no longer orphaned");
+  assert.ok(files["config.toml"].startsWith(config),
+    "the existing hooks and trusted_hash bytes are preserved");
+  assert.ok(files["config.toml"].includes("[projects.'C:\\Users\\test\\modeprobe-scratch\\codex']"),
+    "the trusted project reaches the shared config for the next spawn");
+  assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'),
+    "carry-over preserves the hook trust hash byte content");
+}
+
 console.log("\n--- retry and preserved profiles carry trust before removal ---\n");
 {
   const config = [

@@ -4,7 +4,17 @@ use codeterm_plugin::provider::{LaunchArtifactSweepReport, LaunchArtifactSweepRe
 use super::ServiceContext;
 
 fn live_tab_ids(service: &ServiceContext) -> Vec<String> {
-    let mut tab_ids: Vec<_> = service.mux.read().snapshot().tabs.into_keys().collect();
+    let mut tab_ids: Vec<_> = service
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .into_iter()
+        .filter_map(|(tab_id, tab)| {
+            (tab.boot_stage != Some(crate::service::boot_stage::BootStage::SpawnFailed))
+                .then_some(tab_id)
+        })
+        .collect();
     tab_ids.sort();
     tab_ids
 }

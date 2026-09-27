@@ -152,7 +152,7 @@ export function releaseCodexProfile(
     .filter((path) => codexProfileInstanceId(readProfile(host, path) || "") === instanceId);
   if (ownedPaths.length === 0) return false;
   let released = true;
-  for (const { path } of ownedPaths) {
+  for (const path of ownedPaths) {
     if (!removeProfileAfterTrustCarry(host, path)) released = false;
   }
   return released;

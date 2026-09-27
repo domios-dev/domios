@@ -209,7 +209,10 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         submit_available: Some(false),
         selected_values: Some(vec!["1".into()]),
     };
-    let provider = MockProvider::new("trust-fixture")
+    let provider = MockProvider::with_directory_trust_response(
+        "trust-fixture",
+        codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+    )
         .with_tab_state(TabStateClassification {
             state: TabState::ClarifyingQuestion,
             confidence: 1.0,
@@ -252,4 +255,110 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .and_then(|tab| tab.pending_prompt.clone())
         .expect("the state reactor routes provider choices into tab prompt state");
     assert_eq!(pending, prompt);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn auto_approve_output_handles_permission_prompt_after_reactor_classification() {
+    let prompt = PendingPrompt {
+        question: "Allow this command?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, allow once".into(),
+                value: "yes".into(),
+            },
+            PromptOption {
+                label: "No".into(),
+                value: "no".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: None,
+    };
+    let provider = MockProvider::new("permission-fixture")
+        .with_tab_state(classification(
+            TabState::ClarifyingQuestion,
+            1.0,
+            Some(keys_action(&["enter"])),
+        ))
+        .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-auto-approve-output-path";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("permission-fixture".into());
+    tab.pty_id = Some(pty_id.into());
+    tab.agent_session_id = Some("authenticated-session".into());
+    tab.session_binding_nonce = Some("current-nonce".into());
+    tab.reported_session_binding_nonce = Some("current-nonce".into());
+    tab.auto_approve = true;
+    assert!(tab.launch_session_authenticated());
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"Allow this command?\n1. Yes, allow once\n2. No\n");
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+
+    assert!(fixture
+        .service
+        .prompt_detector
+        .lock()
+        .active_prompt(&tab_id)
+        .is_none(), "the reactor leaves this auto-approve prompt to the output path");
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+    assert!(matches!(
+        &decision,
+        crate::agent::prompt::PromptDecision::NewPrompt { .. }
+    ));
+    fixture.service.apply_prompt_decision_with_screen(
+        &decision,
+        Some("Allow this command?\n1. Yes, allow once\n2. No\n"),
+        false,
+        false,
+    );
+
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none(), "the output path auto-approves instead of being starved by reactor state");
+    assert!(fixture
+        .service
+        .prompt_detector
+        .lock()
+        .active_prompt(&tab_id)
+        .is_none(), "the handled prompt leaves active detection after output approval");
 }

@@ -97,6 +97,8 @@ function appServerResult(sessionHash: string, stopHash: string, trustStatus = "u
   assert.equal(stale.integration_state, "untrusted_hash", "stale trust enters the existing consented repair path");
   assert.equal(stale.hook_trust_verification_source, "cached", "status identifies the cached app-server hash comparison");
   assert.equal(stale.hook_trust_verified_current, false, "a cached mismatch is not current trust");
+  assert.equal(stale.proposed_changes.includes("hook trust"), true,
+    "a cached mismatch still proposes hook trust verification");
   assert.equal(calls(), 1, "only the explicit background refresh used app-server");
   assert.equal(files.get(configPath)?.includes('trusted_hash = "sha256:recorded-session"'), true,
     "status and refresh do not write hook trust hashes");
