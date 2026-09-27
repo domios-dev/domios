@@ -426,6 +426,7 @@ pub(crate) fn launch_agent_in_background(
         agent_cmd,
         origin,
         false,
+        None,
         task,
         fallback_spec,
         Default::default(),
@@ -442,6 +443,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
+    startup_turn_text: Option<String>,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
@@ -454,6 +456,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
         agent_cmd,
         origin,
         has_startup_task_turn,
+        startup_turn_text,
         task,
         fallback_spec,
         Default::default(),
@@ -470,6 +473,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     agent_cmd: String,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
     has_startup_task_turn: bool,
+    startup_turn_text: Option<String>,
     task: Option<String>,
     fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     launch_env: std::collections::HashMap<String, String>,
@@ -527,12 +531,27 @@ pub(crate) fn launch_agent_in_background_with_env(
         model.as_deref(),
         reasoning_effort.as_deref(),
     );
+    let had_session = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_session_id.is_some());
+    let anchor = startup_turn_text
+        .as_ref()
+        .and_then(|_| svc.chat_send_anchor(&tab_id).anchor);
+    let startup_turn_text = if had_session && anchor.is_none() {
+        None
+    } else {
+        startup_turn_text
+    };
+    svc.arm_public_send_launch(&tab_id, startup_turn_text, anchor);
     // thread spawns: callers get the tab id immediately and may send right away.
     if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
         p.agent_booting = true;
     }
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
+        let public_send_guard = svc.public_send_launch_guard(&tab_id);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
@@ -688,6 +707,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 return;
             }
             launch.reuse();
+            svc.retire_public_send_launch(&tab_id);
             if !launch.emit(&svc, launch.stage) {
                 let failure = LaunchFailure::SessionBindingNotObserved(
                     "the reused launch lost its authenticated session".into(),
@@ -710,7 +730,6 @@ pub(crate) fn launch_agent_in_background_with_env(
         if let Err(error) = launch.capture_binding_nonce(
             &svc,
             task_identity.as_ref(),
-            has_startup_task_turn,
         ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
@@ -830,7 +849,6 @@ pub(crate) fn launch_agent_in_background_with_env(
                             launch.capture_binding_nonce(
                                 &svc,
                                 task_identity.as_ref(),
-                                has_startup_task_turn,
                             )
                         {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
@@ -1158,7 +1176,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
         });
         if let Some(finished) =
-            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness)
+            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc)
         {
             if finished {
                 if let Some(tx) = ready_tx {
@@ -1176,6 +1194,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
+        public_send_guard.complete();
         log::info!(
             "launch_agent: agent ready in Tab {} after {}ms",
             tab_id,

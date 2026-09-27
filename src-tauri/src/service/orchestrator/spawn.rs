@@ -871,8 +871,30 @@ impl ServiceContext {
         let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
             params.task.as_deref(),
             fallback_spec.as_ref(),
-            params.starter_prompt,
         );
+        let startup_turn_text = fallback_spec
+            .as_ref()
+            .map(|spec| spec.payload.clone())
+            .or_else(|| {
+                self.agent_registry
+                    .with_provider(&agent_cmd, |provider| {
+                        provider.starter_prompt_text(params.starter_prompt).or_else(|| {
+                            matches!(
+                                provider.task_delivery(),
+                                crate::agent::provider::TaskDelivery::InlineFlag
+                            )
+                            .then(|| bg_task.clone())
+                            .flatten()
+                        })
+                    })
+                    .flatten()
+            });
+        let startup_turn_text = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| provider.has_hooks())
+            .unwrap_or(false)
+            .then_some(startup_turn_text)
+            .flatten();
         launch_agent_in_background_with_task_turn(
             self.clone(),
             tab_id.clone(),
@@ -880,6 +902,7 @@ impl ServiceContext {
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
             has_startup_task_turn,
+            startup_turn_text,
             bg_task,
             fallback_spec,
             task_identity,
