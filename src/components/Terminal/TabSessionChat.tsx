@@ -327,6 +327,14 @@ export function TabSessionChat({
     );
   }, [currentPtyId, showComposerError]);
 
+  const handleStopReminder = useCallback(async (id: string) => {
+    try {
+      await invoke("delayed_send_delete", { id });
+    } catch (error) {
+      showComposerError(error instanceof Error ? error.message : String(error));
+    }
+  }, [showComposerError]);
+
   const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
@@ -779,6 +787,7 @@ export function TabSessionChat({
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
+                onStopReminder={handleStopReminder}
                 onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}

@@ -273,6 +273,7 @@ fn schedule_resume(svc: &ServiceState, tab_id: &str, resume: &super::tab_state::
         resume.text.clone(),
         Some(at_ms),
         None,
+        None,
     ) {
         Ok(_) => log::info!(
             "[state-reactor] scheduled resume for Tab {} at {}",

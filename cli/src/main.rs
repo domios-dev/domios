@@ -295,6 +295,9 @@ fn main_impl() {
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
             require_agent,
             to_shell,
         } => {
@@ -309,6 +312,9 @@ fn main_impl() {
                 actions,
                 delay,
                 at,
+                every,
+                until,
+                count,
                 require_agent,
                 to_shell,
             );

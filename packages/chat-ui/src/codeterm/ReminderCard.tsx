@@ -1,5 +1,5 @@
 import React from "react";
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, X } from "lucide-react";
 import { renderUserContent } from "../MarkdownBody";
 import { absoluteTime, relativeTime } from "./relativeTime";
 
@@ -9,12 +9,46 @@ interface Props {
   setAt?: string;
   fireAt?: string;
   id?: string;
+  everyMs?: string;
+  nextAt?: string;
+  skippedTicks?: string;
+  onStop?: (id: string) => void;
   body: string;
 }
 
-export function ReminderCard({ whoSet, model, setAt, fireAt, id, body }: Props): React.ReactElement {
+function intervalLabel(value: string | undefined): string | null {
+  const ms = Number(value);
+  if (!Number.isFinite(ms) || ms < 1) return null;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1_000)}s`;
+}
+
+function clockLabel(value: string | undefined): string | null {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
+}
+
+export function ReminderCard({
+  whoSet,
+  model,
+  setAt,
+  fireAt,
+  id,
+  everyMs,
+  nextAt,
+  skippedTicks,
+  onStop,
+  body,
+}: Props): React.ReactElement {
   const setRel = relativeTime(setAt);
   const fireRel = relativeTime(fireAt);
+  const every = intervalLabel(everyMs);
+  const next = clockLabel(nextAt);
+  const repeatLine = every
+    ? `repeats every ${every}${next ? ` · next at ${next}` : ""} · skipped ${skippedTicks ?? "0"}`
+    : null;
   const subline = [setRel ? `set ${setRel}` : null, fireRel ? `fired ${fireRel}` : null]
     .filter(Boolean)
     .join(" · ");
@@ -57,7 +91,25 @@ export function ReminderCard({ whoSet, model, setAt, fireAt, id, body }: Props):
                 {subline}
               </span>
             )}
+            {repeatLine && (
+              <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+                {repeatLine}
+              </span>
+            )}
           </span>
+          {every && id && onStop && (
+            <button
+              type="button"
+              aria-label="Stop recurring reminder"
+              title="Stop recurring reminder"
+              onClick={() => onStop(id)}
+              className="ct-liquid-interactive inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium"
+              style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
+            >
+              <X size={12} aria-hidden="true" />
+              <span>Stop</span>
+            </button>
+          )}
         </div>
         {body.trim() && (
           <div

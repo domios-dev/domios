@@ -121,6 +121,9 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
         ...(marker.attrs.set_at ? { setAt: marker.attrs.set_at } : {}),
         ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
         ...(marker.attrs.id ? { id: marker.attrs.id } : {}),
+        ...(marker.attrs.every_ms ? { everyMs: marker.attrs.every_ms } : {}),
+        ...(marker.attrs.next_at ? { nextAt: marker.attrs.next_at } : {}),
+        ...(marker.attrs.skipped ? { skippedTicks: marker.attrs.skipped } : {}),
       },
       body,
     };
