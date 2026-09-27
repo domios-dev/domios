@@ -57,8 +57,8 @@ pub(super) fn dispatch_worker_identity(
 /// Resolve the provider and model a dispatch should spawn. Precedence: an explicit
 /// `agent` provider wins; a matching `<provider>:<model>` prefix is
 /// normalized before provider resolution. Otherwise a requested qualified model
-/// prefix selects its provider. A bare provider name selects its default model;
-/// an unavailable model remains a refusal rather than a silent substitution.
+/// prefix or uniquely advertised bare model id selects its provider. A bare
+/// provider name selects its default model; unavailable ids are refused later.
 pub(super) fn resolve_dispatch_routing(
     explicit_agent: Option<String>,
     rpc_model: Option<String>,
@@ -66,7 +66,11 @@ pub(super) fn resolve_dispatch_routing(
     provider_ids: &[String],
 ) -> DispatchRouting {
     resolve_dispatch_routing_with_model_owners(
-        explicit_agent, rpc_model, task_model, provider_ids, &[],
+        explicit_agent,
+        rpc_model,
+        task_model,
+        provider_ids,
+        &[],
     )
 }
 
@@ -119,9 +123,11 @@ pub(super) fn resolve_dispatch_routing_with_model_owners(
                 qualified_provider_mismatch: None,
             };
         }
-        let owners = model_owners.iter().filter(|(_, models)| {
-            models.iter().any(|id| id.eq_ignore_ascii_case(&model))
-        }).map(|(provider, _)| provider).collect::<Vec<_>>();
+        let owners = model_owners
+            .iter()
+            .filter(|(_, models)| models.iter().any(|id| id.eq_ignore_ascii_case(&model)))
+            .map(|(provider, _)| provider)
+            .collect::<Vec<_>>();
         if owners.len() == 1 {
             return DispatchRouting {
                 agent: Some(owners[0].clone()),

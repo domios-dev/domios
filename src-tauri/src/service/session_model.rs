@@ -354,7 +354,8 @@ impl ServiceContext {
         session_id: &str,
         model: &str,
     ) {
-        if let Some(plan_id) = self.write_attempt_session_model(tab_id, agent_id, session_id, model)
+        if let Some(plan_id) =
+            self.write_attempt_model_identity(tab_id, agent_id, session_id, Some(model.to_string()))
         {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
@@ -364,44 +365,72 @@ impl ServiceContext {
         }
     }
 
-    fn write_attempt_session_model(
+    fn write_attempt_model_identity(
         &self,
         tab_id: &str,
         agent_id: &str,
         session_id: &str,
-        model: &str,
+        detected_model: Option<String>,
     ) -> Option<String> {
-        let binding = {
+        let identity = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return None;
             };
-            if !runtime_model_update_matches_session(tab, agent_id, session_id)
-                || tab.agent_session_model.as_deref() != Some(model)
-            {
+            if !runtime_model_update_matches_session(tab, agent_id, session_id) {
                 return None;
             }
-            super::task_assignment::authenticated_tab_binding(tab)
+            let Some(binding) = super::task_assignment::authenticated_tab_binding(tab) else {
+                return None;
+            };
+            let actual_model = binding.session_model.clone().filter(|model| {
+                detected_model
+                    .as_ref()
+                    .is_none_or(|detected| detected == model)
+            });
+            let mismatch = tab.model_identity_mismatch.as_ref().map(|mismatch| {
+                crate::plan::AttemptModelIdentityMismatch {
+                    requested_model: mismatch.requested_model.clone(),
+                    provider_resolved_model: mismatch.provider_resolved_model.clone(),
+                    actual_model: mismatch.actual_model.clone(),
+                    reason: mismatch.reason.clone(),
+                }
+            });
+            (
+                binding,
+                tab.agent_requested_model.clone(),
+                tab.agent_provider_resolved_model.clone(),
+                actual_model,
+                mismatch,
+            )
         };
-        let Some(binding) = binding else { return None };
-        if binding.session_model.as_deref() != Some(model) {
+        let (binding, requested_model, provider_resolved_model, session_model, mismatch) = identity;
+        if binding.provider.as_deref() != Some(agent_id)
+            || binding.session_id != session_id
+            || binding.session_binding_nonce.trim().is_empty()
+        {
             return None;
         }
-        let Some((plan_id, task_id, attempt_id)) = self.plan_store.open_attempt_task_for_tab(
-            tab_id,
-            &binding.session_id,
-            &binding.session_binding_nonce,
-        ) else {
+        let Some((plan_id, task_id, attempt_id)) =
+            self.plan_store.open_attempt_task_for_effort_for_tab(
+                tab_id,
+                &binding.session_id,
+                &binding.session_binding_nonce,
+            )
+        else {
             return None;
         };
-        match self.plan_store.update_attempt_session_model_if_unknown(
+        match self.plan_store.update_attempt_model_identity(
             &plan_id,
             &task_id,
             tab_id,
             &attempt_id,
             &binding.session_id,
             &binding.session_binding_nonce,
-            model,
+            requested_model,
+            provider_resolved_model,
+            session_model,
+            mismatch,
             session_model_epoch_ms(),
         ) {
             Ok(true) => Some(plan_id),
@@ -418,16 +447,19 @@ impl ServiceContext {
     pub(crate) fn persist_current_attempt_session_model(&self, tab_id: &str) {
         let identity = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id).and_then(|tab| {
-                Some((
-                    tab.agent_type.clone()?,
-                    tab.agent_session_id.clone()?,
-                    tab.agent_session_model.clone()?,
-                ))
-            })
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.agent_session_id.clone()?)))
         };
-        if let Some((agent_id, session_id, model)) = identity {
-            self.persist_attempt_session_model(tab_id, &agent_id, &session_id, &model);
+        if let Some((agent_id, session_id)) = identity {
+            if let Some(plan_id) =
+                self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None)
+            {
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": plan_id }),
+                );
+            }
         }
     }
 }
@@ -501,7 +533,7 @@ fn model_identity_update(
                     provider_resolved_model: mismatch
                         .provider_resolved_model
                         .clone()
-                        .unwrap_or_else(|| mismatch.requested_model.clone()),
+                        .unwrap_or_else(|| mismatch.actual_model.clone()),
                     actual_model: Some(mismatch.actual_model.clone()),
                     reason: mismatch.reason.clone(),
                 })

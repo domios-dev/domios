@@ -8,6 +8,7 @@ pub(crate) struct InvalidModelError {
     pub provider_id: String,
     pub requested_model: String,
     pub closest_model_ids: Vec<String>,
+    pub provider_mismatch: Option<String>,
 }
 
 impl InvalidModelError {
@@ -29,12 +30,23 @@ impl InvalidModelError {
 
 impl fmt::Display for InvalidModelError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(requested_provider) = self.provider_mismatch.as_deref() {
+            return write!(
+                formatter,
+                "model provider '{}' does not match selected provider '{}'; select that provider explicitly or choose one of its model ids",
+                requested_provider, self.provider_id
+            );
+        }
         let suggestions = if self.closest_model_ids.is_empty() {
             "no model ids are currently advertised".to_string()
         } else {
             self.closest_model_ids.join(", ")
         };
-        write!(formatter, "model id '{}' is not available from provider '{}'; valid model ids: {}", self.requested_model, self.provider_id, suggestions)
+        write!(
+            formatter,
+            "model id '{}' is not available from provider '{}'; valid model ids: {}",
+            self.requested_model, self.provider_id, suggestions
+        )
     }
 }
 
@@ -89,13 +101,62 @@ pub(crate) fn validate_agent_model(
     provider_id: &str,
     model: Option<&str>,
 ) -> Result<(), InvalidModelError> {
-    let Some(requested) = model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|model| normalize_requested_model(provider_id, model))
-    else {
+    let Some(raw_requested) = model.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(());
     };
+    if registry
+        .provider_ids()
+        .iter()
+        .any(|registered| registered.eq_ignore_ascii_case(raw_requested))
+        && !raw_requested.eq_ignore_ascii_case(provider_id)
+    {
+        return Err(InvalidModelError {
+            provider_id: provider_id.to_string(),
+            requested_model: raw_requested.to_string(),
+            closest_model_ids: Vec::new(),
+            provider_mismatch: Some(raw_requested.to_string()),
+        });
+    }
+    if let Some((requested_provider, _)) = raw_requested.split_once(':') {
+        if registry
+            .provider_ids()
+            .iter()
+            .any(|registered| registered.eq_ignore_ascii_case(requested_provider))
+            && !requested_provider.eq_ignore_ascii_case(provider_id)
+        {
+            return Err(InvalidModelError {
+                provider_id: provider_id.to_string(),
+                requested_model: raw_requested.to_string(),
+                closest_model_ids: Vec::new(),
+                provider_mismatch: Some(requested_provider.to_string()),
+            });
+        }
+    } else {
+        let owners = registry
+            .provider_ids()
+            .into_iter()
+            .filter(|candidate| !candidate.eq_ignore_ascii_case(provider_id))
+            .filter(|candidate| {
+                registry
+                    .with_provider(candidate, |provider| {
+                        provider
+                            .available_models()
+                            .iter()
+                            .any(|entry| entry.id.eq_ignore_ascii_case(raw_requested))
+                    })
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+        if !owners.is_empty() {
+            return Err(InvalidModelError {
+                provider_id: provider_id.to_string(),
+                requested_model: raw_requested.to_string(),
+                closest_model_ids: Vec::new(),
+                provider_mismatch: Some(owners.join(", ")),
+            });
+        }
+    }
+    let requested = normalize_requested_model(provider_id, raw_requested);
     let capability = model_catalogue_capability(registry, provider_id);
     let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
     if capability.authority != ModelCatalogueAuthority::Authoritative && !live {
@@ -121,7 +182,11 @@ pub(crate) fn validate_agent_model(
         return Ok(());
     }
     let closest_model_ids = if capability.authority == ModelCatalogueAuthority::FreeForm {
-        models.iter().filter(|model| model.available != Some(false)).map(|model| model.id.clone()).collect()
+        models
+            .iter()
+            .filter(|model| model.available != Some(false))
+            .map(|model| model.id.clone())
+            .collect()
     } else {
         closest_catalogue_ids(&models, &lookup)
     };
@@ -129,6 +194,7 @@ pub(crate) fn validate_agent_model(
         provider_id: provider_id.to_string(),
         requested_model: requested,
         closest_model_ids,
+        provider_mismatch: None,
     })
 }
 

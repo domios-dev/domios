@@ -104,8 +104,15 @@ Choose a model with `codeterm agent models <provider>` and pass its id with
 catalogue refuse unknown ids before creating a tab and list valid catalogue ids
 in the error. Free-form providers also validate ids against a published live
 model list. If no live list is available, the requested id is passed through
-unchanged with a warning. Provider-qualified ids select their provider; an
-unqualified id advertised by one provider routes to that provider.
+unchanged. Provider-qualified ids select their provider; an unqualified id
+advertised by one provider routes to that provider. A provider alias advertised
+by another provider is refused instead of being passed across providers.
+
+Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and
+`session_model` separate. The resolved field stays null until launch resolution
+identifies the model; the session field stays null until detection reads that
+attempt's bound session. A different detected model is stored in
+`model_identity_mismatch` and raises one dispatcher notice.
 
 ### Open agent shells (`chatBackend`)
 

@@ -30,8 +30,8 @@ mod recovery;
 mod routing;
 mod startup;
 mod tab_reservation;
-mod workspace_admission;
 mod unplanned;
+mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use attempt_rollback::roll_back_dispatch_attempt;
@@ -57,13 +57,15 @@ use lane_safety::{
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;
-use routing::{dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing_with_model_owners};
+use routing::{
+    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing_with_model_owners,
+};
 pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
-use workspace_admission::preflight_dispatch_workspace;
 pub(crate) use unplanned::dispatch_unplanned;
+use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -500,12 +502,24 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let model_owners = svc.agent_registry.provider_ids().into_iter().map(|provider_id| {
-        let models = svc.agent_registry.with_provider(&provider_id, |provider| {
-            provider.available_models().into_iter().map(|model| model.id).collect()
-        }).unwrap_or_default();
-        (provider_id, models)
-    }).collect::<Vec<_>>();
+    let model_owners = svc
+        .agent_registry
+        .provider_ids()
+        .into_iter()
+        .map(|provider_id| {
+            let models = svc
+                .agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider
+                        .available_models()
+                        .into_iter()
+                        .map(|model| model.id)
+                        .collect()
+                })
+                .unwrap_or_default();
+            (provider_id, models)
+        })
+        .collect::<Vec<_>>();
     let routing = resolve_dispatch_routing_with_model_owners(
         owned_str(p, "agent"),
         owned_str(p, "model"),
@@ -590,6 +604,7 @@ where
         None,
     );
     let dispatched_model = model_resolution.model.clone();
+    let dispatched_provider_resolved_model = model_resolution.provider_resolved_model.clone();
     if let Some(warning) = model_resolution.warning.clone() {
         warnings.push(warning);
     }
@@ -919,6 +934,8 @@ where
             Some(authorized_gates.clone()),
             placement,
             dispatched_model,
+            routing.model.clone(),
+            dispatched_provider_resolved_model,
             dispatched_reasoning_effort,
             begin_owner,
             begin_owner_is_live,

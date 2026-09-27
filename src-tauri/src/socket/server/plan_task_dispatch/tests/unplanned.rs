@@ -221,6 +221,52 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
+    let harness = fixture();
+    let provider_id = "opencode";
+    harness
+        .fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new(provider_id)
+                .with_launch_binary("cmd.exe"),
+        ));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "opencode/deepseek-v4-flash-free".into(),
+            display_name: "OpenCode DeepSeek Flash".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+    let before = harness.fixture.service.mux.read().snapshot().tabs.len();
+    let mut invalid_params = params(&harness, "live model check").unwrap();
+    invalid_params["agent"] = json!(provider_id);
+    invalid_params["model"] = json!("sonnet");
+    let error = super::super::unplanned::dispatch_unplanned_with_spawn(
+        &Some(invalid_params),
+        harness.fixture._app.handle(),
+        &std::sync::Arc::new(harness.fixture.service.clone()),
+        20,
+        |_, _, _| panic!("invalid model must be refused before spawn"),
+    )
+    .expect_err("model outside the provider's live list is refused");
+
+    assert!(
+        error.message.contains("opencode/deepseek-v4-flash-free"),
+        "{error}"
+    );
+    assert_eq!(
+        harness.fixture.service.mux.read().snapshot().tabs.len(),
+        before
+    );
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unplanned_worker_requires_reason_and_orchestrator_authority() {
     let harness = fixture();
     let empty_reason = dispatch(&harness, &params(&harness, "   ")).unwrap_err();
