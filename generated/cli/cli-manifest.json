@@ -662,6 +662,16 @@
               "aliases": []
             },
             {
+              "name": "reason",
+              "positional": false,
+              "required": false,
+              "value_name": "REASON",
+              "possible_values": [],
+              "default": null,
+              "help": "Why this Worker needs an unplanned task",
+              "aliases": []
+            },
+            {
               "name": "reasoning-effort",
               "positional": false,
               "required": false,
@@ -755,6 +765,16 @@
               "possible_values": [],
               "default": null,
               "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "unplanned",
+              "positional": false,
+              "required": false,
+              "value_name": "UNPLANNED",
+              "possible_values": [],
+              "default": null,
+              "help": "Create and dispatch a visible exceptional task for this Worker",
               "aliases": []
             },
             {
