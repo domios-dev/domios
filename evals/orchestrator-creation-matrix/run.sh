@@ -28,13 +28,15 @@ if [ -z "$PYTHON_BIN" ]; then
   echo "ABORT: neither python3 nor python is available on PATH" >&2
   exit 7
 fi
+JSON_EXPR="$ROOT/evals/orchestrator-creation-matrix/json_expr.py"
 
 # --- result accounting ----------------------------------------------
 declare -a ROWS           # "SCENARIO|VERDICT|detail"
 CREATED_TABS=()
 CREATED_PLANS=()
-CREATED_WS=()
 FAILS=0
+WORKSPACE_BASELINE=""
+WS_NAME="WS-orchmatrix"
 SCENARIO_B_ORCH=""
 SCENARIO_B_PLANNER=""
 SCENARIO_B_PLAN=""
@@ -59,27 +61,19 @@ gated()   { echo "  [GATED]   $1: $2"; record "$1" GATED "$2"; }
 # --- json helpers (python; portable) --------------------------------
 # js <output> <python-expr-on-d>; tolerate CLI hints around JSON.
 js() {
-  printf '%s' "$1" | "$PYTHON_BIN" -c '
-import json,sys
-raw=sys.stdin.read()
-decoder=json.JSONDecoder()
-for index,char in enumerate(raw):
-    if char not in "[{":
-        continue
-    try:
-        d,_=decoder.raw_decode(raw[index:])
-        break
-    except json.JSONDecodeError:
-        pass
-else:
-    print("")
-    raise SystemExit(0)
-try:
-    v=eval(sys.argv[1],{'d':d})
-    print('' if v is None else v)
-except Exception:
-    print('')
-' "$2" 2>/dev/null
+  printf '%s' "$1" | "$PYTHON_BIN" "$JSON_EXPR" "$2"
+}
+
+workspace_ids() {
+  local output ids expression
+  output=$(dev_get /api/workspaces) || return
+  if [ -n "${1:-}" ]; then
+    expression="','.join(row.get('id','') for row in d if isinstance(row,dict) and row.get('name') == '$1' and row.get('id'))"
+  else
+    expression="','.join(row.get('id','') for row in d if isinstance(row,dict) and row.get('id'))"
+  fi
+  ids=$(js "$output" "$expression") || return
+  [ -z "$ids" ] || printf '%s\n' "$ids" | tr ',' '\n'
 }
 
 print_error_body() {
@@ -104,10 +98,21 @@ cleanup() {
   # extraction failed mid-scenario, is still deleted). Never archive:
   # archived plans are exactly the junk we are here to eliminate.
   [ -n "${PLAN_BASELINE:-}" ] && plan_sweep_new "$PLAN_BASELINE"
-  for w in "${CREATED_WS[@]:-}"; do
-    [ -n "$w" ] || continue
-    dc workspace close "$w" >/dev/null 2>&1 && note "closed ws $w" || note "ws $w left"
-  done
+  if [ -n "${WORKSPACE_BASELINE:-}" ] && [ -f "$WORKSPACE_BASELINE" ]; then
+    local current_workspaces workspace_id
+    if current_workspaces=$(workspace_ids "$WS_NAME"); then
+      while IFS= read -r workspace_id; do
+        [ -n "$workspace_id" ] || continue
+        grep -Fxq "$workspace_id" "$WORKSPACE_BASELINE" && continue
+        dc workspace close "$workspace_id" --force >/dev/null 2>&1 \
+          && note "closed created workspace $workspace_id" \
+          || note "created workspace $workspace_id left"
+      done <<< "$current_workspaces"
+    else
+      note "could not list workspaces for cleanup; created workspaces may remain"
+    fi
+    rm -f "$WORKSPACE_BASELINE"
+  fi
 }
 trap cleanup EXIT
 
@@ -117,7 +122,7 @@ if ! dev_get /api/health >/dev/null 2>&1; then
   echo "ABORT: dev daemon not healthy on 7686. Start it (orchestrator owns dev): ./build.sh dev" >&2
   exit 7
 fi
-BUILD=$(dev_get /api/health | "$PYTHON_BIN" -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
+BUILD=$(js "$(dev_get /api/health)" "d.get('build','?')")
 echo "  dev build: $BUILD"
 
 # Creation routes must all reach the one shared preset resolver; a kind that
@@ -137,11 +142,24 @@ PLAN_BASELINE="$(mktemp -t orchmatrix-plans.XXXXXX)"
 plan_snapshot "$PLAN_BASELINE" || { echo "ABORT: could not snapshot plan baseline" >&2; exit 7; }
 echo "  plan baseline: $(wc -l < "$PLAN_BASELINE" | tr -d ' ') plans"
 
-# scratch workspace shared by scenarios (each scenario independent within it)
+# Scratch workspace cleanup compares workspace ids so a failed id parse cannot leak it.
+workspace_baseline_tmp="$(mktemp -t orchmatrix-workspaces.XXXXXX)"
+if ! workspace_ids > "$workspace_baseline_tmp" || [ ! -s "$workspace_baseline_tmp" ]; then
+  rm -f "$workspace_baseline_tmp"
+  echo "ABORT: could not snapshot workspace baseline" >&2
+  exit 7
+fi
+WORKSPACE_BASELINE="$workspace_baseline_tmp"
 WS_CWD="$ROOT"
-WS=$(new_workspace "WS-orchmatrix" "$WS_CWD")
-if [ -z "$WS" ]; then echo "ABORT: could not create scratch workspace" >&2; exit 1; fi
-CREATED_WS+=("$WS")
+WS_OUTPUT=$(dc workspace create "$WS_NAME" --cwd "$WS_CWD" --json 2>&1)
+WS_RC=$?
+WS=$(js "$WS_OUTPUT" "d.get('id','')")
+if [ "$WS_RC" -ne 0 ] || [ -z "$WS" ]; then
+  FAILURE_ERROR_BODY="$WS_OUTPUT"
+  echo "ABORT: could not create scratch workspace (rc=$WS_RC)" >&2
+  printf 'workspace create output:\n%s\n' "$WS_OUTPUT" >&2
+  exit 1
+fi
 echo "  scratch workspace: $WS"
 
 # mk_plan <title> <orchestrator> -> sets PLAN_ID and PLAN_OUTPUT. It retries a
@@ -180,7 +198,7 @@ tab_exists() {
   output=$(dc tab list --json 2>&1)
   js "$output" "any(row.get('id') == '$1' for row in $tab_rows_expr)"
 }
-tab_session() { dev_get "/api/tabs" | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('session_id') or p.get('session') or '' for p in json.load(sys.stdin) if p.get('id')=='$1'),''))" 2>/dev/null; }
+tab_session() { js "$(dev_get /api/tabs)" "next((p.get('session_id') or p.get('session') or '' for p in d if p.get('id') == '$1'), '')"; }
 
 # grep the UI chat-start snapshot for a fixed string. This is the deterministic
 # oracle for pending_greeting; `tab chat` only reads the durable transcript.
@@ -427,7 +445,7 @@ scenario_D() {
 
   # role actually flipped
   local role_after
-  role_after=$(dev_get /api/tabs | "$PYTHON_BIN" -c "import json,sys;print(next((p.get('role','') for p in json.load(sys.stdin) if p.get('id')=='$tab'),''))" 2>/dev/null)
+  role_after=$(js "$(dev_get /api/tabs)" "next((p.get('role','') for p in d if p.get('id') == '$tab'), '')")
   if echo "$role_after" | grep -qi "orchestrator"; then
     pass D.role "tab promoted to Orchestrator (role=$role_after)"
   else
@@ -597,25 +615,7 @@ doctor_planner_rule() {
   local orchestrator="$1" plan="$2"
   DOCTOR_OUTPUT=$(dc --as-tab "$orchestrator" plan doctor "$plan" --kind quality --json 2>&1)
   DOCTOR_RC=$?
-  DOCTOR_SEVERITY=$(printf '%s' "$DOCTOR_OUTPUT" | "$PYTHON_BIN" -c '
-import json,sys
-raw=sys.stdin.read()
-decoder=json.JSONDecoder()
-for i,char in enumerate(raw):
-    if char != "{": continue
-    try:
-        data,_=decoder.raw_decode(raw[i:])
-        break
-    except json.JSONDecodeError:
-        pass
-else:
-    print("")
-    raise SystemExit(0)
-for finding in data.get("findings", []):
-    if isinstance(finding, dict) and finding.get("kind") == "planner_unpaired":
-        print(finding.get("severity", "present"))
-        break
-' 2>/dev/null)
+  DOCTOR_SEVERITY=$(js "$DOCTOR_OUTPUT" "next((finding.get('severity','present') for finding in d.get('findings',[]) if isinstance(finding,dict) and finding.get('kind') == 'planner_unpaired'), '')")
 }
 
 scenario_G() {

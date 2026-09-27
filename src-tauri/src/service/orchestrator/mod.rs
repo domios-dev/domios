@@ -16,7 +16,7 @@ pub(crate) use launch::{
 pub(crate) use launch::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service, launch_agent_in_background,
-    launch_agent_in_background_with_env, launch_agent_in_background_with_task_turn,
+    launch_agent_in_background_with_env,
     record_provider_session, record_reader_termination, ProviderSessionBinding,
 };
 #[cfg(test)]
