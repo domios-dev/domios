@@ -91,11 +91,40 @@ impl super::ServiceContext {
         format!("{failure}; fallback cleanup recovered from close error: {close_error}")
     }
 
+    pub(crate) fn rollback_failed_agent_spawn_if_created(
+        &self,
+        tab_id: &str,
+        failure: &str,
+        created_by_spawn: bool,
+    ) -> String {
+        if created_by_spawn {
+            self.rollback_failed_agent_spawn(tab_id, failure)
+        } else {
+            failure.to_string()
+        }
+    }
+
     pub(crate) fn rollback_empty_agent_launch(&self, tab_id: &str, provider_id: &str) -> String {
         let failure = format!(
             "Agent provider '{}' did not resolve a launch command",
             provider_id
         );
         self.rollback_failed_agent_spawn(tab_id, &failure)
+    }
+
+    pub(crate) fn rollback_empty_agent_launch_if_created(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        created_by_spawn: bool,
+    ) -> String {
+        if created_by_spawn {
+            self.rollback_empty_agent_launch(tab_id, provider_id)
+        } else {
+            format!(
+                "Agent provider '{}' did not resolve a launch command",
+                provider_id
+            )
+        }
     }
 }
