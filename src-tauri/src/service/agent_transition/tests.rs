@@ -564,10 +564,15 @@ fn explicit_planner_clear_keeps_previous_role_removal_semantics() {
         .unwrap();
 
     let mux = fixture.service.mux.read();
-    let planner = mux.get_tab(&planner_tab).expect("former Planner remains live");
+    let planner = mux
+        .get_tab(&planner_tab)
+        .expect("former Planner remains live");
     assert_eq!(planner.role, None);
     assert_eq!(planner.team_id, None);
-    assert_eq!(fixture.service.plan_store.get(&plan_id).unwrap().planner, None);
+    assert_eq!(
+        fixture.service.plan_store.get(&plan_id).unwrap().planner,
+        None
+    );
 }
 
 #[test]
@@ -595,7 +600,9 @@ fn restore_keeps_persisted_role_and_team_after_plan_planner_change() {
     drop(before);
 
     let restored = MultiplexerState::from_session_snapshot(&snapshot);
-    let planner = restored.get_tab(&planner_tab).expect("Planner tab restores");
+    let planner = restored
+        .get_tab(&planner_tab)
+        .expect("Planner tab restores");
     assert_eq!(planner.role, expected_role);
     assert_eq!(planner.role_profile, expected_profile);
     assert_eq!(planner.team_id, expected_team);
@@ -613,7 +620,10 @@ fn role_and_team_removal_are_journaled() {
         .records;
     let transitions = records.into_iter().filter_map(|record| match record {
         crate::session::lifecycle::JournalRecord::Transition { entry }
-            if entry.key.tab_id == planner_tab => Some(entry.transition),
+            if entry.key.tab_id == planner_tab =>
+        {
+            Some(entry.transition)
+        }
         _ => None,
     });
     let transitions = transitions.collect::<Vec<_>>();

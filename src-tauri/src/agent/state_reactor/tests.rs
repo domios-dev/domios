@@ -3,6 +3,8 @@ use crate::agent::status::TabStatus;
 use crate::agent::tab_state::{
     DelayedResume, Surface, TabState, TabStateAction, TabStateClassification,
 };
+use crate::agent::test_provider::MockProvider;
+use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 fn classification(
     state: TabState,
@@ -149,13 +151,15 @@ fn update_prompt_classification_is_a_manual_prompt_guard() {
 #[test]
 fn update_prompt_without_an_explicit_update_action_is_never_acted() {
     let prompt = classification(TabState::UpdatePrompt, 1.0, None);
-    assert_eq!(decide(TabStatus::Idle, Some(&prompt)), ReactorDecision::Ignore);
-    let keyed = classification(
-        TabState::UpdatePrompt,
-        1.0,
-        Some(keys_action(&["enter"])),
+    assert_eq!(
+        decide(TabStatus::Idle, Some(&prompt)),
+        ReactorDecision::Ignore
     );
-    assert_eq!(decide(TabStatus::Idle, Some(&keyed)), ReactorDecision::Ignore);
+    let keyed = classification(TabState::UpdatePrompt, 1.0, Some(keys_action(&["enter"])));
+    assert_eq!(
+        decide(TabStatus::Idle, Some(&keyed)),
+        ReactorDecision::Ignore
+    );
 }
 
 #[test]
@@ -171,4 +175,199 @@ fn rfc3339_reset_time_parses_to_epoch_ms() {
 #[test]
 fn garbage_reset_time_is_rejected() {
     assert_eq!(parse_iso_to_ms("4:20pm (Europe/Riga)"), None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/tests/fixtures/directory-trust/trust-frame-full-screen-trailing-blank-rows.txt");
+    let screen = std::fs::read_to_string(fixture_path).expect("captured Codex folder trust frame");
+    let options = screen
+        .lines()
+        .filter_map(|line| {
+            let row = line.trim().strip_prefix('›').unwrap_or(line.trim()).trim_start();
+            let digits = row.chars().take_while(char::is_ascii_digit).count();
+            let value = row.get(..digits)?.parse::<usize>().ok()?;
+            let label = row.get(digits..)?.trim_start().strip_prefix('.')?.trim_start();
+            (!label.is_empty()).then(|| PromptOption {
+                label: label.to_string(),
+                value: value.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(options.len(), 2, "the live frame exposes both trust choices");
+    assert_eq!(
+        options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        vec!["1", "2"]
+    );
+    let prompt = PendingPrompt {
+        question: "folder access choice".into(),
+        options,
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: Some(vec!["1".into()]),
+    };
+    let provider = MockProvider::with_directory_trust_response(
+        "trust-fixture",
+        codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+    )
+    .with_tab_state(TabStateClassification {
+        state: TabState::ClarifyingQuestion,
+        confidence: 1.0,
+        data: None,
+        action: Some(TabStateAction {
+            keys: None,
+            delayed_resume: None,
+            surface: Some(Surface {
+                kind: "clarifying_question".into(),
+                payload: serde_json::json!({"questions": ["folder access choice"]}),
+            }),
+        }),
+    })
+    .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-live-trust-frame";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("trust-fixture".into());
+    tab.cwd = Some("C:\\Users\\User\\workspace".into());
+    tab.auto_approve = true;
+    tab.permission_auto_confirm = true;
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, screen.as_bytes());
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.clone())
+        .expect("the state reactor routes provider choices into tab prompt state");
+    assert_eq!(pending, prompt);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn auto_approve_output_handles_permission_prompt_after_reactor_classification() {
+    let prompt = PendingPrompt {
+        question: "Allow this command?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, allow once".into(),
+                value: "yes".into(),
+            },
+            PromptOption {
+                label: "No".into(),
+                value: "no".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: None,
+    };
+    let provider = MockProvider::new("permission-fixture")
+        .with_tab_state(classification(
+            TabState::ClarifyingQuestion,
+            1.0,
+            Some(keys_action(&["enter"])),
+        ))
+        .with_parsed_prompt(prompt.clone());
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-auto-approve-output-path";
+    mux.link_pty(&tab_id, pty_id.into());
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("permission-fixture".into());
+    tab.pty_id = Some(pty_id.into());
+    tab.agent_session_id = Some("authenticated-session".into());
+    tab.session_binding_nonce = Some("current-nonce".into());
+    tab.reported_session_binding_nonce = Some("current-nonce".into());
+    tab.auto_approve = true;
+    assert!(tab.launch_session_authenticated());
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"Allow this command?\n1. Yes, allow once\n2. No\n");
+    let service = std::sync::Arc::new(fixture.service.clone());
+
+    react(&service, pty_id, TabStatus::Waiting);
+
+    assert!(
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .active_prompt(&tab_id)
+            .is_none(),
+        "the reactor leaves this auto-approve prompt to the output path"
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+    assert!(matches!(
+        &decision,
+        crate::agent::prompt::PromptDecision::NewPrompt { .. }
+    ));
+    fixture.service.apply_prompt_decision_with_screen(
+        &decision,
+        Some("Allow this command?\n1. Yes, allow once\n2. No\n"),
+        false,
+        false,
+    );
+
+    assert!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref())
+            .is_none(),
+        "the output path auto-approves instead of being starved by reactor state"
+    );
+    assert!(
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .active_prompt(&tab_id)
+            .is_none(),
+        "the handled prompt leaves active detection after output approval"
+    );
 }

@@ -37,15 +37,19 @@ function Invoke-RestMethod {
   [CmdletBinding()]
   param($Method, $Uri, $Headers, $ContentType, $Body)
   [IO.File]::WriteAllText((Join-Path $env:USERPROFILE 'release-uri.txt'), $Uri)
-  $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
-  if (Test-Path -LiteralPath $profilePath) {
-    Add-Content -LiteralPath ${quote(releaseLogPath)} -Value ([IO.File]::ReadAllText($profilePath))
-    if ($script:ReleaseResult) { Remove-Item -LiteralPath $profilePath -Force }
+  $profileDir = Join-Path $env:USERPROFILE '.codex'
+  $profilePaths = @(Get-ChildItem -LiteralPath $profileDir -Filter 'codeterm-owned-launch-fixture*.config.toml' -File | ForEach-Object FullName)
+  foreach ($profilePath in $profilePaths) {
+    $profileText = [IO.File]::ReadAllText($profilePath)
+    Add-Content -LiteralPath ${quote(releaseLogPath)} -Value $profileText
+    if ($script:ReleaseResult -and (($profileText -split "\`r?\`n")[0] -eq '# codeterm-instance: instance-launch-test')) {
+      Remove-Item -LiteralPath $profilePath -Force
+    }
   }
   return @{ released = $script:ReleaseResult }
 }
 function codex {
-  $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
+  $profilePath = Join-Path $env:USERPROFILE ('.codex/' + $ctProfileName + '.config.toml')
   $profileText = [IO.File]::ReadAllText($profilePath)
   $lines = $profileText -split "\`r?\`n"
   if ($lines[0] -ne '# codeterm-instance: instance-launch-test') { throw 'instance marker is not the first profile line' }
@@ -94,10 +98,28 @@ ${command}`;
       assert.equal(refused.status, 0, refused.stderr || refused.error?.message);
       assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token,
         "Codex still receives the task when a leftover unowned profile cannot be released");
-      const preservedName = fs.readdirSync(path.join(root, ".codex")).find((name) => name.includes("-preserved-"));
-      assert.ok(preservedName, "the refused profile is moved aside instead of overwritten");
-      assert.equal(fs.readFileSync(path.join(root, ".codex", preservedName!), "utf8"), unownedProfile,
-        "the unowned profile contents remain intact");
+      const retryName = fs.readdirSync(path.join(root, ".codex")).find((name) => name.includes("-retry-"));
+      assert.ok(retryName, "an unowned profile is left in place while the launch uses a retry profile");
+      assert.equal(fs.readFileSync(profilePath, "utf8"), unownedProfile,
+        "the unowned profile is never moved or overwritten");
+      assert.match(fs.readFileSync(path.join(root, ".codex", retryName!), "utf8"),
+        /^# codeterm-instance: instance-launch-test/);
+
+      for (const name of fs.readdirSync(path.join(root, ".codex"))) {
+        fs.rmSync(path.join(root, ".codex", name), { recursive: true, force: true });
+      }
+      fs.writeFileSync(profilePath,
+        "# codeterm-instance: instance-launch-test\n[projects.'C:\\Previous']\ntrust_level = 'trusted'\n", "utf8");
+      fs.rmSync(receiptPath, { force: true });
+      fs.rmSync(releaseLogPath, { force: true });
+      for (let launch = 0; launch < 5; launch++) {
+        const refusedLaunch = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(refusedScript, "utf16le").toString("base64")], { encoding: "utf8" });
+        assert.equal(refusedLaunch.status, 0, refusedLaunch.stderr || refusedLaunch.error?.message);
+      }
+      const preservedNames = fs.readdirSync(path.join(root, ".codex")).filter((name) => name.includes("-preserved"));
+      assert.equal(preservedNames.length, 1, "repeated refused carry-over keeps at most one preserved profile per tab");
+      assert.ok(fs.readdirSync(path.join(root, ".codex")).some((name) => name.includes("-retry-")),
+        "a launch continues on a retry profile while the one preserved profile is retained");
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
