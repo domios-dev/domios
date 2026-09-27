@@ -3,6 +3,8 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
+mod delayed;
+
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
         action,
