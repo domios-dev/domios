@@ -181,7 +181,7 @@ fn first_turn_on_lazy_session_spawn_is_delivered_once_and_binds() {
     let launch = driver.begin("lazy-first-turn", "lazy-first-turn-pty".into());
     bind(&mut driver, &launch, "lazy-first-turn-nonce");
     let payload_writes = Cell::new(0);
-    let mut deliver_first_turn = || {
+    let deliver_first_turn = || {
         payload_writes.set(payload_writes.get() + 1);
         driver.record_provider_session(
             "lazy-first-turn",

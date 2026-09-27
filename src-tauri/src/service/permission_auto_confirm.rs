@@ -632,14 +632,10 @@ impl ServiceContext {
     }
 
     fn retract_surfaced_prompt(&self, tab_id: &str) {
-        let retracted = self
-            .mux
-            .write()
-            .get_tab_mut(tab_id)
-            .is_some_and(|tab| {
-                tab.pending_prompt_kind = None;
-                tab.pending_prompt.take().is_some()
-            });
+        let retracted = self.mux.write().get_tab_mut(tab_id).is_some_and(|tab| {
+            tab.pending_prompt_kind = None;
+            tab.pending_prompt.take().is_some()
+        });
         if retracted {
             crate::api::events::emit_everywhere(
                 &self.app_handle,

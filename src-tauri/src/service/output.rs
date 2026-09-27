@@ -39,6 +39,7 @@ fn parse_manual_update_prompt(
         .flatten()
 }
 
+#[cfg(test)]
 fn parse_directory_trust_prompt(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     screen: &str,
@@ -954,13 +955,12 @@ impl ServiceContext {
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
-                        let notify =
-                            should_notify_pending_prompt(
-                                decision,
-                                tab.pending_prompt.as_ref(),
-                                tab.pending_prompt_kind,
-                                prompt_kind,
-                            );
+                        let notify = should_notify_pending_prompt(
+                            decision,
+                            tab.pending_prompt.as_ref(),
+                            tab.pending_prompt_kind,
+                            prompt_kind,
+                        );
                         tab.pending_prompt = Some(prompt.clone());
                         tab.pending_prompt_kind = Some(prompt_kind);
                         Some(notify)

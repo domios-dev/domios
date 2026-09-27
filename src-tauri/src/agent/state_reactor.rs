@@ -200,7 +200,8 @@ fn route_classified_prompt(
         return false;
     }
     let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-        svc.agent_registry.parse_interactive_prompt(agent_type, screen)
+        svc.agent_registry
+            .parse_interactive_prompt(agent_type, screen)
     });
     let Some((prompt, prompt_kind)) = parsed else {
         let surface = classification
@@ -210,8 +211,7 @@ fn route_classified_prompt(
         return true;
     };
     if auto_approve || permission_auto_confirm {
-        let directory_trust_prompt = prompt_kind
-            == codeterm_types::pty::PromptKind::DirectoryTrust
+        let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust
             || svc
                 .agent_registry
                 .with_provider(agent_type, |provider| {

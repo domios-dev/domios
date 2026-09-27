@@ -4,8 +4,6 @@ use tauri::AppHandle;
 #[path = "pty/restored_launch.rs"]
 mod restored_launch;
 use restored_launch::restored_fresh_launch_input;
-#[cfg(test)]
-use restored_launch::RestoredFreshLaunchInput;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};

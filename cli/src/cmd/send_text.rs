@@ -586,7 +586,15 @@ fn send_composite_over_mesh(
             std::process::exit(2);
         }
         crate::cmd::delayed::queue_over_mesh(
-            json, peer, remote_tab, resolved_text, delay, at, every, until, count,
+            json,
+            peer,
+            remote_tab,
+            resolved_text,
+            delay,
+            at,
+            every,
+            until,
+            count,
         );
         return;
     }
