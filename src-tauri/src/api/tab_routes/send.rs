@@ -16,7 +16,7 @@ pub async fn chat_send_text(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
-) -> Result<Json<crate::service::chat_send_transaction::ChatSendStatus>, SendRejection> {
+) -> Result<Json<crate::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
     let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
@@ -32,31 +32,30 @@ pub async fn chat_send_text(
             await_public_send_readiness(&state.svc, &tab_id).await?;
         }
     }
-    let text = body.text.unwrap_or_default();
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
-    let text = if run_stages {
-        state.svc.run_outbound_stages(&tab_id, text)
-    } else {
-        text
-    };
+    let (text, pad_file) = state
+        .svc
+        .prepare_chat_send_text(&tab_id, body.text.unwrap_or_default(), run_stages)
+        .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
     let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
     let client_token = body.client_token;
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
     // Anchor capture reads the session file and may enter a plugin VM.
-    tokio::task::spawn_blocking(move || {
+    let status = tokio::task::spawn_blocking(move || {
         svc.start_chat_send(&send_tab, text, submit_claim, client_token)
     })
     .await
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
-    .map(Json)
     .map_err(|detail| {
-        DeliveryError::TabBusyRefused {
+        SendRejection::from(DeliveryError::TabBusyRefused {
             tab: tab_id,
             detail,
-        }
-        .into()
-    })
+        })
+    })?;
+    Ok(Json(crate::service::agent_pad::ChatSendResult::new(
+        status, pad_file,
+    )))
 }
 
 fn chat_send_target_refusal(
@@ -98,6 +97,16 @@ pub async fn chat_send_status(
 /// resolved before any write was attempted, so a failure here is never "missing".
 fn classify_delivery_failure(tab: &str, err: &str) -> DeliveryError {
     DeliveryError::from_opaque(tab, err)
+}
+
+fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
+    DeliveryError::TabBusyRefused {
+        tab: tab.to_string(),
+        detail: format!(
+            "long message was not sent because recipient AgentPad write failed: {detail}"
+        ),
+    }
+    .into()
 }
 
 /// Error surface for `/send`. Delivery failures serialize the structured
@@ -290,13 +299,15 @@ async fn await_public_send_readiness(
             "public send readiness wait failed",
         ))
     })?
-    .map_err(|detail| {
-        DeliveryError::TabBusyRefused {
-            tab: tab_id.to_string(),
-            detail,
-        }
-        .into()
-    })
+    .map_err(|detail| public_send_readiness_refusal(tab_id, detail))
+}
+
+fn public_send_readiness_refusal(tab_id: &str, detail: String) -> SendRejection {
+    DeliveryError::TabBusyRefused {
+        tab: tab_id.to_string(),
+        detail,
+    }
+    .into()
 }
 
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, tab_id: &str, text: &str) {
@@ -500,7 +511,13 @@ pub async fn send_text(
         }
 
         let raw_text = body.text.clone().unwrap_or_default();
-        let text = prepend(&stage(raw_text.clone()));
+        let raw_text = stage(raw_text);
+        let text = prepend(&raw_text);
+        let (raw_text, pad_file) = state
+            .svc
+            .substitute_paste_limited_body(&tab_id, raw_text, text.len())
+            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+        let text = prepend(&raw_text);
         if transport == TabInputTransport::ChatBackend {
             if !raw_text.is_empty() {
                 state
@@ -667,7 +684,8 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({
             "ok": true,
             "actions": true,
-            "delivery": "sent"
+            "delivery": "sent",
+            "pad_file": pad_file.map(|path| path.display().to_string())
         })));
     }
 
@@ -677,13 +695,28 @@ pub async fn send_text(
             .map(|c| c.text.as_str())
             .collect::<Vec<_>>()
             .join(" ; ");
-        let items: Vec<crate::service::pty_io::SendBatchItem> = batch
-            .into_iter()
-            .map(|c| crate::service::pty_io::SendBatchItem {
-                text: prepend(&stage(c.text)),
-                delay_ms: c.delay_ms,
-            })
-            .collect();
+        let mut pad_files = Vec::new();
+        let mut items = Vec::with_capacity(batch.len());
+        for chunk in batch {
+            let staged = stage(chunk.text);
+            let wrapped = prepend(&staged);
+            let (text, pad_file) = state
+                .svc
+                .substitute_paste_limited_body(&tab_id, staged, wrapped.len())
+                .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+            if let Some(path) = pad_file {
+                pad_files.push(path.display().to_string());
+                items.push(crate::service::pty_io::SendBatchItem {
+                    text: prepend(&text),
+                    delay_ms: chunk.delay_ms,
+                });
+            } else {
+                items.push(crate::service::pty_io::SendBatchItem {
+                    text: prepend(&text),
+                    delay_ms: chunk.delay_ms,
+                });
+            }
+        }
         let svc = state.svc.clone();
         let batch_tab = tab_id.clone();
         tokio::task::spawn_blocking(move || svc.send_text_batch(&batch_tab, items))
@@ -699,7 +732,8 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({
             "ok": true,
             "batch": true,
-            "delivery": "sent"
+            "delivery": "sent",
+            "pad_files": pad_files
         })));
     }
 
@@ -729,39 +763,60 @@ pub async fn send_text(
             .is_some_and(|peer| !peer.is_empty())
         && transport == TabInputTransport::Pty
     {
+        let raw_text = stage(raw_text);
+        let wrapped = prepend(&raw_text);
+        let (raw_text, pad_file) = state
+            .svc
+            .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
+            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
         let text = prepend(&raw_text);
         state.svc.send_text_when_ready(&tab_id, &text).await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
             "mesh": true,
-            "delivery": "sent"
+            "delivery": "sent",
+            "pad_file": pad_file.map(|path| path.display().to_string())
         })));
     }
     if let Some(envelope) = source_envelope {
-        crate::service::messenger::Messenger::deliver(&state.svc, &tab_id, envelope, &raw_text)
-            .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        let raw_text = stage(raw_text);
+        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
+            &state.svc, &tab_id, envelope, &raw_text,
+        )
+        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
-            "delivery": "pending"
+            "delivery": "pending",
+            "pad_file": pad_file.map(|path| path.display().to_string())
         })));
     }
 
-    let text = prepend(&stage(raw_text));
+    let raw_text = stage(raw_text);
+    let wrapped = prepend(&raw_text);
+    let (raw_text, pad_file) = state
+        .svc
+        .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
+        .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
+    let text = prepend(&raw_text);
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.
     state.svc.send_text_when_ready(&tab_id, &text).await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &text);
     Ok(Json(serde_json::json!({
         "ok": true,
-        "delivery": "sent"
+        "delivery": "sent",
+        "pad_file": pad_file.map(|path| path.display().to_string())
     })))
 }
 
 #[cfg(test)]
 mod delivery_classification_tests {
-    use super::{chat_send_target_refusal, classify_delivery_failure, SendRejection};
+    use super::{
+        chat_send_target_refusal, classify_delivery_failure, public_send_readiness_refusal,
+        SendRejection,
+    };
     use crate::service::delivery_error::DeliveryError;
     use axum::http::StatusCode;
 
@@ -807,6 +862,19 @@ mod delivery_classification_tests {
             .as_str()
             .unwrap()
             .contains("nothing written"));
+    }
+
+    #[test]
+    fn public_send_readiness_deadline_is_a_zero_byte_route_refusal() {
+        let rejection = public_send_readiness_refusal(
+            "new-agent-tab",
+            "public input readiness deadline elapsed; no input was written".into(),
+        );
+
+        assert_eq!(rejection.status, StatusCode::CONFLICT);
+        assert_eq!(rejection.body["ok"], false);
+        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
+        assert_eq!(rejection.body["error"]["bytes_written"], false);
     }
 
     #[test]

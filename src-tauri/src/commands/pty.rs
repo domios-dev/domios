@@ -67,6 +67,26 @@ pub async fn spawn_pty_core(
                     pid,
                     selected.pty_id,
                 );
+                let restored = mux_state.read().get_tab(pid).is_some_and(|tab| {
+                    tab.restored_from_snapshot && !tab.protected
+                });
+                if restored {
+                    let restore_service = svc.clone();
+                    let restore_tab = pid.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        restore_service.materialize_restored_agent_for_send(&restore_tab)
+                    })
+                    .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => log::error!(
+                            "[spawn_pty] restored launch materialization failed for Tab {pid}: {error}"
+                        ),
+                        Err(error) => log::error!(
+                            "[spawn_pty] restored launch materialization task failed for Tab {pid}: {error}"
+                        ),
+                    }
+                }
                 return Ok(selected.pty_id);
             }
         }
@@ -147,6 +167,7 @@ pub async fn spawn_pty_core(
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
+        crate::service::mark_tab_agent_launch_started(mux_state, pid);
         let session_id = restore.session_id;
         let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;

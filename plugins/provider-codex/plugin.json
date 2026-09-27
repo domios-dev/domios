@@ -25,6 +25,7 @@
     }
   ],
   "spawn": {
+    "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
@@ -42,6 +43,9 @@
       "kind": "tui_input_drained",
       "initialKeyDelayMs": 300,
       "retryOffsetsMs": [200, 500, 1200, 2200, 4000, 5800]
+    },
+    "turnEvidenceNormalization": {
+      "dropSupplementaryCharacters": true
     },
     "busySubmit": {
       "kind": "submit_normally"

@@ -53,6 +53,7 @@ pub(crate) struct SendEvidenceAnchor {
     pub(crate) cwd: String,
     pub(crate) session_id: String,
     pub(crate) window: EvidenceWindow,
+    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -74,6 +75,7 @@ struct ChatSendLedgerState {
     /// Normalized payload per send, retained only for exact turn-evidence
     /// correlation — never serialized back to the UI.
     payload_by_id: HashMap<String, String>,
+    turn_normalization_by_id: HashMap<String, crate::agent::provider::TurnEvidenceNormalization>,
     /// Opaque client correlation token per send — echoed verbatim onto every
     /// emitted status, never read by evidence/confirm/retry logic.
     token_by_id: HashMap<String, String>,
@@ -91,6 +93,7 @@ impl Default for ChatSendLedgerState {
             next_sequence: 1,
             by_id: HashMap::new(),
             payload_by_id: HashMap::new(),
+            turn_normalization_by_id: HashMap::new(),
             token_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
@@ -104,10 +107,11 @@ impl Default for ChatSendLedgerState {
 /// The shape a delivered payload takes when it reappears as a session user
 /// turn: control bytes stripped by the send path, surrounding whitespace
 /// trimmed by TUI/transcript rendering.
-pub(crate) fn normalize_turn_evidence(text: &str) -> String {
-    crate::service::pty_io::sanitize_agent_prompt_input(text)
-        .trim()
-        .to_string()
+pub(crate) fn normalize_turn_evidence_with(
+    text: &str,
+    normalization: crate::agent::provider::TurnEvidenceNormalization,
+) -> String {
+    normalization.normalize(&crate::service::pty_io::sanitize_agent_prompt_input(text))
 }
 
 #[derive(Default)]
@@ -130,6 +134,7 @@ impl ChatSendLedger {
         self.try_start_scoped(tab_id, text, anchor, live_binding)
     }
 
+    #[cfg(test)]
     pub(crate) fn try_start_scoped(
         &self,
         tab_id: &str,
@@ -137,6 +142,27 @@ impl ChatSendLedger {
         anchor: Option<SendEvidenceAnchor>,
         live_binding: Option<SendLiveBinding>,
     ) -> Result<ChatSendStatus, String> {
+        let turn_normalization = anchor
+            .as_ref()
+            .map_or_else(Default::default, |anchor| anchor.turn_normalization);
+        self.try_start_scoped_with_normalization(
+            tab_id,
+            text,
+            anchor,
+            live_binding,
+            turn_normalization,
+        )
+    }
+
+    pub(crate) fn try_start_scoped_with_normalization(
+        &self,
+        tab_id: &str,
+        text: &str,
+        anchor: Option<SendEvidenceAnchor>,
+        live_binding: Option<SendLiveBinding>,
+        turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    ) -> Result<ChatSendStatus, String> {
+        let normalized_payload = normalize_turn_evidence_with(text, turn_normalization);
         let mut state = self.state.lock();
         let in_flight = state
             .by_id
@@ -167,7 +193,10 @@ impl ChatSendLedger {
         state.by_id.insert(status.send_id.clone(), status.clone());
         state
             .payload_by_id
-            .insert(status.send_id.clone(), normalize_turn_evidence(text));
+            .insert(status.send_id.clone(), normalized_payload);
+        state
+            .turn_normalization_by_id
+            .insert(status.send_id.clone(), turn_normalization);
         if let Some(anchor) = anchor {
             state.anchor_by_id.insert(status.send_id.clone(), anchor);
         }
@@ -191,6 +220,7 @@ impl ChatSendLedger {
                 .expect("the selected terminal result exists");
             state.by_id.remove(&expired);
             state.payload_by_id.remove(&expired);
+            state.turn_normalization_by_id.remove(&expired);
             state.token_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);
@@ -279,8 +309,50 @@ impl ChatSendLedger {
         source_binding_nonce: Option<&str>,
         turn_text: &str,
     ) -> Option<ChatSendStatus> {
-        let evidence = normalize_turn_evidence(turn_text);
-        if evidence.is_empty() {
+        let candidates = {
+            let state = self.state.lock();
+            state
+                .order
+                .iter()
+                .filter_map(|send_id| {
+                    let status = state.by_id.get(send_id)?;
+                    let binding_matches =
+                        state.live_binding_by_id.get(send_id).is_none_or(|binding| {
+                            binding
+                                .session_id
+                                .as_deref()
+                                .is_none_or(|session_id| session_id == source_session_id)
+                                && binding
+                                    .binding_nonce
+                                    .as_deref()
+                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
+                        });
+                    if status.tab_id != tab_id
+                        || status.state == ChatSendState::Sent
+                        || !binding_matches
+                    {
+                        return None;
+                    }
+                    Some((
+                        send_id.clone(),
+                        state.payload_by_id.get(send_id)?.clone(),
+                        state
+                            .turn_normalization_by_id
+                            .get(send_id)
+                            .copied()
+                            .unwrap_or_default(),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        };
+        let matching_ids = candidates
+            .into_iter()
+            .filter_map(|(send_id, expected, normalization)| {
+                let evidence = normalize_turn_evidence_with(turn_text, normalization);
+                (!evidence.is_empty() && evidence == expected).then_some(send_id)
+            })
+            .collect::<Vec<_>>();
+        if matching_ids.is_empty() {
             return None;
         }
         let mut state = self.state.lock();
@@ -288,9 +360,10 @@ impl ChatSendLedger {
             .order
             .iter()
             .find(|send_id| {
-                state.by_id.get(*send_id).is_some_and(|status| {
-                    status.tab_id == tab_id && status.state != ChatSendState::Sent
-                }) && state.payload_by_id.get(*send_id) == Some(&evidence)
+                matching_ids.contains(*send_id)
+                    && state.by_id.get(*send_id).is_some_and(|status| {
+                        status.tab_id == tab_id && status.state != ChatSendState::Sent
+                    })
                     && state
                         .live_binding_by_id
                         .get(*send_id)
@@ -479,11 +552,12 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
         let evidence = self.chat_send_anchor(tab_id);
-        let pending = self.chat_send_ledger.try_start_scoped(
+        let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
             tab_id,
             &text,
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
+            evidence.turn_normalization,
         )?;
         let pending = match client_token {
             Some(token) => self
@@ -777,6 +851,41 @@ mod tests {
         assert_eq!(confirmed.state, ChatSendState::Sent);
         assert_eq!(confirmed.error, None);
         assert_eq!(ledger.reconcile("tab-1"), vec![confirmed]);
+    }
+
+    #[test]
+    fn provider_normalized_user_turn_confirms_chat_send() {
+        let ledger = ChatSendLedger::default();
+        let normalization = crate::agent::provider::TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
+        };
+        let pending = ledger
+            .try_start_scoped_with_normalization(
+                "tab-1",
+                "name\tvalue\n\talpha\tbeta",
+                None,
+                Some(SendLiveBinding {
+                    session_id: Some("session-1".into()),
+                    binding_nonce: Some("binding-1".into()),
+                }),
+                normalization,
+            )
+            .unwrap();
+        ledger.finish(&pending.send_id, Ok(())).unwrap();
+
+        let confirmed = ledger
+            .confirm_delivered_user_turn_scoped(
+                "tab-1",
+                "session-1",
+                Some("binding-1"),
+                "<pasted_content id=\"4\">\nname      value\n        alpha    beta\n</pasted_content id=\"4\">",
+            )
+            .expect("the provider-normalized exact user turn confirms its send");
+
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
     }
 
     #[test]
