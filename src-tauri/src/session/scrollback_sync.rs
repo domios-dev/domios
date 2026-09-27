@@ -10,6 +10,12 @@ use crate::session::store::SaveOutcome;
 use crate::session::SessionState;
 use crate::OutputBufferState;
 
+#[derive(Default)]
+pub(crate) struct SidecarSyncReport {
+    pub written: Vec<(String, usize)>,
+    pub skipped: Vec<(String, String)>,
+}
+
 fn sidecar_state(app: &tauri::AppHandle) -> Option<(MuxState, OutputBufferState, SessionState)> {
     let (Some(mux), Some(output_buf), Some(session)) = (
         app.try_state::<MuxState>(),
@@ -39,11 +45,11 @@ pub(crate) fn sync_scrollback_sidecars_after_save_with(
     mux: &MuxState,
     output_buf: &OutputBufferState,
     session: &SessionState,
-) {
+) -> SidecarSyncReport {
     if !matches!(outcome, SaveOutcome::Saved) {
-        return;
+        return skipped_report(mux, "session_snapshot_not_saved");
     }
-    sync_scrollback_sidecars_with(mux, output_buf, session);
+    sync_scrollback_sidecars_with(mux, output_buf, session)
 }
 
 pub(crate) fn sync_scrollback_sidecars(app: &tauri::AppHandle) {
@@ -56,16 +62,46 @@ pub(crate) fn sync_scrollback_sidecars_with(
     mux: &MuxState,
     output_buf: &OutputBufferState,
     session: &SessionState,
-) {
+) -> SidecarSyncReport {
     let capture = capture_scrollback_tails(mux, output_buf, DEFAULT_SCROLLBACK_TAIL_BYTES);
+    let mut report = SidecarSyncReport {
+        written: Vec::new(),
+        skipped: capture
+            .skipped_tabs
+            .into_iter()
+            .map(|(tab_id, reason)| (tab_id, reason.to_string()))
+            .collect(),
+    };
     let store = session.lock();
     for (tab_id, tail) in &capture.tails {
-        if let Err(error) = store.save_scrollback_tail(tab_id, tail, DEFAULT_SCROLLBACK_TAIL_BYTES)
-        {
-            log::warn!("[scrollback] sidecar save failed for {tab_id}: {error}");
+        match store.save_scrollback_tail(tab_id, tail, DEFAULT_SCROLLBACK_TAIL_BYTES) {
+            Ok(()) => report.written.push((tab_id.clone(), tail.len())),
+            Err(error) => {
+                log::warn!("[scrollback] sidecar save failed for {tab_id}: {error}");
+                report
+                    .skipped
+                    .push((tab_id.clone(), format!("write_failed: {error}")));
+            }
         }
     }
     store.prune_scrollback_tails(&capture.live_tab_ids);
+    report
+}
+
+pub(crate) fn skipped_report(mux: &MuxState, reason: &str) -> SidecarSyncReport {
+    let skipped = {
+        let state = mux.read();
+        state
+            .all_tabs()
+            .into_iter()
+            .filter(crate::pty::scrollback_capture::scrollback_eligible)
+            .map(|tab| (tab.id.clone(), reason.to_string()))
+            .collect()
+    };
+    SidecarSyncReport {
+        written: Vec::new(),
+        skipped,
+    }
 }
 
 #[cfg(test)]
@@ -239,4 +275,5 @@ mod tests {
             "closing the tab removes the sidecar at the next snapshot"
         );
     }
+
 }
