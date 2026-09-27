@@ -664,12 +664,13 @@ impl ServiceContext {
                         );
                     }
                     Err(cause) => {
-                        report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
+                        let outcome = report_persistence::report_transition_outcome(&cause);
+                        report_outcome = Some(outcome);
                         rejected_task_transition = Some(RejectedTaskTransition {
                             plan_id: Some(plan_id.clone()),
                             task_id: eff_task_id.clone(),
                             cause,
-                            report_outcome: Some(ReportOutcomeClass::StaleBindingConflict),
+                            report_outcome: Some(outcome),
                         });
                     }
                 }

@@ -56,6 +56,12 @@ where
             "unplanned Worker dispatch requires a bound Team Plan; set the Team goal first",
         )
     })?;
+    let brief = owned_str(p, "brief").unwrap_or_default();
+    let acceptance = if brief.trim().is_empty() {
+        format!("Complete the unplanned work: {reason}")
+    } else {
+        brief.clone()
+    };
     let caller = crate::service::AuthenticatedPlanCaller {
         tab_id: owned_str(p, "caller_tab_id"),
         session_id: owned_str(p, "session_id"),
@@ -80,10 +86,14 @@ where
             crate::service::plan::NewTask {
                 name: format!("unplanned: {reason}"),
                 kind: "unplanned".into(),
-                body: owned_str(p, "brief").unwrap_or_default(),
+                body: brief,
                 executor_role: Some("Worker".into()),
                 parent_task_id,
                 tags: vec!["unplanned".into()],
+                acceptance_criteria: vec![acceptance],
+                test_plan: Some(
+                    "The Orchestrator verifies the reported result against the brief.".into(),
+                ),
                 ..Default::default()
             },
             now,
