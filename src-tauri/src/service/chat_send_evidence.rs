@@ -8,8 +8,8 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence, ChatSendLedger, ChatSendStatus, EvidenceWindow, SendEvidenceAnchor,
-    SendLiveBinding,
+    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, EvidenceWindow,
+    SendEvidenceAnchor, SendLiveBinding,
 };
 use crate::service::ServiceContext;
 
@@ -66,11 +66,11 @@ pub(crate) fn contains_exact_user_turn(
     anchor: &SendEvidenceAnchor,
     payload: &str,
 ) -> bool {
-    let expected = normalize_turn_evidence(payload);
+    let expected = normalize_turn_evidence_with(payload, anchor.turn_normalization);
     !expected.is_empty()
         && window_user_turns(registry, anchor)
             .iter()
-            .any(|turn| normalize_turn_evidence(turn) == expected)
+            .any(|turn| normalize_turn_evidence_with(turn, anchor.turn_normalization) == expected)
 }
 
 #[derive(Default)]
@@ -102,7 +102,7 @@ pub(crate) fn contains_exact_user_turn_since(
     if cursor.confirmed {
         return true;
     }
-    let expected = normalize_turn_evidence(payload);
+    let expected = normalize_turn_evidence_with(payload, anchor.turn_normalization);
     if expected.is_empty() {
         return false;
     }
@@ -117,11 +117,9 @@ pub(crate) fn contains_exact_user_turn_since(
                 return false;
             };
             let from_offset = cursor.jsonl_offset.unwrap_or(*transcript_offset);
-            let Some(delta) = registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.parse_session_delta(&path, from_offset)
-                })
-            else {
+            let Some(delta) = registry.with_provider(&anchor.provider_id, |provider| {
+                provider.parse_session_delta(&path, from_offset)
+            }) else {
                 return false;
             };
             cursor.jsonl_offset = Some(delta.new_offset.max(from_offset));
@@ -130,13 +128,16 @@ pub(crate) fn contains_exact_user_turn_since(
                     .iter()
                     .any(|message| {
                         message.kind == "user"
-                            && normalize_turn_evidence(&message.content) == expected
+                            && normalize_turn_evidence_with(
+                                &message.content,
+                                anchor.turn_normalization,
+                            ) == expected
                     })
             })
         }
         EvidenceWindow::Structured { .. } => window_user_turns(registry, anchor)
             .iter()
-            .any(|turn| normalize_turn_evidence(turn) == expected),
+            .any(|turn| normalize_turn_evidence_with(turn, anchor.turn_normalization) == expected),
     };
     cursor.confirmed = found;
     found
@@ -164,6 +165,7 @@ fn jsonl_boundary(path: Option<std::path::PathBuf>) -> Option<EvidenceWindow> {
 pub(crate) struct CapturedSendEvidence {
     pub(crate) anchor: Option<SendEvidenceAnchor>,
     pub(crate) live_binding: Option<SendLiveBinding>,
+    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
 }
 
 /// One turn instance confirms at most one send: a scan may only confirm when
@@ -179,7 +181,10 @@ pub(crate) fn scan_transcript_evidence(
         let anchor = &candidate.anchor;
         let matching_turns = window_user_turns(registry, anchor)
             .iter()
-            .filter(|content| normalize_turn_evidence(content) == candidate.payload)
+            .filter(|content| {
+                normalize_turn_evidence_with(content, anchor.turn_normalization)
+                    == candidate.payload
+            })
             .count();
         let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
         if matching_turns > claimed {
@@ -213,10 +218,19 @@ impl ServiceContext {
                 session_id: session_id.clone(),
                 binding_nonce: binding_nonce.clone(),
             });
+        let turn_normalization = provider_id
+            .as_deref()
+            .and_then(|provider_id| {
+                self.agent_registry.with_provider(provider_id, |provider| {
+                    provider.turn_evidence_normalization()
+                })
+            })
+            .unwrap_or_default();
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
                 live_binding,
+                turn_normalization,
             };
         };
         let structured = self
@@ -245,10 +259,12 @@ impl ServiceContext {
             cwd,
             session_id: session_id.clone(),
             window,
+            turn_normalization,
         });
         CapturedSendEvidence {
             anchor,
             live_binding,
+            turn_normalization,
         }
     }
 
@@ -350,8 +366,8 @@ mod tests {
                         }],
                         ..Default::default()
                     })
-            })
-            .collect();
+                })
+                .collect();
             SessionDelta {
                 new_offset: from_offset + window.len() as u64,
                 messages,
@@ -413,6 +429,7 @@ mod tests {
                 cwd: "/proj".into(),
                 session_id: session_id.into(),
                 window: EvidenceWindow::Jsonl { transcript_offset },
+                turn_normalization: Default::default(),
             }
         }
 
@@ -479,15 +496,35 @@ mod tests {
         let other_anchor = fx.anchor_now("sess-other");
         fx.append_user_turn("sess-other", "payload");
 
-        assert!(!contains_exact_user_turn(
-            &fx.registry,
-            &anchor,
-            "payload"
-        ));
+        assert!(!contains_exact_user_turn(&fx.registry, &anchor, "payload"));
         assert!(contains_exact_user_turn(
             &fx.registry,
             &other_anchor,
             "payload"
+        ));
+    }
+
+    #[test]
+    fn provider_normalization_never_matches_a_turn_from_another_session() {
+        let fx = Fixture::new();
+        fx.append_user_turn("sess-other", "inspect  logs");
+        let mut anchor = fx.anchor_now("sess-a");
+        anchor.turn_normalization = crate::agent::provider::TurnEvidenceNormalization {
+            drop_supplementary_characters: true,
+            ..Default::default()
+        };
+
+        assert!(!contains_exact_user_turn(
+            &fx.registry,
+            &anchor,
+            "inspect 🚀 logs"
+        ));
+
+        fx.append_user_turn("sess-a", "inspect  logs");
+        assert!(contains_exact_user_turn(
+            &fx.registry,
+            &anchor,
+            "inspect 🚀 logs"
         ));
     }
 
@@ -504,9 +541,7 @@ mod tests {
             "payload",
             &mut cursor,
         ));
-        let expected_offset = std::fs::metadata(fx.session_path("sess-a"))
-            .unwrap()
-            .len();
+        let expected_offset = std::fs::metadata(fx.session_path("sess-a")).unwrap().len();
         fx.append_user_turn("sess-a", "payload");
 
         assert!(contains_exact_user_turn_since(
@@ -806,6 +841,7 @@ mod tests {
                 cwd: "/proj".into(),
                 session_id: session_id.into(),
                 window: structured_boundary(&chat).expect("cursor-bearing store"),
+                turn_normalization: Default::default(),
             }
         }
 

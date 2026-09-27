@@ -992,6 +992,7 @@ mod respond_prompt_tests {
             let answer = first.answer.as_ref().expect("answer slot");
             assert_eq!(answer.answered.as_deref(), Some("Yes"));
             assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
+            assert!(answer.delivered);
             let unrelated = notifications.notification(&unrelated_id).unwrap();
             assert!(!unrelated.resolved);
             assert_eq!(unrelated.answer.as_ref().unwrap().answered, None);

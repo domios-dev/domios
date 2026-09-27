@@ -54,7 +54,9 @@ mod process_tree;
 mod prompt_resolution;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub(crate) use orchestrator::{build_agent_command_for_service, provider_launch_task};
+pub(crate) use orchestrator::{
+    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
+};
 pub(crate) mod directory_trust;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
@@ -229,6 +231,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,

@@ -1,11 +1,18 @@
 use super::{
     analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
-    guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, parse_actions_spec,
-    parse_tab_targets, resolve_send_text_input, SendActionSpec, SendEligibility, SendTextOutcome,
-    TabKind,
+    guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, pad_file_path,
+    parse_actions_spec, parse_tab_targets, resolve_send_text_input, SendActionSpec,
+    SendEligibility, SendTextOutcome, TabKind,
 };
 
 const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
+
+#[test]
+fn send_result_exposes_supplied_pad_file_path() {
+    let token = "runtime/agent-pads/tab/inbox/123-token.md";
+    let response = serde_json::json!({"ok": true, "delivery": "sent", "pad_file": token});
+    assert_eq!(pad_file_path(&response), Some(token));
+}
 
 #[test]
 fn classify_agent_tab_from_agent_type() {

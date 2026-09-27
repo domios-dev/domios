@@ -49,6 +49,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or(&self.manifest.id)
     }
 
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        self.manifest.spawn.paste_limit_bytes
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if !self.has_js("buildLaunchCommand") {
             if let Some(command) = launch_command_from_template(&self.manifest, params) {
@@ -110,6 +114,10 @@ impl AgentProvider for JsProvider {
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         (&self.manifest.spawn.verify_submit).into()
+    }
+
+    fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
+        self.manifest.spawn.turn_evidence_normalization
     }
 
     fn busy_submit_strategy(&self) -> BusySubmitStrategy {

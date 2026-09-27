@@ -129,12 +129,12 @@ impl ServiceContext {
 
     /// Clear stale identity after a caller obtains an absent verdict.
     pub(crate) fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
-        let declares_agent = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(|tab| tab.agent_type.is_some());
-        if !declares_agent {
+        let can_reconcile = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type.is_some()
+                && !tab.agent_booting
+                && (!tab.restored_from_snapshot || tab.agent_session_id.is_none())
+        });
+        if !can_reconcile {
             return false;
         }
         self.clear_tab_restored_identity_if_absent(tab_id, "restored without a live agent")

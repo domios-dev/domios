@@ -728,6 +728,10 @@ fn submit_capability_fields_native_js_parity() {
         serde_json::from_value(codex["spawn"]["verifySubmit"].clone()).unwrap();
     let claude_submit: SerdeVerifySubmit =
         serde_json::from_value(claude["spawn"]["verifySubmit"].clone()).unwrap();
+    let codex_normalization: crate::provider::TurnEvidenceNormalization =
+        serde_json::from_value(codex["spawn"]["turnEvidenceNormalization"].clone()).unwrap();
+    let claude_normalization: crate::provider::TurnEvidenceNormalization =
+        serde_json::from_value(claude["spawn"]["turnEvidenceNormalization"].clone()).unwrap();
     let codex_strategy = VerifySubmitStrategy::from(&codex_submit);
     let claude_strategy = VerifySubmitStrategy::from(&claude_submit);
     let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
@@ -744,6 +748,18 @@ fn submit_capability_fields_native_js_parity() {
         claude_strategy,
         native_claude.verify_submit_strategy(),
         "the Claude JS capability matches its native provider strategy"
+    );
+    assert_eq!(
+        claude_normalization,
+        native_claude.turn_evidence_normalization(),
+        "the Claude JS capability matches its native evidence normalization"
+    );
+    assert_eq!(
+        codex_normalization,
+        crate::provider::TurnEvidenceNormalization {
+            drop_supplementary_characters: true,
+            ..Default::default()
+        }
     );
 }
 

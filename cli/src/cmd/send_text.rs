@@ -95,6 +95,10 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     SendTextOutcome::Other
 }
 
+fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
+    value.get("pad_file").and_then(serde_json::Value::as_str)
+}
+
 pub fn handle_send_text_result(
     json: bool,
     result: Result<serde_json::Value, String>,
@@ -106,9 +110,13 @@ pub fn handle_send_text_result(
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }
+            let pad_file = pad_file_path(&value);
             match analyze_send_text_response(&value) {
                 SendTextOutcome::Success(msg) => {
                     println!("{}", msg);
+                    if let Some(path) = pad_file {
+                        println!("Pad file: {path}");
+                    }
                     if let Some(text) = resolved_text {
                         println!("{}", resolved_text_echo(text));
                     }
@@ -118,6 +126,9 @@ pub fn handle_send_text_result(
                     bytes_written,
                 } => {
                     println!("{}", message);
+                    if let Some(path) = pad_file {
+                        println!("Pad file: {path}");
+                    }
                     if bytes_written {
                         if let Some(text) = resolved_text {
                             println!("{}", resolved_text_echo(text));
@@ -295,6 +306,7 @@ fn send_text_to_targets(
     let mut delivered: Vec<String> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
     let mut pending_written: Vec<String> = Vec::new();
+    let mut pad_files: Vec<serde_json::Value> = Vec::new();
     let source_tab = std::env::var("CODETERM_TAB_ID")
         .ok()
         .filter(|t| !t.is_empty());
@@ -324,20 +336,25 @@ fn send_text_to_targets(
             }
         };
         match result {
-            Ok(value) => match analyze_send_text_response(&value) {
-                SendTextOutcome::Success(_) => delivered.push(tab_id.clone()),
-                SendTextOutcome::Pending { bytes_written, .. } => {
-                    pending.push(tab_id.clone());
-                    if bytes_written {
-                        pending_written.push(tab_id.clone());
-                    }
+            Ok(value) => {
+                if let Some(path) = pad_file_path(&value) {
+                    pad_files.push(serde_json::json!({"tab": tab_id, "path": path}));
                 }
-                SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
-                SendTextOutcome::Other => failures.push((
-                    tab_id.clone(),
-                    "send route returned no delivery status".into(),
-                )),
-            },
+                match analyze_send_text_response(&value) {
+                    SendTextOutcome::Success(_) => delivered.push(tab_id.clone()),
+                    SendTextOutcome::Pending { bytes_written, .. } => {
+                        pending.push(tab_id.clone());
+                        if bytes_written {
+                            pending_written.push(tab_id.clone());
+                        }
+                    }
+                    SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
+                    SendTextOutcome::Other => failures.push((
+                        tab_id.clone(),
+                        "send route returned no delivery status".into(),
+                    )),
+                }
+            }
             Err(e) => failures.push((tab_id.clone(), e)),
         }
     }
@@ -349,6 +366,7 @@ fn send_text_to_targets(
                 "delivered": delivered,
                 "pending": pending,
                 "pending_written": pending_written,
+                "pad_files": pad_files,
                 "failed": failures
                     .iter()
                     .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
@@ -362,6 +380,11 @@ fn send_text_to_targets(
         }
         for tab_id in &pending {
             println!("OK (pending) {tab_id}");
+        }
+        for entry in &pad_files {
+            if let (Some(tab), Some(path)) = (entry["tab"].as_str(), entry["path"].as_str()) {
+                println!("Pad file {tab}: {path}");
+            }
         }
         for (tab_id, err) in &failures {
             eprintln!("Error {tab_id}: {err}");

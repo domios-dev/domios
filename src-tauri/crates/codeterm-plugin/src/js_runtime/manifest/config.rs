@@ -5,7 +5,7 @@ use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
     ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
     ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
-    VerifySubmitStrategy,
+    TurnEvidenceNormalization, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -27,6 +27,8 @@ pub struct SubprocessPermission {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
+    #[serde(default)]
+    pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
@@ -36,6 +38,8 @@ pub struct SpawnConfig {
     #[serde(default)]
     pub composer_cursor_position: ComposerCursorPosition,
     pub verify_submit: SerdeVerifySubmit,
+    #[serde(default)]
+    pub turn_evidence_normalization: TurnEvidenceNormalization,
     #[serde(default)]
     pub busy_submit: SerdeBusySubmit,
     #[serde(default)]

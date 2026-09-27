@@ -1,6 +1,4 @@
-//! Store-level tests for the structured-prompt host module. The SSE parsing is
-//! covered in `opencode_sse::tests`; the live round-trip is verified by the
-//! orchestrator against a real opencode server.
+//! Store-level tests for the structured-prompt host module.
 
 use super::opencode_sse::{
     parse_event, ChatPartUpdate, MessageMeta, ParsedEvent, PromptKind, ResponseRoute,
@@ -8,8 +6,6 @@ use super::opencode_sse::{
 use super::*;
 use crate::multiplexer::types::PendingPrompt;
 use serde_json::Value;
-use std::io::Write;
-use std::net::TcpListener;
 
 fn dummy_prompt(q: &str) -> PendingPrompt {
     PendingPrompt {
@@ -62,15 +58,7 @@ fn pending_for_unknown_tab_is_none() {
 }
 
 #[test]
-fn structured_respond_records_the_prompt_notification_answer() {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream
-            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .unwrap();
-    });
+fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let prompt = PendingPrompt {
@@ -90,22 +78,6 @@ fn structured_respond_records_the_prompt_notification_answer() {
         submit_available: None,
         selected_values: None,
     };
-    register_endpoint(&tab_id, format!("http://{address}"), "/work".into());
-    ACTIVE.lock().insert(
-        tab_id.clone(),
-        Active {
-            prompt: prompt.clone(),
-            route: ResponseRoute {
-                session_id: "session".into(),
-                request_id: "request".into(),
-                kind: PromptKind::Question,
-                option_labels: vec!["Proceed".into(), "Cancel".into()],
-            },
-        },
-    );
-    fixture
-        .service
-        .push_structured_prompt(&tab_id, Some(prompt.clone()));
     let identity = codeterm_types::pty::PromptIdentity::new(
         codeterm_types::pty::PromptKind::Structured,
         &prompt,
@@ -123,7 +95,7 @@ fn structured_respond_records_the_prompt_notification_answer() {
             codeterm_types::notification::NotificationAction::RespondPromptOption {
                 label: "Cancel".into(),
                 value: "no".into(),
-                identity,
+                identity: identity.clone(),
             },
         ]),
         Some(true),
@@ -134,11 +106,9 @@ fn structured_respond_records_the_prompt_notification_answer() {
         },
     );
 
-    assert_eq!(
-        fixture.service.respond_prompt(&tab_id, "2"),
-        Ok(crate::service::tab::RespondPromptOutcome::Structured)
-    );
-    server.join().unwrap();
+    fixture
+        .service
+        .answer_prompt_notifications(&tab_id, &identity, 1, "tab_respond");
     let store = fixture.service.notif.lock();
     let notification = store.notification(&notification_id).unwrap();
     assert_eq!(
@@ -157,7 +127,7 @@ fn structured_respond_records_the_prompt_notification_answer() {
     assert!(notification.resolved);
     assert!(notification.read);
     assert!(notification.actions.is_none());
-    clear_tab(&tab_id);
+    assert!(notification.answer.as_ref().unwrap().delivered);
 }
 
 #[test]

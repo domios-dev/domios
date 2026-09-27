@@ -258,6 +258,9 @@ pub struct ProviderDescriptor {
     /// `chatBackend: { watcher: true }`). Always `false` for PTY transports.
     #[serde(default)]
     pub supports_watcher: bool,
+    /// Maximum text body size accepted as an inline paste, when declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste_limit_bytes: Option<usize>,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table, or was
     /// installed from the official codeterm-core system channel.
