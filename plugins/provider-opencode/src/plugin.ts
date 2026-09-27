@@ -25,6 +25,8 @@ import {
   opencodeSessionRecord,
   partToChatMsg,
   scanMessagesForModel,
+  scanMessagesForQualifiedModel,
+  scanSessionDirectory,
   safeJson,
   OpencodePart,
   OpencodeConfig,
@@ -218,9 +220,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    return parts.join(" ");
+    return resumeLaunch(sessionId, skipPermissions).parts.join(" ");
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
@@ -228,9 +228,17 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const parts = launch.parts;
+    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = String(args[i]);
+      if (arg === "-m" || arg === "--model") {
+        parts.push(arg, host.shell.quoteFor(String(args[i + 1] || ""), platform));
+        i++;
+      } else {
+        parts.push(arg.startsWith("-") ? arg : host.shell.quoteFor(arg, platform));
+      }
     }
     const systemPrompt = p.systemPrompt;
     if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
@@ -241,9 +249,12 @@ const plugin: PluginModule = {
     const source = host.shell.quoteFor(taskPath, platform);
     const local = host.shell.quoteFor(localTaskPath, platform);
     const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+    const project = launch.directory
+      ? host.shell.quoteFor(launch.directory, platform)
+      : null;
     const prologue = platform === "windows"
-      ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
-      : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
+      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
+      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
     const epilogue = platform === "windows"
       ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
       : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
@@ -501,5 +512,40 @@ const plugin: PluginModule = {
     return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
+
+function resumeLaunchArgs(args: string[], sessionId: string): string[] {
+  const retained: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (arg === "--variant") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--variant=")) continue;
+    if (arg === "-m" || arg === "--model") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
+    retained.push(arg);
+  }
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db)
+    ? scanMessagesForQualifiedModel(db, sessionId)
+    : null;
+  if (model) retained.push("-m", model);
+  return retained;
+}
+
+function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: string[]; directory: string | null } {
+  const platform = host.platform();
+  const db = opencodeDbPath();
+  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const parts = ["opencode"];
+  if (directory) parts.push(host.shell.quoteFor(directory, platform));
+  parts.push("--session", host.shell.quoteFor(sessionId, platform));
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  return { parts, directory };
+}
 
 export default plugin;

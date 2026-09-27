@@ -533,6 +533,9 @@ fn install_leaf(
     let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
+    let restored_boot_stage = restored_agent_type
+        .as_ref()
+        .map(|_| codeterm_types::pty::BootStage::PtyStarting);
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),
@@ -623,7 +626,7 @@ fn install_leaf(
             worker_id: None,
             restored_from_snapshot: true,
             pending_greeting: None,
-            boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
+            boot_stage: restored_boot_stage,
             boot_failure_reason: None,
             provisional_launch: None,
         },

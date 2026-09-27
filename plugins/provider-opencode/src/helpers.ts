@@ -759,3 +759,46 @@ export function scanMessagesForModel(db: string, sql: string, params: unknown[])
   }
   return null;
 }
+
+export function scanMessagesForQualifiedModel(db: string, sessionId: string): string | null {
+  try {
+    const rows = host.fs.sqliteQuery<{ data?: string }>(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId],
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i].data;
+      if (!raw) continue;
+      try {
+        const value = JSON.parse(raw) as { role?: string; providerID?: string; modelID?: string };
+        if (
+          value.role === "assistant" &&
+          typeof value.providerID === "string" && value.providerID &&
+          typeof value.modelID === "string" && value.modelID
+        ) {
+          return `${value.providerID}/${value.modelID}`;
+        }
+      } catch (_) {
+      }
+    }
+  } catch (_) {
+  }
+  return null;
+}
+
+export function scanSessionDirectory(db: string, sessionId: string): string | null {
+  try {
+    const rows = host.fs.sqliteQuery<{ id?: string; directory?: string }>(
+      db,
+      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId],
+    );
+    const session = rows.find((row) => row.id === sessionId);
+    return typeof session?.directory === "string" && session.directory.trim()
+      ? session.directory
+      : null;
+  } catch (_) {
+    return null;
+  }
+}

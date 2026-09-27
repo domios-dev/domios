@@ -342,7 +342,7 @@ console.log("\n--- discoverModels ---\n");
   eq(
     p.buildResumeCommand("sess 2"),
     "opencode --session Q(windows:sess 2)",
-    "buildResumeCommand quotes --session with quoteFor(platform)",
+    "buildResumeCommand selects the full TUI for session resume",
   );
   eq(
     p.buildLaunchCommand({ skipPermissions: true }),
@@ -354,6 +354,84 @@ console.log("\n--- discoverModels ---\n");
     "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
     "buildResumeCommand applies the centralized full-access policy",
   );
+}
+
+console.log("\n--- restored full-TUI command keeps the saved project, session, and model ---\n");
+{
+  const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
+  const savedSession = "ses_saved";
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
+    fs: {
+      fileExists: (candidate: string) => candidate === dbPath,
+      writeTempFile: () => "C:\\Temp\\restored-context.md",
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        if (sql.startsWith("SELECT id, directory FROM session") && params[0] === savedSession) {
+          return [
+            { id: "ses_sibling", directory: "D:/other/project" },
+            { id: savedSession, directory: "D:/Developer/codeterm-livetest" },
+          ];
+        }
+        if (sql.startsWith("SELECT data FROM message") && params[0] === savedSession) {
+          return [{ data: JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "big-pickle" }) }];
+        }
+        return [];
+      },
+    },
+    shell: {
+      quoteFor: (value: unknown, platform?: unknown) => `Q(${platform}:${String(value)})`,
+      quote: (value: unknown) => `BAD(${String(value)})`,
+    },
+  }));
+  eq(
+    p.buildResumeCommandWithContext({
+      sessionId: savedSession,
+      args: ["-m", "big-pickle", "--variant", "high"],
+    }),
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) -m Q(windows:opencode/big-pickle)",
+    "resume selects the saved project and exact session in the full TUI",
+  );
+  eq(
+    queries,
+    [
+      {
+        sql: "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+        params: [savedSession],
+      },
+      {
+        sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+        params: [savedSession],
+      },
+    ],
+    "resume project and model lookups are scoped to the tab's saved session id",
+  );
+  const configured = p.buildResumeCommandWithContext({
+    sessionId: savedSession,
+    systemPrompt: "opaque-context-fragment",
+  });
+  assert(
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item"),
+    "resume stops if it cannot enter the saved project directory before staging configuration",
+  );
+  assert(
+    configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    "session-config wrapper preserves the explicit full-TUI resume argv",
+  );
+  assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
+}
+
+console.log("\n--- captured full-TUI resume screen matches provider readiness fingerprints ---\n");
+{
+  const fixture = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "resume-full-tui-screen.txt"),
+    "utf8",
+  );
+  const p = loadOpencodeWithHost(ocHost({}));
+  eq(p.screenHasTui(fixture), true, "captured full TUI exposes provider readiness footer fingerprints");
+  eq(p.detectFromOutput(fixture), true, "captured full TUI remains identifiable as OpenCode output");
 }
 
 {
