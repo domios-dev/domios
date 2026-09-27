@@ -52,6 +52,9 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
             4,
         )
         .unwrap();
+    store
+        .acknowledge_task_attempt(&plan.id, &parent_id, "parent-worker", &parent_attempt_id, 5)
+        .unwrap();
     let child_ids = store
         .add_child_tasks_atomic(
             &plan.id,
@@ -68,7 +71,7 @@ fn approved_plan_with_in_progress_parent() -> (TempDir, PlanStore, String, Strin
     (root, store, plan.id, parent_id, child_id, parent_attempt_id)
 }
 
-fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) {
+fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) -> String {
     let lane = TaskLaneMetadata {
         tab_id: Some("child-worker".into()),
         worktree_path: Some("child-lane".into()),
@@ -91,6 +94,7 @@ fn dispatch_child(store: &PlanStore, plan_id: &str, child_id: &str) {
             6,
         )
         .unwrap();
+    attempt_id
 }
 
 #[test]
@@ -99,7 +103,7 @@ fn child_of_in_progress_task_dispatches_into_its_own_lane() {
         approved_plan_with_in_progress_parent();
     let parent_before = store.show_task(&parent_id).unwrap().task;
 
-    dispatch_child(&store, &plan_id, &child_id);
+    let child_attempt_id = dispatch_child(&store, &plan_id, &child_id);
 
     let parent_after = store.show_task(&parent_id).unwrap().task;
     let child = store.show_task(&child_id).unwrap().task;
@@ -115,9 +119,19 @@ fn child_of_in_progress_task_dispatches_into_its_own_lane() {
         .iter()
         .any(|attempt| attempt.id == parent_attempt_id));
     assert_eq!(child.parent_task_id.as_deref(), Some(parent_id.as_str()));
-    assert_eq!(child.status, TaskStatus::InProgress);
+    assert_eq!(child.status, TaskStatus::Pending);
     assert_eq!(child.lane.tab_id.as_deref(), Some("child-worker"));
     assert_eq!(child.lane.worktree_path.as_deref(), Some("child-lane"));
+    assert_eq!(child.assigned_tab_id.as_deref(), Some("child-worker"));
+    let child_attempt = child
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == child_attempt_id)
+        .expect("child dispatch attempt");
+    assert_eq!(child_attempt.executor_tab_id, "child-worker");
+    assert_eq!(child_attempt.session_id.as_deref(), Some("child-session"));
+    assert!(child_attempt.acknowledged_at.is_none());
+    assert!(child_attempt.closed_at.is_none());
 }
 
 #[test]
@@ -129,13 +143,16 @@ fn children_of_approved_task_are_dispatchable_without_replan() {
         PlanningState::Approved
     );
 
-    dispatch_child(&store, &plan_id, &child_id);
+    let child_attempt_id = dispatch_child(&store, &plan_id, &child_id);
 
     let plan = store.get(&plan_id).unwrap();
     assert_eq!(plan.mode, PlanMode::Execution);
     assert_eq!(plan.planning_state, PlanningState::Approved);
-    assert_eq!(
-        store.show_task(&child_id).unwrap().task.status,
-        TaskStatus::InProgress
-    );
+    let child = store.show_task(&child_id).unwrap().task;
+    assert_eq!(child.status, TaskStatus::Pending);
+    assert!(child.execution_attempts.iter().any(|attempt| {
+        attempt.id == child_attempt_id
+            && attempt.acknowledged_at.is_none()
+            && attempt.closed_at.is_none()
+    }));
 }

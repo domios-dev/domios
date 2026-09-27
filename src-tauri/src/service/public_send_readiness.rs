@@ -480,8 +480,13 @@ impl ReadinessRegistry {
         };
         if !messages.iter().any(|message| {
             message.kind == "user"
-                && crate::service::chat_send_transaction::normalize_turn_evidence(&message.content)
-                    == crate::service::chat_send_transaction::normalize_turn_evidence(&expected)
+                && crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                    &message.content,
+                    Default::default(),
+                ) == crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                    &expected,
+                    Default::default(),
+                )
         }) {
             return false;
         }
@@ -533,6 +538,10 @@ pub(crate) fn observe_session_binding(
         .agent_registry
         .with_provider(&provider_id, |provider| provider.uses_structured_chat())
         .unwrap_or(false);
+    let turn_normalization = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| provider.turn_evidence_normalization())
+        .unwrap_or_default();
     let anchor = previous_anchor
         .filter(|anchor| anchor.session_id == session_id)
         .or_else(|| {
@@ -540,6 +549,7 @@ pub(crate) fn observe_session_binding(
                 provider_id: provider_id.clone(),
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
+                turn_normalization,
                 window: if structured {
                     EvidenceWindow::Structured { cursor: None }
                 } else {

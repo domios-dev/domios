@@ -43,6 +43,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::WaitingFocusRequiresOpenGate
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
+        | PlanError::InvalidSplitParent { .. }
         | PlanError::TransitionDenied { .. }
         | PlanError::DependencyTaskNotFound { .. }
         | PlanError::DependencyTaskReferenced { .. }
