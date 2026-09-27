@@ -19,6 +19,9 @@ pub enum PlanError {
     OpenSubtasks {
         subtasks: Vec<OpenSubtask>,
     },
+    InvalidSplitParent {
+        reason: SplitParentReason,
+    },
     TransitionDenied {
         from: TaskStatus,
         to: TaskStatus,
@@ -152,6 +155,13 @@ pub struct OpenSubtask {
     pub handle: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitParentReason {
+    TerminalParent,
+    ChildParent,
+}
+
 fn transition_remedy_verb(from: &TaskStatus, to: &TaskStatus) -> Option<&'static str> {
     if *from != TaskStatus::InReview {
         return None;
@@ -186,6 +196,14 @@ impl fmt::Display for PlanError {
                     .join(", ");
                 write!(f, "task has open subtasks: {listed}")
             }
+            PlanError::InvalidSplitParent { reason } => match reason {
+                SplitParentReason::TerminalParent => {
+                    write!(f, "cannot split a terminal task")
+                }
+                SplitParentReason::ChildParent => {
+                    write!(f, "cannot split a child task; only top-level tasks can be split")
+                }
+            },
             PlanError::TransitionDenied { from, to } => {
                 write!(f, "task status transition {from:?} -> {to:?} is not allowed")?;
                 if let Some(verb) = transition_remedy_verb(from, to) {
@@ -408,6 +426,7 @@ impl PlanError {
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::InvalidExecutorName(_) => -32602,
+            PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
     }
@@ -419,6 +438,9 @@ impl PlanError {
             PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
             PlanError::OpenSubtasks { subtasks } => {
                 serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })
+            }
+            PlanError::InvalidSplitParent { reason } => {
+                serde_json::json!({ "type": "invalid_split_parent", "reason": reason })
             }
             PlanError::TransitionDenied { from, to } => {
                 serde_json::json!({

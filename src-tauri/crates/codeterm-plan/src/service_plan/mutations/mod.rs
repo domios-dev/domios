@@ -2,7 +2,7 @@ use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{
     qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask, PlanError, PlanStore,
-    TaskLaneUpdate,
+    SplitParentReason, TaskLaneUpdate,
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
@@ -265,7 +265,7 @@ pub(super) fn validate_task_dependencies(
     Ok(resolved)
 }
 
-pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+pub(super) fn reject_terminal_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
     let subtasks = open_subtasks(plan, task_id);
     if subtasks.is_empty() {
         Ok(())
@@ -283,7 +283,7 @@ pub(crate) fn finalize_task_done(
     now_ms: u64,
 ) -> Result<(), PlanError> {
     let task_id = plan.tasks[task_index].id.clone();
-    reject_done_with_open_subtasks(plan, &task_id)?;
+    reject_terminal_with_open_subtasks(plan, &task_id)?;
     let task = &mut plan.tasks[task_index];
     if task.status != TaskStatus::Done {
         task.status_changed_at = now_ms;
@@ -440,6 +440,9 @@ fn validate_task_status_transition_for(
     if status_unchanged {
         return Ok(());
     }
+    if matches!(next, TaskStatus::Done | TaskStatus::Cancelled) {
+        reject_terminal_with_open_subtasks(plan, task_id)?;
+    }
     if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
         return Err(PlanError::ReviewHoldRequired);
     }
@@ -448,9 +451,6 @@ fn validate_task_status_transition_for(
             from: current.clone(),
             to: next.clone(),
         });
-    }
-    if matches!(next, TaskStatus::Done) {
-        reject_done_with_open_subtasks(plan, task_id)?;
     }
     if matches!(next, TaskStatus::Paused) {
         return Err(PlanError::TaskPausedSystemOnly);
