@@ -3,7 +3,9 @@ use tauri::AppHandle;
 
 #[path = "pty/restored_launch.rs"]
 mod restored_launch;
-use restored_launch::{restored_fresh_launch_input, RestoredFreshLaunchInput};
+use restored_launch::restored_fresh_launch_input;
+#[cfg(test)]
+use restored_launch::RestoredFreshLaunchInput;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::{boot_stage::BootStage, ServiceState};
@@ -216,11 +218,11 @@ pub async fn spawn_pty_core(
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let permission_bypass_authorization =
                     crate::service::restored_launch::restore_permission_bypass_authorization(
-                    &svc.agent_registry,
-                    pid,
-                    &provider_id,
-                    &launch_parameters,
-                )?;
+                        &svc.agent_registry,
+                        pid,
+                        &provider_id,
+                        &launch_parameters,
+                    )?;
                 let skip_perms = permission_bypass_authorization.is_some();
                 // Reuse the restored-launch seam so identity, model, and effort arguments cannot diverge between launch paths.
                 let input = restored_fresh_launch_input(
@@ -386,11 +388,11 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
                 crate::service::restored_launch::restore_permission_bypass_authorization(
-                &svc.agent_registry,
-                pid,
-                &provider_id,
-                &launch_parameters,
-            )?;
+                    &svc.agent_registry,
+                    pid,
+                    &provider_id,
+                    &launch_parameters,
+                )?;
             let skip_perms = permission_bypass_authorization.is_some();
             let input = restored_fresh_launch_input(
                 &svc.agent_registry,

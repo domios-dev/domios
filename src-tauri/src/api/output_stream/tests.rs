@@ -133,6 +133,111 @@ fn output_stream_builds_no_diagnostics_when_level_is_none() {
     assert!(diagnostics.is_none());
 }
 
+fn output_buffer_state() -> crate::OutputBufferState {
+    Arc::new(crate::lock_hold::TimedMutex::new(
+        "output_buf",
+        OutputBuffer::new(1 << 20),
+    ))
+}
+
+#[tokio::test(start_paused = true)]
+async fn per_tab_output_stream_wakes_on_pty_activity_without_a_tick() {
+    use crate::service::output_stream_activity::{self, OutputStreamActivity};
+    use futures_util::StreamExt;
+
+    let activity = output_stream_activity::channel();
+    let output = output_buffer_state();
+    let stream = tab_output_frames(
+        activity.subscribe(),
+        output.clone(),
+        Some("pty-x".into()),
+        0,
+    );
+    futures_util::pin_mut!(stream);
+    let started = tokio::time::Instant::now();
+
+    assert!(futures_util::poll!(stream.next()).is_pending());
+    activity
+        .send(OutputStreamActivity::Pty("pty-other".into()))
+        .unwrap();
+    assert!(futures_util::poll!(stream.next()).is_pending());
+
+    output.lock().append("pty-x", b"echoed");
+    activity
+        .send(OutputStreamActivity::Pty("pty-x".into()))
+        .unwrap();
+    assert_eq!(
+        stream.next().await,
+        Some(TabOutputFrame {
+            output: "echoed".into(),
+            offset: 6,
+        })
+    );
+    assert_eq!(tokio::time::Instant::now(), started);
+}
+
+#[tokio::test(start_paused = true)]
+async fn per_tab_output_stream_offsets_and_resume_are_exact() {
+    use crate::service::output_stream_activity::{self, OutputStreamActivity};
+    use futures_util::StreamExt;
+
+    let activity = output_stream_activity::channel();
+    let output = output_buffer_state();
+    output.lock().append("pty-x", b"before!");
+    let initial_total = 7;
+    let offset = tab_output_start_offset(Some(2), initial_total);
+    assert_eq!(
+        tab_output_start_offset(Some(u64::MAX), initial_total),
+        initial_total
+    );
+    assert_eq!(tab_output_start_offset(None, initial_total), initial_total);
+
+    let stream = tab_output_frames(
+        activity.subscribe(),
+        output.clone(),
+        Some("pty-x".into()),
+        offset,
+    );
+    futures_util::pin_mut!(stream);
+    assert_eq!(
+        stream.next().await,
+        Some(TabOutputFrame {
+            output: "fore!".into(),
+            offset: initial_total,
+        })
+    );
+    assert!(futures_util::poll!(stream.next()).is_pending());
+
+    let burst = vec![b'x'; (2 << 20) + 17];
+    output.lock().append("pty-x", &burst);
+    for _ in 0..4097 {
+        activity
+            .send(OutputStreamActivity::Pty("pty-x".into()))
+            .unwrap();
+    }
+
+    let total = initial_total + burst.len() as u64;
+    let retained_start = total - (2 << 20);
+    let dropped_burst_bytes = (retained_start - initial_total) as usize;
+    let rotated = stream.next().await.unwrap();
+    assert_eq!(rotated.output.as_bytes(), &burst[dropped_burst_bytes..]);
+    assert_eq!(rotated.offset, total);
+    assert!(futures_util::poll!(stream.next()).is_pending());
+
+    output.lock().append("pty-x", b"tail");
+    activity
+        .send(OutputStreamActivity::Pty("pty-x".into()))
+        .unwrap();
+    assert_eq!(
+        stream.next().await,
+        Some(TabOutputFrame {
+            output: "tail".into(),
+            offset: total + 4,
+        })
+    );
+    assert!(futures_util::poll!(stream.next()).is_pending());
+}
+
 #[tokio::test]
 async fn output_written_to_pty_wakes_subscriber_and_preserves_resume_offsets() {
     use crate::service::output_stream_activity::{self, OutputStreamActivity};
