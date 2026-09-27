@@ -628,6 +628,19 @@ fn recover_pre_ready_exit_routes_only_restore_resume_and_exit_recovery() {
 }
 
 #[test]
+fn recovery_failure_notifies_unless_the_exit_path_already_notifies() {
+    assert!(recovery_failure_needs_notification(Some("ShellReadyTimeout")));
+    assert!(recovery_failure_needs_notification(None));
+    let attempt = LaunchAttempt {
+        tab_id: "tab-exit-already-notified".into(),
+        pty_id: "pty-exit-already-notified".into(),
+        binding_nonce: "nonce-exit-already-notified".into(),
+    };
+    let reason = exited_before_readiness_reason(&attempt, Some(3));
+    assert!(!recovery_failure_needs_notification(Some(&reason)));
+}
+
+#[test]
 fn pre_ready_exit_in_resume_auto_resumes_once() {
     let tab = launching_tab("pty-auto-resume", "nonce-auto-resume");
     let attempt = attempt_of(&tab);
@@ -721,6 +734,29 @@ fn second_pre_ready_exit_notifies_and_stops() {
     let shell = mux.get_tab(&tab_id).expect("the surviving shell remains");
     assert_eq!(shell.pty_id.as_deref(), Some("pty-auto-retry"));
     assert_eq!(shell.boot_stage, Some(BootStage::ShellReady));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn failed_automatic_recovery_notifies_with_restart_command() {
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    fixture.service.notify_recovery_failure_if_needed(
+        &tab_id,
+        "recovery-launch",
+        Some("ShellReadyTimeout"),
+    );
+
+    let notifications = fixture.service.notif.lock().list(false);
+    assert_eq!(notifications.len(), 1);
+    assert!(notifications[0]
+        .body
+        .as_deref()
+        .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
 }
 
 #[test]
@@ -1027,4 +1063,77 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
         observed < ready,
         "session binding evidence is observed before ready is claimed"
     );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn post_readiness_shell_exit_notifies_with_restart_command() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&tab_id, "pty-ready-exit-notification".into());
+    {
+        let tab = mux.get_tab_mut(&tab_id).expect("seeded tab");
+        tab.agent_type = Some("claude".into());
+        tab.agent_session_id = Some("session-ready-exit".into());
+        tab.session_binding_nonce = Some("nonce-ready-exit".into());
+        tab.reported_session_binding_nonce = Some("nonce-ready-exit".into());
+        tab.shell_integration_nonce = Some("shell-nonce".into());
+        tab.boot_stage = Some(BootStage::AgentReady);
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    harness
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(
+            Some("pty-ready-exit-notification".into()),
+            None,
+            None,
+            80,
+            24,
+            Default::default(),
+        )
+        .expect("spawn live backing PTY");
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: "pty-ready-exit-notification".into(),
+        binding_nonce: "nonce-ready-exit".into(),
+    };
+    let tree_key = harness
+        .service
+        .provider_tree_key_for_tab(&tab_id, &attempt.pty_id)
+        .expect("the tab provider exposes its executable capability");
+    harness.service.provider_tree_witnesses.record_for_test(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+            [crate::service::process_tree::ProcessIdentity {
+                pid: 900_002,
+                start_token: "synthetic-ready-provider-start".into(),
+            }]
+            .into_iter()
+            .collect(),
+        ),
+    );
+
+    harness.service.process_pty_output(
+        "pty-ready-exit-notification",
+        b"\x1b]633;E;;shell-nonce\x07\x1b]633;D;3\x07",
+    );
+
+    let notifications = harness.service.notif.lock().list(false);
+    assert_eq!(notifications.len(), 1);
+    assert!(notifications[0]
+        .body
+        .as_deref()
+        .is_some_and(|body| body.contains(&recovery_command(&tab_id))));
+    let mux = harness.service.mux.read();
+    let tab = mux.get_tab(&tab_id).expect("surviving shell remains");
+    assert_eq!(tab.pty_id.as_deref(), Some(attempt.pty_id.as_str()));
+    assert!(tab.agent_type.is_none());
 }
