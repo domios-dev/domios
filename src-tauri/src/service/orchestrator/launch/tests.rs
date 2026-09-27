@@ -1,7 +1,7 @@
 use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::startup_readiness::{
-    input_ready_stage_after_provider_ready, provider_readiness_with_timeout,
-    resume_waits_for_first_turn,
+    first_turn_binding_without_startup_task, input_ready_stage_after_provider_ready,
+    launch_waits_for_first_turn_binding,
 };
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
@@ -72,47 +72,33 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("resume-first-turn-fixture").with_resume_binds_on_first_user_turn(),
+        MockProvider::new("resume-first-turn-fixture").with_session_starts_on_first_user_turn(),
     ));
 
-    assert!(resume_waits_for_first_turn(
+    assert!(launch_waits_for_first_turn_binding(
         &harness.service,
-        &tab_id,
         "resume-first-turn-fixture",
-        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        false,
     ));
-    assert!(!resume_waits_for_first_turn(
+    assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
-        &tab_id,
         "resume-first-turn-fixture",
-        crate::service::launch_diagnostics::AgentLaunchOrigin::AtomicSpawn,
+        true,
     ));
 
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
     let input_ready_stage = input_ready_stage_after_provider_ready(true);
     assert_eq!(input_ready_stage, BootStage::AgentReady);
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
-    let provider_up = provider_readiness_with_timeout(
-        &crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
-            timeout: std::time::Duration::from_secs(30),
-        },
-        crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
-    );
-    assert_eq!(
-        provider_up,
-        crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
-            timeout: crate::service::worker_ack::STARTUP_BINDING_DEADLINE,
-        }
-    );
     let launch_source = include_str!("../launch.rs");
     let provider_up = launch_source
-        .find("await_provider_readiness_on_screen")
-        .expect("resume readiness waits for provider-up evidence");
+        .find("await_lazy_session_input_readiness")
+        .expect("first-turn readiness waits for provider composer evidence");
     let input_ready = launch_source
-        .find("emit_resume_first_turn_input_ready")
-        .expect("resume readiness emits the input-accepting stage");
+        .find("emit_first_turn_input_ready")
+        .expect("first-turn readiness emits the input-accepting stage");
     assert!(provider_up < input_ready);
-    assert!(launch.emit_resume_first_turn_input_ready(&harness.service));
+    assert!(launch.emit_first_turn_input_ready(&harness.service));
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab remains present");
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
@@ -120,6 +106,97 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     assert!(!tab.launch_session_authenticated());
     drop(mux);
     LAUNCH_REGISTRY.lock().finish(&launch);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
+    use crate::agent::test_provider::MockProvider;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "taskless-lazy-session-pty";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("lazy-session-fixture".into());
+        tab.session_binding_nonce = Some("taskless-lazy-session-nonce".into());
+        tab.pty_id = Some(pty_id.into());
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("lazy-session-fixture")
+            .with_session_starts_on_first_user_turn()
+            .with_provider_readiness_strategy(
+                crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
+                    timeout: std::time::Duration::from_secs(30),
+                },
+            ),
+    ));
+
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("lazy-session-fixture", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
+
+    assert!(launch_waits_for_first_turn_binding(
+        &harness.service,
+        "lazy-session-fixture",
+        false,
+    ));
+    let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
+    assert_eq!(
+        input_ready_stage_after_provider_ready(true),
+        BootStage::AgentReady,
+    );
+    assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
+
+    let launch_source = include_str!("../launch.rs");
+    let provider_evidence = launch_source
+        .find("await_lazy_session_input_readiness")
+        .expect("lazy launch waits for provider-owned composer evidence");
+    let input_ready = launch_source
+        .find("emit_first_turn_input_ready")
+        .expect("lazy launch accepts input before its binding turn");
+    assert!(provider_evidence < input_ready);
+    assert!(launch.emit_first_turn_input_ready(&harness.service));
+
+    let mux = harness.service.mux.read();
+    let tab = mux.get_tab(&tab_id).expect("taskless tab remains present");
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert_eq!(tab.boot_failure_reason, None);
+    assert!(tab.agent_session_id.is_none());
+    assert!(tab.pending_delivery.is_none());
+    drop(mux);
+    LAUNCH_REGISTRY.lock().finish(&launch);
+}
+
+#[test]
+fn first_turn_on_lazy_session_spawn_is_delivered_once_and_binds() {
+    let mut driver = LaunchRegistry::default();
+    let launch = driver.begin("lazy-first-turn", "lazy-first-turn-pty".into());
+    bind(&mut driver, &launch, "lazy-first-turn-nonce");
+    let payload_writes = Cell::new(0);
+    let mut deliver_first_turn = || {
+        payload_writes.set(payload_writes.get() + 1);
+        driver.record_provider_session(
+            "lazy-first-turn",
+            &ProviderSessionBinding {
+                pty_id: "lazy-first-turn-pty".into(),
+                binding_nonce: "lazy-first-turn-nonce".into(),
+            },
+        )
+    };
+
+    assert!(first_turn_binding_without_startup_task(true, false));
+    assert!(!first_turn_binding_without_startup_task(true, true));
+    assert!(deliver_first_turn());
+    assert_eq!(payload_writes.get(), 1);
+    assert!(launch.await_provider_ack(std::time::Duration::ZERO));
 }
 
 #[test]

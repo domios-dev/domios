@@ -11,7 +11,8 @@ use parking_lot::Mutex;
 
 use super::provider::{
     usage_sources_from_session_file, AgentLaunchParams, AgentProvider, LaunchArtifactSweepReport,
-    LaunchArtifactSweepRequest, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
+    LaunchArtifactSweepRequest, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
+    ReasoningEffortInfo,
     SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
@@ -35,7 +36,8 @@ pub struct MockProvider {
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
-    resume_binds_on_first_user_turn: bool,
+    session_starts_on_first_user_turn: bool,
+    provider_readiness_strategy: ProviderReadinessStrategy,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
 }
@@ -62,7 +64,8 @@ impl MockProvider {
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
-            resume_binds_on_first_user_turn: false,
+            session_starts_on_first_user_turn: false,
+            provider_readiness_strategy: ProviderReadinessStrategy::default(),
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
         }
@@ -236,8 +239,16 @@ impl MockProvider {
         }
     }
 
-    pub fn with_resume_binds_on_first_user_turn(mut self) -> Self {
-        self.resume_binds_on_first_user_turn = true;
+    pub fn with_session_starts_on_first_user_turn(mut self) -> Self {
+        self.session_starts_on_first_user_turn = true;
+        self
+    }
+
+    pub fn with_provider_readiness_strategy(
+        mut self,
+        strategy: ProviderReadinessStrategy,
+    ) -> Self {
+        self.provider_readiness_strategy = strategy;
         self
     }
 }
@@ -319,8 +330,11 @@ impl AgentProvider for MockProvider {
     fn task_delivery(&self) -> TaskDelivery {
         self.task_delivery.clone()
     }
-    fn resume_binds_on_first_user_turn(&self) -> bool {
-        self.resume_binds_on_first_user_turn
+    fn session_starts_on_first_user_turn(&self) -> bool {
+        self.session_starts_on_first_user_turn
+    }
+    fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
+        self.provider_readiness_strategy.clone()
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()

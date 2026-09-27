@@ -16,6 +16,7 @@ pub(crate) enum LaunchInputEvidence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchInputRefusal {
     DirectoryTrustPrompt,
+    PendingPrompt,
     ProviderDialog(TabState),
     Deadline,
     AttemptSuperseded,
@@ -25,11 +26,9 @@ impl LaunchInputRefusal {
     pub(crate) fn reason(self) -> String {
         match self {
             Self::DirectoryTrustPrompt => "active provider directory-trust prompt".into(),
+            Self::PendingPrompt => "active provider prompt".into(),
             Self::ProviderDialog(state) => format!("provider classified {state:?} dialog"),
-            Self::Deadline => {
-                "provider composer or session binding was not observed before the readiness deadline"
-                    .into()
-            }
+            Self::Deadline => "provider composer readiness deadline elapsed".into(),
             Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
         }
     }
@@ -38,28 +37,58 @@ impl LaunchInputRefusal {
 struct LaunchInputObservation {
     session_bound: bool,
     composer_ready: bool,
+    pending_prompt: bool,
+    provider_process_alive: bool,
     directory_trust_prompt: bool,
     active_interactive_prompt: bool,
     classification: Option<TabStateClassification>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LaunchInputMode {
+    Standard,
+    LazySessionStart,
+}
+
 fn decide_launch_input(
     observation: LaunchInputObservation,
+    mode: LaunchInputMode,
 ) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
-    if observation.directory_trust_prompt {
-        return Err(LaunchInputRefusal::DirectoryTrustPrompt);
-    }
-    if let Some(classification) = observation.classification {
-        let active_dialog = match classification.state {
-            TabState::WaitingOnAuth | TabState::UpdatePrompt | TabState::RateLimited => true,
-            TabState::ClarifyingQuestion => observation.active_interactive_prompt,
-            _ => false,
+    let refusal = if observation.directory_trust_prompt {
+        Some(LaunchInputRefusal::DirectoryTrustPrompt)
+    } else if observation.pending_prompt {
+        Some(LaunchInputRefusal::PendingPrompt)
+    } else {
+        observation
+            .classification
+            .filter(|classification| {
+                classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                    && match classification.state {
+                        TabState::WaitingOnAuth
+                        | TabState::UpdatePrompt
+                        | TabState::RateLimited => true,
+                        TabState::ClarifyingQuestion => {
+                            mode == LaunchInputMode::LazySessionStart
+                                || observation.active_interactive_prompt
+                        }
+                        TabState::Working | TabState::IdleStuck | TabState::Unknown => false,
+                    }
+            })
+            .map(|classification| LaunchInputRefusal::ProviderDialog(classification.state))
+    };
+    if let Some(refusal) = refusal {
+        return match mode {
+            LaunchInputMode::Standard => Err(refusal),
+            LaunchInputMode::LazySessionStart => Ok(None),
         };
-        if classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-            && active_dialog
-        {
-            return Err(LaunchInputRefusal::ProviderDialog(classification.state));
-        }
+    }
+    if mode == LaunchInputMode::LazySessionStart && !observation.provider_process_alive {
+        return Ok(None);
+    }
+    if mode == LaunchInputMode::LazySessionStart {
+        return Ok(observation
+            .composer_ready
+            .then_some(LaunchInputEvidence::ProviderComposer));
     }
     if observation.session_bound {
         Ok(Some(LaunchInputEvidence::SessionBinding))
@@ -70,6 +99,19 @@ fn decide_launch_input(
     }
 }
 
+fn provider_composer_is_ready(
+    mode: LaunchInputMode,
+    declares_structural_composer: bool,
+    terminal_input_ready: bool,
+    tui_evidence: bool,
+) -> bool {
+    terminal_input_ready
+        && match mode {
+            LaunchInputMode::Standard => tui_evidence,
+            LaunchInputMode::LazySessionStart => declares_structural_composer,
+        }
+}
+
 impl ServiceContext {
     pub(crate) fn await_launch_input_readiness(
         &self,
@@ -77,12 +119,50 @@ impl ServiceContext {
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
+        self.await_launch_input_readiness_with_mode(
+            attempt,
+            agent_id,
+            timeout,
+            LaunchInputMode::Standard,
+        )
+    }
+
+    pub(crate) fn await_lazy_session_input_readiness(
+        &self,
+        attempt: &LaunchAttempt,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
+        self.await_launch_input_readiness_with_mode(
+            attempt,
+            agent_id,
+            timeout,
+            LaunchInputMode::LazySessionStart,
+        )
+    }
+
+    fn await_launch_input_readiness_with_mode(
+        &self,
+        attempt: &LaunchAttempt,
+        agent_id: &str,
+        timeout: std::time::Duration,
+        mode: LaunchInputMode,
+    ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
         let signal = self
             .screen_state
             .lock()
             .arm_screen_change_signal(&attempt.pty_id);
         let deadline = Instant::now() + timeout;
         let mut generation = signal.generation();
+        let (declares_structural_composer, provider_binary_name) = self
+            .agent_registry
+            .with_provider(agent_id, |provider| {
+                (
+                    provider.provider_readiness_strategy().requires_composer(),
+                    provider.binary_name().to_string(),
+                )
+            })
+            .unwrap_or((false, String::new()));
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -93,7 +173,7 @@ impl ServiceContext {
                 return Err(LaunchInputRefusal::AttemptSuperseded);
             }
 
-            let (session_bound, session_id, cwd) = {
+            let (session_bound, pending_prompt, session_id, cwd) = {
                 let mux = self.mux.read();
                 let Some(tab) = mux.get_tab(&attempt.tab_id) else {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
@@ -103,10 +183,16 @@ impl ServiceContext {
                 }
                 (
                     tab.launch_session_authenticated(),
+                    tab.pending_prompt.is_some(),
                     tab.agent_session_id.clone(),
                     tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
                 )
             };
+            let provider_process_alive = mode == LaunchInputMode::Standard
+                || self.provider_process_alive_in_tab_tree(
+                    &attempt.pty_id,
+                    &provider_binary_name,
+                );
             let (screen, input) = {
                 let screen_state = self.screen_state.lock();
                 (
@@ -124,10 +210,16 @@ impl ServiceContext {
                 screen_text: screen.clone(),
             };
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
-                let provider_tui = provider.screen_has_tui(&screen);
-                let composer_ready = input.is_some_and(|state| {
-                    launch_composer_input_ready(state) && (provider_tui || state.alternate_screen)
-                });
+                let terminal_input_ready = input.as_ref().is_some_and(launch_composer_input_ready);
+                let tui_evidence = mode == LaunchInputMode::Standard
+                    && (provider.screen_has_tui(&screen)
+                        || input.as_ref().is_some_and(|state| state.alternate_screen));
+                let composer_ready = provider_composer_is_ready(
+                    mode,
+                    declares_structural_composer,
+                    terminal_input_ready,
+                    tui_evidence,
+                );
                 let directory_trust_prompt =
                     provider.directory_trust_prompt_response(&screen).is_some();
                 let classification = provider.classify_tab_state(&snapshot);
@@ -142,15 +234,24 @@ impl ServiceContext {
                     classification,
                 )
             });
-            let (composer_ready, directory_trust_prompt, active_interactive_prompt, classification) =
-                provider_observation.unwrap_or((false, false, false, None));
-            match decide_launch_input(LaunchInputObservation {
-                session_bound,
+            let (
                 composer_ready,
                 directory_trust_prompt,
                 active_interactive_prompt,
                 classification,
-            }) {
+            ) = provider_observation.unwrap_or((false, false, false, None));
+            match decide_launch_input(
+                LaunchInputObservation {
+                    session_bound,
+                    composer_ready,
+                    pending_prompt,
+                    provider_process_alive,
+                    directory_trust_prompt,
+                    active_interactive_prompt,
+                    classification,
+                },
+                mode,
+            ) {
                 Err(refusal) => return Err(refusal),
                 Ok(Some(readiness)) => return Ok(readiness),
                 Ok(None) => {}
@@ -165,9 +266,30 @@ impl ServiceContext {
             generation = signal.generation();
         }
     }
+
+    fn provider_process_alive_in_tab_tree(&self, pty_id: &str, binary_name: &str) -> bool {
+        if binary_name.is_empty() {
+            return false;
+        }
+        let root_pid = {
+            let pty = self.pty.lock();
+            let Some(session) = pty.get_session(pty_id) else {
+                return false;
+            };
+            let Ok(child) = session.child.lock() else {
+                return false;
+            };
+            child.process_id()
+        };
+        root_pid.is_some_and(|root| {
+            crate::service::process_tree::has_named_process(root, binary_name)
+        })
+    }
 }
 
-fn launch_composer_input_ready(input: codeterm_pty::pty::screen_state::ComposerInputState) -> bool {
+fn launch_composer_input_ready(
+    input: &codeterm_pty::pty::screen_state::ComposerInputState,
+) -> bool {
     crate::agent::offline_state_classifier::composer_cursor_ready(
         input.cursor_visible,
         input.cursor_row,

@@ -7,8 +7,7 @@
   ┃
   ┃  $ codeterm send "alpha" --tab 55a147a0
   ┃
-  ┃  OK (sent)
-  ┃  CODETERM_RESOLVED_TEXT="alpha"
+  ┃  OK (pending)
   ┃
      Sent.
      ▣  Build · Big Pickle · 15.1s

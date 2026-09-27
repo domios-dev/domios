@@ -257,7 +257,10 @@ pub(super) fn dispatch(
                     svc.insert_text_detached(&resolved_target, &raw_text);
                 }
             }
-            Ok(serde_json::json!({"ok": true}))
+            Ok(serde_json::json!({
+                "ok": true,
+                "delivery": "pending"
+            }))
         }
 
         "tab.get_output" => {
