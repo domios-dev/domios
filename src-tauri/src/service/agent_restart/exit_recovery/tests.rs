@@ -390,16 +390,8 @@ fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
         }
         other => panic!("expected a refusal before acceptance, got {other:?}"),
     }
-    assert!(
-        fixture
-            .service
-            .restart_tracker
-            .lock()
-            .last_restart
-            .get(&tab_id)
-            .is_none(),
-        "a refused recovery must not consume the restart rate limit"
-    );
+    assert!(fixture.service.restart_tracker.lock().last_restart.get(&tab_id).is_none(),
+        "a refused recovery must not consume the restart rate limit");
     let tab = fixture
         .service
         .mux

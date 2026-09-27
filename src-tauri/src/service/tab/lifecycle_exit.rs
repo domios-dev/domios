@@ -294,6 +294,37 @@ impl ServiceContext {
         self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(tab_id, cause)
     }
 
+    pub(crate) fn clear_tab_spawn_failed_identity_if_absent(
+        &self,
+        tab_id: &str,
+        cause: &str,
+    ) -> bool {
+        if !self.lifecycle_clear_allowed(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown().as_ref(),
+        ) {
+            return false;
+        }
+        let (cleared, prompt_identity) = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id)
+                .filter(|tab| {
+                    tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
+                        && !tab.agent_booting
+                })
+                .map_or((false, None), clear_agent_identity_with_prompt)
+        };
+        self.finish_agent_identity_clear(
+            tab_id,
+            cause,
+            cleared,
+            prompt_identity,
+            "spawn-failed",
+            "launch_owner_recorded_spawn_failure",
+        )
+    }
+
     fn lifecycle_clear_allowed(
         &self,
         tab_id: &str,
