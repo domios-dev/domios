@@ -651,6 +651,41 @@ function scanMessagesForModel(db, sql, params) {
   }
   return null;
 }
+function scanMessagesForQualifiedModel(db, sessionId) {
+  try {
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId]
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i].data;
+      if (!raw) continue;
+      try {
+        const value = JSON.parse(raw);
+        if (value.role === "assistant" && typeof value.providerID === "string" && value.providerID && typeof value.modelID === "string" && value.modelID) {
+          return `${value.providerID}/${value.modelID}`;
+        }
+      } catch (_) {
+      }
+    }
+  } catch (_) {
+  }
+  return null;
+}
+function scanSessionDirectory(db, sessionId) {
+  try {
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    const session = rows.find((row) => row.id === sessionId);
+    return typeof session?.directory === "string" && session.directory.trim() ? session.directory : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // plugins/provider-opencode/src/plugin.ts
 var TITLE_RE = /opencode/i;
@@ -806,18 +841,24 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    return parts.join(" ");
+    return resumeLaunch(sessionId, skipPermissions).parts.join(" ");
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const platform = host.platform();
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const parts = launch.parts;
+    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = String(args[i]);
+      if (arg === "-m" || arg === "--model") {
+        parts.push(arg, host.shell.quoteFor(String(args[i + 1] || ""), platform));
+        i++;
+      } else {
+        parts.push(arg.startsWith("-") ? arg : host.shell.quoteFor(arg, platform));
+      }
     }
     const systemPrompt = p.systemPrompt;
     if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
@@ -828,7 +869,8 @@ var plugin = {
     const source = host.shell.quoteFor(taskPath, platform);
     const local = host.shell.quoteFor(localTaskPath, platform);
     const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
-    const prologue = platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
+    const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
+    const prologue = platform === "windows" ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
     const epilogue = platform === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
     return `${prologue} ${parts.join(" ")} ${epilogue}`;
   },
@@ -1046,4 +1088,35 @@ var plugin = {
     return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
+function resumeLaunchArgs(args, sessionId) {
+  const retained = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (arg === "--variant") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--variant=")) continue;
+    if (arg === "-m" || arg === "--model") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
+    retained.push(arg);
+  }
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
+  if (model) retained.push("-m", model);
+  return retained;
+}
+function resumeLaunch(sessionId, skipPermissions) {
+  const platform = host.platform();
+  const db = opencodeDbPath();
+  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const parts = ["opencode"];
+  if (directory) parts.push(host.shell.quoteFor(directory, platform));
+  parts.push("--session", host.shell.quoteFor(sessionId, platform));
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  return { parts, directory };
+}
 var plugin_default = plugin;
