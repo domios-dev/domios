@@ -20,6 +20,16 @@ pub enum ProviderReadinessStrategy {
     StructuralComposer { timeout: Duration },
 }
 
+/// Terminal cursor placement accepted as composer evidence for a lazy session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerCursorPosition {
+    #[default]
+    BottomRegion,
+    /// Visible cursor on the provider's alternate-screen TUI may be centered.
+    VisibleAnywhere,
+}
+
 impl Default for ProviderReadinessStrategy {
     fn default() -> Self {
         Self::TuiFrame {

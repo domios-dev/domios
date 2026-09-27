@@ -39,6 +39,7 @@ struct LaunchInputObservation {
     composer_ready: bool,
     pending_prompt: bool,
     provider_process_alive: bool,
+    provider_busy: bool,
     directory_trust_prompt: bool,
     active_interactive_prompt: bool,
     classification: Option<TabStateClassification>,
@@ -54,6 +55,9 @@ fn decide_launch_input(
     observation: LaunchInputObservation,
     mode: LaunchInputMode,
 ) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
+        return Ok(None);
+    }
     let refusal = if observation.directory_trust_prompt {
         Some(LaunchInputRefusal::DirectoryTrustPrompt)
     } else if mode == LaunchInputMode::LazySessionStart && observation.pending_prompt {
@@ -109,6 +113,19 @@ fn provider_composer_is_ready(
         }
 }
 
+fn provider_is_busy(
+    mode: LaunchInputMode,
+    cursor_position: crate::agent::provider::ComposerCursorPosition,
+    classification: Option<&TabStateClassification>,
+) -> bool {
+    mode == LaunchInputMode::LazySessionStart
+        && cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+        && classification.is_some_and(|value| {
+            value.state == TabState::Working
+                && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+        })
+}
+
 impl ServiceContext {
     pub(crate) fn await_launch_input_readiness(
         &self,
@@ -151,15 +168,21 @@ impl ServiceContext {
             .arm_screen_change_signal(&attempt.pty_id);
         let deadline = Instant::now() + timeout;
         let mut generation = signal.generation();
-        let (declares_structural_composer, provider_binary_name) = self
+        let (provider_readiness, composer_cursor_position, provider_binary_name) = self
             .agent_registry
             .with_provider(agent_id, |provider| {
                 (
-                    provider.provider_readiness_strategy().requires_composer(),
+                    provider.provider_readiness_strategy(),
+                    provider.composer_cursor_position(),
                     provider.binary_name().to_string(),
                 )
             })
-            .unwrap_or((false, String::new()));
+            .unwrap_or((
+                crate::agent::provider::ProviderReadinessStrategy::default(),
+                crate::agent::provider::ComposerCursorPosition::default(),
+                String::new(),
+            ));
+        let declares_structural_composer = provider_readiness.requires_composer();
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -204,9 +227,23 @@ impl ServiceContext {
                 screen_text: screen.clone(),
             };
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
-                let terminal_input_ready = input.as_ref().is_some_and(launch_composer_input_ready);
-                let tui_evidence = provider.screen_has_tui(&screen)
-                    || input.as_ref().is_some_and(|state| state.alternate_screen);
+                let input_position = if mode == LaunchInputMode::LazySessionStart {
+                    composer_cursor_position
+                } else {
+                    crate::agent::provider::ComposerCursorPosition::BottomRegion
+                };
+                let terminal_input_ready = input
+                    .as_ref()
+                    .is_some_and(|state| launch_composer_input_ready(state, input_position));
+                let provider_tui = provider.screen_has_tui(&screen);
+                let tui_evidence = if mode == LaunchInputMode::LazySessionStart
+                    && composer_cursor_position
+                        == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+                {
+                    provider_tui
+                } else {
+                    provider_tui || input.as_ref().is_some_and(|state| state.alternate_screen)
+                };
                 let composer_ready = provider_composer_is_ready(
                     mode,
                     declares_structural_composer,
@@ -216,6 +253,8 @@ impl ServiceContext {
                 let directory_trust_prompt =
                     provider.directory_trust_prompt_response(&screen).is_some();
                 let classification = provider.classify_tab_state(&snapshot);
+                let provider_busy =
+                    provider_is_busy(mode, composer_cursor_position, classification.as_ref());
                 let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
                     value.state == TabState::ClarifyingQuestion
                         && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
@@ -225,16 +264,23 @@ impl ServiceContext {
                     directory_trust_prompt,
                     active_interactive_prompt,
                     classification,
+                    provider_busy,
                 )
             });
-            let (composer_ready, directory_trust_prompt, active_interactive_prompt, classification) =
-                provider_observation.unwrap_or((false, false, false, None));
+            let (
+                composer_ready,
+                directory_trust_prompt,
+                active_interactive_prompt,
+                classification,
+                provider_busy,
+            ) = provider_observation.unwrap_or((false, false, false, None, false));
             match decide_launch_input(
                 LaunchInputObservation {
                     session_bound,
                     composer_ready,
                     pending_prompt,
                     provider_process_alive,
+                    provider_busy,
                     directory_trust_prompt,
                     active_interactive_prompt,
                     classification,
@@ -277,7 +323,11 @@ impl ServiceContext {
 
 fn launch_composer_input_ready(
     input: &codeterm_pty::pty::screen_state::ComposerInputState,
+    cursor_position: crate::agent::provider::ComposerCursorPosition,
 ) -> bool {
+    if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
+        return input.alternate_screen && input.cursor_visible;
+    }
     crate::agent::offline_state_classifier::composer_cursor_ready(
         input.cursor_visible,
         input.cursor_row,

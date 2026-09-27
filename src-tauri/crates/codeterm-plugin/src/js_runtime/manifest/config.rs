@@ -2,9 +2,10 @@ pub use crate::provider::IntegrationKind;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelAvailability, ModelInfo,
-    ProviderReadinessStrategy, ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
+    ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
+    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
+    VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -32,6 +33,8 @@ pub struct SpawnConfig {
     pub system_prompt_delivery: SerdeSystemPromptDelivery,
     #[serde(default)]
     pub provider_readiness: SerdeProviderReadinessStrategy,
+    #[serde(default)]
+    pub composer_cursor_position: ComposerCursorPosition,
     pub verify_submit: SerdeVerifySubmit,
     #[serde(default)]
     pub busy_submit: SerdeBusySubmit,
@@ -603,6 +606,22 @@ mod tests {
         assert!(parsed.session_starts_on_first_user_turn);
         let serialized = serde_json::to_value(parsed).expect("config serializes");
         assert_eq!(serialized["sessionStartsOnFirstUserTurn"], true);
+    }
+
+    #[test]
+    fn spawn_config_accepts_provider_declared_centered_composer() {
+        let parsed: SpawnConfig = serde_json::from_value(serde_json::json!({
+            "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+            "taskDelivery": "pty_input",
+            "verifySubmit": { "kind": "none" },
+            "composerCursorPosition": "visible_anywhere",
+        }))
+        .expect("composer position parses from the provider manifest");
+
+        assert_eq!(
+            parsed.composer_cursor_position,
+            ComposerCursorPosition::VisibleAnywhere
+        );
     }
 
     #[test]
