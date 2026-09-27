@@ -23,6 +23,18 @@ fn codex_status_fixture() -> String {
     .expect("fixture file must exist")
 }
 
+fn codex_update_fixture() -> String {
+    std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("codex-update-available.txt"),
+    )
+    .expect("Codex update fixture")
+}
+
 fn codex() -> JsProvider {
     load_js("codex")
 }
@@ -78,6 +90,34 @@ fn build_launch_command_shape() {
         "arg must be quoted: {with_args}"
     );
     assert_eq!(with_args.matches("-c check_for_update_on_startup=false").count(), 1);
+}
+
+#[test]
+fn classified_prompt_auto_response_is_limited_to_update_skip() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let screen = codex_update_fixture();
+    assert!(provider.supports_classified_prompt_auto_response());
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::UpdatePrompt,
+            &screen,
+        ),
+        Some(crate::provider::ClassifiedPromptOptionRole::Skip)
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(crate::tab_state::TabState::ClarifyingQuestion, &screen),
+        None
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::UpdatePrompt,
+            &screen.replace("2. Skip", "2. Skip this version"),
+        ),
+        None
+    );
 }
 
 #[test]

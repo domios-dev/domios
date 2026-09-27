@@ -6,11 +6,13 @@ import type {
   ParsedPrompt,
   PluginModule,
   SessionDeltaContext,
+  TabState,
 } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
   classifyCodexFolderTrustPrompt,
+  parseMenuOptions,
   parseCodexFolderTrustPrompt,
   parseCodexPrompt,
   responseKeysForIndex,
@@ -713,6 +715,13 @@ const plugin: PluginModule = {
 
   classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
     return classifyCodexTabState(snapshot, host.unixNowMs());
+  },
+
+  classifiedPromptAutoResponse(state: TabState, screen: string): "skip" | null {
+    if (state !== "update_prompt") return null;
+    const options = parseMenuOptions(screen);
+    if (!options.some((option) => /\bupdate\b/i.test(option.label))) return null;
+    return options.filter((option) => option.label === "Skip").length === 1 ? "skip" : null;
   },
 
 };

@@ -117,20 +117,6 @@ const baseHost = (over: Record<string, unknown>) => ({
 console.log("\n--- task instructions launch ---\n");
 
 {
-  const p = loadCodexWithHost(baseHost({ platform: () => "linux" }));
-  const commands = [
-    p.buildLaunchCommand({}),
-    p.buildLaunchCommand({ task: "task", instanceId: "instance-test" }),
-    p.buildResumeCommand("session-test"),
-    p.buildResumeCommandWithContext({ sessionId: "session-test" }),
-  ];
-  for (const command of commands) {
-    eq((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
-      "every Codex launch builder disables startup updates exactly once");
-  }
-}
-
-{
   const p = loadCodexWithHost(baseHost({
     platform: () => "windows",
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
@@ -238,7 +224,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
-    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts",
+    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(

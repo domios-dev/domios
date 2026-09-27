@@ -38,6 +38,16 @@ const uuid = "11111111-1111-1111-1111-111111111111";
 const instructions = "opaque-restored-instructions-d83a";
 const args = ["-m", "gpt-6-luna", "-c", 'model_reasoning_effort="xhigh"'];
 const resume = context.module.exports.default.buildResumeCommandWithContext;
+const launch = context.module.exports.default.buildLaunchCommand;
+const simpleResume = context.module.exports.default.buildResumeCommand;
+for (const command of [
+  launch({}),
+  launch({ task: "task", instanceId: "instance-test" }),
+  simpleResume("session-test"),
+  resume({ sessionId: "session-test" }),
+]) {
+  assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+}
 const parsedArguments = (command: string) =>
   Array.from(command.matchAll(/ARG\(([^()]*)\)/g), ([, argument]) => argument);
 const windowsCommand = resume({
