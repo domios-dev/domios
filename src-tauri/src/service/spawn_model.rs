@@ -1,8 +1,8 @@
-use super::ServiceContext;
 use super::spawn_model_catalogue::{
     catalogue_lookup_model, model_catalogue_capability, normalize_requested_model,
     preserve_context_suffix,
 };
+use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 pub use crate::multiplexer::types::ModelFallbackNotice;
 

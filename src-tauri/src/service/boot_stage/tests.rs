@@ -27,12 +27,11 @@ fn happy_path_emits_stages_in_order() {
         sink.record("tab-1", stage, None);
     }
     assert_eq!(sink.stages(), BootStage::HAPPY_PATH.to_vec());
-    assert!(
-        sink.events
-            .lock()
-            .iter()
-            .all(|(pid, _, r)| pid == "tab-1" && r.is_none())
-    );
+    assert!(sink
+        .events
+        .lock()
+        .iter()
+        .all(|(pid, _, r)| pid == "tab-1" && r.is_none()));
 }
 
 #[test]
@@ -490,7 +489,7 @@ fn concurrent_ready_and_deadline_commits_keep_generation_evidence_atomic() {
                 if !owns_evidence {
                     return false;
                 }
-                if tab.boot_stage.is_some_and(BootStage::is_provisional) {
+                if tab.boot_stage.is_some_and(|stage| stage.is_provisional()) {
                     return apply_late_readiness(tab, &ready_evidence);
                 }
                 apply_boot_stage(tab, BootStage::AgentReady, None);
