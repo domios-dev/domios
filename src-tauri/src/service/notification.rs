@@ -637,6 +637,47 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn resolve_prompt_notifications(
+        &self,
+        tab_id: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Vec<String> {
+        self.resolve_prompt_transition(tab_id, Some(identity.clone()), None)
+    }
+
+    pub(crate) fn resolve_prompt_transition(
+        &self,
+        tab_id: &str,
+        previous: Option<codeterm_types::pty::PromptIdentity>,
+        current: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Vec<String> {
+        let resolved = {
+            let mut store = self.notif.lock();
+            super::prompt_resolution::resolve_displaced_prompt(
+                &mut store, tab_id, previous, current,
+            )
+        };
+        for id in &resolved {
+            let spent = { self.notif.lock().spent_question(id) };
+            if let Some(spent) = spent {
+                self.spend_on_channels(id, &spent);
+            }
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
+        resolved
+    }
+
+    pub(crate) fn record_channel_placement(&self, id: &str, service: &str, locator: &str) {
+        let spent = {
+            self.notif
+                .lock()
+                .remember_channel_placement_and_spent_question(id, service, locator)
+        };
+        if let Some(spent) = spent {
+            self.spend_on_channels(id, &spent);
+        }
+    }
+
     fn settle_recorded_answer(&self, id: &str, standing: String) -> serde_json::Value {
         let prompt_answer = { self.notif.lock().prompt_option_answer(id, &standing) };
         let prompt_standing = standing.clone();

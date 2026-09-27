@@ -366,6 +366,7 @@ export interface Notification {
   actions?: NotificationAction[];
   /** Present when the notification offers a choice */
   answer?: NotificationAnswer;
+  resolved?: boolean;
   /** Persist toast — don't auto-dismiss, require explicit action */
   sticky?: boolean;
 }

@@ -182,7 +182,14 @@ export function NotificationPanel({
                     Show Tab
                   </button>
                 )}
-                {notif.answer?.answered ? (
+                {notif.resolved ? (
+                  <div
+                    data-testid="notification-resolved"
+                    className="mt-2 text-[11px] text-[var(--ct-muted-fg)]"
+                  >
+                    Resolved in tab.
+                  </div>
+                ) : notif.answer?.answered ? (
                   isAnswerUndelivered(notif.answer) ? (
                     <div
                       data-testid="notification-answer-undelivered"
