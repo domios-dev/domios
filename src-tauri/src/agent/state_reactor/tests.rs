@@ -213,20 +213,20 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         "trust-fixture",
         codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
     )
-        .with_tab_state(TabStateClassification {
-            state: TabState::ClarifyingQuestion,
-            confidence: 1.0,
-            data: None,
-            action: Some(TabStateAction {
-                keys: None,
-                delayed_resume: None,
-                surface: Some(Surface {
-                    kind: "clarifying_question".into(),
-                    payload: serde_json::json!({"questions": ["folder access choice"]}),
-                }),
+    .with_tab_state(TabStateClassification {
+        state: TabState::ClarifyingQuestion,
+        confidence: 1.0,
+        data: None,
+        action: Some(TabStateAction {
+            keys: None,
+            delayed_resume: None,
+            surface: Some(Surface {
+                kind: "clarifying_question".into(),
+                payload: serde_json::json!({"questions": ["folder access choice"]}),
             }),
-        })
-        .with_parsed_prompt(prompt.clone());
+        }),
+    })
+    .with_parsed_prompt(prompt.clone());
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "pty-live-trust-frame";
     mux.link_pty(&tab_id, pty_id.into());
@@ -310,12 +310,15 @@ fn auto_approve_output_handles_permission_prompt_after_reactor_classification() 
 
     react(&service, pty_id, TabStatus::Waiting);
 
-    assert!(fixture
-        .service
-        .prompt_detector
-        .lock()
-        .active_prompt(&tab_id)
-        .is_none(), "the reactor leaves this auto-approve prompt to the output path");
+    assert!(
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .active_prompt(&tab_id)
+            .is_none(),
+        "the reactor leaves this auto-approve prompt to the output path"
+    );
     assert!(fixture
         .service
         .mux
@@ -348,17 +351,23 @@ fn auto_approve_output_handles_permission_prompt_after_reactor_classification() 
         false,
     );
 
-    assert!(fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.pending_prompt.as_ref())
-        .is_none(), "the output path auto-approves instead of being starved by reactor state");
-    assert!(fixture
-        .service
-        .prompt_detector
-        .lock()
-        .active_prompt(&tab_id)
-        .is_none(), "the handled prompt leaves active detection after output approval");
+    assert!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref())
+            .is_none(),
+        "the output path auto-approves instead of being starved by reactor state"
+    );
+    assert!(
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .active_prompt(&tab_id)
+            .is_none(),
+        "the handled prompt leaves active detection after output approval"
+    );
 }
