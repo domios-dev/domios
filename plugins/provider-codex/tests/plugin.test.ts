@@ -14,6 +14,9 @@ import "./restore-resume.test";
 let passed = 0;
 let failed = 0;
 
+const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
+eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
+
 function assert(condition: boolean, name: string, detail?: string) {
   if (condition) { passed++; console.log(`  ✓ ${name}`); }
   else { failed++; console.error(`  ✗ ${name}${detail ? `: ${detail}` : ""}`); }

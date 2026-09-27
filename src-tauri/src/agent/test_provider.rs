@@ -42,6 +42,7 @@ pub struct MockProvider {
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
+    paste_limit_bytes: Option<usize>,
 }
 
 impl MockProvider {
@@ -73,6 +74,7 @@ impl MockProvider {
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
+            paste_limit_bytes: None,
         }
     }
 
@@ -88,6 +90,11 @@ impl MockProvider {
 
     pub fn with_resume_context_log(mut self, log: Arc<Mutex<Vec<AgentResumeParams>>>) -> Self {
         self.resume_context_log = Some(log);
+        self
+    }
+
+    pub fn with_paste_limit_bytes(mut self, limit: usize) -> Self {
+        self.paste_limit_bytes = Some(limit);
         self
     }
 
@@ -282,6 +289,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        self.paste_limit_bytes
+    }
+
     fn id(&self) -> &str {
         &self.id
     }

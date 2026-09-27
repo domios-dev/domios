@@ -25,6 +25,7 @@
     }
   ],
   "spawn": {
+    "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
