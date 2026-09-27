@@ -338,11 +338,9 @@ impl ServiceContext {
             ),
             LaunchSettlement::Provisional { stage, reason } => match stage {
                 BootStage::LaunchDeadlineElapsed => {
-                    self.record_launch_output_deadline(&attempt.tab_id, &attempt.pty_id, reason)
+                    self.record_launch_output_deadline(attempt, reason)
                 }
-                stage => {
-                    self.record_provisional_launch(&attempt.tab_id, &attempt.pty_id, *stage, reason)
-                }
+                stage => self.record_provisional_launch(&attempt, *stage, reason),
             },
             LaunchSettlement::Failed { reason, exit_code } => {
                 self.publish_launch_exit(&LaunchExitFailure {
