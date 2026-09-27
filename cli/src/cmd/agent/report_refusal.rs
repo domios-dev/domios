@@ -35,9 +35,9 @@ pub(super) fn format_report_refusal_text(
             lines.push(format!("Refused report diagnostic sent to parent: {id}"))
         }
         (true, None, _) => lines.push("Refused report diagnostic sent to parent.".to_string()),
-        (false, _, Some(err)) => {
-            lines.push(format!("Refused report diagnostic could not be sent: {err}"))
-        }
+        (false, _, Some(err)) => lines.push(format!(
+            "Refused report diagnostic could not be sent: {err}"
+        )),
         (false, _, None) => lines.push("Refused report diagnostic could not be sent.".to_string()),
     }
     lines.push("REPORT NOT SENT".to_string());
@@ -104,14 +104,8 @@ pub(super) fn handle_report_refusal(
     } else {
         eprint!(
             "{}",
-            format_report_refusal_text(
-                &refusal,
-                sent,
-                target_tab_id.as_deref(),
-                error.as_deref(),
-            )
+            format_report_refusal_text(&refusal, sent, target_tab_id.as_deref(), error.as_deref(),)
         );
     }
     std::process::exit(1);
 }
-

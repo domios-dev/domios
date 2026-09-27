@@ -491,25 +491,26 @@ fn validate_reasoning_effort_is_per_model() {
     ]);
     reg.register_provider(Box::new(provider));
 
-    assert!(validate_agent_reasoning_effort(&reg, "catalog", Some("gpt-6-sol"), Some("max")).is_ok());
-    let err = validate_agent_reasoning_effort(
-        &reg,
-        "catalog",
-        Some("gpt-5.5"),
-        Some("max"),
-    )
-    .expect_err("gpt-5.5 must reject max");
+    assert!(
+        validate_agent_reasoning_effort(&reg, "catalog", Some("gpt-6-sol"), Some("max")).is_ok()
+    );
+    let err = validate_agent_reasoning_effort(&reg, "catalog", Some("gpt-5.5"), Some("max"))
+        .expect_err("gpt-5.5 must reject max");
     assert!(err.contains("model 'gpt-5.5'"), "error names model: {err}");
-    assert!(err.contains("low, medium, high, xhigh"), "error lists model levels: {err}");
-    assert!(!err.contains("max, ultra"), "error omits unsupported levels: {err}");
-    let err = validate_agent_reasoning_effort(
-        &reg,
-        "catalog",
-        Some("legacy-model"),
-        Some("max"),
-    )
-    .expect_err("models without per-model data use provider fallback");
-    assert!(err.contains("low, medium, high, xhigh"), "fallback lists manifest levels: {err}");
+    assert!(
+        err.contains("low, medium, high, xhigh"),
+        "error lists model levels: {err}"
+    );
+    assert!(
+        !err.contains("max, ultra"),
+        "error omits unsupported levels: {err}"
+    );
+    let err = validate_agent_reasoning_effort(&reg, "catalog", Some("legacy-model"), Some("max"))
+        .expect_err("models without per-model data use provider fallback");
+    assert!(
+        err.contains("low, medium, high, xhigh"),
+        "fallback lists manifest levels: {err}"
+    );
 }
 
 #[test]

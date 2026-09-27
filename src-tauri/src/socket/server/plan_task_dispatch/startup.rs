@@ -96,8 +96,7 @@ impl DispatchStartup {
                         epoch_ms(),
                     )
                     .map_err(|error| error.to_string())?;
-                self.svc
-                    .persist_current_attempt_session_model(&self.tab_id);
+                self.svc.persist_current_attempt_session_model(&self.tab_id);
                 Ok(())
             },
             || {

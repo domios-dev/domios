@@ -210,9 +210,7 @@ impl<'de> Deserialize<'de> for CallerAction {
 impl NotificationAction {
     pub fn label(&self) -> &str {
         match self {
-            Self::Url { label, .. }
-            | Self::Dismiss { label }
-            | Self::Answer { label } => label,
+            Self::Url { label, .. } | Self::Dismiss { label } | Self::Answer { label } => label,
         }
     }
 

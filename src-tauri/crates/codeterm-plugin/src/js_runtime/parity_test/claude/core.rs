@@ -340,7 +340,9 @@ fn integration_install_creates_all_four_hooks_with_markers() {
 
     // checkIntegration now reports installed.
     let post = provider.check_integration();
-    let native = crate::agent_claude::provider::integration::check_integration_at(&dir.path().join("settings.json"));
+    let native = crate::agent_claude::provider::integration::check_integration_at(
+        &dir.path().join("settings.json"),
+    );
     assert_eq!(post["settings_exists"], true);
     assert_eq!(post["hooks_installed"], true);
     assert_eq!(post["integration_owned"], true);

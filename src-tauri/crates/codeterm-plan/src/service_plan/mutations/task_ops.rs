@@ -539,22 +539,23 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let (assigned, dispatch_attempt_id) = crate::plan::task_key::find_task(&p.tasks, task_id)
-                .map(|task| {
-                    let assigned = task.assigned_tab_id.clone();
-                    let attempt_id = task
-                        .execution_attempts
-                        .iter()
-                        .rev()
-                        .find(|attempt| {
-                            assigned.as_deref() == Some(attempt.executor_tab_id.as_str())
-                                && attempt.closed_at.is_none()
-                                && attempt.retired_at.is_none()
-                        })
-                        .map(|attempt| attempt.id.clone());
-                    (assigned, attempt_id)
-                })
-                .ok_or(PlanError::TaskNotFound)?;
+            let (assigned, dispatch_attempt_id) =
+                crate::plan::task_key::find_task(&p.tasks, task_id)
+                    .map(|task| {
+                        let assigned = task.assigned_tab_id.clone();
+                        let attempt_id = task
+                            .execution_attempts
+                            .iter()
+                            .rev()
+                            .find(|attempt| {
+                                assigned.as_deref() == Some(attempt.executor_tab_id.as_str())
+                                    && attempt.closed_at.is_none()
+                                    && attempt.retired_at.is_none()
+                            })
+                            .map(|attempt| attempt.id.clone());
+                        (assigned, attempt_id)
+                    })
+                    .ok_or(PlanError::TaskNotFound)?;
             let blocked_reason = dispatch_attempt_id.as_deref().and_then(|attempt_id| {
                 super::super::task_dispatch::restore_blocked_unblock(p, task_id, attempt_id)
             });

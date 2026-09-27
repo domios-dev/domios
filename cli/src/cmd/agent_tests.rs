@@ -101,10 +101,9 @@ fn agent_models_cli_preserves_codex_live_default_from_models_cache() {
     use codeterm_plugin::model_catalog;
     use codeterm_plugin::provider::ModelInfo;
 
-    let mut manifest: PluginManifest = serde_json::from_str(include_str!(
-        "../../../plugins/provider-codex/plugin.json"
-    ))
-    .expect("Codex manifest fixture");
+    let mut manifest: PluginManifest =
+        serde_json::from_str(include_str!("../../../plugins/provider-codex/plugin.json"))
+            .expect("Codex manifest fixture");
     let catalog_provider_id = "test-codex-cache-cli-default";
     manifest.id = catalog_provider_id.into();
     let cache: serde_json::Value = serde_json::from_str(include_str!(
@@ -131,10 +130,7 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let discovered: Option<Vec<SerdeModelInfo>> =
         call_json(&vm, "discoverModels", &[]).expect("Codex live model discovery");
     let discovered = discovered.expect("cache fixture produces live models");
-    let models: Vec<ModelInfo> = discovered
-        .iter()
-        .map(ModelInfo::from)
-        .collect();
+    let models: Vec<ModelInfo> = discovered.iter().map(ModelInfo::from).collect();
     assert_eq!(
         models
             .iter()
@@ -148,8 +144,7 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
         model_catalog::models_dir().join(format!("{catalog_provider_id}.cache.json"));
     let _ = std::fs::remove_file(&catalog_cache_path);
     model_catalog::put_live(catalog_provider_id, models, manifest.default_model.clone());
-    let available_models =
-        codeterm_plugin::provider::AgentProvider::available_models(&provider);
+    let available_models = codeterm_plugin::provider::AgentProvider::available_models(&provider);
     let descriptor = serde_json::json!({
         "default_reasoning_effort": manifest.default_reasoning_effort,
         "available_models": available_models,
@@ -162,9 +157,7 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let output_json = format_agent_models_json(&descriptor);
     let json_models: serde_json::Value =
         serde_json::from_str(&output_json).expect("CLI model JSON output");
-    let json_models = json_models
-        .as_array()
-        .expect("CLI model JSON array");
+    let json_models = json_models.as_array().expect("CLI model JSON array");
     let model = json_models
         .iter()
         .find(|model| model["id"] == "gpt-5.6-sol")

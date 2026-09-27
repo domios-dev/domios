@@ -543,6 +543,10 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness
         .service
+        .agent_registry
+        .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    harness
+        .service
         .pty
         .lock()
         .spawn_with_id(

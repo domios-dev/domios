@@ -414,7 +414,9 @@ impl ServiceContext {
         };
         let state = self
             .agent_registry
-            .with_provider(&agent_type, |provider| provider.classify_tab_state(&snapshot))
+            .with_provider(&agent_type, |provider| {
+                provider.classify_tab_state(&snapshot)
+            })
             .flatten();
         if let Some(verdict) = manual_update_prompt_verdict(state.as_ref()) {
             return verdict;

@@ -159,14 +159,7 @@ pub(super) fn assign_task_with_profile(
     }
     .map_err(plan_rpc_err)?;
     crate::service::task_assignment::persist_existing_task_assignment(
-        store,
-        assignment,
-        &id,
-        &tid,
-        &tab,
-        peer,
-        authority,
-        now,
+        store, assignment, &id, &tid, &tab, peer, authority, now,
     )
     .map_err(plan_rpc_err)?;
     Ok(id)

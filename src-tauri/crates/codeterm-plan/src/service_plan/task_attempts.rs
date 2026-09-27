@@ -740,7 +740,8 @@ impl PlanStore {
             }) else {
                 return Ok(None);
             };
-            if attempt.actual_reasoning_effort.as_deref() == Some(actual_reasoning_effort.as_str()) {
+            if attempt.actual_reasoning_effort.as_deref() == Some(actual_reasoning_effort.as_str())
+            {
                 return Ok(None);
             }
             attempt.actual_reasoning_effort = Some(actual_reasoning_effort);
@@ -964,9 +965,7 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            super::task_dispatch::task_respawn_status(
-                &plan.tasks[task_index].status,
-            )?;
+            super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;
             if matches!(
                 plan.tasks[task_index].status,
                 TaskStatus::Pending | TaskStatus::Blocked
@@ -993,14 +992,8 @@ impl PlanStore {
             task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt_with_id(
-                task,
-                tab_id,
-                None,
-                role,
-                Some(&attempt_id),
-                now_ms,
-            );
+            let mut attempt =
+                new_assignment_attempt_with_id(task, tab_id, None, role, Some(&attempt_id), now_ms);
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();

@@ -18,8 +18,7 @@ pub(super) use reservation::DispatchReservationOwner;
 pub use reservation::TaskDispatchReservation;
 pub use rollback::DispatchRollback;
 pub(super) use unblock::{
-    record_blocked_task_unblock, restore_blocked_unblock, task_respawn_status,
-    task_startup_status,
+    record_blocked_task_unblock, restore_blocked_unblock, task_respawn_status, task_startup_status,
 };
 pub use worker_ack_subject::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
@@ -641,5 +640,4 @@ impl PlanStore {
         pending_after_verified(write, verified, Some(task_id.to_string()))?;
         Ok(attempt_id)
     }
-
 }

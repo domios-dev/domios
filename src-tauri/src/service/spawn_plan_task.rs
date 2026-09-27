@@ -418,8 +418,8 @@ impl ServiceContext {
         let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
             "plan-task spawn is missing its prepared plan skill manifest".to_string()
         })?;
-        let authorized_gates = (!params.authorized_gates.is_empty())
-            .then(|| params.authorized_gates.clone());
+        let authorized_gates =
+            (!params.authorized_gates.is_empty()).then(|| params.authorized_gates.clone());
         bind_worker_task_to_tab(
             &self.plan_store,
             params.plan_id.as_deref(),
@@ -803,8 +803,9 @@ mod tests {
                     Ok(())
                 })
                 .unwrap();
-            assert!(preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind")
-                .is_err());
+            assert!(
+                preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").is_err()
+            );
             let task = store.show_task(&task_id).unwrap().task;
             assert_eq!(task.status, status);
             assert!(task.execution_attempts.is_empty());
@@ -964,13 +965,7 @@ mod tests {
             stride.text.contains("unblocked by dispatch") && stride.text.contains(block_reason)
         }));
         store
-            .acknowledge_task_attempt(
-                &plan_id,
-                &task_id,
-                "worker-respawn",
-                &binding.attempt_id,
-                7,
-            )
+            .acknowledge_task_attempt(&plan_id, &task_id, "worker-respawn", &binding.attempt_id, 7)
             .unwrap();
         let task = store.show_task(&task_id).unwrap().task;
         assert_eq!(task.status, TaskStatus::InProgress);
