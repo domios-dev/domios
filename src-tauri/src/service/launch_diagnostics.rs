@@ -222,14 +222,42 @@ pub(crate) fn log_launch(
     role_profile: Option<&str>,
     prompt_delivery: &str,
 ) {
+    log_launch_with_parameters(
+        origin,
+        tab_id,
+        provider,
+        command,
+        prompt,
+        role,
+        role_profile,
+        prompt_delivery,
+        None,
+        None,
+    );
+}
+
+pub(crate) fn log_launch_with_parameters(
+    origin: AgentLaunchOrigin,
+    tab_id: &str,
+    provider: &str,
+    command: &str,
+    prompt: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+    prompt_delivery: &str,
+    model: Option<&str>,
+    reasoning_effort: Option<&str>,
+) {
     let prompt_bytes = prompt.map(str::len).unwrap_or(0);
     log::info!(
-        "[agent-launch] origin={} tab={} provider={} role={} role_profile={} prompt_delivery={} prompt_present={} prompt_bytes={} prompt_sha256={} command_bytes={} command_sha256={} child_exit=unavailable(pty) stderr=pty",
+        "[agent-launch] origin={} tab={} provider={} role={} role_profile={} model={} effort={} prompt_delivery={} prompt_present={} prompt_bytes={} prompt_sha256={} command_bytes={} command_sha256={} child_exit=unavailable(pty) stderr=pty",
         origin.label(),
         tab_id,
         provider,
         role.unwrap_or("none"),
         role_profile.unwrap_or("none"),
+        model.unwrap_or("none"),
+        reasoning_effort.unwrap_or("none"),
         prompt_delivery,
         prompt.is_some(),
         prompt_bytes,

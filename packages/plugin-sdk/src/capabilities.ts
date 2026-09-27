@@ -118,6 +118,8 @@ export interface LaunchSessionDetection {
 export interface ResumeParams {
   sessionId: string;
   skipPermissions?: boolean;
+  agentName?: string | null;
+  instanceId?: string | null;
   /** Composed system prompt to re-apply; absent when the host has none. */
   systemPrompt?: string | null;
   args?: string[];
@@ -213,6 +215,8 @@ export interface AgentProvider {
     prompt: ParsedPrompt,
     screen?: string,
   ): { optionIndex: number; rule: string; steps: string[] } | null;
+  /** Safe response role for a prompt only after core accepted its classifier. */
+  classifiedPromptAutoResponse?(state: TabState, screen: string): "skip" | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;

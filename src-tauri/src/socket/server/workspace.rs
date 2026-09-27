@@ -8,6 +8,14 @@ use crate::service::ServiceState;
 
 use super::{get_string_param, opt_string_param, JsonRpcError};
 
+fn has_confirmed_headerless_workspace_close(
+    force: bool,
+    confirm: Option<&str>,
+    workspace_id: &str,
+) -> bool {
+    force && confirm == Some(workspace_id)
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -130,26 +138,49 @@ pub(super) fn dispatch(
 
         "workspace.close" => {
             let workspace_id = get_string_param(params, "workspace_id")?;
-            let caller_tab_id = opt_string_param(params, "caller_tab_id");
+            let caller_tab_id = opt_string_param(params, "caller_tab_id")
+                .filter(|tab_id| !tab_id.trim().is_empty());
             let force = params
                 .as_ref()
                 .and_then(|params| params.get("force"))
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceClose {
-                    workspace_id,
-                    caller_tab_id,
-                    force,
-                },
-                svc.as_ref(),
-            )
-            .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })
+            let confirm = params
+                .as_ref()
+                .and_then(|params| params.get("confirm"))
+                .and_then(|value| value.as_str());
+            let result = tauri::async_runtime::block_on(async {
+                match caller_tab_id {
+                    Some(caller_tab_id) => {
+                        svc.close_workspace_guarded_async(
+                            Some(&caller_tab_id),
+                            &workspace_id,
+                            force,
+                        )
+                        .await
+                    }
+                    None if has_confirmed_headerless_workspace_close(
+                        force,
+                        confirm,
+                        &workspace_id,
+                    ) =>
+                    {
+                        svc.close_workspace_as_confirmed_headerless_human(&workspace_id, force)
+                            .await
+                    }
+                    None => {
+                        svc.close_workspace_guarded_async(None, &workspace_id, force)
+                            .await
+                    }
+                }
+            });
+            result
+                .map(|()| serde_json::json!({ "ok": true }))
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })
         }
 
         "workspace.recently_closed" => {
@@ -220,5 +251,29 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_confirmed_headerless_workspace_close;
+
+    #[test]
+    fn headerless_workspace_close_requires_force_and_matching_target() {
+        assert!(has_confirmed_headerless_workspace_close(
+            true,
+            Some("workspace-1"),
+            "workspace-1"
+        ));
+        assert!(!has_confirmed_headerless_workspace_close(
+            false,
+            Some("workspace-1"),
+            "workspace-1"
+        ));
+        assert!(!has_confirmed_headerless_workspace_close(
+            true,
+            Some("workspace-2"),
+            "workspace-1"
+        ));
     }
 }

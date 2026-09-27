@@ -77,7 +77,7 @@ as one.
 | POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` required (absent body: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
-| POST | `/api/workspaces/{id}/close` | `{force?}` or no body | Delete workspace. No body is the ordinary non-forced close. Agent tabs require `force: true`; without it the `403` response identifies the affected tabs and leaves the workspace open. |
+| POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request with no `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms; the service logs this as `human-attributed (headerless, confirmed)`. Without that body it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members in the workspace is closed through Team close before remaining workspace tabs are removed. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
 | POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` or no body | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | `{eager?}` or no body | Create tab; no body leaves eager PTY creation disabled. |
@@ -140,8 +140,8 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/tabs/{id}/delayed-messages` | — | List queued and failed delayed Chat UI messages for this tab |
-| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
-| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
+| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs, createdByTab?, recurrence?: {everyMs, untilMs?, count?}}` | Queue a one-shot or recurring message for delivery to this tab. Recurrence starts at `scheduledAtMs`, repeats at an anchored interval of at least one minute, and accepts at most one stop condition. Normal send is unaffected. |
+| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?, recurrence?: {everyMs, untilMs?, count?}}` | Edit a queued or failed delayed message, including its recurrence rule |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
 
@@ -246,4 +246,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

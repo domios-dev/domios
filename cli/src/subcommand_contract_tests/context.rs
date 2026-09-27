@@ -345,7 +345,7 @@ fn context_scope_is_bounded_to_known_sites() {
     );
     assert!(
         !read_rs().contains("owner()") && !local_io_rs().contains("owner()"),
-        "plan state/lanes and workspace.close carry caller_tab_id only"
+        "plan state/lanes and workspace.close carry no owner context"
     );
     assert!(
         !read_rs().contains("apply_trusted_session")

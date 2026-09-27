@@ -4,8 +4,8 @@ use axum::{
 };
 
 use super::{
-    agent_routes, delayed_send_routes, hook_routes, pty_routes, routes::AppState, tab_chat_routes,
-    tab_routes,
+    agent_routes, delayed_send_routes, hook_routes, output_stream, pty_routes, routes::AppState,
+    tab_chat_routes, tab_routes,
 };
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
@@ -34,7 +34,7 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route("/api/tabs/{id}/output", get(tab_routes::get_tab_output))
         .route(
             "/api/tabs/{id}/output/stream",
-            get(tab_routes::stream_tab_output),
+            get(output_stream::stream_tab_output),
         )
         .route(
             "/api/agent-runs/{tab_id}/log",

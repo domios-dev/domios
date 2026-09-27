@@ -40,6 +40,13 @@ async function main() {
   assert.equal(indicator?.style.getPropertyValue("--sx-from"), "0%");
   assert.equal(indicator?.style.getPropertyValue("--sx-to"), "300%");
   assert.equal(host.querySelector('[role="tablist"]')?.getAttribute("aria-label"), "Memory sections");
+  const firstTab = host.querySelector<HTMLButtonElement>('[role="tab"]');
+  assert(firstTab);
+  await act(async () => {
+    firstTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  });
+  assert.equal(selected, "inspect");
+  assert.equal(document.activeElement, host.querySelector('[role="tab"]:nth-of-type(2)'));
   const css = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
   // Anchor on the block, not the bare query: the shell breakpoint variants mention the same text.
   const mobileStart = css.indexOf("\n@media (max-width: 640px) {");

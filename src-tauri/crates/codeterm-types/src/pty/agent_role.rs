@@ -10,6 +10,30 @@ pub struct PromptOption {
     pub value: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptKind {
+    Provider,
+    DirectoryTrust,
+    Structured,
+    ManualUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptIdentity {
+    pub kind: PromptKind,
+    pub options: Vec<PromptOption>,
+}
+
+impl PromptIdentity {
+    pub fn new(kind: PromptKind, prompt: &PendingPrompt) -> Self {
+        Self {
+            kind,
+            options: prompt.options.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptSection {
     pub label: String,

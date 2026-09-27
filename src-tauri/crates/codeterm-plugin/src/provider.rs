@@ -22,6 +22,12 @@ pub enum IntegrationKind {
 
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassifiedPromptOptionRole {
+    Skip,
+}
+
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

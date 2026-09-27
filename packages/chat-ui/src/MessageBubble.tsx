@@ -81,6 +81,7 @@ interface MessageBubbleProps {
   onRerunShellCommand?: (command: string) => void;
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
+  onStopReminder?: (id: string) => void;
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
@@ -124,7 +125,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -288,6 +289,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           setAt={effectiveOrigin.setAt}
           fireAt={effectiveOrigin.fireAt}
           id={effectiveOrigin.id}
+          everyMs={effectiveOrigin.everyMs}
+          nextAt={effectiveOrigin.nextAt}
+          skippedTicks={effectiveOrigin.skippedTicks}
+          onStop={onStopReminder}
           body={message.content}
         />
       );

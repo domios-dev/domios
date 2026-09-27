@@ -3,6 +3,7 @@
 //! realistic fixture and asserts the result round-trips into the native shape.
 //!
 //! Covered capabilities: buildLaunchCommand, buildResumeCommand,
+//! buildResumeCommandWithContext,
 //! parseSessionDelta, parseSessionMessages, sessionFilePath, sessionJsonlPath,
 //! enumerateSessions, detectSessionModel, detectSessionId, detectActiveSession.
 
@@ -20,6 +21,18 @@ fn codex_status_fixture() -> String {
             .join("codex-status-v0-142-4.txt"),
     )
     .expect("fixture file must exist")
+}
+
+fn codex_update_fixture() -> String {
+    std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("codex-update-available.txt"),
+    )
+    .expect("Codex update fixture")
 }
 
 fn codex() -> JsProvider {
@@ -46,6 +59,7 @@ fn build_launch_command_shape() {
     // Plain launch: codex binary only, no bypass flags.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
     assert!(plain.starts_with("codex"), "must invoke codex: {plain}");
+    assert_eq!(plain.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(
         !plain.contains("--dangerously-bypass-hook-trust"),
         "removed Codex CLI flag must stay absent: {plain}"
@@ -64,6 +78,7 @@ fn build_launch_command_shape() {
         skip.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip must add approval bypass: {skip}"
     );
+    assert_eq!(skip.matches("-c check_for_update_on_startup=false").count(), 1);
 
     // Caller args are shell-quoted onto the tail.
     let with_args = j.build_launch_command(&AgentLaunchParams {
@@ -73,6 +88,35 @@ fn build_launch_command_shape() {
     assert!(
         with_args.contains("'a b'") || with_args.contains("\"a b\""),
         "arg must be quoted: {with_args}"
+    );
+    assert_eq!(with_args.matches("-c check_for_update_on_startup=false").count(), 1);
+}
+
+#[test]
+fn classified_prompt_auto_response_is_limited_to_update_skip() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let screen = codex_update_fixture();
+    assert!(provider.supports_classified_prompt_auto_response());
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::UpdatePrompt,
+            &screen,
+        ),
+        Some(crate::provider::ClassifiedPromptOptionRole::Skip)
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(crate::tab_state::TabState::ClarifyingQuestion, &screen),
+        None
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::UpdatePrompt,
+            &screen.replace("2. Skip", "2. Skip this version"),
+        ),
+        None
     );
 }
 
@@ -106,6 +150,9 @@ fn idle_starter_case() {
         instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
+    for command in [&assigned, &idle, &team, &startup] {
+        assert_eq!(command.matches("-c check_for_update_on_startup=false").count(), 1);
+    }
     let assigned_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
         .expect("Codex plugin must provide the assigned-task starter");
@@ -141,34 +188,76 @@ fn build_resume_command_shape() {
     // Animations stay on: the repainting status band is what the offline state
     // classifier reads as a live turn, so silencing it would blind activity.
     assert!(
-        cmd.starts_with("codex resume"),
+        cmd.contains(" resume"),
         "resume subcommand shape: {cmd}"
     );
+    assert_eq!(cmd.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip flag must propagate: {cmd}"
     );
-
     // Without skip, no approval bypass.
     let no_skip = j.build_resume_command(CODEX_UUID, false).unwrap();
+    assert_eq!(no_skip.matches("-c check_for_update_on_startup=false").count(), 1);
     assert!(!no_skip.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(!no_skip.contains("--dangerously-bypass-hook-trust"));
     assert!(no_skip.contains(CODEX_UUID));
 }
 
-/// Codex declares no resume re-application, so the composed prompt must not
-/// reach its command — the conservative default that keeps a retaining
-/// provider from carrying two copies of its primer. Launch args still travel.
 #[test]
-fn resume_with_context_keeps_the_conservative_default() {
+fn resume_with_context_restores_profile_and_launch_parameters() {
     if require_plugins().is_none() {
         return;
     }
     let j = codex();
     let params = crate::provider::AgentResumeParams {
         session_id: CODEX_UUID.into(),
+        skip_permissions: true,
+        agent_name: Some("restored-agent".into()),
+        system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
+        instance_id: Some("instance-parity".into()),
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="xhigh""#.into(),
+        ],
+    };
+    let command = j
+        .build_resume_command_with_context(&params)
+        .expect("codex resume command");
+
+    if cfg!(windows) {
+        assert!(command.contains(" resume"));
+    } else {
+        assert!(command.contains(" resume"));
+    }
+    assert!(command.contains(CODEX_UUID));
+    assert!(command.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(command.contains("--dangerously-bypass-hook-trust"));
+    assert!(command.contains("gpt-6-sol"));
+    assert_eq!(command.matches("-c check_for_update_on_startup=false").count(), 1);
+    assert!(command.contains("model_reasoning_effort"));
+    assert!(command.contains("xhigh"));
+    assert!(!command.contains("parity-sentinel-91c3"));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+        assert!(command.contains("launch-artifacts/release"));
+        assert!(command.contains("instance-parity"));
+    }
+}
+
+#[test]
+fn resume_with_context_keeps_the_conservative_default() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let params = crate::provider::AgentResumeParams {
+        session_id: CODEX_UUID.into(),
         skip_permissions: false,
+        instance_id: Some("instance-parity".into()),
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
         args: vec![
             "-m".into(),
@@ -176,24 +265,35 @@ fn resume_with_context_keeps_the_conservative_default() {
             "-c".into(),
             r#"model_reasoning_effort="high""#.into(),
         ],
+        ..Default::default()
     };
-    let command = j
+    let command = provider
         .build_resume_command_with_context(&params)
         .expect("codex resume command");
 
     assert!(!command.contains("parity-sentinel-91c3"));
-    assert_eq!(
-        command,
-        format!("codex resume '{CODEX_UUID}' -m gpt-6-sol -c model_reasoning_effort=\"high\"")
-    );
-    assert_eq!(
-        command,
-        crate::provider::append_launch_args(
-            j.build_resume_command(CODEX_UUID, false)
-                .expect("codex base resume"),
-            &params.args
-        )
-    );
+    assert!(command.contains("--no-daemon"));
+    assert!(command.contains("gpt-6-sol"));
+    assert!(command.contains("model_reasoning_effort=\"high\""));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+    } else {
+        assert_eq!(
+            command,
+            format!(
+                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
+            )
+        );
+        assert_eq!(
+            command,
+            crate::provider::append_launch_args(
+                provider
+                    .build_resume_command(CODEX_UUID, false)
+                    .expect("codex base resume"),
+                &params.args
+            )
+        );
+    }
 }
 
 #[test]

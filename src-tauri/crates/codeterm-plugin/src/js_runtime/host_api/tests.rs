@@ -564,7 +564,10 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         .write(true)
         .open(second_path)
         .unwrap();
-    assert!(probe.try_lock().is_err(), "the concurrent call keeps its OS lock");
+    assert!(
+        probe.try_lock().is_err(),
+        "the concurrent call keeps its OS lock"
+    );
     release_call_file_locks("second-call");
     probe.try_lock().unwrap();
     probe.unlock().unwrap();

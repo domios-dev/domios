@@ -32,6 +32,7 @@ export type Action =
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
+  | { type: "RESOLVE_NOTIFICATION"; id: string }
   | { type: "ANSWER_NOTIFICATION"; id: string; answered: string; delivered: boolean }
   | { type: "MARK_ALL_READ" }
   | { type: "DELETE_NOTIFICATION"; id: string }
@@ -560,6 +561,18 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           n.id === action.id ? { ...n, read: true } : n,
         ),
       };
+
+    case "RESOLVE_NOTIFICATION": {
+      const resolve = (notification: Notification): Notification =>
+        notification.id === action.id
+          ? { ...notification, resolved: true, read: true, actions: [] }
+          : notification;
+      return {
+        ...state,
+        notifications: state.notifications.map(resolve),
+        toasts: state.toasts.map(resolve),
+      };
+    }
 
     case "MARK_ALL_READ":
       return {
