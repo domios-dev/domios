@@ -35,8 +35,8 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             let now = now_ms();
             let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
                 .unwrap_or_else(|e| exit_error(e));
-            let recurrence = parse_recurrence(every, until, count)
-                .unwrap_or_else(|e| exit_error(e));
+            let recurrence =
+                parse_recurrence(every, until, count).unwrap_or_else(|e| exit_error(e));
             queue_message(json, &tab_id, text, scheduled_at_ms, recurrence);
         }
         DelayedAction::Edit {
@@ -57,11 +57,12 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             } else {
                 None
             };
-            let recurrence = parse_recurrence(every, until, count)
-                .unwrap_or_else(|e| exit_error(e));
+            let recurrence =
+                parse_recurrence(every, until, count).unwrap_or_else(|e| exit_error(e));
             if text.is_none() && scheduled_at_ms.is_none() && recurrence.is_none() {
                 exit_error(
-                    "nothing to update; pass text, --delay/--at, or --every with --until/--count".into(),
+                    "nothing to update; pass text, --delay/--at, or --every with --until/--count"
+                        .into(),
                 );
             }
             let mut body = serde_json::Map::new();
@@ -117,10 +118,9 @@ pub fn queue_from_send(
     let tab_id = resolve_tab(client, tab);
     let text = required_text(text, from_file, from_pad, from_stdin);
     let now = now_ms();
-    let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
-        .unwrap_or_else(|e| exit_error(e));
-    let recurrence = parse_recurrence(every, until, count)
-        .unwrap_or_else(|e| exit_error(e));
+    let scheduled_at_ms =
+        parse_start_schedule(delay, at, every.as_deref(), now).unwrap_or_else(|e| exit_error(e));
+    let recurrence = parse_recurrence(every, until, count).unwrap_or_else(|e| exit_error(e));
     queue_message(json, &tab_id, text, scheduled_at_ms, recurrence);
 }
 
@@ -165,7 +165,8 @@ pub(crate) fn queue_over_mesh(
     let now = now_ms();
     let scheduled_at_ms = parse_start_schedule(delay, at, every.as_deref(), now)
         .unwrap_or_else(|error| exit_error(error));
-    let recurrence = parse_recurrence(every, until, count).unwrap_or_else(|error| exit_error(error));
+    let recurrence =
+        parse_recurrence(every, until, count).unwrap_or_else(|error| exit_error(error));
     let mut body = serde_json::json!({
         "text": text,
         "scheduledAtMs": scheduled_at_ms,
@@ -173,11 +174,9 @@ pub(crate) fn queue_over_mesh(
     if let Some(recurrence) = recurrence {
         body["recurrence"] = recurrence;
     }
-    let path = format!(
-        "/api/tabs/{}/delayed-messages",
-        urlencoding::encode(tab_id)
-    );
-    let value = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
+    let path = format!("/api/tabs/{}/delayed-messages", urlencoding::encode(tab_id));
+    let value =
+        crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
     print_delayed_result(json, value);
 }
 
@@ -292,7 +291,10 @@ fn print_delayed_item(value: &serde_json::Value) {
             .get("skippedTicks")
             .and_then(|v| v.as_u64())
             .unwrap_or_default();
-        println!("  repeats every {} · next at {} · skipped {}", every, at, skipped);
+        println!(
+            "  repeats every {} · next at {} · skipped {}",
+            every, at, skipped
+        );
     }
     if value
         .get("sessionChanged")

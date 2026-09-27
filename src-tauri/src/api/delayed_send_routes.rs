@@ -153,6 +153,7 @@ mod tests {
                 skipped_ticks: 2,
                 team_id: Some("team-1".into()),
                 last_tick_unconfirmed: false,
+                last_tick_send_sequence: 0,
             },
             current_session_id: None,
             session_changed: false,

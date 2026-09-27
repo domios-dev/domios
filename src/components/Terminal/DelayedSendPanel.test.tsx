@@ -58,6 +58,12 @@ async function click(host: HTMLElement, selector: string) {
   assert(host.querySelector('.ct-panel-card') != null, "schedule dialog uses the shared liquid panel");
   assert(host.querySelector('[role="tablist"][aria-label="Schedule type"]') != null, "schedule modes expose a named tablist");
   assert(host.querySelector(".ct-liquid-interactive") != null, "schedule actions use shared liquid interaction styling");
+  for (const label of ["5m", "10m", "15m", "30m", "1h", "3h", "Tonight", "Tomorrow"]) {
+    assert(
+      host.querySelector(`[data-testid="delayed-send-preset"][data-preset-label="${label}"]`) != null,
+      `one-shot preset exists: ${label}`,
+    );
+  }
   await click(host, '[data-testid="delayed-send-preset"][data-preset-label="10m"]');
   await click(host, '[data-testid="delayed-send-schedule-submit"]');
   assert(scheduledAt > Date.now(), "one-shot quick preset schedules a future fire");
