@@ -186,19 +186,34 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     let options = screen
         .lines()
         .filter_map(|line| {
-            let row = line.trim().strip_prefix('›').unwrap_or(line.trim()).trim_start();
+            let row = line
+                .trim()
+                .strip_prefix('›')
+                .unwrap_or(line.trim())
+                .trim_start();
             let digits = row.chars().take_while(char::is_ascii_digit).count();
             let value = row.get(..digits)?.parse::<usize>().ok()?;
-            let label = row.get(digits..)?.trim_start().strip_prefix('.')?.trim_start();
+            let label = row
+                .get(digits..)?
+                .trim_start()
+                .strip_prefix('.')?
+                .trim_start();
             (!label.is_empty()).then(|| PromptOption {
                 label: label.to_string(),
                 value: value.to_string(),
             })
         })
         .collect::<Vec<_>>();
-    assert_eq!(options.len(), 2, "the live frame exposes both trust choices");
     assert_eq!(
-        options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        options.len(),
+        2,
+        "the live frame exposes both trust choices"
+    );
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
         vec!["1", "2"]
     );
     let prompt = PendingPrompt {
@@ -237,7 +252,10 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     tab.permission_auto_confirm = true;
 
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
     fixture
         .service
         .screen_state
@@ -255,6 +273,114 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .and_then(|tab| tab.pending_prompt.clone())
         .expect("the state reactor routes provider choices into tab prompt state");
     assert_eq!(pending, prompt);
+
+    let tab_notifications = || {
+        fixture
+            .service
+            .notif
+            .lock()
+            .list(false)
+            .into_iter()
+            .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let notifications = tab_notifications();
+    assert_eq!(notifications.len(), 1);
+    let notification = &notifications[0];
+    let expected_body = std::iter::once(prompt.question.as_str())
+        .chain(prompt.options.iter().map(|option| option.label.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(notification.body.as_deref(), Some(expected_body.as_str()));
+    assert_eq!(
+        notification.level,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded)
+    );
+    assert_eq!(
+        notification
+            .actions
+            .as_ref()
+            .expect("choice actions are offered")
+            .iter()
+            .filter_map(|action| action.answer_label())
+            .collect::<Vec<_>>(),
+        prompt
+            .options
+            .iter()
+            .map(|option| option.label.trim())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        notification
+            .answer
+            .as_ref()
+            .and_then(|answer| answer.asked_from_tab.as_deref()),
+        Some(tab_id.as_str())
+    );
+
+    react(&service, pty_id, TabStatus::Waiting);
+    assert_eq!(tab_notifications().len(), 1);
+    fixture.service.apply_prompt_decision_with_screen(
+        &crate::agent::prompt::PromptDecision::NewPrompt {
+            tab_id: tab_id.clone(),
+            prompt: prompt.clone(),
+        },
+        Some(&screen),
+        false,
+        true,
+    );
+    assert_eq!(tab_notifications().len(), 1);
+    let mut selected_prompt = prompt.clone();
+    selected_prompt.selected_values = Some(vec!["2".into()]);
+    fixture.service.apply_prompt_decision_with_screen(
+        &crate::agent::prompt::PromptDecision::PromptUpdated {
+            tab_id: tab_id.clone(),
+            prompt: selected_prompt,
+        },
+        Some(&screen),
+        false,
+        true,
+    );
+    assert_eq!(tab_notifications().len(), 1);
+
+    let mut next_prompt = prompt.clone();
+    next_prompt.question = "next folder access choice".into();
+    fixture.service.prompt_detector.lock().clear(&tab_id);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .expect("tab")
+        .pending_prompt = None;
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::with_directory_trust_response(
+            "trust-fixture",
+            codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+        )
+        .with_tab_state(TabStateClassification {
+            state: TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: None,
+            action: Some(TabStateAction {
+                keys: None,
+                delayed_resume: None,
+                surface: Some(Surface {
+                    kind: "clarifying_question".into(),
+                    payload: serde_json::json!({"questions": [next_prompt.question.clone()]}),
+                }),
+            }),
+        })
+        .with_parsed_prompt(next_prompt.clone()),
+    ));
+    react(&service, pty_id, TabStatus::Waiting);
+    let notifications = tab_notifications();
+    assert_eq!(notifications.len(), 2);
+    assert!(notifications.iter().any(|notification| notification
+        .body
+        .as_deref()
+        .is_some_and(|body| body.contains(&next_prompt.question))));
 }
 
 #[test]
