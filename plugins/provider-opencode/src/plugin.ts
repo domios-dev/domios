@@ -71,13 +71,16 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
   };
   if (platform === "windows") {
     const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
-    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad = $env:CODETERM_PAD_DIR -replace '\\\\', '/'; if ($ct_pad) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad.TrimEnd('/') + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
   }
   const permissionJson = JSON.stringify({ permission: config.permission });
   const prefix = permissionJson.slice(0, -3);
   const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
   const q = (value: string) => host.shell.quoteFor(value, platform);
-  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT${suffix}"; export OPENCODE_CONFIG_CONTENT; ${command}; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup || ""}; exit $ct_status`;
+  const finish = cleanup
+    ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status`
+    : `; unset OPENCODE_CONFIG_CONTENT`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
 }
 
 const plugin: PluginModule = {
@@ -266,7 +269,7 @@ const plugin: PluginModule = {
       : null;
     const prologue = platform === "windows"
       ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
-      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local}`;
+      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
     const cleanup = platform === "windows"
       ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;`
       : `rm -f -- ${local}`;
