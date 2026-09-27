@@ -47,6 +47,11 @@ The Orchestrator states the GOAL and delegates structure to the Planner, then
 approves or revises it, dispatches, judges reports, integrates accepted lanes,
 and owns cleanup. A bound Planner keeps section/task authority after approval;
 approval and dispatch remain the Orchestrator's.
+For oversized in-progress work, the Orchestrator can use `codeterm plan task
+split <plan> <task> --child <name>` to add approved child tasks, then dispatch
+each child into its own lane. Child status rolls up on the parent, which stays
+open until every child is done or cancelled. Workers can propose a split in
+their report but cannot spawn sub-Workers.
 Directly implement a genuinely small, local, low-risk change already authorized
 in canonical when delegation costs more. Worker dispatch remains default for
 plan-owned source work; never self-assign normal implementation work merely
@@ -211,4 +216,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 90 -->
+<!-- revision: 91 -->

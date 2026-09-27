@@ -454,6 +454,18 @@ pub(super) fn run_task(
             );
             Ok(None)
         }
+        PlanTaskAction::Split { plan_id, task_id, children, from_file } => {
+            let children: Vec<Value> = if let Some(path) = from_file {
+                let content = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+                serde_json::from_str(&content).map_err(|e| format!("parse children file {path}: {e}"))?
+            } else {
+                children.into_iter().map(|name| json!({"name": name})).collect()
+            };
+            if children.is_empty() { return Err("split requires at least one --child or --from-file child".into()); }
+            let mut params = json!({"plan_id": plan_id, "task_id": task_id, "children": children});
+            inject_trusted_session(&mut params);
+            call(client, "plan.task.split", params).map(Some)
+        }
         PlanTaskAction::Add {
             plan_id,
             name,

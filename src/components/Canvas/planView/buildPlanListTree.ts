@@ -60,8 +60,8 @@ function latestMilestone(task: Task): Milestone | null {
   return task.milestones.reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
 }
 
-function statusText(task: Task): string {
-  return canonicalTaskStatusLabel(task);
+function statusText(task: Task, plan: Plan): string {
+  return canonicalTaskStatusLabel(task, plan);
 }
 
 function sectionTitle(task: Task, sectionById: ReadonlyMap<string, string>): string {
@@ -95,7 +95,7 @@ function buildTaskRow(
     depth: kind === "subtask" ? 3 : 2,
     title: task.name,
     status: task.status,
-    statusLabel: statusText(task),
+    statusLabel: statusText(task, plan),
     unplannedLabel: task.tags?.includes("unplanned") ? task.name : undefined,
     sectionTitle: sectionTitle(task, sectionById),
     tabLabel: presence?.label ?? undefined,

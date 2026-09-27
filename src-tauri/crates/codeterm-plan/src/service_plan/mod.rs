@@ -100,6 +100,8 @@ mod review_gate_selection_tests;
 #[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]
+mod subtask_dispatch_tests;
+#[cfg(test)]
 mod tab_name_contract_tests;
 #[cfg(test)]
 mod task_attempt_tests;

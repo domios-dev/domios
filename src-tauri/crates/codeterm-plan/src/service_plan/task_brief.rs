@@ -49,6 +49,10 @@ pub fn render_task_brief(
         super::worker_identity::compose_task_worker_identity(task, effective_personality);
     out.push_str(&format!("# {}\n\n", task.name));
 
+    if let Some(parent_task_id) = &task.parent_task_id {
+        out.push_str(&format!("Parent task: `{parent_task_id}`\n\n"));
+    }
+
     let body = task.body.trim();
     if !body.is_empty() {
         out.push_str(body);
