@@ -549,6 +549,9 @@ fn install_leaf(
     }
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
+    let scrollback_seed_pending = restored_agent_type.is_none()
+        && matches!(&restored_backing, TabBacking::Pty)
+        && ownership.is_none();
     let restored_boot_stage = restored_agent_type
         .as_ref()
         .map(|_| codeterm_types::pty::BootStage::PtyStarting);
@@ -640,6 +643,8 @@ fn install_leaf(
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: true,
+            scrollback_seed_pending,
+            pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: restored_boot_stage,
             boot_failure_reason: None,
