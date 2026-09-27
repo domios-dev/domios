@@ -13,6 +13,17 @@ fn opencode() -> JsProvider {
     load_js("opencode")
 }
 
+fn opencode_invocation(command: &str) -> &str {
+    let start = command.find("opencode ").expect("opencode invocation");
+    let invocation = &command[start..];
+    let end = [" } finally", "; ct_status=", "; unset OPENCODE_CONFIG_CONTENT"]
+        .iter()
+        .filter_map(|delimiter| invocation.find(*delimiter))
+        .min()
+        .unwrap_or(invocation.len());
+    &invocation[..end]
+}
+
 #[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
@@ -69,7 +80,7 @@ fn restored_resume_command_preserves_exact_session_model_and_effort() {
         .expect("opencode restored resume command");
 
     assert_eq!(
-        command,
+        opencode_invocation(&command),
         format!("opencode --session '{SES_ID}' -m 'big-pickle' --variant 'high'")
     );
 }
@@ -102,12 +113,13 @@ fn resume_with_context_restages_the_session_config() {
 
     assert_eq!(command.matches("--session").count(), 1, "{command}");
     assert_eq!(
-        command.matches("OPENCODE_CONFIG_CONTENT").count(),
+        command.matches("cp -- ").count() + command.matches("Copy-Item -LiteralPath ").count(),
         1,
-        "{command}"
+        "exactly one staged prompt file copy: {command}"
     );
     assert!(
-        command.contains("opencode --session 'ses_abc' -m 'big-pickle' --variant 'high'"),
+        opencode_invocation(&command)
+            .contains("opencode --session 'ses_abc' -m 'big-pickle' --variant 'high'"),
         "{command}"
     );
     assert!(
