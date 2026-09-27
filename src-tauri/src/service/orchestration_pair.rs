@@ -252,7 +252,8 @@ fn created_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
         (reserved.planner_tab_created, &reserved.planner_tab_id),
     ]
     .into_iter()
-    .filter_map(|(created, tab_id)| created.then(|| tab_id.clone()))
+    .filter(|(created, _)| *created)
+    .map(|(_, tab_id)| tab_id.clone())
     .collect()
 }
 
