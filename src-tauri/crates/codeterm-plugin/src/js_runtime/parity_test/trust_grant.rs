@@ -174,11 +174,7 @@ fn a_failed_provider_trust_grant_fails_the_install_for_js_and_native() {
         }};
     "#
     );
-    let js = trust_grant_js_fixture(
-        "trust-grant-js-fixture",
-        DECLARING_MANIFEST,
-        &plugin_js,
-    );
+    let js = trust_grant_js_fixture("trust-grant-js-fixture", DECLARING_MANIFEST, &plugin_js);
     let native = TrustGrantNativeStub {
         failure: Some(reason.into()),
         ..Default::default()
@@ -188,7 +184,10 @@ fn a_failed_provider_trust_grant_fails_the_install_for_js_and_native() {
     for provider in providers {
         let error = install_integration_with_trust_grant(provider, 7686, &install_options())
             .expect_err("unconfirmed trust must fail integration install");
-        assert!(error.contains(reason), "the grant failure reason must reach the owner: {error}");
+        assert!(
+            error.contains(reason),
+            "the grant failure reason must reach the owner: {error}"
+        );
     }
 }
 

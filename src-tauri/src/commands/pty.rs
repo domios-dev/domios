@@ -35,11 +35,7 @@ impl RestoredFreshLaunchInput {
     /// command — the caller clears the stale session and starts fresh rather
     /// than silently sending a fresh-launch command down the resume branch.
     /// A fresh launch carries a minted marker; a resume already names its session.
-    fn command(
-        &self,
-        service: &crate::service::ServiceContext,
-        tab_id: &str,
-    ) -> Option<String> {
+    fn command(&self, service: &crate::service::ServiceContext, tab_id: &str) -> Option<String> {
         let provider_id = self.params.agent.as_deref()?;
         let registry = &service.agent_registry;
         let resumable = registry.with_provider(provider_id, |provider| {

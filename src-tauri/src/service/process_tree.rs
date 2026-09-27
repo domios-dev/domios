@@ -1,21 +1,70 @@
 //! A tab's own PTY process tree, each process paired with its OS start time.
 //! The start time is the PID-reuse guard for every process and every parent link.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::agent::provider::LaunchProcess;
 
 const MAX_DEPTH: u32 = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ProcessEntry {
     pid: u32,
     parent_pid: u32,
+    image_name: String,
 }
 
 /// Descendants of `root` (itself included), shallowest first.
 pub(crate) fn launch_processes(root: u32) -> Vec<LaunchProcess> {
     launch_tree(root, &platform::snapshot(), platform::start_time)
+}
+
+pub(crate) fn may_have_named_process(root: u32, expected_name: &str) -> bool {
+    let entries = platform::snapshot();
+    tree_may_have_named_process(root, &entries, platform::start_time, expected_name)
+}
+
+fn tree_may_have_named_process(
+    root: u32,
+    entries: &[ProcessEntry],
+    start_time: impl Fn(u32) -> Option<u64>,
+    expected_name: &str,
+) -> bool {
+    let tree = launch_tree(root, entries, &start_time);
+    let pids = tree
+        .iter()
+        .map(|process| process.pid)
+        .collect::<HashSet<_>>();
+    if !pids.contains(&root) {
+        return true;
+    }
+    if tree.iter().any(|process| {
+        entries
+            .iter()
+            .find(|entry| entry.pid == process.pid)
+            .is_none_or(|entry| {
+                entry.image_name.is_empty()
+                    || executable_names_match(&entry.image_name, expected_name)
+            })
+    }) {
+        return true;
+    }
+    entries.iter().any(|entry| {
+        pids.contains(&entry.parent_pid)
+            && !pids.contains(&entry.pid)
+            && executable_names_match(&entry.image_name, expected_name)
+            && start_time(entry.pid).is_none()
+    })
+}
+
+fn executable_names_match(actual: &str, expected: &str) -> bool {
+    fn base(name: &str) -> &str {
+        let name = name.rsplit(['\\', '/']).next().unwrap_or(name);
+        name.get(name.len().saturating_sub(4)..)
+            .filter(|suffix| suffix.eq_ignore_ascii_case(".exe"))
+            .map_or(name, |_| &name[..name.len() - 4])
+    }
+    base(actual).eq_ignore_ascii_case(base(expected))
 }
 
 fn launch_tree(
@@ -86,6 +135,14 @@ mod platform {
             entries.push(ProcessEntry {
                 pid: entry.th32ProcessID,
                 parent_pid: entry.th32ParentProcessID,
+                image_name: {
+                    let end = entry
+                        .szExeFile
+                        .iter()
+                        .position(|unit| *unit == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    String::from_utf16_lossy(&entry.szExeFile[..end])
+                },
             });
             more = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
         }
@@ -127,7 +184,14 @@ mod platform {
             .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
             .filter_map(|pid| {
                 let (parent_pid, _) = stat_fields(pid)?;
-                Some(ProcessEntry { pid, parent_pid })
+                Some(ProcessEntry {
+                    pid,
+                    parent_pid,
+                    image_name: std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                        .ok()
+                        .map(|name| name.trim().to_string())
+                        .unwrap_or_default(),
+                })
             })
             .collect()
     }
@@ -167,6 +231,15 @@ mod platform {
                 Some(ProcessEntry {
                     pid: pid as u32,
                     parent_pid: info.pbi_ppid,
+                    image_name: String::from_utf8_lossy(
+                        &info
+                            .pbi_name
+                            .iter()
+                            .take_while(|unit| **unit != 0)
+                            .map(|unit| *unit as u8)
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_owned(),
                 })
             })
             .collect()
@@ -214,7 +287,19 @@ mod tests {
     use super::*;
 
     fn entry(pid: u32, parent_pid: u32) -> ProcessEntry {
-        ProcessEntry { pid, parent_pid }
+        ProcessEntry {
+            pid,
+            parent_pid,
+            image_name: String::new(),
+        }
+    }
+
+    fn named_entry(pid: u32, parent_pid: u32, image_name: &str) -> ProcessEntry {
+        ProcessEntry {
+            pid,
+            parent_pid,
+            image_name: image_name.into(),
+        }
     }
 
     fn pids(tree: &[LaunchProcess]) -> Vec<(u32, u32)> {
@@ -240,6 +325,62 @@ mod tests {
             _ => Some(900),
         };
         assert_eq!(pids(&launch_tree(10, &entries, starts)), vec![(10, 0)]);
+    }
+
+    #[test]
+    fn named_process_lookup_is_scoped_to_the_tab_tree_and_normalizes_exe_suffix() {
+        let entries = [
+            named_entry(10, 1, "pwsh.exe"),
+            named_entry(20, 10, "opencode.exe"),
+            named_entry(30, 99, "opencode.exe"),
+        ];
+        let has_process = |root, expected| {
+            launch_tree(root, &entries, |pid| Some(u64::from(pid)))
+                .iter()
+                .any(|process| {
+                    entries
+                        .iter()
+                        .find(|entry| entry.pid == process.pid)
+                        .is_some_and(|entry| executable_names_match(&entry.image_name, expected))
+                })
+        };
+
+        assert!(has_process(10, "opencode"));
+        assert!(has_process(10, "OPENCODE.EXE"));
+        assert!(!has_process(30, "opencode"));
+    }
+
+    #[test]
+    fn missing_root_or_child_identity_is_conservatively_live() {
+        let entries = [
+            named_entry(10, 1, "pwsh.exe"),
+            named_entry(20, 10, "opencode.exe"),
+        ];
+        assert!(tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { Some(u64::from(pid)) },
+            "opencode"
+        ));
+        assert!(!tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { Some(u64::from(pid)) },
+            "codex"
+        ));
+        assert!(tree_may_have_named_process(10, &[], |_| None, "opencode"));
+        assert!(tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { (pid != 20).then_some(u64::from(pid)) },
+            "opencode"
+        ));
+        assert!(!tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| Some(u64::from(pid)),
+            "codex"
+        ));
     }
 
     #[test]

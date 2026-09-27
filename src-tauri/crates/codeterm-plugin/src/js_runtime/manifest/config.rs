@@ -527,12 +527,10 @@ impl From<&SerdeModelInfo> for ModelInfo {
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
-            reasoning_efforts: s.reasoning_efforts.as_ref().map(|efforts| {
-                efforts
-                    .iter()
-                    .map(ReasoningEffortInfo::from)
-                    .collect()
-            }),
+            reasoning_efforts: s
+                .reasoning_efforts
+                .as_ref()
+                .map(|efforts| efforts.iter().map(ReasoningEffortInfo::from).collect()),
             default_reasoning_effort: s.default_reasoning_effort.clone(),
         }
     }
@@ -641,7 +639,10 @@ mod tests {
         assert_eq!(wire["reasoning_efforts"][0]["display_name"], "Max");
         let efforts = model.reasoning_efforts.expect("per-model effort list");
         assert_eq!(
-            efforts.iter().map(|effort| effort.id.as_str()).collect::<Vec<_>>(),
+            efforts
+                .iter()
+                .map(|effort| effort.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["max", "ultra"]
         );
         assert_eq!(efforts[0].description.as_deref(), Some("Maximum reasoning"));

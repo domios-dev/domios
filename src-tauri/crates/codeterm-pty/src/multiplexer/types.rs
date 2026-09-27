@@ -319,19 +319,26 @@ impl PendingDeliveryState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PendingDeliveryRecord {
+    record_id: String,
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
     pub provenance: PendingDeliveryProvenance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    send_id: Option<String>,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
 }
 
 #[derive(Deserialize)]
 struct PendingDeliveryRecordWire {
+    #[serde(default)]
+    record_id: Option<String>,
     content_digest: String,
     channel: PendingDeliveryChannel,
     #[serde(default)]
     provenance: Option<PendingDeliveryProvenance>,
+    #[serde(default)]
+    send_id: Option<String>,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
 }
@@ -346,9 +353,13 @@ impl<'de> Deserialize<'de> for PendingDeliveryRecord {
             .provenance
             .unwrap_or_else(|| PendingDeliveryProvenance::for_channel(&wire.channel));
         Ok(Self {
+            record_id: wire
+                .record_id
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             content_digest: wire.content_digest,
             channel: wire.channel,
             provenance,
+            send_id: wire.send_id,
             state: wire.state,
             attempt_provenance: wire.attempt_provenance,
         })
@@ -365,12 +376,27 @@ impl PendingDeliveryRecord {
     pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
         let provenance = PendingDeliveryProvenance::for_channel(&channel);
         Self {
+            record_id: uuid::Uuid::new_v4().to_string(),
             content_digest,
             channel,
             provenance,
+            send_id: None,
             state: PendingDeliveryState::Pending,
             attempt_provenance: None,
         }
+    }
+
+    pub fn with_send_id(mut self, send_id: String) -> Self {
+        self.send_id = Some(send_id);
+        self
+    }
+
+    pub fn record_id(&self) -> &str {
+        &self.record_id
+    }
+
+    pub fn send_id(&self) -> Option<&str> {
+        self.send_id.as_deref()
     }
 
     pub fn state(&self) -> PendingDeliveryState {
@@ -982,6 +1008,21 @@ mod tests {
             record.provenance,
             PendingDeliveryProvenance::FallbackBootstrap
         );
+        assert_eq!(record.send_id(), None);
+        assert!(!record.record_id().is_empty());
+    }
+
+    #[test]
+    fn pending_interactive_send_round_trips_its_chat_send_id() {
+        let record =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput)
+                .with_send_id("send-1".into());
+
+        let encoded = serde_json::to_string(&record).unwrap();
+        let decoded: PendingDeliveryRecord = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(decoded.send_id(), Some("send-1"));
+        assert_eq!(decoded.record_id(), record.record_id());
     }
 
     #[test]

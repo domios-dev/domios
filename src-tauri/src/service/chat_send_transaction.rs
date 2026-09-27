@@ -493,6 +493,7 @@ impl crate::service::ServiceContext {
             None => pending,
         };
         let response = pending.clone();
+        let send_id = pending.send_id.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
@@ -505,7 +506,7 @@ impl crate::service::ServiceContext {
                             "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
                             err.code()
                         );
-                        svc.park_refused_user_send(&tab_id, text, &err);
+                        svc.park_refused_user_send(&tab_id, &send_id, text, &err);
                         err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
                     })
             });

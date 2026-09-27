@@ -99,7 +99,9 @@ pub(in crate::service_plan) fn annotate_blocked_unblock_rollback(
     let prefixes = ["unblocked by dispatch: ", "unblocked by respawn: "];
     if let Some(stride) = plan.strides.iter_mut().rev().find(|stride| {
         stride.links.iter().any(|link| link == task_id)
-            && prefixes.iter().any(|prefix| stride.text.starts_with(prefix))
+            && prefixes
+                .iter()
+                .any(|prefix| stride.text.starts_with(prefix))
             && stride.text.ends_with(&marker)
     }) {
         let reason = prefixes

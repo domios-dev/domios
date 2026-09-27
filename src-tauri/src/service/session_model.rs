@@ -59,7 +59,9 @@ impl ServiceContext {
             mux.get_tab(tab_id)
                 .and_then(|tab| Some((tab.agent_type.clone()?, tab.cwd.clone()?)))
         };
-        let Some((agent_id, cwd)) = binding else { return };
+        let Some((agent_id, cwd)) = binding else {
+            return;
+        };
         self.refresh_session_model(tab_id, &agent_id, &cwd, false);
     }
 
@@ -80,19 +82,18 @@ impl ServiceContext {
             let Some(tab) = mux.get_tab(tab_id) else {
                 return false;
             };
-            if tab.agent_type.is_none()
-                || tab.cwd.is_none()
-                || tab.agent_session_id.is_none()
-            {
+            if tab.agent_type.is_none() || tab.cwd.is_none() || tab.agent_session_id.is_none() {
                 return false;
             }
             let binding = super::task_assignment::authenticated_tab_binding(tab);
             let model_known = tab.agent_session_model.is_some()
                 && binding.as_ref().is_some_and(|binding| {
-                    tab.agent_session_model_identity.as_ref().is_some_and(|identity| {
-                        identity.session_id == binding.session_id
-                            && identity.session_binding_nonce == binding.session_binding_nonce
-                    })
+                    tab.agent_session_model_identity
+                        .as_ref()
+                        .is_some_and(|identity| {
+                            identity.session_id == binding.session_id
+                                && identity.session_binding_nonce == binding.session_binding_nonce
+                        })
                 });
             (model_known, binding)
         };
@@ -169,7 +170,8 @@ impl ServiceContext {
     ) {
         let session_id = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id).and_then(|tab| tab.agent_session_id.clone())
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
         };
         // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling tab's session.
         if detect_active_session {
