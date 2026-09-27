@@ -518,6 +518,59 @@ fn host_atomic_write_and_exclusive_file_lock_round_trip() {
 }
 
 #[test]
+fn file_lock_cleanup_preserves_another_live_plugin_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let first_path = dir.path().join("first.lock");
+    let second_path = dir.path().join("second.lock");
+    let first = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(first_path)
+        .unwrap();
+    let second = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&second_path)
+        .unwrap();
+    first.try_lock().unwrap();
+    second.try_lock().unwrap();
+    held_file_locks().lock().insert(
+        "first-call-lock".into(),
+        HeldFileLock {
+            call_id: "first-call".into(),
+            file: first,
+        },
+    );
+    held_file_locks().lock().insert(
+        "second-call-lock".into(),
+        HeldFileLock {
+            call_id: "second-call".into(),
+            file: second,
+        },
+    );
+
+    release_call_file_locks("first-call");
+
+    let locks = held_file_locks().lock();
+    assert!(!locks.contains_key("first-call-lock"));
+    assert!(locks.contains_key("second-call-lock"));
+    drop(locks);
+    let mut probe = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(second_path)
+        .unwrap();
+    assert!(probe.try_lock().is_err(), "the concurrent call keeps its OS lock");
+    release_call_file_locks("second-call");
+    probe.try_lock().unwrap();
+    probe.unlock().unwrap();
+}
+
+#[test]
 fn read_file_bounded_head_and_tail_windows() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("big.jsonl");

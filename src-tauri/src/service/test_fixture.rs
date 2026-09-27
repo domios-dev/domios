@@ -183,6 +183,7 @@ impl ServiceFixture {
             )),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+            output_stream_activity: super::output_stream_activity::channel(),
             session_persist_pending: Arc::new(AtomicBool::new(false)),
             services_store,
             tokens: Arc::new(crate::service::tokens::TokenStore::new_with_root(
