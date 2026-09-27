@@ -9,7 +9,6 @@ impl LaunchGeneration {
         &mut self,
         svc: &ServiceContext,
         task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
-        startup_turn_required: bool,
     ) -> Result<(), String> {
         let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
@@ -20,13 +19,12 @@ impl LaunchGeneration {
             self.binding_nonce.as_deref().expect("launch binding nonce"),
             task_identity,
         )?;
-        svc.arm_public_send_launch(
+        svc.bind_public_send_launch_attempt(
             crate::service::launch_readiness::LaunchAttempt {
                 tab_id: self.tab_id.clone(),
                 pty_id: self.pty_id.clone(),
                 binding_nonce: self.binding_nonce.clone().expect("launch binding nonce"),
             },
-            startup_turn_required,
         );
         Ok(())
     }
@@ -79,6 +77,7 @@ impl LaunchGeneration {
             svc.void_launch_session_proof(&self.tab_id);
         }
         let reason = failure.reason();
+        svc.retire_public_send_launch(&self.tab_id);
         self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
         })

@@ -160,22 +160,10 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     let no_task_turn = crate::service::launch_delivery::has_startup_task_turn(
         taskless_params.task.as_deref(),
         None,
-        taskless_params.starter_prompt,
     );
     assert!(taskless_params.system_prompt.is_some());
     assert!(!no_task_turn);
 
-    let startup_handshake_turn = crate::service::launch_delivery::has_startup_task_turn(
-        None,
-        None,
-        crate::agent::provider::StarterPrompt::StartupHandshake,
-    );
-    assert!(startup_handshake_turn);
-    assert!(!first_turn_binding_required(
-        lazy.session_starts_on_first_user_turn(),
-        startup_handshake_turn,
-        false,
-    ));
     assert!(first_turn_binding_required(
         lazy.session_starts_on_first_user_turn(),
         no_task_turn,
@@ -190,7 +178,6 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
         assigned_params.task.as_deref(),
         None,
-        assigned_params.starter_prompt,
     );
     assert!(assigned_task_turn);
     assert!(!first_turn_binding_required(
@@ -206,7 +193,6 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     let fallback_task_turn = crate::service::launch_delivery::has_startup_task_turn(
         None,
         Some(&dispatch_brief),
-        crate::agent::provider::StarterPrompt::NoStarter,
     );
     assert!(fallback_task_turn);
     assert!(!first_turn_binding_required(
@@ -262,7 +248,6 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     let no_task_turn = crate::service::launch_delivery::has_startup_task_turn(
         None,
         None,
-        crate::agent::provider::StarterPrompt::NoStarter,
     );
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
@@ -274,7 +259,6 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
         Some("opaque-task-4209"),
         None,
-        crate::agent::provider::StarterPrompt::NoStarter,
     );
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,

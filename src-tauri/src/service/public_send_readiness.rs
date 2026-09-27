@@ -1,7 +1,9 @@
 use crate::multiplexer::types::Tab;
+use crate::service::chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor};
 use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::ServiceContext;
 use codeterm_types::pty::BootStage;
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -11,11 +13,13 @@ use std::time::{Duration, Instant};
 #[path = "public_send_readiness/tests.rs"]
 mod tests;
 
-#[derive(Clone)]
 struct LaunchSendGate {
-    attempt: LaunchAttempt,
-    startup_turn_required: bool,
-    startup_turn_session: Option<String>,
+    attempt: Option<LaunchAttempt>,
+    expected_turn: String,
+    anchor: Option<SendEvidenceAnchor>,
+    bound_session: Option<String>,
+    watcher: Option<RecommendedWatcher>,
+    deadline: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -32,140 +36,260 @@ struct ReadinessRegistry {
 
 static READINESS: LazyLock<ReadinessRegistry> = LazyLock::new(ReadinessRegistry::default);
 
-fn launch_gate_ready(tab: &Tab, gate: &LaunchSendGate) -> Result<bool, String> {
-    if tab.pty_id.as_deref() != Some(gate.attempt.pty_id.as_str())
-        || tab.session_binding_nonce.as_deref() != Some(gate.attempt.binding_nonce.as_str())
-    {
-        return Err("launch attempt changed before public input readiness".into());
-    }
-    if tab.boot_stage == Some(BootStage::SpawnFailed) {
-        return Err(tab
-            .boot_failure_reason
-            .clone()
-            .unwrap_or_else(|| "agent launch failed".into()));
-    }
-    let session_bound = tab.launch_session_authenticated();
-    let startup_turn_observed = !gate.startup_turn_required
-        || gate.startup_turn_session.as_deref() == tab.agent_session_id.as_deref();
-    Ok(session_bound && startup_turn_observed)
+pub(crate) struct PublicSendLaunchGuard {
+    svc: ServiceContext,
+    tab_id: String,
+    completed: bool,
 }
 
-fn ready_without_launch_gate(tab: &Tab) -> Option<Result<(), String>> {
-    if tab.agent_type.is_none() || tab.boot_stage == Some(BootStage::PtyReattached) {
-        return Some(Ok(()));
+impl PublicSendLaunchGuard {
+    pub(crate) fn complete(mut self) {
+        self.svc.complete_public_send_launch(&self.tab_id);
+        self.completed = true;
     }
-    if tab.boot_stage == Some(BootStage::SpawnFailed) {
-        return Some(Err(tab
-            .boot_failure_reason
-            .clone()
-            .unwrap_or_else(|| "agent launch failed".into())));
+}
+
+impl Drop for PublicSendLaunchGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.svc.retire_public_send_launch(&self.tab_id);
+        }
     }
-    if tab.agent_booting {
-        return None;
+}
+
+fn dispose_gate(gate: Option<LaunchSendGate>) {
+    if let Some(mut gate) = gate {
+        if let Some(watcher) = gate.watcher.take() {
+            std::thread::spawn(move || drop(watcher));
+        }
     }
-    match tab.boot_stage {
+}
+
+fn terminal_launch_stage(stage: Option<BootStage>) -> bool {
+    matches!(
+        stage,
         Some(
-            BootStage::PtyStarting
-            | BootStage::PtySpawned
-            | BootStage::ReaderReady
-            | BootStage::ShellReady
-            | BootStage::AgentLaunching
-            | BootStage::LaunchWritten
-            | BootStage::ProviderReady
-            | BootStage::PreparingRoleInstructions
-            | BootStage::DeliveringInstructions,
-        ) => None,
-        Some(BootStage::AgentReady) | None if tab.launch_session_authenticated() => Some(Ok(())),
-        Some(BootStage::AgentReady) | None => None,
-        Some(BootStage::LaunchDeadlineElapsed | BootStage::LaunchBindingUnconfirmed) => None,
-        Some(BootStage::SpawnFailed | BootStage::PtyReattached) => unreachable!(),
-    }
+            BootStage::SpawnFailed
+                | BootStage::LaunchDeadlineElapsed
+                | BootStage::LaunchBindingUnconfirmed
+        )
+    )
+}
+
+fn gate_tab_matches(tab: &Tab, gate: &LaunchSendGate) -> bool {
+    gate.attempt.as_ref().is_some_and(|attempt| {
+        tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
+    })
 }
 
 impl ReadinessRegistry {
-    fn arm(&self, attempt: LaunchAttempt, startup_turn_required: bool) {
+    fn arm(
+        &self,
+        tab_id: String,
+        expected_turn: Option<String>,
+        anchor: Option<SendEvidenceAnchor>,
+    ) {
+        let expected_turn = expected_turn.filter(|text| !text.trim().is_empty());
         let mut state = self.state.lock();
-        state.gates.insert(
-            attempt.tab_id.clone(),
-            LaunchSendGate {
-                attempt,
-                startup_turn_required,
-                startup_turn_session: None,
-            },
-        );
+        let previous = match expected_turn {
+            Some(expected_turn) => state.gates.insert(
+                tab_id,
+                LaunchSendGate {
+                    attempt: None,
+                    expected_turn,
+                    anchor,
+                    bound_session: None,
+                    watcher: None,
+                    deadline: None,
+                },
+            ),
+            None => state.gates.remove(&tab_id),
+        };
         state.generation = state.generation.wrapping_add(1);
         self.changed.notify_all();
-    }
-
-    fn notify(&self) {
-        let mut state = self.state.lock();
-        state.generation = state.generation.wrapping_add(1);
-        self.changed.notify_all();
+        drop(state);
+        dispose_gate(previous);
     }
 
     fn retire(&self, tab_id: &str) {
         let mut state = self.state.lock();
-        if state.gates.remove(tab_id).is_some() {
+        let removed = state.gates.remove(tab_id);
+        if removed.is_some() {
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+        }
+        drop(state);
+        dispose_gate(removed);
+    }
+
+    fn bind_attempt(&self, attempt: LaunchAttempt) {
+        let mut state = self.state.lock();
+        if let Some(gate) = state.gates.get_mut(&attempt.tab_id) {
+            gate.attempt = Some(attempt);
             state.generation = state.generation.wrapping_add(1);
             self.changed.notify_all();
         }
     }
 
-    fn note_turn(
-        &self,
-        mux: &crate::MuxState,
-        tab_id: &str,
-        session_id: &str,
-        binding_nonce: &str,
-        messages: &[crate::agent::chat_types::ChatMsg],
-    ) -> bool {
-        if !messages.iter().any(|message| message.kind == "user") {
-            return false;
-        }
-        let tab_identity = {
-            let mux = mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return false;
-            };
-            if !tab.launch_session_authenticated()
-                || tab.agent_session_id.as_deref() != Some(session_id)
-                || tab.session_binding_nonce.as_deref() != Some(binding_nonce)
-                || tab.reported_session_binding_nonce.as_deref() != Some(binding_nonce)
-            {
-                return false;
-            }
-            (tab.pty_id.clone(), tab.session_binding_nonce.clone())
-        };
+    fn complete(&self, tab_id: &str) {
+        let tab_id = tab_id.to_string();
         let mut state = self.state.lock();
-        let Some(gate) = state.gates.get_mut(tab_id) else {
-            return false;
+        let Some(gate) = state.gates.get_mut(&tab_id) else {
+            return;
         };
-        if !gate.startup_turn_required
-            || gate.attempt.pty_id != tab_identity.0.as_deref().unwrap_or_default()
-            || gate.attempt.binding_nonce != binding_nonce
-        {
-            return false;
-        }
-        gate.startup_turn_session = Some(session_id.to_string());
+        let Some(attempt) = gate.attempt.clone() else {
+            return;
+        };
+        let deadline = *gate
+            .deadline
+            .get_or_insert_with(|| Instant::now() + Duration::from_secs(30));
         state.generation = state.generation.wrapping_add(1);
         self.changed.notify_all();
+        drop(state);
+        std::thread::spawn(move || {
+            let mut state = READINESS.state.lock();
+            loop {
+                let Some(gate) = state.gates.get(&tab_id) else {
+                    return;
+                };
+                if gate.attempt.as_ref() != Some(&attempt) || gate.deadline != Some(deadline) {
+                    return;
+                }
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    let removed = state.gates.remove(&tab_id);
+                    state.generation = state.generation.wrapping_add(1);
+                    READINESS.changed.notify_all();
+                    drop(state);
+                    dispose_gate(removed);
+                    return;
+                };
+                if READINESS.changed.wait_for(&mut state, remaining).timed_out() {
+                    if state.gates.get(&tab_id).is_some_and(|gate| {
+                        gate.attempt.as_ref() == Some(&attempt)
+                            && gate.deadline == Some(deadline)
+                    }) {
+                        let removed = state.gates.remove(&tab_id);
+                        state.generation = state.generation.wrapping_add(1);
+                        READINESS.changed.notify_all();
+                        drop(state);
+                        dispose_gate(removed);
+                    }
+                    return;
+                }
+            }
+        });
+    }
+
+    fn retire_terminal(&self, mux: &crate::MuxState, tab_id: &str) {
+        let armed = self
+            .state
+            .lock()
+            .gates
+            .get(tab_id)
+            .is_some_and(|gate| gate.attempt.is_some());
+        let terminal = armed
+            && mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| terminal_launch_stage(tab.boot_stage));
+        if terminal {
+            self.retire(tab_id);
+        }
+    }
+
+    fn retire_changed_session(&self, mux: &crate::MuxState, tab_id: &str) {
+        let current = mux.read().get_tab(tab_id).map(|tab| {
+            (
+                tab.pty_id.clone(),
+                tab.session_binding_nonce.clone(),
+                tab.agent_session_id.clone(),
+            )
+        });
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get(tab_id) else {
+            return;
+        };
+        let changed = current.is_none_or(|(pty_id, nonce, session_id)| {
+            gate.attempt.as_ref().is_some_and(|attempt| {
+                pty_id.as_deref() != Some(attempt.pty_id.as_str())
+                    || nonce.as_deref() != Some(attempt.binding_nonce.as_str())
+            }) || gate
+                .bound_session
+                .as_ref()
+                .is_some_and(|bound| session_id.as_ref() != Some(bound))
+        });
+        if changed {
+            let removed = state.gates.remove(tab_id);
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+            drop(state);
+            dispose_gate(removed);
+        }
+    }
+
+    fn confirm(&self, mux: &crate::MuxState, tab_id: &str, session_id: &str, nonce: &str) {
+        let authenticated = mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.launch_session_authenticated()
+                && tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.session_binding_nonce.as_deref() == Some(nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        });
+        if !authenticated {
+            return;
+        }
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get(tab_id) else {
+            return;
+        };
+        if gate
+            .attempt
+            .as_ref()
+            .is_none_or(|attempt| attempt.binding_nonce != nonce)
+            || gate.bound_session.as_deref() != Some(session_id)
+            || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return;
+        }
+        let removed = state.gates.remove(tab_id);
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_all();
+        drop(state);
+        dispose_gate(removed);
         log::info!(
             "[public-send-readiness] event=LaunchBootstrapTurnConfirmed tab={tab_id} session={session_id}"
         );
-        true
     }
 
     fn inspect(&self, mux: &crate::MuxState, tab_id: &str) -> Option<Result<(), String>> {
         let tab = mux.read().get_tab(tab_id).cloned()?;
-        let gate = self.state.lock().gates.get(tab_id).cloned();
-        match gate {
-            Some(gate) => match launch_gate_ready(&tab, &gate) {
-                Ok(true) => Some(Ok(())),
-                Ok(false) => None,
-                Err(error) => Some(Err(error)),
-            },
-            None => ready_without_launch_gate(&tab),
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get(tab_id) else {
+            return Some(Ok(()));
+        };
+        if gate.attempt.is_some()
+            && (!gate_tab_matches(&tab, gate)
+                || terminal_launch_stage(tab.boot_stage)
+                || gate
+                    .bound_session
+                    .as_ref()
+                    .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
+                || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline))
+        {
+            let removed = state.gates.remove(tab_id);
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+            drop(state);
+            dispose_gate(removed);
+            return Some(Ok(()));
         }
+        if tab.launch_session_authenticated()
+            && gate.bound_session.as_deref() == tab.agent_session_id.as_deref()
+            && gate.bound_session.is_some()
+        {
+            return None;
+        }
+        None
     }
 
     fn await_ready(
@@ -187,16 +311,221 @@ impl ReadinessRegistry {
                 continue;
             }
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                drop(state);
                 return Err(format!(
                     "Tab {tab_id} public input readiness deadline elapsed; no input was written"
                 ));
             };
             if self.changed.wait_for(&mut state, remaining).timed_out() {
+                if !state.gates.contains_key(tab_id) {
+                    return Ok(());
+                }
+                drop(state);
                 return Err(format!(
                     "Tab {tab_id} public input readiness deadline elapsed; no input was written"
                 ));
             }
         }
+    }
+
+    fn expected_turn(&self, tab_id: &str, nonce: &str) -> Option<(String, Option<SendEvidenceAnchor>)> {
+        self.state.lock().gates.get(tab_id).and_then(|gate| {
+            (gate.attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.binding_nonce == nonce)
+                && gate.deadline.is_none_or(|deadline| Instant::now() < deadline))
+            .then(|| {
+                (gate.expected_turn.clone(), gate.anchor.clone())
+            })
+        })
+    }
+
+    fn bound(&self, tab_id: &str, nonce: &str, session_id: &str) -> bool {
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get_mut(tab_id) else {
+            return false;
+        };
+        if gate
+            .attempt
+            .as_ref()
+            .is_none_or(|attempt| attempt.binding_nonce != nonce)
+            || gate.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return false;
+        }
+        if gate
+            .bound_session
+            .as_deref()
+            .is_some_and(|previous| previous != session_id)
+        {
+            let removed = state.gates.remove(tab_id);
+            state.generation = state.generation.wrapping_add(1);
+            self.changed.notify_all();
+            drop(state);
+            dispose_gate(removed);
+            return false;
+        }
+        gate.bound_session = Some(session_id.to_string());
+        state.generation = state.generation.wrapping_add(1);
+        self.changed.notify_all();
+        true
+    }
+
+    fn set_watcher(&self, tab_id: &str, nonce: &str, watcher: RecommendedWatcher) {
+        let mut state = self.state.lock();
+        let Some(gate) = state.gates.get_mut(tab_id) else {
+            return;
+        };
+        let previous = if gate
+            .attempt
+            .as_ref()
+            .is_some_and(|attempt| attempt.binding_nonce == nonce)
+        {
+            gate.watcher.replace(watcher)
+        } else {
+            Some(watcher)
+        };
+        drop(state);
+        if let Some(watcher) = previous {
+            std::thread::spawn(move || drop(watcher));
+        }
+    }
+
+    fn expected_text(&self, tab_id: &str, nonce: &str, session_id: &str) -> Option<String> {
+        self.state.lock().gates.get(tab_id).and_then(|gate| {
+            (gate
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.binding_nonce == nonce)
+                && gate.deadline.is_none_or(|deadline| Instant::now() < deadline)
+                && gate.bound_session.as_deref() == Some(session_id))
+            .then(|| gate.expected_turn.clone())
+        })
+    }
+
+    fn note_turn(
+        &self,
+        mux: &crate::MuxState,
+        tab_id: &str,
+        session_id: &str,
+        binding_nonce: &str,
+        messages: &[crate::agent::chat_types::ChatMsg],
+    ) -> bool {
+        let Some(expected) = self.expected_text(tab_id, binding_nonce, session_id) else {
+            return false;
+        };
+        if !messages.iter().any(|message| {
+            message.kind == "user"
+                && crate::service::chat_send_transaction::normalize_turn_evidence(
+                    &message.content,
+                ) == crate::service::chat_send_transaction::normalize_turn_evidence(&expected)
+        }) {
+            return false;
+        }
+        self.confirm(mux, tab_id, session_id, binding_nonce);
+        true
+    }
+}
+
+pub(crate) fn notify_lifecycle_changed(mux: &crate::MuxState, tab_id: &str) {
+    READINESS.retire_terminal(mux, tab_id);
+}
+
+pub(crate) fn observe_session_binding(svc: &ServiceContext, tab_id: &str) {
+    READINESS.retire_changed_session(&svc.mux, tab_id);
+    let bound = svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.launch_session_authenticated()).then(|| {
+            (
+                tab.agent_type.clone(),
+                tab.cwd.clone().unwrap_or_default(),
+                tab.agent_session_id.clone(),
+                tab.session_binding_nonce.clone(),
+            )
+        })
+    });
+    let Some((Some(provider_id), cwd, Some(session_id), Some(nonce))) = bound else {
+        return;
+    };
+    let Some((expected_turn, previous_anchor)) = READINESS.expected_turn(tab_id, &nonce) else {
+        return;
+    };
+    if !READINESS.bound(tab_id, &nonce, &session_id) {
+        return;
+    }
+    let structured = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| provider.uses_structured_chat())
+        .unwrap_or(false);
+    let anchor = previous_anchor
+        .filter(|anchor| anchor.session_id == session_id)
+        .or_else(|| {
+            Some(SendEvidenceAnchor {
+                provider_id: provider_id.clone(),
+                cwd: cwd.clone(),
+                session_id: session_id.clone(),
+                window: if structured {
+                    EvidenceWindow::Structured { cursor: None }
+                } else {
+                    EvidenceWindow::Jsonl {
+                        transcript_offset: 0,
+                    }
+                },
+            })
+        });
+    let Some(anchor) = anchor else { return };
+    let evidence_path = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| {
+            provider
+                .session_jsonl_path(&cwd, &session_id)
+                .or_else(|| provider.session_file_path(&cwd, &session_id))
+        })
+        .flatten();
+    if let Some(path) = evidence_path {
+        if let Some(parent) = path.parent().map(std::path::Path::to_path_buf) {
+            let file_name = path.file_name().map(std::ffi::OsStr::to_os_string);
+            let registry = svc.agent_registry.clone();
+            let mux = svc.mux.clone();
+            let tab = tab_id.to_string();
+            let session = session_id.clone();
+            let binding_nonce = nonce.clone();
+            let watch_anchor = anchor.clone();
+            let mut cursor = crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(
+                Some(&watch_anchor),
+            );
+            if let Ok(mut watcher) = notify::recommended_watcher(move |event: notify::Result<Event>| {
+                let Ok(event) = event else { return };
+                if !event.paths.iter().any(|changed| {
+                    changed.parent() == Some(parent.as_path())
+                        && changed.file_name() == file_name.as_deref()
+                }) {
+                    return;
+                }
+                let Some(expected) = READINESS.expected_text(&tab, &binding_nonce, &session) else {
+                    return;
+                };
+                if crate::service::chat_send_evidence::contains_exact_user_turn_since(
+                    &registry,
+                    &watch_anchor,
+                    &expected,
+                    &mut cursor,
+                ) {
+                    READINESS.confirm(&mux, &tab, &session, &binding_nonce);
+                }
+            }) {
+                if watcher.watch(path.parent().unwrap(), RecursiveMode::NonRecursive).is_ok() {
+                    READINESS.set_watcher(tab_id, &nonce, watcher);
+                }
+            }
+        }
+    }
+    if crate::service::chat_send_evidence::contains_exact_user_turn_since(
+        &svc.agent_registry,
+        &anchor,
+        &expected_turn,
+        &mut crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(Some(&anchor)),
+    ) {
+        READINESS.confirm(&svc.mux, tab_id, &session_id, &nonce);
     }
 }
 
@@ -210,17 +539,34 @@ pub(crate) fn note_bootstrap_turn(
     READINESS.note_turn(mux, tab_id, session_id, binding_nonce, messages)
 }
 
-pub(crate) fn notify_lifecycle_changed() {
-    READINESS.notify();
-}
-
 impl ServiceContext {
+    pub(crate) fn public_send_launch_guard(&self, tab_id: &str) -> PublicSendLaunchGuard {
+        PublicSendLaunchGuard {
+            svc: self.clone(),
+            tab_id: tab_id.to_string(),
+            completed: false,
+        }
+    }
+
     pub(crate) fn arm_public_send_launch(
         &self,
-        attempt: LaunchAttempt,
-        startup_turn_required: bool,
+        tab_id: &str,
+        expected_turn: Option<String>,
+        anchor: Option<SendEvidenceAnchor>,
     ) {
-        READINESS.arm(attempt, startup_turn_required);
+        READINESS.arm(tab_id.to_string(), expected_turn, anchor);
+    }
+
+    pub(crate) fn bind_public_send_launch_attempt(&self, attempt: LaunchAttempt) {
+        READINESS.bind_attempt(attempt);
+    }
+
+    pub(crate) fn has_public_send_launch_gate(&self, tab_id: &str) -> bool {
+        READINESS.state.lock().gates.contains_key(tab_id)
+    }
+
+    pub(crate) fn complete_public_send_launch(&self, tab_id: &str) {
+        READINESS.complete(tab_id);
     }
 
     pub(crate) fn await_public_send_readiness(

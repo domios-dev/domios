@@ -28,14 +28,9 @@ pub async fn chat_send_text(
         return Err(error.into());
     }
     if state.svc.tab_chat_backing(&tab_id).is_none() {
-        state
-            .svc
-            .ensure_tab_pty_for_send(&tab_id)
-            .map_err(|detail| DeliveryError::PtyUnavailable {
-                tab: tab_id.clone(),
-                detail,
-            })?;
-        await_public_send_readiness(&state.svc, &tab_id).await?;
+        if state.svc.has_public_send_launch_gate(&tab_id) {
+            await_public_send_readiness(&state.svc, &tab_id).await?;
+        }
     }
     let text = body.text.unwrap_or_default();
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
@@ -366,14 +361,9 @@ pub async fn send_text(
     let target_has_agent = state.svc.tab_has_agent(&tab_id);
 
     if transport == TabInputTransport::Pty && target_has_agent {
-        state
-            .svc
-            .ensure_tab_pty_for_send(&tab_id)
-            .map_err(|detail| DeliveryError::PtyUnavailable {
-                tab: tab_id.clone(),
-                detail,
-            })?;
-        await_public_send_readiness(&state.svc, &tab_id).await?;
+        if state.svc.has_public_send_launch_gate(&tab_id) {
+            await_public_send_readiness(&state.svc, &tab_id).await?;
+        }
     }
 
     if body.kind.as_deref() == Some("report") {

@@ -706,8 +706,24 @@ impl ServiceContext {
         let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
             agent.task.as_deref(),
             fallback_spec.as_ref(),
-            legacy_params.starter_prompt,
         );
+        let startup_turn_text = fallback_spec
+            .as_ref()
+            .map(|spec| spec.payload.clone())
+            .or_else(|| {
+                self.agent_registry
+                    .with_provider(&agent_cmd, |provider| {
+                        provider.starter_prompt_text(legacy_params.starter_prompt)
+                    })
+                    .flatten()
+            })
+            .or_else(|| confirmed_first_turn.clone());
+        let startup_turn_text = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| provider.has_hooks())
+            .unwrap_or(false)
+            .then_some(startup_turn_text)
+            .flatten();
         launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
@@ -715,6 +731,7 @@ impl ServiceContext {
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
             has_startup_task_turn,
+            startup_turn_text,
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
