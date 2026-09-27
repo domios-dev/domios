@@ -61,14 +61,23 @@ pub(crate) fn normalize_requested_model(provider_id: &str, requested: &str) -> S
     }
 }
 
-pub(crate) fn catalogue_lookup_model(requested: &str) -> String {
+pub(crate) fn catalogue_lookup_model(requested: &str, catalogue: &[ModelInfo]) -> String {
     let requested = requested.trim();
     let without_context = requested
         .get(..requested.len().saturating_sub(4))
         .filter(|_| requested.to_ascii_lowercase().ends_with("[1m]"))
         .unwrap_or(requested);
     let lowercase = without_context.to_ascii_lowercase();
-    codeterm_types::agent::models::canonicalize_short(&lowercase).to_string()
+    let canonical = codeterm_types::agent::models::canonicalize_short(&lowercase);
+    if canonical != lowercase
+        && catalogue
+            .iter()
+            .any(|model| model.available != Some(false) && model.id.eq_ignore_ascii_case(canonical))
+    {
+        canonical.to_string()
+    } else {
+        lowercase
+    }
 }
 
 pub(crate) fn preserve_context_suffix(resolved: String, requested: &str) -> String {
@@ -95,7 +104,6 @@ pub(crate) fn validate_agent_model(
     if capability.authority != ModelCatalogueAuthority::Authoritative {
         return Ok(());
     }
-    let lookup = catalogue_lookup_model(&requested);
     let models = if capability.live_discovery_required {
         let Some(models) = crate::agent::model_catalog::resolve_live_models(provider_id) else {
             return Ok(());
@@ -104,6 +112,7 @@ pub(crate) fn validate_agent_model(
     } else {
         crate::agent::model_catalog::resolve_models(provider_id)
     };
+    let lookup = catalogue_lookup_model(&requested, &models);
     let resolved = if capability.live_discovery_required {
         crate::agent::model_catalog::resolve_live_catalog_model(provider_id, &lookup)
     } else {
