@@ -246,5 +246,8 @@ fn mesh_send_every_refuses_peer_without_recurrence_capability() {
     assert!(failure.reason.contains("old-peer"));
     assert!(failure.reason.contains("1.11.9"));
     assert!(!failure.bytes_written.unwrap_or(true));
-    assert_eq!(failure.retry_hint, "update the peer or send a one-shot explicitly");
+    assert_eq!(
+        failure.retry_hint,
+        "update the peer or send a one-shot explicitly"
+    );
 }
