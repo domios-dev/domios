@@ -520,7 +520,19 @@ function parseMenuOptions(screen) {
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
     if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
+    const indent = leadingIndent(lines[i]);
+    const wrapped = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
+      if (leadingIndent(lines[j]) <= indent) break;
+      wrapped.push(lines[j].trim());
+    }
+    options.push({
+      highlighted: !!m[1],
+      label: [m[3].trim(), ...wrapped].join(" "),
+      value: m[2],
+      line: i
+    });
   }
   return options;
 }
@@ -567,12 +579,17 @@ function parseCodexNumberedMenu(screen) {
   };
 }
 function activeMenuOptions(screen) {
+  const lines = normalizeLines(screen);
   const all = parseMenuOptions(screen);
   if (all.length < 2) return [];
   const cluster = [];
   let prev = all[all.length - 1].line;
   for (let i = all.length - 1; i >= 0; i--) {
-    if (prev - all[i].line <= 2 || cluster.length === 0) {
+    const between = lines.slice(all[i].line + 1, prev);
+    const wrapsPreviousOption = between.every(
+      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
+    );
+    if (wrapsPreviousOption || cluster.length === 0) {
       cluster.unshift(all[i]);
       prev = all[i].line;
     } else {
@@ -589,11 +606,18 @@ function promptFooterNear(lines, lastLine) {
   }
   return false;
 }
+function isPromptFooter(line) {
+  const text5 = line.toLowerCase();
+  return isActiveChoiceEnterFooter(text5) || (text5.includes("esc") || text5.includes("enter")) && (text5.includes("confirm") || text5.includes("cancel") || text5.includes("continue"));
+}
+function leadingIndent(line) {
+  return /^\s*/.exec(line)?.[0].length ?? 0;
+}
 function isActiveChoiceEnterFooter(line) {
   return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line) || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
 }
 function questionForMenu(lines, firstLine) {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
     const t = lines[i].trim();
     if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
   }
@@ -2013,7 +2037,7 @@ function releaseCodexProfile(host2, tabId, instanceId) {
 var CLASSIFY_THRESHOLD = 0.8;
 var RESUME_BUFFER_MS = 60 * 1e3;
 function classifyCodexTabState(snapshot, nowMs) {
-  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r*\n|\r/g, "\n");
   if (!screen.trim()) return null;
   if (looksBusy(screen)) return { state: "working", confidence: 0 };
   const activeChoice = parseActiveTerminalChoice(screen);
