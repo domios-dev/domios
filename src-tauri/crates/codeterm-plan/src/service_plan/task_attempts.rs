@@ -427,6 +427,7 @@ pub fn new_assignment_attempt_with_id(
 ) -> TaskExecutionAttempt {
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: attempt_id
             .map(str::to_string)
             .unwrap_or_else(gen_attempt_id),
@@ -715,6 +716,40 @@ impl PlanStore {
         Ok(())
     }
 
+    pub fn update_dispatched_attempt_actual_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        actual_reasoning_effort: String,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            if attempt.actual_reasoning_effort.as_deref() == Some(actual_reasoning_effort.as_str()) {
+                return Ok(None);
+            }
+            attempt.actual_reasoning_effort = Some(actual_reasoning_effort);
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
+    }
+
     pub fn build_task_compete_drafts(
         &self,
         plan_id: &str,
@@ -863,6 +898,7 @@ impl PlanStore {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
+        super::task_dispatch::task_respawn_status(&task.status)?;
         let source = find_attempt(task, &request.attempt_id)
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
@@ -928,12 +964,26 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
+            super::task_dispatch::task_respawn_status(
+                &plan.tasks[task_index].status,
+            )?;
+            if matches!(
+                plan.tasks[task_index].status,
+                TaskStatus::Pending | TaskStatus::Blocked
+            ) {
                 super::review_gate::validate_dispatch_review_capacity(
                     plan,
                     &plan.tasks[task_index],
                 )?;
             }
+            let attempt_id = gen_attempt_id();
+            super::task_dispatch::record_blocked_task_unblock(
+                plan,
+                task_index,
+                "respawn",
+                Some(&attempt_id),
+                now_ms,
+            );
             let task = &mut plan.tasks[task_index];
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());
@@ -943,7 +993,14 @@ impl PlanStore {
             task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+            let mut attempt = new_assignment_attempt_with_id(
+                task,
+                tab_id,
+                None,
+                role,
+                Some(&attempt_id),
+                now_ms,
+            );
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();

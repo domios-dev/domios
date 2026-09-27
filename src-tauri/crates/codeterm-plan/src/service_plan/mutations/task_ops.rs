@@ -539,12 +539,37 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
+            let (assigned, dispatch_attempt_id) = crate::plan::task_key::find_task(&p.tasks, task_id)
+                .map(|task| {
+                    let assigned = task.assigned_tab_id.clone();
+                    let attempt_id = task
+                        .execution_attempts
+                        .iter()
+                        .rev()
+                        .find(|attempt| {
+                            assigned.as_deref() == Some(attempt.executor_tab_id.as_str())
+                                && attempt.closed_at.is_none()
+                                && attempt.retired_at.is_none()
+                        })
+                        .map(|attempt| attempt.id.clone());
+                    (assigned, attempt_id)
+                })
+                .ok_or(PlanError::TaskNotFound)?;
+            let blocked_reason = dispatch_attempt_id.as_deref().and_then(|attempt_id| {
+                super::super::task_dispatch::restore_blocked_unblock(p, task_id, attempt_id)
+            });
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
-            task.status = crate::plan::TaskStatus::Pending;
+            task.status = if blocked_reason.is_some() {
+                crate::plan::TaskStatus::Blocked
+            } else {
+                crate::plan::TaskStatus::Pending
+            };
+            if blocked_reason.is_some() {
+                task.status_label = blocked_reason;
+            }
             task.status_changed_at = now_ms;
             task.updated_at = now_ms;
             Ok(())

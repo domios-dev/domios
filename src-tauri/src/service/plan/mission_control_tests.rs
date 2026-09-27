@@ -35,6 +35,7 @@ fn milestone(id: &str, kind: &str, text: &str, ts: u64, tab_id: &str) -> Milesto
 
 fn attempt(id: &str, tab_id: &str, title: &str) -> TaskExecutionAttempt {
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: id.into(),
         executor_tab_id: tab_id.into(),
         executor_title: Some(title.into()),

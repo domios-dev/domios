@@ -26,7 +26,7 @@ function run() {
 
   check(adopted.length === 3, `the legacy invoke should be dropped, got ${JSON.stringify(adopted)}`);
   check(
-    adopted.every((action) => action.type !== "invoke"),
+    adopted.every((action) => (action.type as string) !== "invoke"),
     "a legacy invoke must not survive ingress",
   );
   check(

@@ -655,7 +655,8 @@ fn run_with_submit_key<T: SubmitTransport>(
                 break;
             }
         }
-        if let Err(error) = key_guard(submit_key_writes == 0) {
+        let allow_initial_key = submit_key_writes == 0;
+        if let Err(error) = key_guard(allow_initial_key) {
             if submit_key_writes > 0 {
                 break;
             }
@@ -769,6 +770,12 @@ pub(crate) fn submit_text_with_key_claimed(
     let submit_cycle = Arc::clone(&claim.cycle);
     let submit_generation = claim.generation;
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
+    let initial_agent_id = {
+        let mux = svc.mux.read();
+        mux.tab_id_for_pty(pty_id)
+            .and_then(|tab_id| mux.get_tab(&tab_id))
+            .and_then(|tab| tab.agent_type.clone())
+    };
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
@@ -810,6 +817,9 @@ pub(crate) fn submit_text_with_key_claimed(
                 pty_id: pty_id.to_string(),
             });
         }
+        if allow_initial_key && initial_agent_id.is_none() {
+            return Ok(());
+        }
         let (screen, input) = {
             let screen_state = svc.screen_state.lock();
             (
@@ -818,22 +828,14 @@ pub(crate) fn submit_text_with_key_claimed(
             )
         };
         let Some(agent_id) = agent_id else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         let Some(screen) = screen else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
             tab_id,
@@ -883,13 +885,9 @@ pub(crate) fn submit_text_with_key_claimed(
             )
         });
         let Some((composer_ready, modal_visible)) = readiness else {
-            return if allow_initial_key {
-                Ok(())
-            } else {
-                Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                })
-            };
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.to_string(),
+            });
         };
         if modal_visible {
             return Err(InjectionError::AgentTuiPresent {

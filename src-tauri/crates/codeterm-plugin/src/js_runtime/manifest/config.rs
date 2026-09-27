@@ -512,6 +512,8 @@ pub struct SerdeModelInfo {
     pub group: Option<String>,
     #[serde(default)]
     pub reasoning_efforts: Option<Vec<SerdeReasoningEffortInfo>>,
+    #[serde(default)]
+    pub default_reasoning_effort: Option<String>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -531,6 +533,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
                     .map(ReasoningEffortInfo::from)
                     .collect()
             }),
+            default_reasoning_effort: s.default_reasoning_effort.clone(),
         }
     }
 }
@@ -642,6 +645,21 @@ mod tests {
             vec!["max", "ultra"]
         );
         assert_eq!(efforts[0].description.as_deref(), Some("Maximum reasoning"));
+    }
+
+    #[test]
+    fn serde_model_info_carries_per_model_default_reasoning_effort() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "gpt-5.6-sol",
+            "displayName": "GPT-5.6 Sol",
+            "defaultReasoningEffort": "low"
+        }))
+        .expect("per-model default effort parses");
+
+        let model: ModelInfo = (&parsed).into();
+        let wire = serde_json::to_value(&model).expect("model serializes");
+        assert_eq!(wire["default_reasoning_effort"], "low");
+        assert_eq!(model.default_reasoning_effort.as_deref(), Some("low"));
     }
 
     #[test]

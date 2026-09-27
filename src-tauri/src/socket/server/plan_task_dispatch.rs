@@ -328,7 +328,7 @@ fn worker_ack_timeout_event(
 
 #[cfg(test)]
 use startup::complete_dispatch_transaction;
-pub(super) use startup::DispatchStartup;
+pub(crate) use startup::DispatchStartup;
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
     gates
@@ -445,7 +445,10 @@ where
     }
     // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
-    if detail.task.status == crate::plan::TaskStatus::Pending {
+    if matches!(
+        detail.task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
+    ) {
         preflight_review_capacity(&plan, &detail.task).map_err(plan_rpc_err)?;
     }
 

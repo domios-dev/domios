@@ -15,12 +15,38 @@ pub(super) fn may_be_directory_trust_prompt(screen: &str) -> bool {
                 .iter()
                 .any(|word| line.contains(*word))
     });
-    let choices = tail
-        .iter()
-        .filter(|line| is_choice_row(line))
-        .count();
+    let choices = tail.iter().filter(|line| is_choice_row(line)).count();
 
     has_directory_question && has_confirm_footer && choices >= 2
+}
+
+pub(super) fn pending_prompt_candidate(
+    service: &crate::service::ServiceContext,
+    pty_id: &str,
+    agent_type: &str,
+    has_active_prompt: bool,
+    changed_screen: Option<&str>,
+) -> bool {
+    let supports_parsing = service
+        .agent_registry
+        .with_provider(agent_type, |provider| {
+            provider.supports_directory_trust_prompt_parsing()
+        })
+        .unwrap_or(false);
+    if !supports_parsing {
+        return false;
+    }
+    let current_screen = (has_active_prompt || changed_screen.is_none()).then(|| {
+        service
+            .screen_state
+            .lock()
+            .get_screen_text(pty_id)
+            .unwrap_or_default()
+    });
+    current_screen
+        .as_deref()
+        .or(changed_screen)
+        .is_some_and(|screen| may_be_directory_trust_prompt(screen))
 }
 
 pub(super) fn provider_classifies_directory_trust_prompt(
@@ -92,11 +118,7 @@ pub(super) fn candidate_for_output(
             .owns_prompt()
     } else if auto_approve {
         screen.is_some_and(|screen| {
-            provider_classifies_directory_trust_prompt(
-                &service.agent_registry,
-                agent_type,
-                screen,
-            )
+            provider_classifies_directory_trust_prompt(&service.agent_registry, agent_type, screen)
         })
     } else {
         false
