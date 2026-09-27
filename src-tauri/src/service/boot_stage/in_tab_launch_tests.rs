@@ -151,6 +151,24 @@ fn provider_tree_key(fixture: &ServiceFixture, tab_id: &str) -> ProviderTreeKey 
         .expect("tab provider tree key")
 }
 
+fn reconcile_and_wait_for_provider_tree(
+    fixture: &ServiceFixture,
+    tab_id: &str,
+    key: &ProviderTreeKey,
+) -> crate::service::process_tree::ProviderTreeObservation {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .report_next_observation(key, sender);
+    fixture
+        .service
+        .reconcile_boot_stage_with_session_binding(tab_id);
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("provider readiness tree snapshot completes off the runtime")
+}
+
 fn observed_provider_process() -> ProviderProcessTreeSnapshot {
     ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
         pid: 77,
@@ -203,10 +221,11 @@ fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
         .provider_tree_witnesses
         .script_snapshot(&key, observed_provider_process());
 
-    fixture
-        .service
-        .reconcile_boot_stage_with_session_binding(&tab_id);
-
+    let observed = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
+    assert_eq!(
+        observed.state(),
+        crate::service::process_tree::ProviderTreeState::Present
+    );
     assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
     fixture
         .service
@@ -232,11 +251,8 @@ fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
 )]
 fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
-    fixture
-        .service
-        .reconcile_boot_stage_with_session_binding(&tab_id);
-
     let key = provider_tree_key(&fixture, &tab_id);
+    let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
     fixture
         .service
         .provider_tree_witnesses
@@ -271,11 +287,8 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
 )]
 fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
-    fixture
-        .service
-        .reconcile_boot_stage_with_session_binding(&tab_id);
-
     let key = provider_tree_key(&fixture, &tab_id);
+    let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
     fixture
         .service
         .provider_tree_witnesses

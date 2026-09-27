@@ -72,23 +72,28 @@ impl super::super::ServiceContext {
         pty_id: &str,
     ) -> Option<ProviderTreeObservation> {
         let key = self.provider_tree_key_for_tab(tab_id, pty_id)?;
+        Some(self.observe_provider_process_tree_for_key(&key))
+    }
+
+    pub(crate) fn observe_provider_process_tree_for_key(
+        &self,
+        key: &ProviderTreeKey,
+    ) -> ProviderTreeObservation {
         let root_pid = {
             let pty = self.pty.lock();
-            let Some(session) = pty.get_session(pty_id) else {
-                return Some(self.provider_tree_witnesses.unavailable(&key));
+            let Some(session) = pty.get_session(&key.pty_id) else {
+                return self.provider_tree_witnesses.unavailable(key);
             };
             let Ok(child) = session.child.lock() else {
-                return Some(self.provider_tree_witnesses.unavailable(&key));
+                return self.provider_tree_witnesses.unavailable(key);
             };
             child.process_id()
         };
         let Some(root_pid) = root_pid else {
-            return Some(self.provider_tree_witnesses.unavailable(&key));
+            return self.provider_tree_witnesses.unavailable(key);
         };
-        Some(
-            self.provider_tree_witnesses
-                .observe(&key, root_pid, &key.executable_name),
-        )
+        self.provider_tree_witnesses
+            .observe(key, root_pid, &key.executable_name)
     }
 
     fn provider_may_have_named_process(&self, key: &ProviderTreeKey) -> Option<bool> {
