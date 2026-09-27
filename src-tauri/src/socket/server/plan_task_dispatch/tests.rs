@@ -49,6 +49,7 @@ mod resolved_effort;
 mod routing;
 mod status_preflight;
 mod worker_ack;
+mod unplanned;
 
 #[test]
 fn nonrepo_team_runs_noncode_workers_without_git_probe() {

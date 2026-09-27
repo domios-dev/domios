@@ -80,6 +80,20 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings.extend(inspect_duplicate_role_guidance(path, plan, &tasks));
     findings.extend(inspect_loop_quality(path, plan, now_ms));
     for task in &tasks {
+        if task.get("tags").and_then(Value::as_array).is_some_and(|tags| {
+            tags.iter().any(|tag| tag.as_str() == Some("unplanned"))
+        }) {
+            let name = task.get("name").and_then(Value::as_str).unwrap_or("unplanned task");
+            findings.push(Finding {
+                severity: "info",
+                kind: "unplanned_task",
+                plan_id: plan.get("id").and_then(Value::as_str).map(str::to_string),
+                path: path.display().to_string(),
+                task_id: task.get("id").and_then(Value::as_str).map(str::to_string),
+                detail: name.to_string(),
+                fix: String::new(),
+            });
+        }
         inspect_work_facet(path, plan, task, &mut findings);
         inspect_task_quality(path, plan, task, &mut findings);
         inspect_task_lifecycle(path, plan, task, now_ms, &mut findings);

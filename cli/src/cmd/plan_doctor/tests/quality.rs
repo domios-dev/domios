@@ -83,6 +83,33 @@ fn planning_kind_tasks_do_not_trip_approval_gate() {
 }
 
 #[test]
+fn plan_state_lists_unplanned_tasks() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "unplanned: urgent probe",
+            "type": "unplanned",
+            "tags": ["unplanned"],
+            "status": "pending",
+            "section_ids": ["sec_1"]
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings.iter().any(|finding| {
+        finding.kind == "unplanned_task"
+            && finding.severity == "info"
+            && finding.detail == "unplanned: urgent probe"
+    }));
+}
+
+#[test]
 fn execution_kind_task_in_planning_mode_trips_approval_gate() {
     let plan = json!({
         "id": "pl_1",

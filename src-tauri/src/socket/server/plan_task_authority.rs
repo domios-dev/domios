@@ -313,6 +313,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
             | "plan.task.attempt.show"
             | "plan.task.adopt_checkpoint"
             | "plan.task.add"
+            | "plan.task.dispatch_unplanned"
     ) {
         return Ok(());
     }
