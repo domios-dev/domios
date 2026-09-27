@@ -309,6 +309,15 @@ fn connect_and_stream(
             ParsedEvent::Ignored => {
                 if let Some(event) = value.get("type").and_then(|t| t.as_str()) {
                     crate::agent::state_verdict::observe_declared_event(svc, tab_id, event);
+                    if let Some(session_id) = value
+                        .get("properties")
+                        .and_then(|properties| properties.get("sessionID"))
+                        .and_then(|session_id| session_id.as_str())
+                    {
+                        crate::service::public_send_readiness::observe_bootstrap_turn_idle(
+                            svc, tab_id, event, session_id,
+                        );
+                    }
                 }
             }
         }

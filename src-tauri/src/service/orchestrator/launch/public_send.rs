@@ -4,6 +4,7 @@ use crate::service::ServiceContext;
 pub(super) fn arm(
     svc: &ServiceContext,
     tab_id: &str,
+    agent_cmd: &str,
     expected_turn: Option<String>,
 ) -> Option<PublicSendGateKey> {
     let had_session = svc
@@ -19,7 +20,13 @@ pub(super) fn arm(
     } else {
         expected_turn
     };
-    svc.arm_public_send_launch(tab_id, expected_turn, anchor)
+    let wait_for_turn_completion = svc
+        .agent_registry
+        .with_provider(agent_cmd, |provider| {
+            provider.public_send_waits_for_startup_turn_completion()
+        })
+        .unwrap_or(false);
+    svc.arm_public_send_launch(tab_id, expected_turn, anchor, wait_for_turn_completion)
 }
 
 pub(super) fn guard(
