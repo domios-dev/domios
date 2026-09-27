@@ -7,6 +7,7 @@ import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
+import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
   restoreTerminalViewport,
@@ -159,7 +160,7 @@ export function usePtyConnection({
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
-    if (id) invoke("write_pty_string", { ptyId: id, data });
+    if (id) void writeTerminalInput(id, data);
   }, [connectedPtyRef]);
 
   useEffect(() => {

@@ -620,6 +620,7 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     assert!(tab.agent_type.is_none());
     assert!(tab.agent_session_id.is_none());
     assert!(tab.session_binding_nonce.is_none());
+    assert!(tab.exit_suspected_at.is_none());
 }
 
 #[test]

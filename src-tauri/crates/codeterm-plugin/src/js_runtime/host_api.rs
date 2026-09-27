@@ -577,13 +577,9 @@ pub(super) fn install(
             .ok()?;
         file.try_lock().ok()?;
         let id = uuid::Uuid::new_v4().to_string();
-        held_file_locks().lock().insert(
-            id.clone(),
-            HeldFileLock {
-                call_id,
-                file,
-            },
-        );
+        held_file_locks()
+            .lock()
+            .insert(id.clone(), HeldFileLock { call_id, file });
         Some(id)
     });
     bind!("unlockFile", move |id: String| -> bool {

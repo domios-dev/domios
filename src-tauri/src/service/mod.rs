@@ -58,6 +58,7 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
+pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub(crate) mod permission_policy;
@@ -111,6 +112,7 @@ pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
+pub(crate) mod restored_launch;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
@@ -246,6 +248,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -318,6 +321,8 @@ pub struct ServiceContext {
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
     pub mux_emit_stats: Arc<MuxEmitStats>,
+    pub(crate) output_stream_activity:
+        tokio::sync::broadcast::Sender<output_stream_activity::OutputStreamActivity>,
     /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
     pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -625,6 +630,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+        self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
@@ -676,6 +682,7 @@ impl ServiceContext {
     /// The socket handlers use this so fault injection (`frozen`) covers EVERY
     /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
     pub(crate) fn emit_mux_state_changed_empty(&self) {
+        self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {

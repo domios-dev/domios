@@ -14,6 +14,10 @@
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 30
+    },
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": {
       "kind": "session_config"
@@ -26,7 +30,7 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
-    "resumeBindsOnFirstUserTurn": true,
+    "sessionStartsOnFirstUserTurn": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",

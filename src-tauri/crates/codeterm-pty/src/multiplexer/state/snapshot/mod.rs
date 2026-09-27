@@ -160,6 +160,7 @@ impl MultiplexerState {
                     agent_state: p.agent_state.clone(),
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
+                    restorable_launch: p.restorable_launch.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
                     prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
@@ -531,6 +532,21 @@ fn install_leaf(
         }
     });
     let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
+    let restorable_launch = agent_identity
+        .as_ref()
+        .map(|identity| identity.restorable_launch.clone())
+        .unwrap_or_default();
+    let mut reasoning_effort_identity = restored_identity
+        .map(|identity| identity.reasoning_effort.clone())
+        .unwrap_or_default();
+    if !restorable_launch.is_empty() {
+        reasoning_effort_identity.requested = restorable_launch.requested_reasoning_effort.clone();
+        reasoning_effort_identity.resolved = restorable_launch.resolved_reasoning_effort.clone();
+        reasoning_effort_identity.actual = None;
+        reasoning_effort_identity.actual_source = (reasoning_effort_identity.requested.is_some()
+            || reasoning_effort_identity.resolved.is_some())
+        .then(|| "provider-default-unverified".to_string());
+    }
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
     let restored_boot_stage = restored_agent_type
@@ -564,9 +580,8 @@ fn install_leaf(
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),
             model_fallback: model_fallback.clone(),
             model_identity_mismatch: model_identity_mismatch.clone(),
-            reasoning_effort_identity: restored_identity
-                .map(|identity| identity.reasoning_effort.clone())
-                .unwrap_or_default(),
+            reasoning_effort_identity,
+            restorable_launch,
             context_epoch_archives: restored_identity
                 .map(|identity| identity.context_epochs.clone())
                 .unwrap_or_default(),

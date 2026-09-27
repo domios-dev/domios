@@ -2,6 +2,48 @@ use super::*;
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn sync_spawn_persists_restorable_launch_parameters() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("sync restore capture".into(), None).id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("sync-restorable")
+            .with_launch_binary("cmd.exe"),
+    ));
+
+    let result = fixture
+        .service
+        .spawn_agent_sync(SpawnAgentParams {
+            agent: Some("sync-restorable".into()),
+            agent_name: Some("sync-restorable-name".into()),
+            args: Some(vec!["--preserved-launch-arg".into()]),
+            workspace_id: Some(workspace_id),
+            ..Default::default()
+        })
+        .unwrap();
+
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&result.tab_id).unwrap();
+        assert!(tab.restorable_launch.captured);
+        assert_eq!(
+            tab.restorable_launch.args,
+            Some(vec!["--preserved-launch-arg".into()])
+        );
+        assert_eq!(
+            tab.restorable_launch.agent_name.as_deref(),
+            Some("sync-restorable-name")
+        );
+        assert_eq!(
+            tab.restorable_launch.permission_bypass_requested,
+            tab.auto_approve
+        );
+    }
+    fixture.service.close_tab(&result.tab_id).unwrap();
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);

@@ -33,11 +33,20 @@ export function SentMessageBubble({ inv, result, resolveTabName, onOpenPlan, res
       </span>
       {msg.status && (
         <span
+          data-testid="chat-sent-status"
+          role="status"
           className="flex-shrink-0 normal-case"
           title={msg.status.label}
-          style={{ color: msg.status.ok ? "var(--ct-ok, #41d18a)" : "var(--ct-err, #ff6b6b)" }}
+          aria-label={msg.status.label}
+          style={{
+            color: msg.status.pending
+              ? "var(--ct-yellow)"
+              : msg.status.ok
+                ? "var(--ct-ok, #41d18a)"
+                : "var(--ct-err, #ff6b6b)",
+          }}
         >
-          {msg.status.ok ? "✓" : "✗"}
+          {msg.status.pending ? "…" : msg.status.ok ? "✓" : "✗"}
         </span>
       )}
     </div>

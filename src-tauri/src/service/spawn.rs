@@ -41,12 +41,15 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
+#[path = "spawn_reasoning_effort.rs"]
+mod spawn_reasoning_effort;
 #[cfg(test)]
 pub(crate) use spawn_identity::task_spawn_handle;
 pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
+pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -247,46 +250,6 @@ impl ServiceContext {
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
-    }
-}
-
-/// Validate against model levels when present and use the provider fallback otherwise.
-pub(crate) fn validate_agent_reasoning_effort(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Result<(), String> {
-    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
-        return Ok(());
-    };
-    match registry.with_provider(provider_id, |p| {
-        if let Some(model) = model {
-            let supported = p.reasoning_efforts_for_model(Some(model));
-            if supported.iter().any(|level| level.id == effort) {
-                return Ok(());
-            }
-            let levels = supported
-                .iter()
-                .map(|level| level.id.as_str())
-                .collect::<Vec<_>>();
-            let levels = if levels.is_empty() {
-                "none".to_string()
-            } else {
-                levels.join(", ")
-            };
-            return Err(format!(
-                "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
-            ));
-        }
-        p.validate_reasoning_effort(Some(effort))
-            .map_err(|rejection| rejection.to_string())
-    }) {
-        Some(Ok(())) => Ok(()),
-        Some(Err(rejection)) => Err(rejection.to_string()),
-        None => Err(format!(
-            "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
-        )),
     }
 }
 
@@ -615,6 +578,23 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
+        super::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            super::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: launch_model.clone(),
+                reasoning_effort: agent.reasoning_effort.clone(),
+                args: (!agent.extra_args.is_empty()).then(|| agent.extra_args.clone()),
+                agent_name: agent.agent_name.clone(),
+                task: agent.task.as_deref(),
+                role: agent.role.as_deref(),
+                role_profile: agent.role_profile.as_deref(),
+                permission_bypass_requested: permission_bypass,
+            },
+        );
         let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
             startup_supervised,
             task_identity.is_some(),

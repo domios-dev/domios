@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { invoke } from "../../lib/bridge";
 import { InputTracker } from "../../lib/completions/inputTracker";
 import { CompletionEngine } from "../../lib/completions/engine";
 import { defaultDefinitions } from "../../lib/completions/definitions";
 import { getCompletionInsert, isSafeCompletionText } from "../../lib/completions/acceptance";
 import type { CompletionItem } from "../../lib/completions/types";
+import { writeTerminalInput } from "./terminalInputWrite";
 
 export interface UseTabCompletionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -59,7 +59,7 @@ export function useTabCompletion({
         const insert = getCompletionInsert(parsed, items[0]);
         if (!insert) return false;
         const ptyId = connectedPtyRef.current;
-        if (ptyId) invoke("write_pty_string", { ptyId, data: insert, raw: false });
+        if (ptyId) void writeTerminalInput(ptyId, insert, false);
         tracker.feed(insert);
         return true;
       }
@@ -96,7 +96,7 @@ export function useTabCompletion({
     const insert = getCompletionInsert(parsed, item);
     if (!insert) return;
     const ptyId = connectedPtyRef.current;
-    if (ptyId) invoke("write_pty_string", { ptyId, data: insert, raw: false });
+    if (ptyId) void writeTerminalInput(ptyId, insert, false);
     tracker.feed(insert);
     setCompletionItems([]);
   }, [connectedPtyRef]);
