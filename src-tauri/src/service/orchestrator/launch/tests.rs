@@ -143,6 +143,72 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
 }
 
 #[test]
+fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
+    use crate::agent::provider::{AgentProvider, SystemPromptDelivery};
+    use crate::agent::test_provider::MockProvider;
+
+    let lazy = MockProvider::new("session-prompt-lazy")
+        .with_session_config_delivery()
+        .with_session_starts_on_first_user_turn();
+    assert_eq!(lazy.system_prompt_delivery(), SystemPromptDelivery::SessionConfig);
+    assert!(lazy.session_starts_on_first_user_turn());
+
+    let taskless_params = crate::service::orchestrator::SpawnAgentParams {
+        system_prompt: Some("opaque-identity-instructions-c440".into()),
+        ..Default::default()
+    };
+    let no_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        taskless_params.task.as_deref(),
+        None,
+    );
+    assert!(taskless_params.system_prompt.is_some());
+    assert!(!no_task_turn);
+    assert!(first_turn_binding_required(
+        lazy.session_starts_on_first_user_turn(),
+        no_task_turn,
+        false,
+    ));
+
+    let assigned_params = crate::service::orchestrator::SpawnAgentParams {
+        task: Some("opaque-assigned-task-9ef1".into()),
+        system_prompt: taskless_params.system_prompt.clone(),
+        ..Default::default()
+    };
+    let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        assigned_params.task.as_deref(),
+        None,
+    );
+    assert!(assigned_task_turn);
+    assert!(!first_turn_binding_required(
+        lazy.session_starts_on_first_user_turn(),
+        assigned_task_turn,
+        false,
+    ));
+
+    let dispatch_brief = crate::service::launch_delivery::FallbackDeliverySpec {
+        channel: PendingDeliveryChannel::InteractiveInput,
+        payload: "opaque-dispatch-brief-80bd".into(),
+    };
+    let fallback_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        None,
+        Some(&dispatch_brief),
+    );
+    assert!(fallback_task_turn);
+    assert!(!first_turn_binding_required(
+        lazy.session_starts_on_first_user_turn(),
+        fallback_task_turn,
+        false,
+    ));
+
+    let claude_like = MockProvider::new("session-prompt-non-lazy");
+    assert!(!first_turn_binding_required(
+        claude_like.session_starts_on_first_user_turn(),
+        no_task_turn,
+        false,
+    ));
+}
+
+#[test]
 #[cfg_attr(
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
@@ -161,6 +227,7 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
         MockProvider::new("lazy-session-fixture")
+            .with_session_config_delivery()
             .with_session_starts_on_first_user_turn()
             .with_provider_readiness_strategy(
                 crate::agent::provider::ProviderReadinessStrategy::StructuralComposer {
@@ -177,18 +244,23 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
         })
         .unwrap());
 
+    let no_task_turn = crate::service::launch_delivery::has_startup_task_turn(None, None);
     assert!(launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
         "lazy-session-fixture",
-        false,
+        no_task_turn,
         crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
+    let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        Some("opaque-task-4209"),
+        None,
+    );
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
         "lazy-session-fixture",
-        true,
+        assigned_task_turn,
         crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
     assert!(!launch_waits_for_first_turn_binding(
