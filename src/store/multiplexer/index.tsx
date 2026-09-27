@@ -354,7 +354,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
     listen<{ id: string }>("notification-resolved", (event) => {
       if (!event.payload?.id) return;
-      dispatch({ type: "MARK_READ", id: event.payload.id });
+      dispatch({ type: "RESOLVE_NOTIFICATION", id: event.payload.id });
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ id: string }>("notification-cleared", (event) => {

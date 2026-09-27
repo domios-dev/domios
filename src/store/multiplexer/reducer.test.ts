@@ -148,6 +148,30 @@ test("deleting a notification removes its history entry and active toast", () =>
   assert(next.toasts.length === 0, "active toast removed");
 });
 
+test("resolving a prompt notification closes its controls and unread state", () => {
+  const item: Notification = {
+    id: "notice-prompt",
+    tab_id: "tab-prompt",
+    workspace_id: "workspace-1",
+    title: "Agent needs your response",
+    body: "Question",
+    severity: "Warning",
+    timestamp: 1,
+    read: false,
+    actions: [{ type: "respond_prompt_option", label: "Continue", value: "1", identity: {
+      kind: "provider",
+      options: [{ label: "Continue", value: "1" }],
+    } }],
+  };
+  const state = { ...base(), notifications: [item], toasts: [item] };
+  const next = reducer(state, { type: "RESOLVE_NOTIFICATION", id: item.id });
+  const resolved = next.notifications[0];
+  assert(resolved.resolved === true, "prompt completion is retained");
+  assert(resolved.read, "resolved prompts no longer count as unread");
+  assert(resolved.actions?.length === 0, "resolved prompts no longer offer stale choices");
+  assert(next.toasts[0].resolved === true, "active toast receives the resolution");
+});
+
 test("notification hydration keeps newer live entries and restores backend history", () => {
   const historical: Notification = {
     id: "history-1",

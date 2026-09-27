@@ -190,6 +190,32 @@ console.log("\n--- Codex folder trust prompt classification ---\n");
   }
   eq(bundled.buildPromptResponse(2, commandApproval), ["G1tC", "G1tC", "DQ=="],
     "command approval can respond to the third visible choice");
+
+  const wrappedPathApproval = fixtureText("command-approval/command-approval-0.157.1-r5.txt");
+  const wrappedRows = wrappedPathApproval.split(/\r?\n/);
+  const secondOptionLine = wrappedRows.findIndex((line) => /^\s*2[.)]/.test(line));
+  const secondOptionRow = secondOptionLine >= 0 ? wrappedRows[secondOptionLine] : undefined;
+  const secondOptionText = secondOptionRow
+    ? /^\s*2[.)]\s+(.+?)\s*$/.exec(secondOptionRow)?.[1]
+    : undefined;
+  const wrappedContinuation = secondOptionLine >= 0 ? wrappedRows[secondOptionLine + 1]?.trim() : undefined;
+  const splitsPathToken = Boolean(
+    secondOptionText?.match(/[\\/]\s*$/) || wrappedContinuation?.match(/^[\\/]/),
+  );
+  assert(Boolean(secondOptionText && wrappedContinuation && splitsPathToken),
+    "R5 approval fixture contains a wrapped path boundary");
+  for (const [label, provider] of [["source", plugin], ["bundle", bundled]] as const) {
+    const parsed = provider.parsePrompt?.(wrappedPathApproval);
+    eq(parsed?.options?.map(([, value]: [string, string]) => value), ["1", "2", "3"],
+      `${label} parser keeps R5 command-approval options in order`);
+    if (secondOptionText && wrappedContinuation && splitsPathToken) {
+      const joinedRows = `${secondOptionText}${wrappedContinuation}`;
+      const spacedRows = `${secondOptionText} ${wrappedContinuation}`;
+      const labelText = parsed?.options?.[1]?.[0] ?? "";
+      assert(labelText.includes(joinedRows), `${label} parser joins the wrapped path token`);
+      assert(!labelText.includes(spacedRows), `${label} parser does not add a path-boundary space`);
+    }
+  }
   const offScreen = screen.replace("  Press enter to continue", "  The session is ready");
   eq(plugin.parseDirectoryTrustPrompt?.(offScreen), null, "source trust parser refuses a dialog without its active footer");
   eq(bundled.parseDirectoryTrustPrompt(offScreen), null, "bundle trust parser refuses a dialog without its active footer");

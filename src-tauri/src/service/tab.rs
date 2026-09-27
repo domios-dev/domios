@@ -148,11 +148,23 @@ impl ServiceContext {
             return false;
         }
         let exited = self.claim_launch_exit(tab_id, None, None);
-        let cleared = {
+        let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .is_some_and(clear_agent_identity_for_lifecycle_exit)
+            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                let identity = tab
+                    .pending_prompt
+                    .as_ref()
+                    .zip(tab.pending_prompt_kind)
+                    .map(|(prompt, kind)| {
+                        codeterm_types::pty::PromptIdentity::new(kind, prompt)
+                    });
+                let cleared = clear_agent_identity_for_lifecycle_exit(tab);
+                (cleared, identity.filter(|_| cleared))
+            })
         };
+        if let Some(identity) = prompt_identity {
+            self.resolve_prompt_notifications(tab_id, &identity);
+        }
         if let Some(exited) = exited {
             self.publish_launch_exit(&exited);
         }
@@ -701,9 +713,8 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_prompt = None;
-            tab.pending_prompt_kind = None;
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
@@ -857,10 +868,25 @@ impl ServiceContext {
         Ok(RespondPromptOutcome::Sent)
     }
 
+    pub(crate) fn clear_pending_prompt(
+        &self,
+        tab_id: &str,
+    ) -> Option<codeterm_types::pty::PromptIdentity> {
+        let mut mux = self.mux.write();
+        let tab = mux.get_tab_mut(tab_id)?;
+        let identity = tab
+            .pending_prompt
+            .as_ref()
+            .zip(tab.pending_prompt_kind)
+            .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(kind, prompt));
+        tab.pending_prompt = None;
+        tab.pending_prompt_kind = None;
+        identity
+    }
+
     fn mark_prompt_responded(&self, tab_id: &str) {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_prompt = None;
-            tab.pending_prompt_kind = None;
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
         }
         self.prompt_detector.lock().mark_responded(tab_id);
     }
@@ -914,6 +940,7 @@ mod respond_prompt_tests {
         let tab = mux.get_tab_mut(&tab_id).expect("tab");
         tab.agent_type = Some("claude".into());
         tab.pending_prompt = Some(prompt.clone());
+        tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         fixture
             .service
@@ -969,7 +996,7 @@ mod respond_prompt_tests {
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
     #[test]
-    fn respond_prompt_answers_the_new_claude_trust_shape() {
+    fn tab_respond_resolves_prompt_notification_and_new_prompt_notifies() {
         let screen = std::fs::read_to_string(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../plugins/provider-claude/tests/fixtures/folder-trust")
@@ -977,6 +1004,32 @@ mod respond_prompt_tests {
         )
         .expect("captured folder-trust fixture");
         let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
+        let prompt = pending_prompt();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).expect("tab");
+            tab.pending_prompt = None;
+            tab.pending_prompt_kind = None;
+        }
+        fixture.service.apply_prompt_decision_with_kind(
+            &crate::agent::prompt::PromptDecision::NewPrompt {
+                tab_id: tab_id.clone(),
+                prompt: prompt.clone(),
+            },
+            Some(&screen),
+            codeterm_types::pty::PromptKind::Provider,
+            true,
+        );
+        let first_id = {
+            let notifications = fixture.service.notif.lock();
+            notifications
+                .list(false)
+                .into_iter()
+                .find(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
+                .expect("prompt notification")
+                .id
+                .clone()
+        };
         assert_eq!(
             fixture
                 .service
@@ -1002,6 +1055,38 @@ mod respond_prompt_tests {
             .lock()
             .active_prompt(&tab_id)
             .is_none());
+        {
+            let notifications = fixture.service.notif.lock();
+            let first = notifications
+                .notification(&first_id)
+                .expect("resolved notification");
+            assert!(first.resolved);
+            assert!(first.read);
+            assert!(first.actions.is_none());
+        }
+        fixture.service.apply_prompt_decision_with_kind(
+            &crate::agent::prompt::PromptDecision::NewPrompt {
+                tab_id: tab_id.clone(),
+                prompt,
+            },
+            Some(&screen),
+            codeterm_types::pty::PromptKind::Provider,
+            true,
+        );
+        let notifications = fixture.service.notif.lock();
+        let for_tab = notifications
+            .list(false)
+            .into_iter()
+            .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(for_tab.len(), 2);
+        assert_ne!(for_tab[0].id, for_tab[1].id);
+        assert!(for_tab[0].resolved);
+        assert!(!for_tab[1].resolved);
+        assert!(for_tab[1]
+            .actions
+            .as_ref()
+            .is_some_and(|actions| !actions.is_empty()));
         let _ = fixture.service.pty.lock().kill(&pty_id);
     }
 
