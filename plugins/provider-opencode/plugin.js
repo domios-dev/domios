@@ -1089,14 +1089,12 @@ var plugin = {
   }
 };
 function resumeLaunchArgs(args, sessionId) {
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
+  if (!model) return args.map(String);
   const retained = [];
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i]);
-    if (arg === "--variant") {
-      i++;
-      continue;
-    }
-    if (arg.startsWith("--variant=")) continue;
     if (arg === "-m" || arg === "--model") {
       i++;
       continue;
@@ -1104,9 +1102,7 @@ function resumeLaunchArgs(args, sessionId) {
     if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
     retained.push(arg);
   }
-  const db = opencodeDbPath();
-  const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
-  if (model) retained.push("-m", model);
+  retained.push("-m", model);
   return retained;
 }
 function resumeLaunch(sessionId, skipPermissions) {
