@@ -232,9 +232,8 @@ pub enum AgentAction {
     /// somewhere, put the exact report/send command in the task body.
     #[command(verbatim_doc_comment)]
     Spawn {
-        /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
-        #[arg(default_value = "claude")]
-        agent: String,
+        /// Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used.
+        agent: Option<String>,
         /// Tab title
         #[arg(long, num_args = 1)]
         title: Option<Vec<String>>,
@@ -544,6 +543,21 @@ mod tests {
                 action: AgentAction::Ledger { tab },
             } => assert!(tab.is_none()),
             _ => panic!("expected agent ledger action"),
+        }
+    }
+
+    #[test]
+    fn spawn_without_provider_keeps_model_routing_available() {
+        let cli = Cli::try_parse_from(["codeterm", "agent", "spawn", "--model", "sonnet"])
+            .expect("provider is optional when a model can identify it");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { agent, model, .. },
+            } => {
+                assert_eq!(agent, None);
+                assert_eq!(model.as_deref(), Some("sonnet"));
+            }
+            _ => panic!("expected agent spawn"),
         }
     }
 

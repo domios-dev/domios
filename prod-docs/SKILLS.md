@@ -75,7 +75,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
 8. **Compact context**: `codeterm agent compact [--tab ID]` (sends /compact to Claude)
-9. **Choose model**: use `codeterm agent models <provider>` to list ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Authoritative catalogues and free-form providers with a published live model list refuse unknown ids before creating a tab and show valid ids. Free-form providers without a live list pass provider-owned ids through. Do not treat `codeterm agent model` as a universal live switch.
+9. **Choose model**: use `codeterm agent models <provider>` to list ids and `codeterm agent spawn [provider] --model MODEL --task "..."` to select one. Authoritative catalogues and free-form providers with a published live model list refuse unknown ids before creating a tab and show valid ids. A unique bare id selects its provider; when several providers advertise it, specify `--agent` for task dispatch or pass the provider positionally to spawn. Free-form providers without a live list pass provider-owned ids through. Do not treat `codeterm agent model` as a universal live switch.
 10. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
 11. **Message a running agent**: `codeterm send --tab ID "status?"` (immediate agent-directed message via the normal send transport)
 12. **List tabs / hierarchy**: `codeterm tab list` (all local workspaces with tab counts, paths, Teams and active Plans, sub-agents nested, caller marked `(self)`; `--workspace <id>` selects the existing scoped tree and `--agents` filters to agent tabs). Use `codeterm tab inspect <id>` for one tab's full payload, or add `--lifecycle` for its journal telemetry.
@@ -187,4 +187,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->
