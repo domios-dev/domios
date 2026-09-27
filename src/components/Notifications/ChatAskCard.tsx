@@ -94,7 +94,15 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
             </div>
           )}
 
-          {chosen ? (
+          {notification.resolved ? (
+            <div
+              data-testid="chat-ask-resolved"
+              className="border-t px-3 py-2 text-[11px]"
+              style={{ ...edge, color: "var(--ct-muted-fg)" }}
+            >
+              Resolved in tab.
+            </div>
+          ) : chosen ? (
             <div
               data-testid="chat-ask-answered"
               className="flex items-center gap-1.5 border-t px-3 py-2 text-[11px]"
