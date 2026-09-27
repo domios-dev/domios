@@ -91,7 +91,7 @@ REST chat/transcript routes parse a bounded 4 MiB tail on blocking workers.
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
-POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, workspace close, reopen-closed, workspace tab create) accept no body and apply documented defaults. `POST /api/workspaces` requires `name` (`400`).
+POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed, workspace tab create) accept no body and apply documented defaults. Workspace close has a caller-sensitive confirmation body; see [API-TABS](API-TABS.md). `POST /api/workspaces` requires `name` (`400`).
 
 #### Closed History & Restore
 
@@ -232,4 +232,4 @@ Local `codeterm send` uses the socket `tab.send_text` route: it prints
 `OK (sent)` after confirmed delivery, `OK (pending)` for accepted or
 unconfirmed delivery, and an explicit refusal when no payload bytes were written.
 The resolved payload echo is emitted for confirmed delivery and for pending sends that report written bytes.
-<!-- revision: 169 -->
+<!-- revision: 170 -->

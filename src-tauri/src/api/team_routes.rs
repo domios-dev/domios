@@ -21,6 +21,14 @@ pub(crate) struct AddTeamMemberBody {
     model: Option<String>,
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct CloseTeamBody {
+    #[serde(default)]
+    force: bool,
+    #[serde(default)]
+    confirm: Option<String>,
+}
+
 fn validate_name(name: &str) -> Result<(), (StatusCode, String)> {
     if name.trim().is_empty() {
         return Err((
@@ -34,11 +42,26 @@ fn validate_name(name: &str) -> Result<(), (StatusCode, String)> {
 fn map_rename_error(error: String) -> (StatusCode, String) {
     if error.contains("not found") {
         (StatusCode::NOT_FOUND, error)
-    } else if error.contains("not authorized") || error.contains("not a member") {
+    } else if error.contains("not authorized")
+        || error.contains("not a member")
+        || error.contains("Unattributed caller")
+        || error.contains("cannot close Team")
+    {
         (StatusCode::FORBIDDEN, error)
     } else {
         (StatusCode::BAD_REQUEST, error)
     }
+}
+
+fn map_close_team_error(error: String) -> (StatusCode, String) {
+    let status = if error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX) {
+        StatusCode::FORBIDDEN
+    } else if error.starts_with("Team ") && error.contains(" not found") {
+        StatusCode::NOT_FOUND
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    (status, error)
 }
 
 fn require_caller_tab_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
@@ -82,28 +105,49 @@ pub async fn rename_team(
 async fn close_team_adapter(
     headers: &HeaderMap,
     team_id: String,
-    close: impl AsyncFnOnce(String, String) -> Result<codeterm_types::team::Team, String>,
+    body: CloseTeamBody,
+    close: impl AsyncFnOnce(
+        String,
+        crate::service::TeamMutationCaller,
+    ) -> Result<codeterm_types::team::Team, String>,
 ) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
-    let caller_tab_id = require_caller_tab_id(headers)?;
-    close(team_id, caller_tab_id)
-        .await
-        .map_err(map_rename_error)
+    let caller = close_team_caller(headers, &team_id, &body);
+    close(team_id, caller).await.map_err(map_close_team_error)
+}
+
+fn close_team_caller(
+    headers: &HeaderMap,
+    team_id: &str,
+    body: &CloseTeamBody,
+) -> crate::service::TeamMutationCaller {
+    crate::api::tab_routes::caller_tab_header(headers)
+        .filter(|tab_id| !tab_id.trim().is_empty())
+        .map(crate::service::TeamMutationCaller::AgentTab)
+        .unwrap_or_else(|| {
+            if body.force && body.confirm.as_deref() == Some(team_id) {
+                crate::service::TeamMutationCaller::HumanConfirmedHeaderless
+            } else {
+                crate::service::TeamMutationCaller::Unattributed
+            }
+        })
 }
 
 pub async fn close_team(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(team_id): Path<String>,
+    crate::api::optional_json::OptionalJson(body): crate::api::optional_json::OptionalJson<
+        CloseTeamBody,
+    >,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    let team = close_team_adapter(&headers, team_id, |team_id, caller_tab_id| async {
-        crate::commands::mux_commands::mux_close_team_service_core(
-            &state.svc,
-            team_id,
-            Some(caller_tab_id),
-        )
-        .await
-    })
+    let service = state.svc.clone();
+    let team = close_team_adapter(
+        &headers,
+        team_id,
+        body.unwrap_or_default(),
+        |team_id, caller| async move { service.close_team(&team_id, caller).await },
+    )
     .await?;
     Ok(Json(team))
 }
@@ -183,6 +227,22 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         assert_eq!(validate_name("   ").unwrap_err().0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn team_close_errors_keep_authorization_and_cleanup_statuses() {
+        assert_eq!(
+            map_close_team_error(format!(
+                "{}: caller lacks Team authority",
+                crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+            ))
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            map_close_team_error("Team lane cleanup failed: disk unavailable".into()).0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]
@@ -328,13 +388,26 @@ mod tests {
         let plan_root = tempfile::tempdir().unwrap();
         let plan_store = crate::service::plan::PlanStore::new_for_test(plan_root.path());
         assert_eq!(
-            close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| async {
-                unreachable!()
-            })
+            close_team_adapter(
+                &HeaderMap::new(),
+                team_id.clone(),
+                CloseTeamBody::default(),
+                async |team_id, caller| {
+                    crate::service::close_team_with_state_change(
+                        &mut mux,
+                        &events,
+                        &plan_store,
+                        &team_id,
+                        &caller,
+                        1,
+                    )
+                    .map(|result| result.0)
+                }
+            )
             .await
             .unwrap_err()
             .0,
-            StatusCode::BAD_REQUEST
+            StatusCode::FORBIDDEN
         );
         let mut worker_headers = HeaderMap::new();
         worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
@@ -342,13 +415,14 @@ mod tests {
             close_team_adapter(
                 &worker_headers,
                 team_id.clone(),
-                async |team_id: String, caller: String| {
+                CloseTeamBody::default(),
+                async |team_id: String, caller| {
                     crate::service::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
                         &team_id,
-                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        &caller,
                         1,
                     )
                     .map(|result| result.0)
@@ -367,13 +441,14 @@ mod tests {
             close_team_adapter(
                 &foreign_headers,
                 team_id.clone(),
-                async |team_id: String, caller: String| {
+                CloseTeamBody::default(),
+                async |team_id: String, caller| {
                     crate::service::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
                         &team_id,
-                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        &caller,
                         1,
                     )
                     .map(|result| result.0)
@@ -390,13 +465,14 @@ mod tests {
             close_team_adapter(
                 &manager_headers,
                 team_id.clone(),
-                async |team_id: String, caller: String| {
+                CloseTeamBody::default(),
+                async |team_id: String, caller| {
                     crate::service::close_team_with_state_change(
                         &mut mux,
                         &events,
                         &plan_store,
                         &team_id,
-                        &crate::service::TeamMutationCaller::AgentTab(caller),
+                        &caller,
                         1,
                     )
                     .map(|result| result.0)
@@ -407,6 +483,49 @@ mod tests {
             .id,
             team_id
         );
+    }
+
+    #[test]
+    fn headerless_team_close_requires_explicit_confirmation() {
+        use crate::service::TeamMutationCaller;
+
+        let team_id = "team-1";
+        assert!(matches!(
+            close_team_caller(&HeaderMap::new(), team_id, &CloseTeamBody::default()),
+            TeamMutationCaller::Unattributed
+        ));
+        assert!(matches!(
+            close_team_caller(
+                &HeaderMap::new(),
+                team_id,
+                &CloseTeamBody {
+                    force: false,
+                    confirm: Some(team_id.into()),
+                },
+            ),
+            TeamMutationCaller::Unattributed
+        ));
+        assert!(matches!(
+            close_team_caller(
+                &HeaderMap::new(),
+                team_id,
+                &CloseTeamBody {
+                    force: true,
+                    confirm: Some("team-other".into()),
+                },
+            ),
+            TeamMutationCaller::Unattributed
+        ));
+        let confirmed = close_team_caller(
+            &HeaderMap::new(),
+            team_id,
+            &CloseTeamBody {
+                force: true,
+                confirm: Some(team_id.into()),
+            },
+        );
+        assert_eq!(confirmed, TeamMutationCaller::HumanConfirmedHeaderless,);
+        assert_eq!(confirmed.kind(), "human-attributed (headerless, confirmed)",);
     }
 
     /// codeterm#418: the recovery add is the one Team verb a headless Team can
