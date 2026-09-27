@@ -190,8 +190,7 @@ fn snapshot_counts_coverage_lanes_agents_and_strides() {
     }];
     let live: HashSet<String> = ["tab_live".to_string()].into_iter().collect();
 
-    let snap =
-        build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, None, 1);
+    let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, None, 1);
 
     assert_eq!(snap.task_counts.total, 5);
     assert_eq!(snap.task_counts.done, 1);
@@ -385,9 +384,25 @@ fn parent_rolls_up_open_child_statuses_in_plan_state() {
     let mut child = task("t_child", TaskStatus::Pending, &[]);
     child.parent_task_id = Some(parent.id.clone());
     plan.tasks = vec![parent, child];
-    let snapshot = build_plan_state_snapshot(&plan, compute_coverage_report(&plan), vec![], vec![], vec![], &HashSet::new(), None, 1);
-    let parent_lane = snapshot.open_lanes.iter().find(|lane| lane.task_id == "t_parent").unwrap();
-    assert_eq!(parent_lane.presentation, TaskPresentation::BlockedOnSubtasks);
+    let snapshot = build_plan_state_snapshot(
+        &plan,
+        compute_coverage_report(&plan),
+        vec![],
+        vec![],
+        vec![],
+        &HashSet::new(),
+        None,
+        1,
+    );
+    let parent_lane = snapshot
+        .open_lanes
+        .iter()
+        .find(|lane| lane.task_id == "t_parent")
+        .unwrap();
+    assert_eq!(
+        parent_lane.presentation,
+        TaskPresentation::BlockedOnSubtasks
+    );
     assert_eq!(parent_lane.subtasks.len(), 1);
     assert_eq!(parent_lane.subtasks[0].status, TaskStatus::Pending);
     assert!(task_projection(&plan, &plan.tasks[0]).needs_orchestrator_action());
@@ -401,16 +416,25 @@ fn child_rollup_preserves_handoff_review_qa_and_terminal_presentations() {
     child.parent_task_id = Some(parent.id.clone());
     parent.interruption.handoff_required = true;
     plan.tasks = vec![parent.clone(), child];
-    assert_eq!(task_projection(&plan, &parent).presentation, TaskPresentation::HandoffRequired);
+    assert_eq!(
+        task_projection(&plan, &parent).presentation,
+        TaskPresentation::HandoffRequired
+    );
     parent.interruption.handoff_required = false;
     parent.status = TaskStatus::InReview;
     parent.review_stage = ReviewStage::Qa;
     parent.qa_state = Some(QaState::Queued);
     plan.tasks[0] = parent.clone();
-    assert_eq!(task_projection(&plan, &parent).presentation, TaskPresentation::QueuedForQa);
+    assert_eq!(
+        task_projection(&plan, &parent).presentation,
+        TaskPresentation::QueuedForQa
+    );
     parent.status = TaskStatus::Cancelled;
     plan.tasks[0] = parent.clone();
-    assert_eq!(task_projection(&plan, &parent).presentation, TaskPresentation::Terminal);
+    assert_eq!(
+        task_projection(&plan, &parent).presentation,
+        TaskPresentation::Terminal
+    );
 }
 
 #[test]

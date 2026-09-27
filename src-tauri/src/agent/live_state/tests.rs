@@ -186,7 +186,9 @@ fn unobserved_liveness_pane_remains_relaunchable() {
         .unwrap()
         .expect("unobserved restored tab remains eligible for relaunch");
     assert_eq!(claim.session_id.as_deref(), Some("saved-session"));
-    assert!(crate::service::pty_io::claim_restored_pty_boot(&fixture.service.mux, &tab_id)
-        .unwrap()
-        .is_none());
+    assert!(
+        crate::service::pty_io::claim_restored_pty_boot(&fixture.service.mux, &tab_id)
+            .unwrap()
+            .is_none()
+    );
 }

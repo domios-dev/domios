@@ -66,9 +66,10 @@ pub async fn spawn_pty_core(
                     pid,
                     selected.pty_id,
                 );
-                let restored = mux_state.read().get_tab(pid).is_some_and(|tab| {
-                    tab.restored_from_snapshot && !tab.protected
-                });
+                let restored = mux_state
+                    .read()
+                    .get_tab(pid)
+                    .is_some_and(|tab| tab.restored_from_snapshot && !tab.protected);
                 if restored {
                     let restore_service = svc.clone();
                     let restore_tab = pid.clone();

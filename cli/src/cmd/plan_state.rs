@@ -350,12 +350,22 @@ pub fn render_state(val: &Value) -> String {
                     competition_part,
                     s(l, "name"),
                 ));
-                if let Some(children) = l.get("subtasks").and_then(Value::as_array).filter(|items| !items.is_empty()) {
-                    let statuses = children.iter().map(|child| format!(
-                        "{} [{}]",
-                        child.get("name").and_then(Value::as_str).unwrap_or("?"),
-                        child.get("status").and_then(Value::as_str).unwrap_or("?")
-                    )).collect::<Vec<_>>().join(", ");
+                if let Some(children) = l
+                    .get("subtasks")
+                    .and_then(Value::as_array)
+                    .filter(|items| !items.is_empty())
+                {
+                    let statuses = children
+                        .iter()
+                        .map(|child| {
+                            format!(
+                                "{} [{}]",
+                                child.get("name").and_then(Value::as_str).unwrap_or("?"),
+                                child.get("status").and_then(Value::as_str).unwrap_or("?")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     out.push_str(&format!("    subtasks: {statuses}\n"));
                 }
             }

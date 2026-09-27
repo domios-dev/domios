@@ -94,7 +94,10 @@ pub(crate) fn parse_manual_update_prompt_with_response(
         .flatten()
         .filter(|role| *role == codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip)
         .and_then(|_| {
-            let mut skip = prompt.options.iter().filter(|option| option.label == "Skip");
+            let mut skip = prompt
+                .options
+                .iter()
+                .filter(|option| option.label == "Skip");
             let value = skip.next()?.value.clone();
             skip.next().is_none().then_some(value)
         });
@@ -141,19 +144,19 @@ pub(crate) fn resolve_classified_manual_update_prompt(
             codeterm_types::pty::PromptKind::ManualUpdate,
             &prompt,
         );
-        let outcome = match service.respond_prompt_with_identity(&snapshot.tab_id, &value, &identity)
-        {
-            Ok(outcome) => outcome,
-            Err(_) => {
-                clear_manual_update_occurrence(&snapshot.tab_id);
-                service.notify_pending_prompt(
-                    &snapshot.tab_id,
-                    &prompt,
-                    codeterm_types::pty::PromptKind::ManualUpdate,
-                );
-                return None;
-            }
-        };
+        let outcome =
+            match service.respond_prompt_with_identity(&snapshot.tab_id, &value, &identity) {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    clear_manual_update_occurrence(&snapshot.tab_id);
+                    service.notify_pending_prompt(
+                        &snapshot.tab_id,
+                        &prompt,
+                        codeterm_types::pty::PromptKind::ManualUpdate,
+                    );
+                    return None;
+                }
+            };
         match outcome {
             crate::service::tab::RespondPromptOutcome::Sent
             | crate::service::tab::RespondPromptOutcome::Structured => {
@@ -174,10 +177,7 @@ pub(crate) fn resolve_classified_manual_update_prompt(
                     ),
                     super::super::notification::PushIntent {
                         level: Some(crate::notification::push::NotifyLevel::Verbose),
-                        event_key: Some(format!(
-                            "classified-update-skip:{}",
-                            uuid::Uuid::new_v4()
-                        )),
+                        event_key: Some(format!("classified-update-skip:{}", uuid::Uuid::new_v4())),
                     },
                     None,
                 );

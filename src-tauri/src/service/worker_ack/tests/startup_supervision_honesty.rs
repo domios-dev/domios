@@ -140,12 +140,7 @@ fn startup_ack_after_binding_auto_ack_reports_already_acknowledged() {
         fixture
             .service
             .worker_ack
-            .resolve_startup_ack_for_binding(
-                &tab_id,
-                "launch-a",
-                None,
-                "nonce-a",
-            )
+            .resolve_startup_ack_for_binding(&tab_id, "launch-a", None, "nonce-a",)
             .expect("the session binding acknowledges its launch"),
         AgentStartupAcknowledgement::Acknowledged
     );

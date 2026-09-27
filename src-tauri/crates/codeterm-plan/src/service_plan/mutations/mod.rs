@@ -265,7 +265,10 @@ pub(super) fn validate_task_dependencies(
     Ok(resolved)
 }
 
-pub(super) fn reject_terminal_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+pub(super) fn reject_terminal_with_open_subtasks(
+    plan: &Plan,
+    task_id: &str,
+) -> Result<(), PlanError> {
     let subtasks = open_subtasks(plan, task_id);
     if subtasks.is_empty() {
         Ok(())

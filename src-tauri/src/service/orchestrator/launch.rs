@@ -17,13 +17,13 @@ pub(crate) struct LaunchRegistry {
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 mod command;
+#[path = "launch/exit_recovery_shell.rs"]
+mod exit_recovery_shell;
 #[cfg(test)]
 #[path = "launch/exit_recovery_shell_tests.rs"]
 mod exit_recovery_shell_tests;
 #[path = "launch/failure.rs"]
 mod failure;
-#[path = "launch/exit_recovery_shell.rs"]
-mod exit_recovery_shell;
 use exit_recovery_shell::exited_provider_recovery_has_shell_ready_evidence;
 #[path = "launch/generation.rs"]
 mod generation;
@@ -714,11 +714,10 @@ pub(crate) fn launch_agent_in_background_with_env(
             &launch.pty_id,
         );
 
-        let shell_ready_from_exit = exited_provider_recovery_has_shell_ready_evidence(
-            origin,
-            reused_live_pty,
-            || svc.shell_caps.lock().prompt_idle_after_command(&pty_id),
-        );
+        let shell_ready_from_exit =
+            exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
+                svc.shell_caps.lock().prompt_idle_after_command(&pty_id)
+            });
         if shell_ready_from_exit {
             log::info!(
                 "launch_agent: Tab {} exit recovery reuses the shell proven available by provider exit on PTY {}",

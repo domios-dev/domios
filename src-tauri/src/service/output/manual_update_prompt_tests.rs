@@ -97,7 +97,14 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
         .service
         .pty
         .lock()
-        .spawn_with_id(Some("pty-update".into()), None, None, 80, 24, Default::default())
+        .spawn_with_id(
+            Some("pty-update".into()),
+            None,
+            None,
+            80,
+            24,
+            Default::default(),
+        )
         .expect("spawn live shell PTY for structured prompt response");
     fixture
         .service
@@ -115,8 +122,19 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     );
     let mut snapshot = snapshot;
     snapshot.tab_id = tab_id.clone();
-    fixture.service.output_buf.lock().append("pty-update", snapshot.screen_text.as_bytes());
-    let tab_title = fixture.service.mux.read().get_tab(&tab_id).unwrap().title.clone();
+    fixture
+        .service
+        .output_buf
+        .lock()
+        .append("pty-update", snapshot.screen_text.as_bytes());
+    let tab_title = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .title
+        .clone();
     let occurrence = serde_json::to_string(&pending.options).unwrap();
     let response = resolve_classified_manual_update_prompt(
         &fixture.service,
@@ -124,14 +142,27 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
         pending.clone(),
         skip_value,
     );
-    assert_eq!(response, Some(crate::service::tab::RespondPromptOutcome::Sent));
-    assert!(fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt.is_none());
+    assert_eq!(
+        response,
+        Some(crate::service::tab::RespondPromptOutcome::Sent)
+    );
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_none());
 
     {
         let notif = fixture.service.notif.lock();
         let notifications = notif.list(false);
         assert_eq!(notifications.len(), 1);
-        assert_eq!(notifications[0].title, format!("{tab_title}: update skipped"));
+        assert_eq!(
+            notifications[0].title,
+            format!("{tab_title}: update skipped")
+        );
     }
 
     let second_render = resolve_classified_manual_update_prompt(
@@ -172,7 +203,10 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     tab.agent_type = Some("fixture".into());
     tab.pty_id = Some("pty-update-respondable".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
     fixture.service.apply_prompt_decision_with_kind_and_notice(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
@@ -187,8 +221,14 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     let mux = fixture.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("tab");
     assert_eq!(tab.pending_prompt.as_ref(), Some(&prompt));
-    assert_eq!(tab.pending_prompt_kind, Some(codeterm_types::pty::PromptKind::ManualUpdate));
-    assert_eq!(super::prompt_step_dispatch_count_for_test("pty-update-respondable"), 0);
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+    );
+    assert_eq!(
+        super::prompt_step_dispatch_count_for_test("pty-update-respondable"),
+        0
+    );
 }
 
 #[test]

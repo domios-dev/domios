@@ -2,8 +2,8 @@ use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
     is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
-    provider_or_generic_tui, public_agent_input_readiness, submit_authenticated_pty_input,
-    require_submission_result, wait_for_observed_readiness,
+    provider_or_generic_tui, public_agent_input_readiness, require_submission_result,
+    submit_authenticated_pty_input, wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 

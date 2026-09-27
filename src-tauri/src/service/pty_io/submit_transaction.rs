@@ -255,17 +255,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             let Some(tab_id) = self.evidence_tab_id.as_deref() else {
                 return false;
             };
-            let current_binding = self
-                .svc
-                .mux
-                .read()
-                .get_tab(tab_id)
-                .is_some_and(|tab| {
-                    tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
-                        && tab.session_binding_nonce.as_deref()
-                            == self.evidence_binding_nonce.as_deref()
-                        && tab.pty_id.as_deref() == Some(self.pty_id)
-                });
+            let current_binding = self.svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+                tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
+                    && tab.session_binding_nonce.as_deref()
+                        == self.evidence_binding_nonce.as_deref()
+                    && tab.pty_id.as_deref() == Some(self.pty_id)
+            });
             let current_generation = self.svc.screen_state.lock().pty_generation(self.pty_id);
             if !current_binding || current_generation != self.evidence_pty_generation {
                 return false;
@@ -553,10 +548,8 @@ fn run_with_submit_key<T: SubmitTransport>(
     let started = Instant::now();
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
-    let exact_turn_evidence = matches!(
-        &strategy,
-        VerifySubmitStrategy::TuiInputDrained { .. }
-    ) && transport.has_exact_user_turn_evidence();
+    let exact_turn_evidence = matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
+        && transport.has_exact_user_turn_evidence();
     let initial_key_delay = if enter && !text.is_empty() {
         strategy.initial_key_delay()
     } else {
@@ -625,9 +618,7 @@ fn run_with_submit_key<T: SubmitTransport>(
         }
         if submit_key_writes == 0 && !initial_key_delay.is_zero() {
             let first_key_deadline = submit_started + initial_key_delay;
-            if transport
-                .wait_retry_deadline_for_turn(first_key_deadline.min(turn_deadline), text)
-            {
+            if transport.wait_retry_deadline_for_turn(first_key_deadline.min(turn_deadline), text) {
                 submit_observed = true;
                 break;
             }
@@ -643,9 +634,7 @@ fn run_with_submit_key<T: SubmitTransport>(
                 .get(submit_key_writes - 1)
                 .copied()
                 .unwrap_or(*retry_offsets.last().expect("non-empty"));
-            let retry_deadline = first_submit_key_at
-                .unwrap_or(submit_started)
-                + offset;
+            let retry_deadline = first_submit_key_at.unwrap_or(submit_started) + offset;
             if transport.wait_retry_deadline_for_turn(retry_deadline.min(turn_deadline), text) {
                 submit_observed = true;
                 break;
@@ -736,9 +725,7 @@ pub(crate) fn submit_text(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key(
-        svc, pty_id, text, enter, b"\r", strategy, opts, None, false,
-    )
+    submit_text_with_key(svc, pty_id, text, enter, b"\r", strategy, opts, None, false)
 }
 
 pub(crate) fn submit_text_with_key(
@@ -822,9 +809,7 @@ pub(crate) fn submit_text_with_key_claimed(
     let (wake_tx, wake_rx) = mpsc::channel();
     submit_cycle.install_waiter(submit_generation, wake_tx.clone());
     let session_evidence_watcher = (track_exact_session_turn && enter)
-        .then(|| {
-            watch_session_evidence(&svc.agent_registry, evidence_anchor.as_ref(), wake_tx)
-        })
+        .then(|| watch_session_evidence(&svc.agent_registry, evidence_anchor.as_ref(), wake_tx))
         .flatten();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);

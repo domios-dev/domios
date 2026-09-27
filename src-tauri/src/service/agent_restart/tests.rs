@@ -39,7 +39,10 @@ fn rate_limit_independent_tabs() {
 fn rate_limit_resets_after_window() {
     let tracker = fresh_tracker();
     let past = Instant::now() - Duration::from_secs(RESTART_RATE_LIMIT_SECS + 1);
-    tracker.lock().last_restart.insert("tab-1".to_string(), past);
+    tracker
+        .lock()
+        .last_restart
+        .insert("tab-1".to_string(), past);
     assert!(check(&tracker, "tab-1").is_ok());
 }
 
