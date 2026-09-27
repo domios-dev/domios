@@ -265,6 +265,31 @@ mod spawn_pty_restore_tests {
     const SESSION: &str = "restore-record-session";
     const INSTRUCTIONS: &str = "opaque-restore-system-input-c531";
 
+    fn restored_fixture() -> (
+        ServiceFixture,
+        String,
+        Arc<parking_lot::Mutex<Vec<crate::agent::provider::AgentResumeParams>>>,
+    ) {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some(PROVIDER.into());
+        tab.agent_session_id = Some(SESSION.into());
+        tab.cwd = Some("restore-cwd".into());
+        tab.restored_from_snapshot = true;
+        tab.protected = false;
+        tab.pty_id = Some("restore-pty-not-yet-materialized".into());
+        tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
+
+        let fixture = ServiceFixture::new(mux);
+        let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_session(PROVIDER, SESSION)
+                .with_session_config_delivery()
+                .with_resume_context_log(resume_context.clone()),
+        ));
+        (fixture, tab_id, resume_context)
+    }
+
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn spawn_pty_core_restore_branch_builds_record_and_selects_first_turn_readiness() {
@@ -351,6 +376,87 @@ mod spawn_pty_restore_tests {
             crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
         ));
 
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn restored_agent_relaunches_once_when_ensure_pty_activates_first() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        assert_eq!(
+            crate::agent::live_state::observe_tab_liveness(&fixture.service, &tab_id),
+            codeterm_types::pty::AgentLiveness::Absent
+        );
+        assert!(!fixture
+            .service
+            .reconcile_tab_restored_without_agent(&tab_id));
+        fixture
+            .service
+            .ensure_tab_pty_for_send(&tab_id)
+            .expect("backend materialization activates and resumes the restored tab");
+        assert_eq!(resume_context.lock().len(), 1);
+
+        let pty_id = spawn_pty_core(
+            &Arc::new(fixture.service.clone()),
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend attach reuses the activated PTY");
+
+        assert_eq!(resume_context.lock().len(), 1);
+        let mut pty = fixture.service.pty.lock();
+        kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
+    }
+
+    #[tokio::test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    async fn restored_agent_relaunches_once_when_frontend_attaches_first() {
+        let (fixture, tab_id, resume_context) = restored_fixture();
+        let backend_pty_id = "backend-materialized-restored-pty";
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some(backend_pty_id.into()),
+                None,
+                None,
+                80,
+                24,
+                Default::default(),
+            )
+            .expect("backend materialization creates a live PTY");
+        {
+            let mut mux = fixture.service.mux.write();
+            mux.link_pty(&tab_id, backend_pty_id.into());
+        }
+        let service = Arc::new(fixture.service.clone());
+        let pty_id = spawn_pty_core(
+            &service,
+            None,
+            None,
+            80,
+            24,
+            None,
+            Some(tab_id.clone()),
+        )
+        .await
+        .expect("frontend materialization activates and resumes the restored tab");
+        assert_eq!(resume_context.lock().len(), 1);
+        assert_eq!(pty_id, backend_pty_id);
+
+        fixture
+            .service
+            .ensure_tab_pty_for_send(&tab_id)
+            .expect("backend materialization reuses the frontend PTY");
+
+        assert_eq!(resume_context.lock().len(), 1);
         let mut pty = fixture.service.pty.lock();
         kill_pty_idempotent(&mut pty, &pty_id).expect("test PTY cleanup");
     }
