@@ -722,63 +722,6 @@ pub async fn resize_tab(
     Ok(Json(result.into_json()))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct StreamQuery {
-    /// Absolute byte offset (monotonic, survives ring-buffer rotation).
-    /// `0` replays the full retained buffer; omitted = start at current tail.
-    from: Option<u64>,
-}
-
-pub async fn stream_tab_output(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_tab_id): Path<String>,
-    Query(query): Query<StreamQuery>,
-) -> Result<
-    axum::response::Sse<
-        impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
-    >,
-    (StatusCode, &'static str),
-> {
-    check_auth(&state, &headers)?;
-    let chat = state.svc.tab_chat_backing(&raw_tab_id).is_some();
-    let pty_id = if chat {
-        String::new()
-    } else {
-        resolve_pty_id_with_fallback(&state, &raw_tab_id)?
-    };
-
-    let buf = state.svc.output_buf.clone();
-    let pid = pty_id.clone();
-    let initial_total = if chat {
-        0
-    } else {
-        buf.lock().total_written(&pid)
-    };
-    let mut offset: u64 = match query.from {
-        Some(n) => n.min(initial_total),
-        None => initial_total,
-    };
-
-    let stream = async_stream::stream! {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            if chat {
-                continue;
-            }
-            let (chunk, new_total) = buf.lock().read_since(&pid, offset);
-            if !chunk.is_empty() {
-                offset = new_total;
-                let text = String::from_utf8_lossy(&chunk).to_string();
-                yield Ok(axum::response::sse::Event::default()
-                    .data(serde_json::json!({"output": text, "offset": offset}).to_string()));
-            }
-        }
-    };
-
-    Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
-}
-
 pub async fn agent_run_log(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -853,7 +796,7 @@ fn read_log_from_disk_by_tab(state: &AppState, raw_tab_id: &str) -> Option<Strin
 
 // close_tab can remove tab→pty, but output_buf[pty_id] may remain.
 // Fall back to spawn-time map so worker/cron logs from closed tabs stay readable.
-fn resolve_pty_id_with_fallback(
+pub(crate) fn resolve_pty_id_with_fallback(
     state: &AppState,
     raw_tab_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
