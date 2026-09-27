@@ -413,8 +413,8 @@ console.log("\n--- restored direct-mode command keeps the saved project, session
     systemPrompt: "opaque-context-fragment",
   });
   assert(
-    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest); New-Item"),
-    "resume stages session configuration in the saved project directory",
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item"),
+    "resume stops if it cannot enter the saved project directory before staging configuration",
   );
   assert(
     configured.includes("try { opencode Q(windows:D:/Developer/codeterm-livetest) --mini --session Q(windows:ses_saved)"),
