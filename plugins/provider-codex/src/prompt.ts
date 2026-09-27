@@ -348,7 +348,7 @@ function groupOptions(
 }
 
 function normalizeLines(text: string): string[] {
-  return String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  return String(text || "").replace(/\r*\n|\r/g, "\n").split("\n");
 }
 
 function lastMeaningfulLineIndex(lines: string[]): number {

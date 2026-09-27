@@ -49,6 +49,13 @@ pub struct ChatPartUpdate {
     pub part_id: String,
     pub part: Value,
     pub delta: Option<String>,
+    pub event: ChatPartEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatPartEvent {
+    Delta,
+    Updated,
 }
 
 /// Everything needed to answer an opencode structured prompt over HTTP.
@@ -137,10 +144,10 @@ fn parse_part_delta(props: &Value) -> ParsedEvent {
             part: json!({
                 "id": part_id,
                 "sessionID": session_id,
-                "messageID": message_id,
-                "type": "text"
+                "messageID": message_id
             }),
             delta: Some(delta.to_string()),
+            event: ChatPartEvent::Delta,
         },
     }
 }
@@ -166,6 +173,7 @@ fn parse_part_updated(props: &Value) -> ParsedEvent {
                 .get("delta")
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            event: ChatPartEvent::Updated,
         },
     }
 }
@@ -650,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn live_text_deltas_grow_in_place_then_full_part_text_replaces_them() {
+    fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
         let message_frame: Value =
             serde_json::from_str(include_str!("fixtures/captured_message_updated.json")).unwrap();
         let message = parse_event(&message_frame);
@@ -672,11 +680,8 @@ mod tests {
         };
         assert_eq!(update.part_id, "prt_text");
         assert_eq!(update.delta.as_deref(), Some("121"));
-        let partial = normalize_chat_part(&update, &message, None).unwrap();
-        assert_eq!(partial.id, "prt_text");
-        assert_eq!(partial.kind, "assistant");
-        assert_eq!(partial.content, "121");
-        assert_eq!(partial.timestamp.as_deref(), Some("1789814516718"));
+        assert_eq!(update.event, ChatPartEvent::Delta);
+        assert!(update.part.get("type").is_none());
 
         let second_frame: Value = serde_json::from_str(include_str!(
             "fixtures/captured_message_part_delta_second.json"
@@ -686,9 +691,8 @@ mod tests {
         let ParsedEvent::PartUpdated { update } = second else {
             panic!("expected part delta");
         };
-        let grown = normalize_chat_part(&update, &message, Some("121")).unwrap();
-        assert_eq!(grown.id, partial.id);
-        assert_eq!(grown.content, "121932");
+        assert_eq!(update.delta.as_deref(), Some("932"));
+        assert!(update.part.get("type").is_none());
 
         let full_frame: Value = serde_json::from_str(include_str!(
             "fixtures/captured_message_part_updated_text.json"
@@ -698,8 +702,9 @@ mod tests {
             panic!("expected completed text part");
         };
         assert_eq!(update.delta, None);
-        let completed = normalize_chat_part(&update, &message, Some(&grown.content)).unwrap();
-        assert_eq!(completed.id, partial.id);
+        assert_eq!(update.event, ChatPartEvent::Updated);
+        let completed = normalize_chat_part(&update, &message, None).unwrap();
+        assert_eq!(completed.id, "prt_text");
         assert_eq!(completed.content, "121932631112635269");
     }
 
@@ -776,6 +781,7 @@ mod tests {
             part_id: "prt_sibling".into(),
             part: json!({"type":"text", "text":"sibling"}),
             delta: Some("sibling".into()),
+            event: ChatPartEvent::Updated,
         };
         assert!(normalize_chat_part(&part, &message, None).is_none());
     }

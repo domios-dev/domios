@@ -870,6 +870,7 @@ pub fn run() {
                 )),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+                output_stream_activity: crate::service::output_stream_activity::channel(),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(services_store),
                 tokens: Arc::new(crate::service::tokens::TokenStore::new()),

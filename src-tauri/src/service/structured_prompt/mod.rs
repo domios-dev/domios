@@ -28,8 +28,8 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use opencode_sse::{
-    normalize_chat_part, parse_event, reply_body, reply_endpoint, ChatPartUpdate, MessageMeta,
-    ParsedEvent, ResponseRoute,
+    normalize_chat_part, parse_event, reply_body, reply_endpoint, ChatPartEvent, ChatPartUpdate,
+    MessageMeta, ParsedEvent, ResponseRoute,
 };
 
 use crate::multiplexer::types::PendingPrompt;
@@ -50,6 +50,7 @@ struct ChatStreamState {
     session_id: Option<String>,
     messages: HashMap<String, MessageMeta>,
     part_text: HashMap<String, String>,
+    part_kind: HashMap<String, String>,
 }
 
 struct ChatBinding {
@@ -273,16 +274,7 @@ fn connect_and_stream(
         match parse_event(&value) {
             ParsedEvent::MessageUpdated { message } => {
                 if chat_binding(svc, tab_id, &message.session_id).is_some() {
-                    chat_state.reset_session(&message.session_id);
-                    if chat_state.messages.len() >= 512
-                        && !chat_state.messages.contains_key(&message.message_id)
-                    {
-                        chat_state.messages.clear();
-                        chat_state.part_text.clear();
-                    }
-                    chat_state
-                        .messages
-                        .insert(message.message_id.clone(), message);
+                    chat_state.record_message(message);
                 }
             }
             ParsedEvent::PartUpdated { update } => {
@@ -332,7 +324,106 @@ impl ChatStreamState {
         }
         self.session_id = Some(session_id.to_string());
         self.messages.clear();
+        self.clear_part_state();
+    }
+
+    fn record_message(&mut self, message: MessageMeta) {
+        self.reset_session(&message.session_id);
+        if self.messages.len() >= 512 && !self.messages.contains_key(&message.message_id) {
+            self.messages.clear();
+            self.clear_part_state();
+        }
+        self.messages.insert(message.message_id.clone(), message);
+    }
+
+    fn clear_part_state(&mut self) {
         self.part_text.clear();
+        self.part_kind.clear();
+    }
+
+    fn clear_part_state_if_full(&mut self, part_id: &str, needs_text: bool, needs_kind: bool) {
+        let text_full = needs_text
+            && self.part_text.len() >= 512
+            && !self.part_text.contains_key(part_id);
+        let kind_full = needs_kind
+            && self.part_kind.len() >= 512
+            && !self.part_kind.contains_key(part_id);
+        if text_full || kind_full {
+            self.clear_part_state();
+        }
+    }
+
+    fn record_part_kind(&mut self, update: &ChatPartUpdate) {
+        if update.event != ChatPartEvent::Updated {
+            return;
+        }
+        let Some(kind) = update.part.get("type").and_then(|value| value.as_str()) else {
+            return;
+        };
+        self.clear_part_state_if_full(&update.part_id, false, true);
+        self.part_kind
+            .insert(update.part_id.clone(), kind.to_string());
+    }
+
+    fn prepare_chat_part(
+        &mut self,
+        update: &ChatPartUpdate,
+        message: &MessageMeta,
+    ) -> Option<crate::agent::chat_types::ChatMsg> {
+        if update.session_id != message.session_id || update.message_id != message.message_id {
+            return None;
+        }
+
+        self.record_part_kind(update);
+        let kind = self.part_kind.get(&update.part_id).cloned();
+        let is_text = matches!(kind.as_deref(), Some("text" | "reasoning"))
+            || (kind.is_none() && update.delta.is_some());
+        self.clear_part_state_if_full(&update.part_id, is_text, false);
+        if let Some(kind) = kind.as_ref() {
+            self.part_kind.insert(update.part_id.clone(), kind.clone());
+        }
+
+        let previous_text = self.part_text.get(&update.part_id).cloned();
+        if kind.is_none() {
+            let delta = update.delta.as_ref()?;
+            self.part_text.insert(
+                update.part_id.clone(),
+                format!("{}{}", previous_text.as_deref().unwrap_or_default(), delta),
+            );
+            return None;
+        }
+
+        let mut typed_update = update.clone();
+        if let Some(kind) = kind.as_ref() {
+            typed_update.part["type"] = serde_json::Value::String(kind.clone());
+        }
+        let text_is_empty = update
+            .part
+            .get("text")
+            .and_then(|value| value.as_str())
+            .map_or(true, |text| text.trim().is_empty());
+        if matches!(kind.as_deref(), Some("text" | "reasoning"))
+            && update.event == ChatPartEvent::Updated
+            && text_is_empty
+        {
+            if let Some(previous_text) = previous_text.as_ref() {
+                typed_update.part["text"] = serde_json::Value::String(previous_text.clone());
+            }
+        }
+        if !is_text {
+            self.part_text.remove(&update.part_id);
+        }
+
+        let chat_message = normalize_chat_part(
+            &typed_update,
+            message,
+            previous_text.as_deref(),
+        )?;
+        if is_text {
+            self.part_text
+                .insert(update.part_id.clone(), chat_message.content.clone());
+        }
+        Some(chat_message)
     }
 }
 
@@ -369,28 +460,13 @@ fn emit_chat_part(
         return;
     };
     chat_state.reset_session(&binding.session_id);
-    let Some(message) = chat_state.messages.get(&update.message_id) else {
+    chat_state.record_part_kind(update);
+    let Some(message) = chat_state.messages.get(&update.message_id).cloned() else {
         return;
     };
-    let previous_text = chat_state
-        .part_text
-        .get(&update.part_id)
-        .map(String::as_str);
-    let Some(chat_message) = normalize_chat_part(update, message, previous_text) else {
+    let Some(chat_message) = chat_state.prepare_chat_part(update, &message) else {
         return;
     };
-    if matches!(
-        update.part.get("type").and_then(|v| v.as_str()),
-        Some("text" | "reasoning")
-    ) {
-        if chat_state.part_text.len() >= 512 && !chat_state.part_text.contains_key(&update.part_id)
-        {
-            chat_state.part_text.clear();
-        }
-        chat_state
-            .part_text
-            .insert(update.part_id.clone(), chat_message.content.clone());
-    }
     let sink = crate::service::tab_chat::structured_sink::make_sink(
         svc.app_handle.clone(),
         svc.mux.clone(),
