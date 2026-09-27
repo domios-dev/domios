@@ -930,7 +930,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             pty_id: pty_id.clone(),
             binding_nonce: launch.binding_nonce.clone().expect("launch binding nonce"),
         };
-        crate::service::launch_readiness::arm(readiness_attempt.clone());
+        crate::service::launch_readiness::arm_with_origin(readiness_attempt.clone(), origin);
         if launch.await_provider_ack(std::time::Duration::ZERO) {
             crate::service::launch_readiness::note_acknowledged(
                 &readiness_attempt.tab_id,

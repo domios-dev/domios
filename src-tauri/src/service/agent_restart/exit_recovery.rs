@@ -117,12 +117,30 @@ impl ServiceContext {
         Ok(Some(resolved))
     }
 
-    pub(super) fn recover_exited_provider(
+    pub(crate) fn recover_exited_provider(
         &self,
         tab_id: &str,
         force: bool,
+        automatic: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        let shell = self.exited_shell(tab_id)?;
+        self.recover_exited_provider_inner(tab_id, force, automatic, None)
+    }
+
+    pub(crate) fn recover_exited_provider_after_launch_exit(
+        &self,
+        attempt: &crate::service::launch_readiness::LaunchAttempt,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.recover_exited_provider_inner(&attempt.tab_id, false, true, Some(attempt))
+    }
+
+    fn recover_exited_provider_inner(
+        &self,
+        tab_id: &str,
+        force: bool,
+        automatic: bool,
+        attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        let shell = self.exited_shell(tab_id, attempt)?;
         let verified = verified_session_ids(&TabLifecycleJournal::shared().load().records, tab_id);
         let session_id = select_recovery_session(&shell.lineage, &verified)?;
         let provider = recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)?;
@@ -146,7 +164,9 @@ impl ServiceContext {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
 
-        self.check_and_record_restart(&snap.tab_id)?;
+        if !automatic {
+            self.check_and_record_restart(&snap.tab_id)?;
+        }
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -181,7 +201,11 @@ impl ServiceContext {
             snap.tab_id.clone(),
             launch_cmd,
             snap.provider.clone(),
-            crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery,
+            if automatic {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
+            } else {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
+            },
             None,
             None,
             None,
@@ -196,7 +220,11 @@ impl ServiceContext {
         self.settle_restored_binding(ready, &snap)
     }
 
-    fn exited_shell(&self, tab_id: &str) -> Result<ExitedShell, AgentRestartError> {
+    fn exited_shell(
+        &self,
+        tab_id: &str,
+        attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
+    ) -> Result<ExitedShell, AgentRestartError> {
         let (pty_id, cwd, lineage, role, role_profile) = {
             let mux = self.mux.read();
             let tab = mux
@@ -206,6 +234,20 @@ impl ServiceContext {
                 return Err(AgentRestartError::BadRequest(
                     "agent session is closed; a chat-backend Tab has no provider shell to recover"
                         .to_string(),
+                ));
+            }
+            if attempt.is_some_and(|attempt| {
+                tab.pty_id.as_deref() != Some(attempt.pty_id.as_str())
+                    || tab.agent_type.is_some()
+                    || tab.session_binding_nonce.is_some()
+                    || !tab
+                        .prior_session_binding_nonces
+                        .last()
+                        .is_some_and(|binding| binding.nonce == attempt.binding_nonce)
+            }) {
+                return Err(refusal(
+                    EXIT_RECOVERY_NO_LIVE_SHELL,
+                    "the Tab moved on from the exited launch before automatic recovery".into(),
                 ));
             }
             (
