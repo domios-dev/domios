@@ -141,12 +141,17 @@ mod restored_fresh_launch_tests {
     #[test]
     fn restored_fresh_launch_preserves_saved_parameters_without_starter_turn() {
         let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture-provider")
+                .with_session_config_delivery(),
+        ));
         for historical_task in [Some(HISTORICAL_TASK), None] {
             let input = restored_fresh_launch_input(
                 &registry,
                 worker_params("fixture-provider", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
-                    system_prompt: Some(RESTORED_INSTRUCTIONS.into()),
+                    captured: true,
+                    identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
                 },
             );
@@ -185,7 +190,8 @@ mod restored_fresh_launch_tests {
                 registry,
                 worker_params("claude", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
-                    system_prompt: Some(RESTORED_INSTRUCTIONS.into()),
+                    captured: true,
+                    identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
                 },
             );
@@ -268,13 +274,14 @@ mod spawn_pty_restore_tests {
         tab.cwd = Some("restore-cwd".into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            captured: true,
             requested_model: Some("gpt-6-luna".into()),
             model: Some("gpt-6-luna".into()),
             requested_reasoning_effort: Some("xhigh".into()),
             resolved_reasoning_effort: Some("xhigh".into()),
             args: Some(vec!["--opaque-launch-arg".into(), "restored-value".into()]),
             agent_name: Some("restored-agent-name".into()),
-            system_prompt: Some(INSTRUCTIONS.into()),
+            identity_instructions: Some(INSTRUCTIONS.into()),
             permission_bypass_requested: false,
         };
 

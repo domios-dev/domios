@@ -197,6 +197,54 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
 }
 
 #[test]
+fn resume_with_context_keeps_the_conservative_default() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let params = crate::provider::AgentResumeParams {
+        session_id: CODEX_UUID.into(),
+        skip_permissions: false,
+        instance_id: Some("instance-parity".into()),
+        system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="high""#.into(),
+        ],
+        ..Default::default()
+    };
+    let command = provider
+        .build_resume_command_with_context(&params)
+        .expect("codex resume command");
+
+    assert!(!command.contains("parity-sentinel-91c3"));
+    assert!(command.contains("--no-daemon"));
+    assert!(command.contains("gpt-6-sol"));
+    assert!(command.contains("model_reasoning_effort=\"high\""));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+    } else {
+        assert_eq!(
+            command,
+            format!(
+                "codex resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
+            )
+        );
+        assert_eq!(
+            command,
+            crate::provider::append_launch_args(
+                provider
+                    .build_resume_command(CODEX_UUID, false)
+                    .expect("codex base resume"),
+                &params.args
+            )
+        );
+    }
+}
+
+#[test]
 fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
     if require_plugins().is_none() {
         return;

@@ -1019,13 +1019,14 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),
         requested_reasoning_effort: Some("xhigh".into()),
         resolved_reasoning_effort: Some("xhigh".into()),
         args: Some(vec!["--opaque-option".into(), "opaque-value".into()]),
         agent_name: Some("agent-label".into()),
-        system_prompt: Some("opaque-instruction-fragment".into()),
+        identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: true,
     };
     state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();
