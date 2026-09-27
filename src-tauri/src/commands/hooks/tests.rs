@@ -6,8 +6,8 @@ use super::{
 };
 use crate::agent::provider::{
     install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
-    IntegrationInstallOptions, IntegrationKind, IntegrationTrustGrantCapability,
-    ReadinessStrategy, TaskDelivery,
+    IntegrationInstallOptions, IntegrationKind, IntegrationTrustGrantCapability, ReadinessStrategy,
+    TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
 use std::cell::Cell;
@@ -394,11 +394,7 @@ impl RepairProbeProvider {
         Self::with_kind(id, IntegrationKind::ProviderManaged, status)
     }
 
-    fn with_kind(
-        id: &str,
-        integration_kind: IntegrationKind,
-        status: serde_json::Value,
-    ) -> Self {
+    fn with_kind(id: &str, integration_kind: IntegrationKind, status: serde_json::Value) -> Self {
         Self {
             id: id.into(),
             integration_kind,
@@ -691,16 +687,11 @@ fn opencode_plugin_file_integration_is_reconciled_at_startup() {
         None,
     ));
     assert_eq!(
-        config.agents["opencode"].extra["integration_consent_recorded_at"]
-            .as_integer(),
+        config.agents["opencode"].extra["integration_consent_recorded_at"].as_integer(),
         Some(1_790_403_600)
     );
 
-    let provider = RepairProbeProvider::with_kind(
-        "opencode",
-        IntegrationKind::PluginFile,
-        status,
-    );
+    let provider = RepairProbeProvider::with_kind("opencode", IntegrationKind::PluginFile, status);
     assert!(provider.has_installable_integration());
     let outcome = reconcile_probe(&provider, true, false);
     assert_eq!(outcome, repaired_with_grant());
@@ -719,11 +710,8 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
         "plugin_file_owned": false,
         "plugin_file_current": false
     });
-    let provider = RepairProbeProvider::with_kind(
-        "opencode",
-        IntegrationKind::PluginFile,
-        status.clone(),
-    );
+    let provider =
+        RepairProbeProvider::with_kind("opencode", IntegrationKind::PluginFile, status.clone());
     let mut config = crate::config::schema::AppConfig::default();
 
     assert!(!infer_consent_for_owned_install(
@@ -748,10 +736,7 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(provider.check_integration(), status);
     assert_eq!(
-        reconciliation_log_line(
-            &IntegrationRepairOutcome::ConsentMissing,
-            false
-        ),
+        reconciliation_log_line(&IntegrationRepairOutcome::ConsentMissing, false),
         "integration reconciliation: consent missing"
     );
 

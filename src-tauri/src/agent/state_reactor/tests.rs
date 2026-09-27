@@ -149,13 +149,15 @@ fn update_prompt_classification_is_a_manual_prompt_guard() {
 #[test]
 fn update_prompt_without_an_explicit_update_action_is_never_acted() {
     let prompt = classification(TabState::UpdatePrompt, 1.0, None);
-    assert_eq!(decide(TabStatus::Idle, Some(&prompt)), ReactorDecision::Ignore);
-    let keyed = classification(
-        TabState::UpdatePrompt,
-        1.0,
-        Some(keys_action(&["enter"])),
+    assert_eq!(
+        decide(TabStatus::Idle, Some(&prompt)),
+        ReactorDecision::Ignore
     );
-    assert_eq!(decide(TabStatus::Idle, Some(&keyed)), ReactorDecision::Ignore);
+    let keyed = classification(TabState::UpdatePrompt, 1.0, Some(keys_action(&["enter"])));
+    assert_eq!(
+        decide(TabStatus::Idle, Some(&keyed)),
+        ReactorDecision::Ignore
+    );
 }
 
 #[test]

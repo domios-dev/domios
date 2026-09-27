@@ -6,8 +6,9 @@ use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnaps
 use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 fn update_frame() -> String {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt");
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+    );
     std::fs::read_to_string(path).expect("Codex update fixture")
 }
 
@@ -15,7 +16,11 @@ fn menu_options(screen: &str) -> Vec<PromptOption> {
     screen
         .lines()
         .filter_map(|line| {
-            let line = line.trim().strip_prefix('›').unwrap_or(line.trim()).trim_start();
+            let line = line
+                .trim()
+                .strip_prefix('›')
+                .unwrap_or(line.trim())
+                .trim_start();
             let digits = line.chars().take_while(char::is_ascii_digit).count();
             let number = line.get(..digits)?.parse::<usize>().ok()?;
             let suffix = line.get(digits..)?.trim_start();
@@ -74,8 +79,8 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         screen_text: screen,
     };
 
-    let pending = parse_manual_update_prompt(&provider, &snapshot)
-        .expect("classified manual prompt");
+    let pending =
+        parse_manual_update_prompt(&provider, &snapshot).expect("classified manual prompt");
 
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).expect("tab");
@@ -86,15 +91,20 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
     tab.auto_approve = true;
     tab.permission_auto_confirm = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
-    assert!(super::trust_candidate::provider_classifies_non_auto_ack_dialog(
-        &fixture.service,
-        super::trust_candidate::ProviderDialogIdentity {
-            agent_type: "fixture",
-            tab_id: &tab_id,
-        },
-        &snapshot.screen_text,
-    ));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    assert!(
+        super::trust_candidate::provider_classifies_non_auto_ack_dialog(
+            &fixture.service,
+            super::trust_candidate::ProviderDialogIdentity {
+                agent_type: "fixture",
+                tab_id: &tab_id,
+            },
+            &snapshot.screen_text,
+        )
+    );
     fixture.service.apply_prompt_decision_with_screen(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
@@ -197,7 +207,10 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     tab.permission_auto_confirm = true;
     mux.register_alias(crate::service::general_agent::GENERAL_ALIAS, &tab_id);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
 
     assert_eq!(
         fixture
@@ -222,9 +235,11 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
         provider_classifies_trust,
         "provider trust classification remains independent of provenance"
     );
-    assert!(!crate::service::directory_trust::directory_trust_check_applies(
-        fixture.service.mux.read().get_tab(&tab_id).expect("tab")
-    ));
+    assert!(
+        !crate::service::directory_trust::directory_trust_check_applies(
+            fixture.service.mux.read().get_tab(&tab_id).expect("tab")
+        )
+    );
 
     assert_eq!(
         crate::service::general_agent::blocker::classify(&pending, &screen, false)
@@ -277,7 +292,10 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
     tab.cwd = Some("C:\\Users\\dev\\workspace".into());
     tab.pty_id = Some("pty-user-dir-trust".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
     fixture.service.apply_prompt_decision_with_screen(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
@@ -295,7 +313,11 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
         .expect("folder trust options remain available to tab respond");
     assert_eq!(pending.options, visible);
     assert_eq!(
-        pending.options.iter().map(|option| option.value.as_str()).collect::<Vec<_>>(),
+        pending
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
         ["1", "2"]
     );
     assert_eq!(
@@ -335,7 +357,10 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         .into(),
     );
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(provider));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
     {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).expect("Codex tab");
