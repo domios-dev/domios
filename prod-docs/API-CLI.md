@@ -25,7 +25,8 @@ one `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":...,"cod
 JSON envelope when passed `--json`; stderr stays empty and the command exits
 non-zero. Structured daemon error data stays under `data`, including
 `invalid_model` fields such as the provider, requested id, closest catalogue
-ids, and refresh command.
+ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the
+provider choices and a message asking for `--agent`.
 
 ### Mesh CLI failures
 
@@ -100,11 +101,24 @@ CodeTerm automatically detects Claude Code and other agents:
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
 Choose a model with `codeterm agent models <provider>` and pass its id with
-`codeterm agent spawn <provider> --model <id>`. Providers with an authoritative
-catalogue refuse unknown ids before creating a tab and list close catalogue ids
-in the error. Free-form providers accept provider-owned ids. If a live catalogue
-is unavailable, the requested id is launched unchanged and the response includes
-a warning; CodeTerm does not substitute a default model.
+`codeterm agent spawn [provider] --model <id>`. When provider is omitted, a
+uniquely advertised bare id selects its provider; otherwise spawn uses the
+configured default provider. Providers with an authoritative
+catalogue refuse unknown ids before creating a tab and list valid catalogue ids
+in the error. Free-form providers also validate ids against a published live
+model list. If no live list is available, the requested id is passed through
+unchanged. Provider-qualified ids select their provider; an unqualified id
+advertised by one provider routes to that provider. If multiple providers
+advertise it, `plan task dispatch` requires `--agent`; `agent spawn` requires
+the provider as its positional argument. Ambiguous ids are refused instead of
+falling through to the default provider. A provider alias advertised by another
+provider is refused instead of being passed across providers.
+
+Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and
+`session_model` separate. The resolved field stays null until launch resolution
+identifies the model; the session field stays null until detection reads that
+attempt's bound session. A different detected model is stored in
+`model_identity_mismatch` and raises one dispatcher notice.
 
 ### Open agent shells (`chatBackend`)
 
@@ -187,4 +201,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

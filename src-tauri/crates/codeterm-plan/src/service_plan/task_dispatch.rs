@@ -11,6 +11,8 @@ use super::{PlanError, PlanStore};
 #[derive(Debug, Clone)]
 pub(super) struct DispatchedAttemptMetadata {
     model: Option<String>,
+    requested_model: Option<String>,
+    provider_resolved_model: Option<String>,
     reasoning_effort: Option<String>,
 }
 
@@ -425,6 +427,8 @@ impl PlanStore {
         authorized_gates: Option<Vec<String>>,
         placement: crate::plan::WorkerPlacement,
         model: Option<String>,
+        requested_model: Option<String>,
+        provider_resolved_model: Option<String>,
         reasoning_effort: Option<String>,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
@@ -448,6 +452,8 @@ impl PlanStore {
             startup_owner_observation_made,
             Some(DispatchedAttemptMetadata {
                 model,
+                requested_model,
+                provider_resolved_model,
                 reasoning_effort,
             }),
             now_ms,
@@ -569,6 +575,8 @@ impl PlanStore {
             attempt.agent_type = provider.map(str::to_string);
             if let Some(metadata) = dispatched_metadata.as_ref() {
                 attempt.model = metadata.model.clone();
+                attempt.requested_model = metadata.requested_model.clone();
+                attempt.provider_resolved_model = metadata.provider_resolved_model.clone();
                 attempt.reasoning_effort = metadata.reasoning_effort.clone();
             }
             attempt.authorized_gates = authorized_gates.clone();

@@ -31,17 +31,10 @@ impl ServiceContext {
                     let note_surviving_shell_exit = !crate::crash::shutdown::is_shutting_down()
                         && {
                             let mux = self.mux.read();
-                            mux.get_tab(tab_id).is_some_and(|tab| {
-                                tab.agent_type.is_some()
-                                    && !tab.agent_booting
-                                    && matches!(
-                                        tab.boot_stage,
-                                        Some(
-                                            crate::service::boot_stage::BootStage::ProviderReady
-                                                | crate::service::boot_stage::BootStage::AgentReady
-                                        )
-                                    )
-                            })
+                            mux.get_tab(tab_id).is_some_and(
+                                crate::service::launch_readiness::
+                                    surviving_shell_exit_is_after_launch_ack,
+                            )
                         };
                     if note_surviving_shell_exit {
                         self.note_provider_exit_in_surviving_shell(tab_id);

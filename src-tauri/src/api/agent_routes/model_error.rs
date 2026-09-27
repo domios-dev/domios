@@ -12,7 +12,7 @@ pub(super) fn validate_agent_model(
 impl From<crate::service::spawn::InvalidModelError> for super::SpawnRejection {
     fn from(error: crate::service::spawn::InvalidModelError) -> Self {
         let mut details = error.rpc_data();
-        details["code"] = serde_json::json!("invalid_model");
+        details["code"] = details["type"].clone();
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             body: serde_json::json!({"ok": false, "error": details}),
