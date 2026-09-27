@@ -59,7 +59,7 @@ impl PlanStore {
                     review_round: 0,
                     review_oracle: None,
                     review_evidence: vec![],
-                    key,
+                    key: Some(key),
                     review_override: None,
                     review_audit: vec![],
                     status_label: None,

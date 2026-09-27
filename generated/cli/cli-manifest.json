@@ -11237,6 +11237,54 @@
               "subcommands": []
             },
             {
+              "name": "split",
+              "about": "Split a task into dispatchable child tasks",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "child",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CHILDREN",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "update",
               "about": "Update task metadata, status, quality fields, or lane assignment",
               "aliases": [],

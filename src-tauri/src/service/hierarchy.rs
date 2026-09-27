@@ -631,11 +631,13 @@ impl ServiceContext {
                 let persistence = eff_task_id
                     .as_deref()
                     .ok_or_else(|| {
-                        report_persistence::report_persistence_incident(
-                            tab_id,
-                            plan_id,
-                            None,
-                            "the report resolved a plan but no exact task",
+                        report_persistence::stale_failure(
+                            report_persistence::report_persistence_incident(
+                                tab_id,
+                                plan_id,
+                                None,
+                                "the report resolved a plan but no exact task",
+                            ),
                         )
                     })
                     .and_then(|task_id| {

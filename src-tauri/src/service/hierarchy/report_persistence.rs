@@ -12,6 +12,7 @@ use crate::service::plan_batch_authority::{
 use crate::service::ServiceContext;
 use codeterm_types::agent::ReportOutcomeClass;
 
+#[derive(Debug)]
 pub(super) struct ReportPersistenceFailure {
     pub cause: String,
     pub report_outcome: ReportOutcomeClass,
@@ -48,7 +49,7 @@ fn incident_failure(
     ))
 }
 
-fn stale_failure(cause: String) -> ReportPersistenceFailure {
+pub(super) fn stale_failure(cause: String) -> ReportPersistenceFailure {
     ReportPersistenceFailure {
         cause,
         report_outcome: ReportOutcomeClass::StaleBindingConflict,

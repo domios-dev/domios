@@ -2422,6 +2422,15 @@ Show one task in the plan with full detail (body, criteria, test_plan, correctne
 - `--siblings` — List sibling tasks (open-only unless --all)
 - `<task_id>`
 
+#### `codeterm plan task split`
+
+Split a task into dispatchable child tasks
+
+- `--child`
+- `--from-file`
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task update`
 
 Update task metadata, status, quality fields, or lane assignment
