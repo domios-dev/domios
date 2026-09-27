@@ -10,6 +10,7 @@ mod model_identity_tests {
             Some("gpt-5.6-luna"),
             None,
             "gpt-5.6-terra",
+            false,
         );
 
         assert!(update.model_changed);
@@ -35,6 +36,7 @@ mod model_identity_tests {
             Some("gpt-5.6-luna"),
             None,
             "gpt-5.6-terra",
+            false,
         );
 
         assert!(!update.model_changed);
@@ -59,6 +61,7 @@ mod model_identity_tests {
             Some("gpt-5.6-luna"),
             None,
             "GPT-5.6-LUNA",
+            true,
         );
 
         assert!(!update.model_changed);
@@ -68,7 +71,7 @@ mod model_identity_tests {
 
     #[test]
     fn fallback_without_provider_resolution_uses_observed_model() {
-        let update = model_identity_update(None, None, Some("sonnet"), None, None, "opus");
+        let update = model_identity_update(None, None, Some("sonnet"), None, None, "opus", false);
 
         assert_eq!(
             update.mismatch.as_ref().unwrap().provider_resolved_model,
@@ -997,6 +1000,52 @@ mod model_refresh_tests {
             notifications[0].title,
             "model fallback: requested sonnet, actual opus"
         );
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn qualified_catalogue_model_matches_bare_runtime_model_without_notice() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("opencode".into());
+        tab.agent_requested_model = Some("opencode/big-pickle".into());
+        tab.agent_provider_resolved_model = Some("opencode/big-pickle".into());
+        let fixture = ServiceFixture::new(mux);
+        let (provider, sessions) =
+            SessionModelProvider::with_provider("opencode", &["session-live"]);
+        sessions
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "big-pickle".into());
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+        crate::agent::model_catalog::put_live(
+            "opencode",
+            vec![crate::agent::provider::ModelInfo {
+                id: "opencode/big-pickle".into(),
+                display_name: "Big Pickle".into(),
+                ..Default::default()
+            }],
+            Some("opencode/big-pickle".into()),
+        );
+
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_model.as_deref(), Some("big-pickle"));
+        assert_eq!(
+            tab.agent_provider_resolved_model.as_deref(),
+            Some("big-pickle")
+        );
+        assert!(tab.model_identity_mismatch.is_none());
+        drop(mux);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+        crate::agent::model_catalog::unregister("opencode");
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
