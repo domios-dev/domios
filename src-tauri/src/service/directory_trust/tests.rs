@@ -3,9 +3,9 @@ use std::cell::Cell;
 use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance,
-    directory_trust_skip_reason, inherited_workspace_provenance, legacy_auto_approve_permitted,
-    DirectoryTrustRefusal, TrustDecision, TrustLedger,
+    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
+    inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
+    TrustDecision, TrustLedger,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -80,18 +80,16 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trust_responder_never_writes_on_a_non_trust_dialog() {
-    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt");
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+    );
     let screen = std::fs::read_to_string(fixture_path).unwrap();
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-update-trust".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
-            "claude",
-        )));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude"),
+    ));
 
     let decision = fixture
         .service
@@ -123,9 +121,13 @@ fn core_trust_decision_answers_claude_folder_trust_fixtures() {
     ] {
         let screen = std::fs::read_to_string(fixture_dir.join(file)).expect("Claude trust frame");
         assert_eq!(
-            decide(true, file, &screen, &parking_lot::Mutex::new(TrustLedger::default()), |s| {
-                provider.directory_trust_prompt_response(s)
-            }),
+            decide(
+                true,
+                file,
+                &screen,
+                &parking_lot::Mutex::new(TrustLedger::default()),
+                |s| { provider.directory_trust_prompt_response(s) }
+            ),
             TrustDecision::Answer {
                 step: step.to_vec()
             },

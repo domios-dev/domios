@@ -85,9 +85,8 @@ impl ServiceContext {
             return Ok(());
         }
         self.require_agent_provider_ready(provider)?;
-        let model = model.map(|model| {
-            crate::agent::model_catalog::resolve_model(provider, Some(model)).id
-        });
+        let model =
+            model.map(|model| crate::agent::model_catalog::resolve_model(provider, Some(model)).id);
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             provider,

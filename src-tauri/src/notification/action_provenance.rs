@@ -81,9 +81,12 @@ fn action_provenance_caller_action_cannot_carry_an_invoke_target() {
     // The one crossing into stored actions is total and has no invoke arm.
     for adopted in adopt_caller_actions(every_kind) {
         assert!(
-            matches!(adopted, NotificationAction::Url { .. }
-                | NotificationAction::Dismiss { .. }
-                | NotificationAction::Answer { .. }),
+            matches!(
+                adopted,
+                NotificationAction::Url { .. }
+                    | NotificationAction::Dismiss { .. }
+                    | NotificationAction::Answer { .. }
+            ),
             "caller actions remain in the user-facing action set"
         );
     }

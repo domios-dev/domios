@@ -114,15 +114,17 @@ fn restored_snapshot_launch_command_inner(
             ),
         },
         None => match service {
-            Some(service) => crate::service::launch_session_detection::marked_agent_command_for_service(
-                service,
-                tab_id,
-                provider_id,
-                &input.params,
-                input.launch_task.as_deref(),
-                None,
-                registry,
-            ),
+            Some(service) => {
+                crate::service::launch_session_detection::marked_agent_command_for_service(
+                    service,
+                    tab_id,
+                    provider_id,
+                    &input.params,
+                    input.launch_task.as_deref(),
+                    None,
+                    registry,
+                )
+            }
             None => crate::service::launch_session_detection::marked_agent_command(
                 tab_id,
                 provider_id,

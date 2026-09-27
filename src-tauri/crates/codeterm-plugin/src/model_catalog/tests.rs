@@ -3,8 +3,8 @@
 
 use super::*;
 
-mod model_resolution;
 mod cache_schema;
+mod model_resolution;
 
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
 // test depends on the registry being empty or seeing another test's writes.
@@ -200,10 +200,7 @@ fn live_catalog_keeps_per_model_efforts_authoritative_over_presentation_override
 
     let merged = overlay_only(&[live], &[presentation]);
 
-    assert_eq!(
-        merged[0].reasoning_efforts.as_ref().unwrap()[0].id,
-        "max"
-    );
+    assert_eq!(merged[0].reasoning_efforts.as_ref().unwrap()[0].id, "max");
 }
 
 #[test]

@@ -221,7 +221,10 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
     if opts.detach || opts.stdin.is_some() || conversation.is_empty() {
         return err("exec conversation requires stages, piped stdin, and a foreground process");
     }
-    if conversation.iter().any(|stage| stage.await_response_ids.is_empty()) {
+    if conversation
+        .iter()
+        .any(|stage| stage.await_response_ids.is_empty())
+    {
         return err("exec conversation stage has no awaited response ids");
     }
 
@@ -340,20 +343,23 @@ fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> S
         terminate_child(&mut child);
     }
 
-    let (status_code, wait_failure) = match child.wait_timeout(
-        deadline.saturating_duration_since(std::time::Instant::now()),
-    ) {
-        Ok(Some(status)) => (status.code().unwrap_or(-1), None),
-        Ok(None) => {
-            terminate_child(&mut child);
-            let status = child.wait().ok();
-            (
-                status.and_then(|status| status.code()).unwrap_or(-1),
-                Some(format!("{} timed out after {}ms", opts.bin, timeout.as_millis())),
-            )
-        }
-        Err(error) => (-1, Some(format!("wait {}: {error}", opts.bin))),
-    };
+    let (status_code, wait_failure) =
+        match child.wait_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Some(status)) => (status.code().unwrap_or(-1), None),
+            Ok(None) => {
+                terminate_child(&mut child);
+                let status = child.wait().ok();
+                (
+                    status.and_then(|status| status.code()).unwrap_or(-1),
+                    Some(format!(
+                        "{} timed out after {}ms",
+                        opts.bin,
+                        timeout.as_millis()
+                    )),
+                )
+            }
+            Err(error) => (-1, Some(format!("wait {}: {error}", opts.bin))),
+        };
 
     let drain = Duration::from_millis(400);
     let drain_deadline = std::time::Instant::now() + drain;
@@ -891,8 +897,14 @@ mod tests {
         });
 
         let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-        assert_eq!(out["code"], 0, "conversation process must exit cleanly: {out}");
-        assert!(out.get("error").is_none(), "conversation must complete: {out}");
+        assert_eq!(
+            out["code"], 0,
+            "conversation process must exit cleanly: {out}"
+        );
+        assert!(
+            out.get("error").is_none(),
+            "conversation must complete: {out}"
+        );
         let stdout = out["stdout"].as_str().unwrap_or_default();
         assert!(stdout.contains("\"id\":1"));
         assert!(stdout.contains("\"id\":2"));

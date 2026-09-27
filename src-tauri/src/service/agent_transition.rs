@@ -208,9 +208,7 @@ impl ServiceContext {
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
         let changed_bindings = role_team_bindings(&mux)
             .into_iter()
-            .filter_map(|(id, binding)| {
-                (bindings_before.get(&id) != Some(&binding)).then_some(id)
-            })
+            .filter_map(|(id, binding)| (bindings_before.get(&id) != Some(&binding)).then_some(id))
             .collect::<Vec<_>>();
         drop(mux);
         for changed_tab_id in changed_bindings {

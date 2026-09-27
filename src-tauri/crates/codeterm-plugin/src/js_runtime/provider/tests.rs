@@ -1,11 +1,11 @@
-use super::*;
 use super::wire::encode_cwd_dashed;
+use super::*;
 use crate::provider::{
     AgentLaunchParams, BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy,
 };
+use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
-use serde_json::json;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
     let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");

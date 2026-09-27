@@ -152,11 +152,7 @@ impl MockProvider {
         }
     }
 
-    pub fn with_model_reasoning_efforts(
-        id: &str,
-        model: &str,
-        levels: &[&str],
-    ) -> Self {
+    pub fn with_model_reasoning_efforts(id: &str, model: &str, levels: &[&str]) -> Self {
         let mut provider = Self::with_reasoning_efforts(id, &["low", "medium", "high", "xhigh"]);
         provider.models = vec![ModelInfo {
             default_reasoning_effort: None,
@@ -207,10 +203,7 @@ impl MockProvider {
         self
     }
 
-    pub fn with_parsed_prompt(
-        mut self,
-        prompt: codeterm_types::pty::PendingPrompt,
-    ) -> Self {
+    pub fn with_parsed_prompt(mut self, prompt: codeterm_types::pty::PendingPrompt) -> Self {
         self.parsed_prompt = Some(prompt);
         self
     }
@@ -278,9 +271,14 @@ impl AgentProvider for MockProvider {
         }
         cmd
     }
-    fn release_tab_launch_artifacts(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+    fn release_tab_launch_artifacts(
+        &self,
+        tab_id: &str,
+        instance_id: &str,
+    ) -> Result<bool, String> {
         if let Some(log) = &self.launch_artifact_release_log {
-            log.lock().push((tab_id.to_string(), instance_id.to_string()));
+            log.lock()
+                .push((tab_id.to_string(), instance_id.to_string()));
             return Ok(true);
         }
         Ok(false)
@@ -380,7 +378,10 @@ impl AgentProvider for MockProvider {
     fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
     }
-    fn parse_directory_trust_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+    fn parse_directory_trust_prompt(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
     }
     fn supports_directory_trust_prompt_parsing(&self) -> bool {
