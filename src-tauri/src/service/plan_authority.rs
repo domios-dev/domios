@@ -3,7 +3,9 @@ use crate::plan::{AgentRef, PlanEvidenceClass, PlanMode, PlanningAuthor, Plannin
 use crate::service::plan::PlanError;
 use crate::service::plan_reconcile::tab_has_live_agent;
 use crate::service::ServiceContext;
+use codeterm_types::pty::BootStage;
 use serde_json::Value;
+use std::time::Instant;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AuthenticatedPlanCaller {
@@ -29,6 +31,9 @@ pub(crate) enum PlanAuthorityError {
     /// is identical while the remedy is not: this one is repaired by fixing the
     /// provider integration, not by rebinding.
     SessionUnregistered,
+    SessionBindingPending,
+    PlanNotApproved,
+    OrchestratorRequired,
     /// Binding is live but the caller is neither the Plan owner nor a draft
     /// Planner for this plan.
     RoleUnauthorized,
@@ -41,8 +46,15 @@ impl PlanAuthorityError {
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
             Self::BindingForeign => "plan_binding_authorization_required",
             Self::SessionUnregistered => "plan_binding_session_unregistered",
+            Self::SessionBindingPending => "session_binding_pending",
+            Self::PlanNotApproved => "plan_execution_requires_approval",
+            Self::OrchestratorRequired => "plan_orchestrator_required",
             Self::RoleUnauthorized => "plan_role_authorization_required",
         }
+    }
+
+    pub(crate) fn is_retryable(self) -> bool {
+        matches!(self, Self::SessionBindingPending)
     }
 
     fn message(self) -> &'static str {
@@ -54,6 +66,15 @@ impl PlanAuthorityError {
             Self::BindingForeign => "the live bound planning session is required",
             Self::SessionUnregistered => {
                 "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
+            }
+            Self::SessionBindingPending => {
+                "the plan write waited for this launch's session-binding event until its deadline; retry after this tab's session binding is registered"
+            }
+            Self::PlanNotApproved => {
+                "the Plan graph must be approved before execution actions"
+            }
+            Self::OrchestratorRequired => {
+                "only the live Plan Orchestrator has execution authority"
             }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
@@ -108,9 +129,36 @@ fn binding_failure_class(
     }
     // The daemon-injected launch nonce proves the caller is inside the tab, so a foreign caller cannot reach this arm.
     if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
-        return PlanAuthorityError::SessionUnregistered;
+        return if launch_binding_is_pending(tab) {
+            PlanAuthorityError::SessionBindingPending
+        } else {
+            PlanAuthorityError::SessionUnregistered
+        };
     }
     PlanAuthorityError::BindingForeign
+}
+
+pub(crate) fn launch_binding_is_pending(tab: &Tab) -> bool {
+    tab.pty_id.is_some()
+        && tab.exit_suspected_at.is_none()
+        && tab.agent_set_at.is_some_and(|set_at| {
+            set_at.elapsed() < crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+        })
+        && matches!(
+            tab.boot_stage,
+            Some(
+                BootStage::PtyStarting
+                    | BootStage::PtySpawned
+                    | BootStage::ReaderReady
+                    | BootStage::ShellReady
+                    | BootStage::AgentLaunching
+                    | BootStage::LaunchWritten
+                    | BootStage::ProviderReady
+                    | BootStage::PreparingRoleInstructions
+                    | BootStage::DeliveringInstructions
+                    | BootStage::AgentReady
+            )
+        )
 }
 
 impl ServiceContext {
@@ -119,11 +167,29 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<(), String> {
-        match self.authorize_draft_structure_mutation(plan_id, caller)? {
+        self.authorize_plan_orchestrator_typed(plan_id, caller)
+            .map_err(String::from)
+    }
+
+    pub(crate) fn authorize_plan_orchestrator_typed(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(), PlanAuthorityError> {
+        match self.classify_planning_caller(plan_id, caller)? {
             PlanningAuthor::User => Ok(()),
-            PlanningAuthor::Planner { .. } => {
-                Err("only the live Plan Orchestrator has execution authority".into())
-            }
+            PlanningAuthor::Planner { .. } => Err(PlanAuthorityError::OrchestratorRequired),
+        }
+    }
+
+    pub(crate) async fn authorize_plan_orchestrator_async(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(), PlanAuthorityError> {
+        match self.classify_planning_caller_async(plan_id, caller).await? {
+            PlanningAuthor::User => Ok(()),
+            PlanningAuthor::Planner { .. } => Err(PlanAuthorityError::OrchestratorRequired),
         }
     }
 
@@ -231,14 +297,79 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<PlanningAuthor, String> {
-        self.classify_planning_caller(plan_id, caller)
+        self.authorize_draft_structure_mutation_typed(plan_id, caller)
             .map_err(String::from)
+    }
+
+    pub(crate) fn authorize_draft_structure_mutation_typed(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        self.classify_planning_caller(plan_id, caller)
+    }
+
+    pub(crate) async fn authorize_draft_structure_mutation_async(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        self.classify_planning_caller_async(plan_id, caller).await
     }
 
     /// Full planning-authority verdict with the typed error preserved so the
     /// socket layer can attach a distinct diagnostic and the rebind path can
     /// tell a recoverable stale binding from a foreign caller.
     pub(crate) fn classify_planning_caller(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        let immediate = self.classify_planning_caller_now(plan_id, caller);
+        if immediate != Err(PlanAuthorityError::SessionBindingPending) {
+            return immediate;
+        }
+        let deadline = self.planning_binding_deadline(caller);
+        crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
+            match self.classify_planning_caller_now(plan_id, caller) {
+                Err(PlanAuthorityError::SessionBindingPending) => None,
+                result => Some(result),
+            }
+        })
+        .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
+    }
+
+    pub(crate) async fn classify_planning_caller_async(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        let immediate = self.classify_planning_caller_now(plan_id, caller);
+        if immediate != Err(PlanAuthorityError::SessionBindingPending) {
+            return immediate;
+        }
+        let deadline = self.planning_binding_deadline(caller);
+        crate::service::general_agent::binding_wait::wait_for_session_binding_async(
+            deadline,
+            || match self.classify_planning_caller_now(plan_id, caller) {
+                Err(PlanAuthorityError::SessionBindingPending) => None,
+                result => Some(result),
+            },
+        )
+        .await
+        .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
+    }
+
+    fn planning_binding_deadline(&self, caller: &AuthenticatedPlanCaller) -> Instant {
+        self.mux
+            .read()
+            .get_tab(caller.tab_id.as_deref().unwrap_or_default())
+            .and_then(|tab| tab.agent_set_at)
+            .map(|started_at| started_at + crate::service::worker_ack::STARTUP_BINDING_DEADLINE)
+            .unwrap_or_else(Instant::now)
+    }
+
+    fn classify_planning_caller_now(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -412,6 +543,23 @@ impl ServiceContext {
         Ok(())
     }
 
+    pub(crate) async fn authorize_execution_action_async(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(), PlanAuthorityError> {
+        self.authorize_plan_orchestrator_async(plan_id, caller)
+            .await?;
+        let plan = self
+            .plan_store
+            .get(plan_id)
+            .ok_or(PlanAuthorityError::PlanNotFound)?;
+        if plan.planning_state != PlanningState::Approved {
+            return Err(PlanAuthorityError::PlanNotApproved);
+        }
+        Ok(())
+    }
+
     pub(crate) fn authorize_task_execution_action(
         &self,
         task_id: &str,
@@ -419,6 +567,20 @@ impl ServiceContext {
     ) -> Result<(String, String), String> {
         let detail = self.plan_store.show_task(task_id).ok_or("task not found")?;
         self.authorize_execution_action(&detail.plan_id, caller)?;
+        Ok((detail.plan_id, detail.task.id))
+    }
+
+    pub(crate) async fn authorize_task_execution_action_async(
+        &self,
+        task_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<(String, String), PlanAuthorityError> {
+        let detail = self
+            .plan_store
+            .show_task(task_id)
+            .ok_or(PlanAuthorityError::PlanNotFound)?;
+        self.authorize_execution_action_async(&detail.plan_id, caller)
+            .await?;
         Ok((detail.plan_id, detail.task.id))
     }
 

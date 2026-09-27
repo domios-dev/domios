@@ -110,6 +110,7 @@ console.log("\n--- discoverModels ---\n");
   const models = p.discoverModels() as Array<{
     id: string;
     reasoningEfforts?: Array<{ id: string; displayName: string; description?: string }>;
+    defaultReasoningEffort?: string;
   }>;
   eq(
     models.map((model) => [model.id, model.reasoningEfforts?.map((effort) => effort.id)]),
@@ -117,8 +118,14 @@ console.log("\n--- discoverModels ---\n");
       ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
       ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
       ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+      ["gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
     ],
     "live reasoning levels are carried per model without adding unsupported levels",
+  );
+  eq(
+    models.find((model) => model.id === "gpt-5.6-sol")?.defaultReasoningEffort,
+    "low",
+    "live per-model default reasoning effort is carried from cache",
   );
 }
 

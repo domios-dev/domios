@@ -13,6 +13,8 @@ if (process.platform !== "win32") {
     const token = 'opaque-launch-token "quoted"\nsecond-line \\ ${notAnExpression}';
     const taskPath = path.join(root, "instructions.txt");
     const receiptPath = path.join(root, "receipt.json");
+    const releasePath = path.join(root, "release-uri.txt");
+    const releaseLogPath = path.join(root, "release-log.txt");
     fs.writeFileSync(taskPath, token, "utf8");
     fs.mkdirSync(path.join(root, ".codex"));
     const quote = (value: string) => "'" + value.replace(/'/g, "''") + "'";
@@ -28,6 +30,20 @@ if (process.platform !== "win32") {
     const script = `$ErrorActionPreference = 'Stop'
 $env:USERPROFILE = ${quote(root)}
 $env:CODETERM_TAB_ID = 'owned-launch-fixture'
+$env:CODETERM_API_URL = 'http://127.0.0.1:7686'
+$env:CODETERM_API_TOKEN = 'fixture-token'
+$script:ReleaseResult = $true
+function Invoke-RestMethod {
+  [CmdletBinding()]
+  param($Method, $Uri, $Headers, $ContentType, $Body)
+  [IO.File]::WriteAllText((Join-Path $env:USERPROFILE 'release-uri.txt'), $Uri)
+  $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
+  if (Test-Path -LiteralPath $profilePath) {
+    Add-Content -LiteralPath ${quote(releaseLogPath)} -Value ([IO.File]::ReadAllText($profilePath))
+    if ($script:ReleaseResult) { Remove-Item -LiteralPath $profilePath -Force }
+  }
+  return @{ released = $script:ReleaseResult }
+}
 function codex {
   $profilePath = Join-Path $env:USERPROFILE '.codex/codeterm-owned-launch-fixture.config.toml'
   $profileText = [IO.File]::ReadAllText($profilePath)
@@ -40,7 +56,15 @@ function codex {
 }
 ${command}`;
     for (const shell of ["powershell.exe", "pwsh.exe"]) {
+      for (const name of fs.readdirSync(path.join(root, ".codex"))) {
+        fs.rmSync(path.join(root, ".codex", name), { recursive: true, force: true });
+      }
       fs.rmSync(receiptPath, { force: true });
+      fs.rmSync(releaseLogPath, { force: true });
+      fs.writeFileSync(
+        path.join(root, ".codex", "codeterm-owned-launch-fixture.config.toml"),
+        "# codeterm-instance: instance-launch-test\n[projects.'C:\\Previous']\ntrust_level = 'trusted'\n",
+      );
       const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8" });
       if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT" && shell === "pwsh.exe") {
         console.log("SKIP PowerShell 7 is not installed");
@@ -49,8 +73,31 @@ ${command}`;
       assert.equal(result.status, 0, result.stderr || result.error?.message);
       assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token);
       assert.equal(fs.readdirSync(path.join(root, ".codex")).length, 0);
+      assert.equal(
+        fs.readFileSync(releasePath, "utf8"),
+        "http://127.0.0.1:7686/api/tabs/owned-launch-fixture/launch-artifacts/release",
+      );
+      const releasedProfiles = fs.readFileSync(releaseLogPath, "utf8");
+      assert.match(releasedProfiles, /\[projects\.'C:\\Previous'\]/,
+        "an uncarried profile is released before the next launch can overwrite it");
+      assert.equal(releasedProfiles.split("# codeterm-instance:").length - 1, 2,
+        "prior and current profiles both pass through release");
       assert.equal(fs.readFileSync(taskPath, "utf8"), token);
       console.log(`PASS ${shell} exact instruction round trip, retained brief, and owned profile cleanup`);
+
+      const unownedProfile = "developer_instructions = 'foreign profile data'\n";
+      const profilePath = path.join(root, ".codex", "codeterm-owned-launch-fixture.config.toml");
+      fs.writeFileSync(profilePath, unownedProfile, "utf8");
+      fs.rmSync(receiptPath, { force: true });
+      const refusedScript = script.replace("$script:ReleaseResult = $true", "$script:ReleaseResult = $false");
+      const refused = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(refusedScript, "utf16le").toString("base64")], { encoding: "utf8" });
+      assert.equal(refused.status, 0, refused.stderr || refused.error?.message);
+      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token,
+        "Codex still receives the task when a leftover unowned profile cannot be released");
+      const preservedName = fs.readdirSync(path.join(root, ".codex")).find((name) => name.includes("-preserved-"));
+      assert.ok(preservedName, "the refused profile is moved aside instead of overwritten");
+      assert.equal(fs.readFileSync(path.join(root, ".codex", preservedName!), "utf8"), unownedProfile,
+        "the unowned profile contents remain intact");
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

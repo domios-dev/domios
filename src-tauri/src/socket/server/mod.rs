@@ -41,7 +41,7 @@ mod plan_review;
 mod plan_role_helpers;
 mod plan_skills_rpc;
 mod plan_task_authority;
-mod plan_task_dispatch;
+pub(crate) mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;

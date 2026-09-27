@@ -143,7 +143,7 @@ console.log("\n--- task instructions launch ---\n");
   );
   assert(!cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows launch line never deletes the task file, so a relaunch can still read it");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
-  assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
+  assert(cmd.includes("finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit after trust carry-over succeeds");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup" });
@@ -219,7 +219,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
-    "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "parseSessionMessages", "classifyTabState",
+    "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
@@ -722,13 +722,12 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "session_start hook command carries its ownership marker", cmd);
   assert(
-    writtenScript.includes("codeterm-profile-cleanup-v1") &&
-      writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
-      writtenScript.includes("del /F /Q") &&
+    !writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      !writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
       writtenScript.includes("curl.exe") &&
       writtenScript.includes("--max-time 30") &&
       writtenScript.includes("X-CodeTerm-Hook: "),
-    "Windows session_start removes the tab-scoped profile after Codex loads it",
+    "Windows SessionStart leaves the active profile for Codex to finish writing",
     writtenScript,
   );
   const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
@@ -826,7 +825,8 @@ for (const [name, fixture] of [
   assert(files.get(configPath)?.includes("enabled = true") === true, "install expands matching trust");
   eq(files.get(ownershipPath), hooksPath, "owned trust expansion is recorded");
   files.set(configPath, `${files.get(configPath)}foreign_after = "preserve"\n`);
-  assert(p.uninstallIntegration().ok === true, "owned trust uninstall succeeds");
+  const uninstall = p.uninstallIntegration();
+  assert(uninstall.ok === true, "owned trust uninstall succeeds: " + JSON.stringify(uninstall));
   const after = files.get(configPath) || "";
   assert(after.includes("enabled = false"), "uninstall revokes only CodeTerm-owned trust");
   assert(after.includes('foreign_after = "preserve"'), "uninstall preserves later foreign config edits");
@@ -868,7 +868,7 @@ for (const [name, fixture] of [
       },
     }));
     const result = p.installIntegration(7686, { consent: true });
-    assert(result.ok === false, `Codex install fails at write ${failAt}`);
+    assert(result.ok === false, `Codex install fails at write ${failAt}: attempted ${writeAttempt} writes, ${JSON.stringify(result)}`);
     eq([...files.entries()].sort(), [...initial.entries()].sort(), `write ${failAt} restores every exact prior byte`);
   }
 }

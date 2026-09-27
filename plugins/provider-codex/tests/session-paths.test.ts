@@ -48,7 +48,7 @@ type Query = { db: string; sql: string; params: unknown[] };
 const baseHost = (
   index: string,
   sqliteRows: (db: string, sql: string, params: unknown[]) => unknown[],
-  options?: { stateOverride?: string | null; existing?: string[] },
+  options?: { stateOverride?: string | null; existing?: string[]; rollouts?: Record<string, string> },
 ) => {
   const existing = new Set([
     indexPath,
@@ -98,7 +98,7 @@ const baseHost = (
           ];
         },
         readFileHead: () => null,
-        readFileTail: () => null,
+        readFileTail: (file: string) => options?.rollouts?.[file] ?? null,
         readJson: () => null,
         writeJson: () => true,
         writeFile: () => true,
@@ -364,6 +364,30 @@ console.log("\n--- detection rejects an absent requested cwd ---\n");
   const p = loadCodexWithHost(fixture.host);
   eq(p.detectSessionId(missingCwd), null, "an absent requested cwd is never bound");
   eq(fixture.queries.length, 0, "an absent requested cwd avoids unrelated state-row reads");
+}
+
+console.log("\n--- reasoning effort comes from the exact thread rollout ---\n");
+{
+  const rolloutPath = "/tmp/home/.codex/sessions/rollout-owned.jsonl";
+  const rollout = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "session-effort", "turn-context-effort.jsonl"),
+    "utf8",
+  );
+  const fixture = baseHost(index, (_db, _sql, params) =>
+    params[0] === projectSession
+      ? [{ model: "gpt-5.6-sol", rollout_path: rolloutPath, cwd: projectCwd }]
+      : [],
+    { existing: [rolloutPath], rollouts: { [rolloutPath]: rollout } });
+  const p = loadCodexWithHost(fixture.host);
+  eq(p.detectSessionReasoningEffort(projectCwd, projectSession), "xhigh",
+    "the latest actual effort is read from this thread's rollout");
+  eq(p.detectSessionReasoningEffort(projectCwd, foreignSession), null,
+    "a different thread cannot supply the tab's actual effort");
+  eq(
+    fixture.queries.filter((query) => /FROM threads/.test(query.sql)).map((query) => query.params[0]),
+    [projectSession, foreignSession],
+    "each effort lookup uses the caller's exact session id",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

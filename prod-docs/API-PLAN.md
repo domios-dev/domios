@@ -149,6 +149,19 @@ A genuine respawn preserves predecessor reports and review evidence, retires the
 prior attempt, and enters pending startup. Runtime readiness precedes the
 awaiting-ACK label; only the fresh Worker's ACK starts execution.
 
+Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before
+spawning. Explicit dispatch of a blocked task clears it to pending in the same
+mutation that reserves its attempt and records the prior block reason in a plan
+stride. Respawn also clears a blocked task atomically and records that reason;
+respawn is additionally the supported way to replace an attempt held in review.
+
+Plan writes require the caller's live bound session. When the caller presents
+its own launch nonce while binding is still in flight, the daemon waits for the
+binding event through the startup deadline. A timed-out write returns
+`data.type = "session_binding_pending"` with `data.retryable = true`; a settled
+launch without a registered session remains the distinct
+`plan_binding_session_unregistered` error.
+
 ### Review credit repair and evidence reporters
 
 Historical review credit leaked by older builds is repaired auditably with:
@@ -192,4 +205,4 @@ the deadline — is not a dispatch failure: the dispatch stays spawned-and-await
 and the provider's own launch detection or the worker-ack deadline settles it.
 Only a confirmed-gone tab fails the dispatch.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

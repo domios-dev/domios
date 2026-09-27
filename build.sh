@@ -192,7 +192,7 @@ wait_for_dev_exit() {
   elif [[ "$OSTYPE" == darwin* ]]; then
     perl -e '$pid = shift; $SIG{ALRM} = sub { exit 1 }; alarm 10; while (kill 0, $pid) { select undef, undef, undef, 0.1 }' "$pid"
   else
-    powershell.exe -NoProfile -Command "Wait-Process -Id $pid -Timeout 10" >/dev/null 2>&1
+    powershell.exe -NoProfile -Command "try { \$devProcess = [System.Diagnostics.Process]::GetProcessById($pid) } catch [System.ArgumentException] { exit 0 } catch { exit 1 }; if (\$devProcess.WaitForExit(10000)) { exit 0 }; if (\$devProcess.HasExited) { exit 0 }; exit 1" >/dev/null 2>&1
   fi
 }
 

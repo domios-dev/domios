@@ -448,6 +448,7 @@ export interface ModelInfo {
   group?: string;
   // Omitted uses the provider's reasoningEfforts fallback; [] means no selector.
   reasoningEfforts?: ReasoningEffortInfo[];
+  defaultReasoningEffort?: string;
 }
 
 export interface ReasoningEffortInfo {

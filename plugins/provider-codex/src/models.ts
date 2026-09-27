@@ -21,6 +21,7 @@ interface CodexCachedModel {
   visibility?: string;
   priority?: number;
   supported_reasoning_levels?: CodexReasoningLevel[];
+  default_reasoning_level?: string;
 }
 
 interface CodexReasoningLevel {
@@ -69,9 +70,17 @@ function discoverCodexModelsFromCache(): ModelInfo[] | null {
         ? item.description.trim()
         : undefined,
       reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
+      defaultReasoningEffort: defaultEffortFrom(item),
     });
   }
   return models.length ? models : null;
+}
+
+function defaultEffortFrom(model: CodexCachedModel): string | undefined {
+  const effort = typeof model.default_reasoning_level === "string"
+    ? model.default_reasoning_level.trim()
+    : "";
+  return effort || undefined;
 }
 
 function reasoningEffortsFrom(levels: CodexReasoningLevel[] | undefined): ModelInfo["reasoningEfforts"] {

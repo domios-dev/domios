@@ -450,7 +450,7 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
 }
 
 #[test]
-fn planner_waiver_revokes_live_planner_placement_atomically() {
+fn explicit_roleless_transition_revokes_live_planner_placement_atomically() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
     fixture.transition_bound(planner_placement(), Some(fixture.plan_id.clone()));
@@ -483,6 +483,148 @@ fn planner_waiver_revokes_live_planner_placement_atomically() {
         fixture.store.get(&fixture.plan_id).unwrap().planner,
         Some(PlannerRef::Waived { .. })
     ));
+}
+
+fn waived_planner_fixture() -> (
+    crate::service::test_fixture::ServiceFixture,
+    String,
+    String,
+    String,
+) {
+    let (mut mux, owner) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
+    arm_session(mux.get_tab_mut(&owner).unwrap(), "owner-waiver");
+    mux.set_orchestrator_role(&owner).unwrap();
+    let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+    let planner_tab = mux.create_tab(&workspace_id).unwrap();
+    arm_session(mux.get_tab_mut(&planner_tab).unwrap(), "planner-waiver");
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut plan = Plan::new(
+        "Planner waiver".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&owner),
+    );
+    plan.team_id = Some(team_id.clone());
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    fixture
+        .service
+        .transition_plan_planner(
+            &plan.id,
+            Some(PlannerRef::Tab {
+                tab_id: planner_tab.clone(),
+                session_id: None,
+                title: None,
+            }),
+        )
+        .unwrap();
+    (fixture, owner, planner_tab, plan.id)
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn planner_waiver_keeps_tab_role_and_team() {
+    let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
+    let before_team = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&planner_tab)
+        .unwrap()
+        .team_id
+        .clone();
+
+    fixture
+        .service
+        .transition_plan_planner(
+            &plan_id,
+            Some(PlannerRef::Waived {
+                note: "Intentional solo execution".into(),
+            }),
+        )
+        .unwrap();
+
+    let mux = fixture.service.mux.read();
+    let planner = mux.get_tab(&planner_tab).expect("Planner tab remains live");
+    assert_eq!(effective_role(planner), "Planner");
+    assert_eq!(planner.team_id, before_team);
+    assert!(matches!(
+        fixture.service.plan_store.get(&plan_id).unwrap().planner,
+        Some(PlannerRef::Waived { .. })
+    ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn explicit_planner_clear_keeps_previous_role_removal_semantics() {
+    let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
+
+    fixture
+        .service
+        .transition_plan_planner(&plan_id, None)
+        .unwrap();
+
+    let mux = fixture.service.mux.read();
+    let planner = mux.get_tab(&planner_tab).expect("former Planner remains live");
+    assert_eq!(planner.role, None);
+    assert_eq!(planner.team_id, None);
+    assert_eq!(fixture.service.plan_store.get(&plan_id).unwrap().planner, None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn restore_keeps_persisted_role_and_team_after_plan_planner_change() {
+    let (fixture, _, planner_tab, plan_id) = waived_planner_fixture();
+    fixture
+        .service
+        .transition_plan_planner(
+            &plan_id,
+            Some(PlannerRef::Waived {
+                note: "Intentional solo execution".into(),
+            }),
+        )
+        .unwrap();
+    let before = fixture.service.mux.read();
+    let expected = before.get_tab(&planner_tab).unwrap();
+    let expected_role = expected.role;
+    let expected_profile = expected.role_profile.clone();
+    let expected_team = expected.team_id.clone();
+    assert_eq!(effective_role(expected), "Planner");
+    assert_eq!(expected_profile.as_deref(), Some("planner"));
+    assert!(expected_team.is_some());
+    let snapshot = before.to_session_snapshot();
+    drop(before);
+
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let planner = restored.get_tab(&planner_tab).expect("Planner tab restores");
+    assert_eq!(planner.role, expected_role);
+    assert_eq!(planner.role_profile, expected_profile);
+    assert_eq!(planner.team_id, expected_team);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn role_and_team_removal_are_journaled() {
+    let (fixture, _, planner_tab, _) = waived_planner_fixture();
+
+    fixture.service.clear_tab_role(&planner_tab).unwrap();
+
+    let records = crate::session::lifecycle::TabLifecycleJournal::shared()
+        .load()
+        .records;
+    let transitions = records.into_iter().filter_map(|record| match record {
+        crate::session::lifecycle::JournalRecord::Transition { entry }
+            if entry.key.tab_id == planner_tab => Some(entry.transition),
+        _ => None,
+    });
+    let transitions = transitions.collect::<Vec<_>>();
+    assert!(transitions.iter().any(|transition| matches!(
+        transition,
+        crate::session::lifecycle::LifecycleTransition::RoleBinding { role: None, .. }
+    )));
+    assert!(transitions.iter().any(|transition| matches!(
+        transition,
+        crate::session::lifecycle::LifecycleTransition::TeamBinding { team_id: None, .. }
+    )));
 }
 
 #[test]
