@@ -543,7 +543,7 @@ function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: st
   const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
-  parts.push("--mini", "--session", host.shell.quoteFor(sessionId, platform));
+  parts.push("--session", host.shell.quoteFor(sessionId, platform));
   if (skipPermissions) parts.push("--dangerously-skip-permissions");
   return { parts, directory };
 }
