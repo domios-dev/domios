@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_witnesses_do_not_treat_first_absence_as_exit() {
+    fn provider_absent_before_first_seen_is_not_exit_evidence() {
         let witnesses = ProviderTreeWitnesses::default();
         let key = tree_key();
         let first_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
@@ -652,6 +652,23 @@ mod tests {
         assert_eq!(one_absence.state, ProviderTreeState::GoneAfterSeen);
         assert!(one_absence.proves_exit_from_finished_marker());
         assert!(one_absence.proves_exit_from_lifecycle_clear());
+    }
+
+    #[test]
+    fn live_provider_observation_is_seen_before_later_absence() {
+        let witnesses = ProviderTreeWitnesses::default();
+        let key = tree_key();
+        let live = witnesses.record(
+            &key,
+            ProviderProcessTreeSnapshot::Present(provider_process(78)),
+        );
+
+        assert_eq!(live.state(), ProviderTreeState::Present);
+        assert!(witnesses.has_seen(&key));
+
+        let absent = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
+        assert_eq!(absent.state(), ProviderTreeState::GoneAfterSeen);
+        assert_ne!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
     }
 
     #[test]
