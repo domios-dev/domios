@@ -129,6 +129,7 @@ fn restored_tab_not_cleared_before_relaunch_outcome() {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("restore-fixture".into());
         tab.agent_session_id = Some("saved-session".into());
+        tab.session_binding_nonce = Some("saved-nonce".into());
         tab.restored_from_snapshot = true;
         tab.protected = false;
     }
