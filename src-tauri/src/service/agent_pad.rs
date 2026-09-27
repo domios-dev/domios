@@ -1,9 +1,51 @@
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 const PAD_SUBDIR: &str = "runtime/agent-pads";
 const TOMBSTONE_PREFIX: &str = ".revoked-";
+
+#[derive(serde::Serialize)]
+pub struct ChatSendResult {
+    #[serde(flatten)]
+    pub status: crate::service::chat_send_transaction::ChatSendStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pad_file: Option<String>,
+}
+
+impl ChatSendResult {
+    pub fn new(
+        status: crate::service::chat_send_transaction::ChatSendStatus,
+        pad_file: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            status,
+            pad_file: pad_file.map(|path| path.display().to_string()),
+        }
+    }
+}
+
+fn substitute_body_with_limit(
+    body: String,
+    limit: Option<usize>,
+    write_body: impl FnOnce(&[u8]) -> Result<PathBuf, String>,
+) -> Result<(String, Option<PathBuf>), String> {
+    let Some(limit) = limit else {
+        return Ok((body, None));
+    };
+    if body.len() <= limit {
+        return Ok((body, None));
+    }
+    let path = write_body(body.as_bytes())?;
+    let path_text = path
+        .to_str()
+        .ok_or_else(|| "AgentPad inbox path is not valid Unicode".to_string())?;
+    Ok((
+        format!("Read and follow the message in {path_text}"),
+        Some(path),
+    ))
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgentPadRole {
@@ -72,6 +114,23 @@ impl AgentPad {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn write_inbox_body(&self, body: &[u8]) -> Result<PathBuf, String> {
+        let inbox = self.path.join("inbox");
+        fs::create_dir_all(&inbox).map_err(|e| format!("create AgentPad inbox: {e}"))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| format!("read AgentPad inbox clock: {e}"))?;
+        let path = inbox.join(format!("{}-{}.md", now.as_millis(), uuid::Uuid::new_v4()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| format!("create AgentPad inbox body: {e}"))?;
+        file.write_all(body)
+            .map_err(|e| format!("write AgentPad inbox body: {e}"))?;
+        Ok(path)
     }
 
     pub fn env_value(&self) -> String {
@@ -147,6 +206,28 @@ impl super::ServiceContext {
             .map(pad_role_for_tab)
             .unwrap_or(AgentPadRole::General);
         restore(&crate::paths::data_dir(), tab_id, role)
+    }
+
+    pub(crate) fn substitute_paste_limited_body(
+        &self,
+        tab_id: &str,
+        body: String,
+    ) -> Result<(String, Option<PathBuf>), String> {
+        let provider_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        let limit = provider_id
+            .as_deref()
+            .and_then(|id| {
+                self.agent_registry
+                    .with_provider(id, |provider| provider.paste_limit_bytes())
+            })
+            .flatten();
+        substitute_body_with_limit(body, limit, |bytes| {
+            self.ensure_agent_pad(tab_id)?.write_inbox_body(bytes)
+        })
     }
 
     pub(crate) fn revoke_agent_pad(&self, tab_id: &str) -> Result<(), String> {

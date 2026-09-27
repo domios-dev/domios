@@ -19,6 +19,11 @@ pub trait AgentProvider: Send + Sync {
         self.id()
     }
 
+    /// Maximum text body size accepted as an inline paste. `None` means undeclared.
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        None
+    }
+
     /// What THIS machine says about the launch binary, through the shared
     /// resolver. Core reads this instead of asking a provider to self-report.
     fn observe_launch_binary(&self) -> LaunchBinaryObservation {
@@ -789,6 +794,7 @@ pub trait AgentProvider: Send + Sync {
             supports_structured_prompts: self.supports_structured_prompts(),
             supports_permission_auto_confirm: self.supports_permission_auto_confirm(),
             supports_watcher: false,
+            paste_limit_bytes: self.paste_limit_bytes(),
             trust: self.trust(),
             transport: ProviderTransport::Pty,
             behavior_config: self.behavior_config(),
