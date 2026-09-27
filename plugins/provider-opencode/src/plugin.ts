@@ -63,6 +63,26 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string): string {
+  const platform = host.platform();
+  const config = {
+    permission: { external_directory: { "*": "ask" } },
+    ...(instructions ? { instructions } : {}),
+  };
+  if (platform === "windows") {
+    const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+  }
+  const permissionJson = JSON.stringify({ permission: config.permission });
+  const prefix = permissionJson.slice(0, -3);
+  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const q = (value: string) => host.shell.quoteFor(value, platform);
+  const finish = cleanup
+    ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status`
+    : `; unset OPENCODE_CONFIG_CONTENT`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
+}
+
 const plugin: PluginModule = {
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
@@ -185,10 +205,9 @@ const plugin: PluginModule = {
       localTaskPath = `.codeterm/${taskName}`;
       const source = host.shell.quoteFor(taskPath, platform);
       const local = host.shell.quoteFor(localTaskPath, platform);
-      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
       parts.push(platform === "windows"
-        ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
-        : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
+        ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
+        : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -210,17 +229,14 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    if (localTaskPath) {
-      const local = host.shell.quoteFor(localTaskPath, host.platform());
-      parts.push(host.platform() === "windows"
-        ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
-        : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
-    }
-    return parts.join(" ");
+    const cleanup = localTaskPath
+      ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}`
+      : "";
+    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : undefined, cleanup);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    return resumeLaunch(sessionId, skipPermissions).parts.join(" ");
+    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
@@ -241,24 +257,23 @@ const plugin: PluginModule = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return parts.join(" ");
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
     const taskName = taskPath.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]/g, "-");
     const localTaskPath = `.codeterm/${taskName}`;
     const source = host.shell.quoteFor(taskPath, platform);
     const local = host.shell.quoteFor(localTaskPath, platform);
-    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = platform === "windows"
-      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
-      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
-    const epilogue = platform === "windows"
-      ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
-      : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
-    return `${prologue} ${parts.join(" ")} ${epilogue}`;
+      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
+      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
+    const cleanup = platform === "windows"
+      ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;`
+      : `rm -f -- ${local}`;
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
