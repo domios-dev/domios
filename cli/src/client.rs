@@ -32,8 +32,18 @@ pub struct ResolvedSocket {
 
 /// A JSON-RPC client that connects to the CodeTerm socket API.
 pub struct SocketClient {
-    reader: BufReader<interprocess::local_socket::Stream>,
+    transport: ClientTransport,
     next_id: u64,
+}
+
+enum ClientTransport {
+    Socket(BufReader<interprocess::local_socket::Stream>),
+    Http {
+        client: reqwest::blocking::Client,
+        endpoint: String,
+        token: reqwest::header::HeaderValue,
+        headers: reqwest::header::HeaderMap,
+    },
 }
 
 #[derive(Serialize)]
@@ -68,6 +78,78 @@ pub struct RpcError {
 pub enum SocketCallError {
     Transport(String),
     Rpc(RpcError),
+}
+
+#[derive(Debug)]
+struct HttpFallbackConfig {
+    base_url: String,
+    token: String,
+}
+
+#[derive(Debug)]
+enum TransportChoice<T> {
+    Socket(T),
+    Http(HttpFallbackConfig),
+}
+
+fn select_transport<T>(
+    socket: Result<T, String>,
+    http: impl FnOnce() -> Result<HttpFallbackConfig, String>,
+) -> Result<TransportChoice<T>, String> {
+    match socket {
+        Ok(connection) => Ok(TransportChoice::Socket(connection)),
+        Err(socket_error) => http()
+            .map(TransportChoice::Http)
+            .map_err(|error| {
+                format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {error}")
+            }),
+    }
+}
+
+fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
+    http_fallback_config_from(
+        std::env::var("CODETERM_API_URL").ok().as_deref(),
+        std::env::var("CODETERM_API_PORT").ok().as_deref(),
+        std::env::var("CODETERM_API_TOKEN").ok().as_deref(),
+    )
+}
+
+fn http_fallback_config_from(
+    api_url: Option<&str>,
+    api_port: Option<&str>,
+    token: Option<&str>,
+) -> Result<HttpFallbackConfig, String> {
+    let token = token
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "CODETERM_API_TOKEN is not set".to_owned())?;
+    let base_url = if let Some(value) = api_url {
+        let url = reqwest::Url::parse(&value)
+            .map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
+        if url.scheme() != "http"
+            || url.host_str() != Some("127.0.0.1")
+            || url.username() != ""
+            || url.password().is_some()
+            || !matches!(url.path(), "" | "/")
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err("CODETERM_API_URL must target http://127.0.0.1:<port> only".to_owned());
+        }
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| "CODETERM_API_URL must include a port".to_owned())?;
+        format!("http://127.0.0.1:{port}")
+    } else {
+        let port = api_port
+            .and_then(|value| value.parse::<u16>().ok())
+            .filter(|port| *port != 0)
+            .ok_or_else(|| "CODETERM_API_PORT is not set to a valid port".to_owned())?;
+        format!("http://127.0.0.1:{port}")
+    };
+    Ok(HttpFallbackConfig {
+        base_url,
+        token: token.to_owned(),
+    })
 }
 
 pub trait RpcClient {
@@ -137,8 +219,65 @@ impl SocketClient {
     fn try_connect(socket_path: &str) -> std::io::Result<Self> {
         let name = socket_path.to_ns_name::<GenericNamespaced>()?;
         let stream = interprocess::local_socket::Stream::connect(name)?;
+        Ok(Self::from_socket(stream))
+    }
+
+    fn from_socket(stream: interprocess::local_socket::Stream) -> Self {
+        Self {
+            transport: ClientTransport::Socket(BufReader::new(stream)),
+            next_id: 1,
+        }
+    }
+
+    pub fn connect_local() -> Result<(Self, ResolvedSocket), String> {
+        let discovered = discover_socket_resolution();
+        let fallback_socket = ResolvedSocket {
+            path: discovered
+                .as_ref()
+                .map(|resolved| resolved.path.clone())
+                .unwrap_or_else(|_| std::env::var("CODETERM_SOCKET_PATH").unwrap_or_default()),
+            source: discovered
+                .as_ref()
+                .map(|resolved| resolved.source)
+                .unwrap_or(ResolutionSource::Absent),
+        };
+        let socket_result = discovered.and_then(|resolved| {
+            Self::connect(&resolved.path).map(|client| (client, resolved))
+        });
+        let socket_error = socket_result.as_ref().err().cloned().unwrap_or_default();
+        match select_transport(socket_result, http_fallback_config)? {
+            TransportChoice::Socket(connection) => Ok(connection),
+            TransportChoice::Http(config) => Self::connect_http(config)
+                .map(|client| (client, fallback_socket))
+                .map_err(|http_error| {
+                    format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
+                }),
+        }
+    }
+
+    fn connect_http(config: HttpFallbackConfig) -> Result<Self, String> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        for (env, header) in [
+            ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
+            ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
+            ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
+            ("CODETERM_WORKER_ID", "x-codeterm-worker-id"),
+        ] {
+            if let Ok(value) = std::env::var(env) {
+                if let Ok(value) = value.parse() {
+                    headers.insert(header, value);
+                }
+            }
+        }
+        let token = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.token))
+            .map_err(|_| "CODETERM_API_TOKEN is not a valid HTTP header value".to_owned())?;
         Ok(Self {
-            reader: BufReader::new(stream),
+            transport: ClientTransport::Http {
+                client: reqwest::blocking::Client::new(),
+                endpoint: format!("{}/api/cli/rpc", config.base_url),
+                token,
+                headers,
+            },
             next_id: 1,
         })
     }
@@ -166,34 +305,55 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
+        let id = self.next_id;
+        self.next_id += 1;
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
-            id: self.next_id,
+            id,
             method,
-            params,
+            params: params.clone(),
             protocol_version: crate::protocol::PROTOCOL_VERSION,
         };
-        self.next_id += 1;
 
+        if let ClientTransport::Http { client, endpoint, token, headers } = &self.transport {
+            let response = client
+                .post(endpoint)
+                .header(reqwest::header::AUTHORIZATION, token.clone())
+                .headers(headers.clone())
+                .json(&serde_json::json!({
+                    "method": method,
+                    "params": params,
+                    "protocol_version": crate::protocol::PROTOCOL_VERSION,
+                }))
+                .send()
+                .map_err(|error| SocketCallError::Transport(format!("HTTP request failed: {error}")))?;
+            let status = response.status();
+            let value: serde_json::Value = response.json().map_err(|error| {
+                SocketCallError::Transport(format!("invalid HTTP RPC response: {error}"))
+            })?;
+            if let Some(error) = value.get("error") {
+                return Err(SocketCallError::Rpc(RpcError {
+                    code: error.get("code").and_then(serde_json::Value::as_i64).unwrap_or(-32603) as i32,
+                    message: error.get("message").and_then(serde_json::Value::as_str).unwrap_or("HTTP RPC failed").to_owned(),
+                    data: error.get("data").cloned().filter(|value| !value.is_null()),
+                }));
+            }
+            if !status.is_success() {
+                return Err(SocketCallError::Transport(format!("HTTP RPC returned status {status}")));
+            }
+            return Ok(value);
+        }
+
+        let ClientTransport::Socket(reader) = &mut self.transport else { unreachable!() };
         let payload = serde_json::to_string(&req)
             .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
-
-        let writer = self.reader.get_mut();
-        writer
-            .write_all(payload.as_bytes())
-            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer
-            .write_all(b"\n")
-            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer
-            .flush()
-            .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
+        let writer = reader.get_mut();
+        writer.write_all(payload.as_bytes()).map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer.write_all(b"\n").map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer.flush().map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
 
         let mut line = String::new();
-        let bytes_read = self
-            .reader
-            .read_line(&mut line)
-            .map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
+        let bytes_read = reader.read_line(&mut line).map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
 
         if bytes_read == 0 || line.trim().is_empty() {
             return Err(SocketCallError::Transport(format!(
@@ -614,396 +774,4 @@ fn connect_failure_message(socket_path: &str, denied: bool, caller_tab: Option<&
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn connect_failure_diagnostic_names_the_caller_tab_and_distinguishes_denial() {
-        let path = "codeterm-fixture.sock";
-        let plain = connect_failure_message(path, false, None);
-        let agent = connect_failure_message(path, false, Some("fixture-tab"));
-        let denied_agent = connect_failure_message(path, true, Some("fixture-tab"));
-        let denied = connect_failure_message(path, true, None);
-
-        assert!(plain.contains(path));
-        assert!(!plain.contains("fixture-tab"));
-        assert!(agent.contains("fixture-tab"));
-        assert!(denied_agent.contains("fixture-tab"));
-        assert!(!denied.contains("fixture-tab"));
-        for message in [&agent, &denied_agent, &denied] {
-            assert!(message.starts_with(&plain));
-        }
-        assert_ne!(agent, denied_agent);
-        assert_ne!(plain, denied);
-    }
-
-    // The helper under test only exists off Windows, where /tmp socket files do.
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn build_gateway_mutex_files_are_not_daemon_sockets() {
-        assert!(!is_daemon_socket_name(
-            "codeterm-gateway-mutex-13026-2189552-cargo.sock"
-        ));
-        assert!(!is_daemon_socket_name(
-            "codeterm-gateway-mutex-13026-2189552-rustc.sock"
-        ));
-        assert!(is_daemon_socket_name("codeterm-49765.sock"));
-        assert!(is_daemon_socket_name("codeterm-dev.sock"));
-        assert!(!is_daemon_socket_name("codeterm-49765"));
-        assert!(!is_daemon_socket_name("other-49765.sock"));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn stale_socket_file_falls_through_to_live_probe() {
-        use std::cell::RefCell;
-
-        let entry_names = vec![
-            "codeterm-gateway-mutex-13026-2189552-cargo.sock".to_string(),
-            "codeterm-777.sock".to_string(),
-            "unrelated.sock".to_string(),
-        ];
-        let liveness_checked: RefCell<Vec<String>> = RefCell::new(Vec::new());
-        let probe_calls = RefCell::new(0usize);
-
-        let resolved = resolve_scanned_socket(
-            entry_names.into_iter(),
-            &|name| {
-                liveness_checked.borrow_mut().push(name.to_string());
-                false
-            },
-            &|candidates| pick_preferred_socket_for(candidates, false, None),
-            &|| {
-                *probe_calls.borrow_mut() += 1;
-                Some("codeterm-4242.sock".to_string())
-            },
-        );
-
-        assert_eq!(
-            *probe_calls.borrow(),
-            1,
-            "a stale socket file must not stop discovery before the live probe"
-        );
-        assert_eq!(resolved, Ok("codeterm-4242.sock".to_string()));
-        assert_eq!(
-            *liveness_checked.borrow(),
-            vec!["codeterm-777.sock".to_string()],
-            "only daemon-named candidates may reach the liveness check"
-        );
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn live_socket_file_wins_without_probing() {
-        use std::cell::RefCell;
-
-        let probe_calls = RefCell::new(0usize);
-        let resolved = resolve_scanned_socket(
-            vec!["codeterm-777.sock".to_string()].into_iter(),
-            &|_| true,
-            &|candidates| pick_preferred_socket_for(candidates, false, None),
-            &|| {
-                *probe_calls.borrow_mut() += 1;
-                Some("codeterm-4242.sock".to_string())
-            },
-        );
-
-        assert_eq!(resolved, Ok("codeterm-777.sock".to_string()));
-        assert_eq!(*probe_calls.borrow(), 0);
-    }
-
-    #[test]
-    fn picks_dev_when_dev_preferred() {
-        let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
-        assert_eq!(
-            pick_preferred_socket(&candidates, true),
-            Some("codeterm-dev.sock".to_string())
-        );
-    }
-
-    #[test]
-    fn picks_prod_when_dev_not_preferred() {
-        let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
-        assert_eq!(
-            pick_preferred_socket(&candidates, false),
-            Some("codeterm-1234".to_string())
-        );
-    }
-
-    #[test]
-    fn falls_back_when_only_other_kind_present() {
-        let candidates = vec!["codeterm-1234".to_string()];
-        assert_eq!(
-            pick_preferred_socket(&candidates, true),
-            Some("codeterm-1234".to_string())
-        );
-    }
-
-    #[test]
-    fn returns_none_when_nothing_found() {
-        let candidates: Vec<String> = vec![];
-        assert_eq!(pick_preferred_socket(&candidates, true), None);
-        assert_eq!(pick_preferred_socket(&candidates, false), None);
-    }
-
-    #[test]
-    fn instance_socket_wins_over_plain_dev() {
-        let candidates = vec![
-            "codeterm-dev.sock".to_string(),
-            "codeterm-dev-exp.sock".to_string(),
-        ];
-        assert_eq!(
-            pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
-            Some("codeterm-dev-exp.sock".to_string())
-        );
-    }
-
-    #[test]
-    fn instance_falls_back_to_dev_when_own_absent() {
-        let candidates = vec!["codeterm-dev.sock".to_string()];
-        assert_eq!(
-            pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
-            Some("codeterm-dev.sock".to_string())
-        );
-    }
-
-    #[test]
-    fn deterministic_socket_uses_named_instance() {
-        let _guard = crate::test_env_lock().lock().unwrap();
-        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
-        let prev_port = std::env::var("CODETERM_API_PORT").ok();
-        std::env::set_var("CODETERM_INSTANCE", "handoff");
-        std::env::set_var("CODETERM_API_PORT", "7691");
-
-        assert_eq!(
-            deterministic_socket_name().as_deref(),
-            Some("codeterm-dev-handoff.sock")
-        );
-        assert_eq!(
-            deterministic_socket_resolution().map(|resolved| resolved.source),
-            Some(ResolutionSource::CodeTermInstance)
-        );
-
-        restore_env("CODETERM_INSTANCE", prev_instance);
-        restore_env("CODETERM_API_PORT", prev_port);
-    }
-
-    #[test]
-    fn deterministic_socket_uses_plain_dev_port() {
-        let _guard = crate::test_env_lock().lock().unwrap();
-        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
-        let prev_port = std::env::var("CODETERM_API_PORT").ok();
-        std::env::remove_var("CODETERM_INSTANCE");
-        std::env::set_var("CODETERM_API_PORT", "7686");
-
-        assert_eq!(
-            deterministic_socket_name().as_deref(),
-            Some("codeterm-dev.sock")
-        );
-        assert_eq!(
-            deterministic_socket_resolution().map(|resolved| resolved.source),
-            Some(ResolutionSource::CodeTermApiPort)
-        );
-
-        restore_env("CODETERM_INSTANCE", prev_instance);
-        restore_env("CODETERM_API_PORT", prev_port);
-    }
-
-    #[test]
-    fn deterministic_socket_treats_non_prod_port_as_dev() {
-        let _guard = crate::test_env_lock().lock().unwrap();
-        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
-        let prev_port = std::env::var("CODETERM_API_PORT").ok();
-        std::env::remove_var("CODETERM_INSTANCE");
-        std::env::set_var("CODETERM_API_PORT", "7694");
-
-        assert_eq!(
-            deterministic_socket_name().as_deref(),
-            Some("codeterm-dev.sock")
-        );
-        assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
-
-        restore_env("CODETERM_INSTANCE", prev_instance);
-        restore_env("CODETERM_API_PORT", prev_port);
-    }
-
-    #[test]
-    fn socket_pref_match_dev_pipe_with_dev_pref() {
-        assert!(socket_path_matches_port_pref("codeterm-dev.sock", true));
-        assert!(socket_path_matches_port_pref("codeterm-dev", true));
-    }
-
-    #[test]
-    fn socket_pref_match_prod_pid_with_prod_pref() {
-        assert!(socket_path_matches_port_pref("codeterm-12345.sock", false));
-        assert!(socket_path_matches_port_pref("codeterm-9876", false));
-    }
-
-    #[test]
-    fn socket_pref_mismatch_when_prod_pipe_but_dev_requested() {
-        assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
-    }
-
-    #[test]
-    fn socket_pref_mismatch_when_dev_pipe_but_prod_requested() {
-        assert!(!socket_path_matches_port_pref("codeterm-dev.sock", false));
-    }
-
-    #[test]
-    fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
-        // `contains("dev")` would have classified `codeterm-99987devops.sock` as dev — guard against that.
-        assert!(!is_dev_socket("codeterm-99987devops.sock"));
-        assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
-        assert!(is_dev_socket("codeterm-dev"));
-        assert!(is_dev_socket("codeterm-dev.sock"));
-    }
-
-    fn method_not_found() -> SocketCallError {
-        SocketCallError::Rpc(RpcError {
-            code: -32601,
-            message: "Method not found".into(),
-            data: None,
-        })
-    }
-
-    #[test]
-    fn version_skew_same_version_call_makes_exactly_one_request() {
-        let mut seen: Vec<(String, Option<serde_json::Value>)> = Vec::new();
-        let params = serde_json::json!({"tab_id": "t1"});
-
-        let result = call_with_version_fallback(
-            |method, params| {
-                seen.push((method.to_string(), params));
-                Ok(serde_json::json!({"ok": true}))
-            },
-            "tab.list",
-            Some(params.clone()),
-        )
-        .unwrap();
-
-        assert_eq!(result["ok"], true);
-        assert_eq!(seen, vec![("tab.list".to_string(), Some(params))]);
-    }
-
-    #[test]
-    fn version_skew_typed_error_passes_through_untranslated() {
-        let mut calls = 0;
-        let outcome = call_with_version_fallback(
-            |_, _| {
-                calls += 1;
-                Err(SocketCallError::Rpc(RpcError {
-                    code: crate::protocol::VERSION_SKEW_CODE,
-                    message: "client protocol v1, server requires >=2 — run rebuild".into(),
-                    data: Some(serde_json::json!({
-                        "type": "version_skew",
-                        "client_protocol": 1,
-                        "server_protocol": 2,
-                        "recovery": "rebuild",
-                    })),
-                }))
-            },
-            "agent.report",
-            None,
-        );
-
-        let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-            panic!("the typed error must stay an RPC error");
-        };
-        assert_eq!(calls, 1, "a skew refusal must not trigger extra requests");
-        assert_eq!(error.code, crate::protocol::VERSION_SKEW_CODE);
-        let data = error.data.expect("typed data crosses untranslated");
-        assert_eq!(data["client_protocol"], 1);
-        assert_eq!(data["server_protocol"], 2);
-        assert_eq!(data["recovery"], "rebuild");
-    }
-
-    #[test]
-    fn version_skew_error_renders_the_daemon_message_verbatim() {
-        let message = "client protocol v3, server requires >=5 — run ./fix";
-
-        let rendered = SocketCallError::Rpc(RpcError {
-            code: crate::protocol::VERSION_SKEW_CODE,
-            message: message.into(),
-            data: None,
-        })
-        .to_string();
-        assert_eq!(rendered, message);
-
-        let other = SocketCallError::Rpc(RpcError {
-            code: -32601,
-            message: message.into(),
-            data: None,
-        })
-        .to_string();
-        assert_ne!(other, message, "only version skew renders bare");
-    }
-
-    #[test]
-    fn version_skew_request_envelope_carries_the_protocol_integer() {
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0",
-            id: 1,
-            method: "tab.list",
-            params: None,
-            protocol_version: crate::protocol::PROTOCOL_VERSION,
-        };
-        let wire: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
-        assert_eq!(wire["protocol_version"], crate::protocol::PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn version_skew_unknown_method_fallback_names_both_versions() {
-        let mut seen: Vec<String> = Vec::new();
-        let outcome = call_with_version_fallback(
-            |method, _| {
-                seen.push(method.to_string());
-                if method == "system.identify" {
-                    Ok(serde_json::json!({"version": "0.0.1"}))
-                } else {
-                    Err(method_not_found())
-                }
-            },
-            "tab.list",
-            None,
-        );
-
-        assert_eq!(
-            seen,
-            vec!["tab.list".to_string(), "system.identify".to_string()]
-        );
-        let SocketCallError::Transport(rendered) = outcome.unwrap_err() else {
-            panic!("cross-version -32601 becomes a transport explanation");
-        };
-        assert!(rendered.contains("0.0.1"), "{rendered}");
-        assert!(rendered.contains(env!("CARGO_PKG_VERSION")), "{rendered}");
-        assert!(rendered.contains("tab.list"), "{rendered}");
-    }
-
-    #[test]
-    fn version_skew_unknown_method_on_same_version_daemon_stays_method_not_found() {
-        let outcome = call_with_version_fallback(
-            |method, _| {
-                if method == "system.identify" {
-                    Ok(serde_json::json!({"version": env!("CARGO_PKG_VERSION")}))
-                } else {
-                    Err(method_not_found())
-                }
-            },
-            "tab.list",
-            None,
-        );
-
-        let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-            panic!("same-version -32601 is a real missing method, not skew");
-        };
-        assert_eq!(error.code, -32601);
-    }
-
-    fn restore_env(key: &str, value: Option<String>) {
-        match value {
-            Some(value) => std::env::set_var(key, value),
-            None => std::env::remove_var(key),
-        }
-    }
-}
+mod tests;
