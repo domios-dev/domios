@@ -593,6 +593,12 @@ pub fn start_general_agent(
             provider_name,
             &tab_id,
             Some(&ga_cwd),
+            crate::service::launch_session_detection::canonical_project_for_tab(
+                &svc.plan_store,
+                &tab_id,
+                &ga_cwd,
+            )
+            .as_deref(),
             &mut params,
         ) {
             Some(cmd) => cmd,

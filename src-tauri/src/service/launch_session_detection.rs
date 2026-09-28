@@ -146,6 +146,7 @@ pub(crate) fn marked_provider_launch_command(
     provider_id: &str,
     tab_id: &str,
     cwd: Option<&str>,
+    canonical_project: Option<&str>,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
     mark_fresh_launch(tab_id, params);
@@ -155,6 +156,7 @@ pub(crate) fn marked_provider_launch_command(
         provider_id,
         params.skip_permissions,
         cwd,
+        canonical_project,
         &mut args,
     );
     params.args = (!args.is_empty()).then_some(args);
@@ -168,9 +170,10 @@ pub(crate) fn append_sandbox_git_metadata_args(
     provider_id: &str,
     skip_permissions: bool,
     cwd: Option<&str>,
+    canonical_project: Option<&str>,
     args: &mut Vec<String>,
 ) {
-    if skip_permissions {
+    if skip_permissions || canonical_project.is_none() {
         return;
     }
     let Some(flag) = registry
@@ -182,8 +185,14 @@ pub(crate) fn append_sandbox_git_metadata_args(
         return;
     };
     let Some(cwd) = cwd else { return };
-    let Some(paths) = git_worktree_metadata_dirs(cwd) else {
-        return;
+    let canonical_project = canonical_project.expect("checked above");
+    let paths = match git_worktree_metadata_dirs(cwd, canonical_project) {
+        Ok(Some(paths)) => paths,
+        Ok(None) => return,
+        Err(error) => {
+            log::warn!("[sandbox-git-roots] refused provider={provider_id}: {error}");
+            return;
+        }
     };
     for path in paths {
         args.push(flag.clone());
@@ -191,38 +200,225 @@ pub(crate) fn append_sandbox_git_metadata_args(
     }
 }
 
-fn git_worktree_metadata_dirs(cwd: &str) -> Option<[std::path::PathBuf; 2]> {
-    let output = std::process::Command::new("git")
-        .args(["-C", cwd, "rev-parse", "--git-dir", "--git-common-dir"])
-        .output();
-    let Ok(output) = output else { return None };
-    if !output.status.success() {
+pub(crate) fn canonical_project_for_task_lane(
+    plan_store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    cwd: &str,
+) -> Option<String> {
+    let plan = plan_store.get(plan_id)?;
+    let task = plan.tasks.iter().find(|task| task.id == task_id)?;
+    let lane = task.lane.worktree_path.as_deref()?;
+    if canonical_path(lane)? != canonical_path(cwd)? {
         return None;
     }
-    let Ok(stdout) = String::from_utf8(output.stdout) else {
-        return None;
+    let project = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.as_str()
+    } else {
+        plan.canonical_project_path.as_str()
     };
-    let mut lines = stdout.lines();
+    let project = canonical_path(project)?;
+    Some(project.to_string_lossy().into_owned())
+}
+
+pub(crate) fn canonical_project_for_launch(
+    service: &ServiceContext,
+    tab_id: &str,
+    params: &super::orchestrator::SpawnAgentParams,
+    cwd: &str,
+) -> Option<String> {
+    if let Some(authority) = params.task_launch_authority.as_ref() {
+        if params.plan_id.as_deref() != Some(authority.plan_id.as_str())
+            || params.task_id.as_deref() != Some(authority.task_id.as_str())
+        {
+            return None;
+        }
+        return canonical_project_for_task_lane(
+            &service.plan_store,
+            &authority.plan_id,
+            &authority.task_id,
+            cwd,
+        );
+    }
+    let (plan_id, task_id) = service.plan_store.task_binding_for_tab(tab_id)?;
+    canonical_project_for_task_lane(&service.plan_store, &plan_id, &task_id, cwd)
+}
+
+pub(crate) fn canonical_project_for_tab(
+    plan_store: &crate::service::plan::PlanStore,
+    tab_id: &str,
+    cwd: &str,
+) -> Option<String> {
+    let (plan_id, task_id) = plan_store.task_binding_for_tab(tab_id)?;
+    canonical_project_for_task_lane(plan_store, &plan_id, &task_id, cwd)
+}
+
+fn git_worktree_metadata_dirs(
+    cwd: &str,
+    canonical_project: &str,
+) -> Result<Option<[std::path::PathBuf; 4]>, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+    use wait_timeout::ChildExt;
+
+    let cwd = canonical_path(cwd).ok_or_else(|| "lane cwd cannot be canonicalized".to_string())?;
+    let project = canonical_path(canonical_project)
+        .ok_or_else(|| "canonical project cannot be canonicalized".to_string())?;
+    if !cwd.join(".git").is_file() {
+        return Ok(None);
+    }
+    let common_expected = canonical_path_from_path(&project.join(".git"))
+        .ok_or_else(|| "canonical project .git directory is unavailable".to_string())?;
+    let project_git_metadata = std::fs::symlink_metadata(project.join(".git"))
+        .map_err(|error| format!("canonical project .git is unavailable: {error}"))?;
+    if !project_git_metadata.is_dir() || project_git_metadata.file_type().is_symlink() {
+        return Err("canonical project .git is not a directory".into());
+    }
+
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    clear_git_environment(&mut command);
+    let mut child = command
+        .current_dir(&cwd_text)
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("git rev-parse could not start: {error}"))?;
+    let status = match child.wait_timeout(Duration::from_secs(3)) {
+        Ok(Some(status)) => status,
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("git rev-parse exceeded the 3 second deadline".into());
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("git rev-parse wait failed: {error}"));
+        }
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_string(&mut stdout)
+            .map_err(|error| format!("git rev-parse stdout failed: {error}"))?;
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_string(&mut stderr)
+            .map_err(|error| format!("git rev-parse stderr failed: {error}"))?;
+    }
+    if !status.success() {
+        return Err(format!("git rev-parse failed: {}", stderr.trim()));
+    }
+    let mut lines = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
     let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
-        return None;
+        return Err("git rev-parse returned incomplete paths".into());
     };
-    let cwd = std::path::Path::new(cwd);
-    let resolve = |path: &str| {
-        let path = std::path::Path::new(path);
-        let path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            cwd.join(path)
-        };
-        path.canonicalize().ok()
-    };
-    let (Some(git_dir), Some(common_dir)) = (resolve(git_dir), resolve(common_dir)) else {
-        return None;
-    };
-    if git_dir == common_dir || !git_dir.join("commondir").is_file() {
-        return None;
+    let git_dir =
+        canonical_path(git_dir).ok_or_else(|| "lane gitdir cannot be canonicalized".to_string())?;
+    let common_dir = canonical_path(common_dir)
+        .ok_or_else(|| "git common dir cannot be canonicalized".to_string())?;
+    if git_dir == common_dir {
+        return Ok(None);
     }
-    Some([git_dir, common_dir])
+    if common_dir != common_expected {
+        return Err("git common dir does not belong to the canonical project".into());
+    }
+    let worktrees_dir = canonical_path_from_path(&common_dir.join("worktrees"))
+        .ok_or_else(|| "canonical project worktrees directory is unavailable".to_string())?;
+    if worktrees_dir.parent() != Some(common_dir.as_path())
+        || git_dir.parent() != Some(worktrees_dir.as_path())
+    {
+        return Err("lane gitdir is outside the canonical project worktrees directory".into());
+    }
+    validate_worktree_pointer(&cwd, &git_dir, &common_dir)?;
+
+    let roots = [
+        git_dir,
+        canonical_path_from_path(&common_dir.join("objects"))
+            .ok_or_else(|| "common objects directory is unavailable".to_string())?,
+        canonical_path_from_path(&common_dir.join("refs"))
+            .ok_or_else(|| "common refs directory is unavailable".to_string())?,
+        canonical_path_from_path(&common_dir.join("logs"))
+            .ok_or_else(|| "common logs directory is unavailable".to_string())?,
+    ];
+    if roots[1..]
+        .iter()
+        .any(|path| path.parent() != Some(common_dir.as_path()) || !path.is_dir())
+    {
+        return Err("common metadata roots are not direct project git directories".into());
+    }
+    Ok(Some(roots))
+}
+
+fn canonical_path(path: &str) -> Option<std::path::PathBuf> {
+    let path = codeterm_paths::strip_verbatim_prefix(path);
+    canonical_path_from_path(std::path::Path::new(&path))
+}
+
+fn canonical_path_from_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let resolved = path.canonicalize().ok()?;
+    let clean = codeterm_paths::strip_verbatim_prefix(&resolved.to_string_lossy());
+    Some(std::path::PathBuf::from(clean))
+}
+
+fn clear_git_environment(command: &mut std::process::Command) {
+    let git_env = std::env::vars_os()
+        .filter_map(|(key, _)| {
+            key.to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("GIT_")
+                .then_some(key)
+        })
+        .collect::<Vec<_>>();
+    for key in git_env {
+        command.env_remove(key);
+    }
+}
+
+fn validate_worktree_pointer(
+    cwd: &std::path::Path,
+    git_dir: &std::path::Path,
+    common_dir: &std::path::Path,
+) -> Result<(), String> {
+    let commondir = std::fs::read_to_string(git_dir.join("commondir"))
+        .map_err(|error| format!("lane gitdir commondir is unavailable: {error}"))?;
+    let common_target = cwd_relative_metadata_path(git_dir, commondir.trim())
+        .ok_or_else(|| "lane gitdir commondir target cannot be resolved".to_string())?;
+    if common_target != common_dir {
+        return Err("lane gitdir commondir points outside the canonical project".into());
+    }
+    let gitdir_file = std::fs::read_to_string(git_dir.join("gitdir"))
+        .map_err(|error| format!("lane gitdir pointer is unavailable: {error}"))?;
+    let worktree_dot_git = cwd.join(".git");
+    let gitdir_target = cwd_relative_metadata_path(git_dir, gitdir_file.trim())
+        .ok_or_else(|| "lane gitdir pointer target cannot be resolved".to_string())?;
+    if gitdir_target != canonical_path_from_path(&worktree_dot_git).unwrap_or_default() {
+        return Err("lane gitdir pointer does not name this worktree".into());
+    }
+    Ok(())
+}
+
+fn cwd_relative_metadata_path(base: &std::path::Path, value: &str) -> Option<std::path::PathBuf> {
+    let value = codeterm_paths::strip_verbatim_prefix(value);
+    let path = std::path::Path::new(&value);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+    canonical_path_from_path(&path)
 }
 
 #[cfg(test)]
@@ -355,7 +551,10 @@ mod tests {
     use super::*;
 
     fn git(cwd: &std::path::Path, args: &[&str]) {
-        let output = std::process::Command::new("git")
+        let mut command = std::process::Command::new("git");
+        crate::process_util::no_window_std(&mut command);
+        clear_git_environment(&mut command);
+        let output = command
             .current_dir(cwd)
             .args(args)
             .output()
@@ -398,8 +597,13 @@ mod tests {
             ],
         );
 
-        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap()).expect("linked worktree");
-        let output = std::process::Command::new("git")
+        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap(), repo.to_str().unwrap())
+            .expect("valid lane metadata")
+            .expect("linked worktree");
+        let mut command = std::process::Command::new("git");
+        crate::process_util::no_window_std(&mut command);
+        clear_git_environment(&mut command);
+        let output = command
             .current_dir(&lane)
             .args(["rev-parse", "--git-dir"])
             .output()
@@ -415,16 +619,67 @@ mod tests {
         assert_eq!(roots[0], expected_lane_gitdir);
         assert!(roots[0].join("commondir").is_file());
         assert_ne!(roots[0], repo);
-        assert_ne!(roots[1], repo);
-        assert!(roots[1].ends_with(".git"));
-        assert!(roots[0].starts_with(&roots[1]));
+        let common = repo.join(".git").canonicalize().expect("common directory");
+        let worktrees = common.join("worktrees");
+        assert_eq!(roots[0].parent(), Some(worktrees.as_path()));
+        assert_eq!(roots[1], common.join("objects"));
+        assert_eq!(roots[2], common.join("refs"));
+        assert_eq!(roots[3], common.join("logs"));
+    }
+
+    #[test]
+    fn crafted_gitfile_pointing_at_another_lane_is_refused() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let repo = temp.path().join("repo");
+        let lane = temp.path().join("lane");
+        let forged = temp.path().join("forged-lane");
+        std::fs::create_dir(&repo).expect("repository directory");
+        git(&repo, &["init"]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=CodeTerm",
+                "-c",
+                "user.email=codeterm@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        );
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "lane/worker",
+                lane.to_str().unwrap(),
+            ],
+        );
+        std::fs::create_dir(&forged).expect("forged worktree directory");
+        std::fs::write(
+            forged.join(".git"),
+            std::fs::read_to_string(lane.join(".git")).expect("lane gitfile"),
+        )
+        .expect("crafted gitfile");
+
+        assert!(
+            git_worktree_metadata_dirs(forged.to_str().unwrap(), repo.to_str().unwrap(),).is_err()
+        );
     }
 
     #[test]
     fn ordinary_repository_has_no_additional_git_metadata_roots() {
         let temp = tempfile::tempdir().expect("temporary repository");
         git(temp.path(), &["init"]);
-        assert!(git_worktree_metadata_dirs(temp.path().to_str().unwrap()).is_none());
+        assert!(git_worktree_metadata_dirs(
+            temp.path().to_str().unwrap(),
+            temp.path().to_str().unwrap(),
+        )
+        .expect("valid ordinary repository")
+        .is_none());
     }
 
     #[test]
@@ -463,13 +718,16 @@ mod tests {
                 .with_additional_writable_dir_flag("--add-dir"),
         ));
 
-        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap()).expect("linked worktree");
+        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap(), repo.to_str().unwrap())
+            .expect("valid lane metadata")
+            .expect("linked worktree");
         let mut args = Vec::new();
         append_sandbox_git_metadata_args(
             &registry,
             "fixture",
             false,
             Some(lane.to_str().unwrap()),
+            Some(repo.to_str().unwrap()),
             &mut args,
         );
         assert_eq!(
@@ -479,10 +737,17 @@ mod tests {
                 roots[0].to_string_lossy().into_owned(),
                 "--add-dir".to_string(),
                 roots[1].to_string_lossy().into_owned(),
+                "--add-dir".to_string(),
+                roots[2].to_string_lossy().into_owned(),
+                "--add-dir".to_string(),
+                roots[3].to_string_lossy().into_owned(),
             ]
         );
         assert!(args.iter().all(|arg| arg != repo.to_str().unwrap()));
         assert!(args.iter().all(|arg| arg != lane.to_str().unwrap()));
+        assert!(args
+            .iter()
+            .all(|arg| arg != repo.join(".git").to_str().unwrap()));
 
         let mut full_access_args = vec!["--existing".to_string()];
         append_sandbox_git_metadata_args(
@@ -490,6 +755,7 @@ mod tests {
             "fixture",
             true,
             Some(lane.to_str().unwrap()),
+            Some(repo.to_str().unwrap()),
             &mut full_access_args,
         );
         assert_eq!(full_access_args, vec!["--existing".to_string()]);
@@ -502,6 +768,7 @@ mod tests {
             &registry,
             "fixture",
             false,
+            Some(ordinary.to_str().unwrap()),
             Some(ordinary.to_str().unwrap()),
             &mut ordinary_args,
         );
@@ -576,9 +843,15 @@ mod tests {
         ];
 
         for (tab_id, mut params) in cases {
-            let command =
-                marked_provider_launch_command(&registry, "direct", tab_id, None, &mut params)
-                    .expect("registered provider builds a command");
+            let command = marked_provider_launch_command(
+                &registry,
+                "direct",
+                tab_id,
+                None,
+                None,
+                &mut params,
+            )
+            .expect("registered provider builds a command");
             let marker = registered_launch_marker(tab_id).expect("tab registers its marker");
             assert_eq!(params.launch_marker.as_deref(), Some(marker.as_str()));
             assert_eq!(command, format!("direct-cli --launch-marker {marker}"));

@@ -712,6 +712,13 @@ fn build_relaunch_command(
     };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
+    let canonical_project = snap.cwd.as_deref().and_then(|cwd| {
+        crate::service::launch_session_detection::canonical_project_for_tab(
+            &svc.plan_store,
+            &snap.tab_id,
+            cwd,
+        )
+    });
     let structured_prompt_server = svc
         .agent_registry
         .with_provider(provider, |p| p.needs_structured_prompt_server())
@@ -730,6 +737,7 @@ fn build_relaunch_command(
         launch_task,
         &snap.tab_id,
         snap.cwd.as_deref(),
+        canonical_project.as_deref(),
     )
 }
 
@@ -743,6 +751,7 @@ fn build_relaunch_command_with_registry(
     launch_task: Option<&str>,
     tab_id: &str,
     cwd: Option<&str>,
+    canonical_project: Option<&str>,
 ) -> Option<String> {
     let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
@@ -753,6 +762,7 @@ fn build_relaunch_command_with_registry(
                 provider,
                 auto_approve,
                 cwd,
+                canonical_project,
                 &mut args,
             );
             return registry.with_provider(provider, |p| {
@@ -787,6 +797,7 @@ fn build_relaunch_command_with_registry(
                 provider,
                 auto_approve,
                 cwd,
+                canonical_project,
                 &mut args,
             );
             let resume = crate::agent::provider::AgentResumeParams {
@@ -823,6 +834,7 @@ fn build_relaunch_command_with_registry(
             provider,
             auto_approve,
             Some(cwd),
+            canonical_project,
             &mut args,
         );
         params.args = (!args.is_empty()).then_some(args);

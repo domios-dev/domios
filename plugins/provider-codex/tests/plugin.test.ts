@@ -217,17 +217,19 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
 
   const metadataArgs = [
     "--add-dir", "D:/repo/.git/worktrees/lane",
-    "--add-dir", "D:/repo/.git",
+    "--add-dir", "D:/repo/.git/objects",
+    "--add-dir", "D:/repo/.git/refs",
+    "--add-dir", "D:/repo/.git/logs",
   ];
   const launchWithMetadata = p.buildLaunchCommand({ args: metadataArgs });
-  eq((launchWithMetadata.match(/--add-dir/g) || []).length, 2, "sandboxed launch accepts both derived git roots");
-  assert(launchWithMetadata.includes("D:/repo/.git/worktrees/lane") && launchWithMetadata.includes("D:/repo/.git"),
-    "launch carries only the supplied lane and common metadata paths");
+  eq((launchWithMetadata.match(/--add-dir/g) || []).length, 4, "sandboxed launch accepts the four derived metadata roots");
+  assert(metadataArgs.filter((_, index) => index % 2 === 1).every((root) => launchWithMetadata.includes(root)),
+    "launch carries only the supplied lane and common metadata subpaths");
   const resumeWithMetadata = p.buildResumeCommandWithContext({
     sessionId: "11111111-1111-1111-1111-111111111111",
     args: metadataArgs,
   });
-  eq((resumeWithMetadata.match(/--add-dir/g) || []).length, 2, "resume accepts both derived git roots");
+  eq((resumeWithMetadata.match(/--add-dir/g) || []).length, 4, "resume accepts the four derived metadata roots");
 }
 
 console.log("\n--- meta ---\n");
