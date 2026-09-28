@@ -402,9 +402,10 @@ function TabItemInner({
         {tab?.pending_prompt && (
           <span
             role="img"
+            aria-label={tab.boot_stage === "awaiting_owner_prompt" ? `${accessibleTitle} is waiting for you` : `${accessibleTitle} needs a response`}
             className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
-            title={tab.pending_prompt.question}
+            title={tab.boot_stage === "awaiting_owner_prompt" ? `Waiting for you: ${tab.pending_prompt.question}` : tab.pending_prompt.question}
           />
         )}
         {declaredAttention && (

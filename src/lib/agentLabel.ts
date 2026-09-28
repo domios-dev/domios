@@ -59,6 +59,7 @@ export function classifyAgentLiveness(evidence: LivenessEvidence): AgentLiveness
     stage === "pty_reattached" ||
     stage === "launch_deadline_elapsed" ||
     stage === "launch_binding_unconfirmed" ||
+    stage === "awaiting_owner_prompt" ||
     stage == null
   ) {
     return "unobserved";

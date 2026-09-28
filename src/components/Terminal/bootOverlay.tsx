@@ -21,6 +21,9 @@ export function tabBootOverlayView(tab: Tab | null | undefined): TabBootOverlayV
     case "agent_launching":
     case "launch_written":
     case "provider_ready":
+      return { kind: "starting", label: "Starting" };
+    case "awaiting_owner_prompt":
+      return { kind: "starting", label: "Waiting for you" };
     // A provisional stage is not a verdict: the launch may still prove
     // itself, so the overlay waits instead of offering a retry over a live agent.
     case "launch_deadline_elapsed":

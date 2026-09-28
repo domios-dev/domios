@@ -5,6 +5,94 @@ use crate::service::boot_stage::{
 };
 use std::time::Duration;
 
+#[test]
+fn launch_waits_for_owner_prompt_without_spawn_failed() {
+    owner_prompt_readiness_round_trip("owner-prompt-readiness");
+}
+
+#[test]
+fn answered_owner_prompt_resumes_normal_readiness() {
+    owner_prompt_readiness_round_trip("answered-owner-prompt");
+}
+
+fn owner_prompt_readiness_round_trip(prefix: &str) {
+    let attempt = LaunchAttempt {
+        tab_id: format!("{prefix}-tab"),
+        pty_id: format!("{prefix}-pty"),
+        binding_nonce: format!("{prefix}-nonce"),
+    };
+    owner_prompt_pending(&attempt.tab_id, "prompt-token-7");
+    arm(attempt.clone());
+
+    let (changed, events) = std::sync::mpsc::channel();
+    let observer_attempt = attempt.clone();
+    let observer = std::thread::spawn(move || {
+        observe_with_owner_prompt(
+            &observer_attempt,
+            Instant::now() + Duration::from_secs(30),
+            OWNER_PROMPT_DEADLINE,
+            |prompt| {
+                changed
+                    .send(prompt.map(|_| BootStage::AwaitingOwnerPrompt))
+                    .unwrap()
+            },
+        )
+    });
+    assert_eq!(events.recv().unwrap(), Some(BootStage::AwaitingOwnerPrompt));
+    owner_prompt_cleared(&attempt.tab_id);
+    assert_eq!(events.recv().unwrap(), None);
+    assert!(note_acknowledged(
+        &attempt.tab_id,
+        &attempt.pty_id,
+        &attempt.binding_nonce
+    ));
+    assert_eq!(
+        observer.join().unwrap(),
+        LaunchObservation::Evidence(LaunchEvidence::Acknowledged)
+    );
+}
+
+#[test]
+fn auto_answered_prompt_does_not_suspend_readiness() {
+    let attempt = LaunchAttempt {
+        tab_id: "auto-prompt-readiness-tab".into(),
+        pty_id: "auto-prompt-readiness-pty".into(),
+        binding_nonce: "auto-prompt-readiness-nonce".into(),
+    };
+    arm(attempt.clone());
+    assert_eq!(
+        observe_with_owner_prompt(&attempt, Instant::now(), OWNER_PROMPT_DEADLINE, |_| {}),
+        LaunchObservation::Deadline
+    );
+}
+
+#[test]
+fn unanswered_owner_prompt_fails_at_owner_deadline_with_named_reason() {
+    let attempt = LaunchAttempt {
+        tab_id: "unanswered-owner-prompt-tab".into(),
+        pty_id: "unanswered-owner-prompt-pty".into(),
+        binding_nonce: "unanswered-owner-prompt-nonce".into(),
+    };
+    arm(attempt.clone());
+    owner_prompt_pending(&attempt.tab_id, "prompt-token-7");
+    assert_eq!(
+        observe_with_owner_prompt(
+            &attempt,
+            Instant::now() + Duration::from_secs(30),
+            Duration::ZERO,
+            |_| {},
+        ),
+        LaunchObservation::OwnerDeadline {
+            question: "prompt-token-7".into()
+        }
+    );
+    assert_eq!(
+        owner_prompt_deadline_reason("prompt-token-7"),
+        "owner prompt was not answered before the 30 minute deadline: prompt-token-7"
+    );
+    owner_prompt_cleared(&attempt.tab_id);
+}
+
 /// A launch that wrote its command and has proved nothing yet.
 fn launching_tab(pty_id: &str, nonce: &str) -> Tab {
     let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
