@@ -159,11 +159,9 @@ fn build_agent_command_inner(
         args.extend(effort_args);
     }
 
-    let command_task = registry
-        .with_provider(agent_cmd, |provider| {
-            crate::service::launch_delivery::command_task(provider, task)
-        })
-        .flatten();
+    let command_task = registry.with_provider(agent_cmd, |provider| {
+        crate::service::launch_delivery::command_task(provider, task)
+    });
 
     if let Some(session_id) = &params.resume_session_id {
         let resume = crate::agent::provider::AgentResumeParams {
@@ -186,9 +184,7 @@ fn build_agent_command_inner(
         }
     }
 
-    let launch_task = command_task
-        .and_then(|task| task.text)
-        .unwrap_or_default();
+    let launch_task = command_task.and_then(|task| task.text);
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: launch_task,

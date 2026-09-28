@@ -153,14 +153,16 @@ fn has_startup_task_turn_reflects_the_actual_launch_command() {
 
     let (mux, _) = MultiplexerState::new();
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
-    let codex = MockProvider::new("codex-shaped")
+    let codex = MockProvider::with_system_prompt_flag("codex-shaped", "-c developer_instructions")
         .with_task_delivery(TaskDelivery::InlineFlag)
-        .with_system_prompt_flag("codex-shaped", "-c developer_instructions")
         .with_hooks()
         .with_session_starts_on_first_user_turn();
     assert!(matches!(codex.task_delivery(), TaskDelivery::InlineFlag));
     assert!(codex.has_hooks());
-    harness.service.agent_registry.register_provider(Box::new(codex));
+    harness
+        .service
+        .agent_registry
+        .register_provider(Box::new(codex));
     let opencode = MockProvider::new("opencode-shaped")
         .with_task_delivery(TaskDelivery::InlineFlag)
         .with_session_config_delivery()
@@ -187,7 +189,11 @@ fn has_startup_task_turn_reflects_the_actual_launch_command() {
         );
         assert!(plan.expected_turn.is_none());
         assert!(!plan.first_turn_will_be_delivered);
-        assert!(first_turn_binding_required(true, plan.first_turn_will_be_delivered, false));
+        assert!(first_turn_binding_required(
+            true,
+            plan.first_turn_will_be_delivered,
+            false
+        ));
     }
 
     harness.service.agent_registry.register_provider(Box::new(
@@ -329,9 +335,8 @@ fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("pair-lazy-session".into());
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("pair-lazy-session")
+        MockProvider::with_system_prompt_flag("pair-lazy-session", "-c developer_instructions")
             .with_task_delivery(crate::agent::provider::TaskDelivery::InlineFlag)
-            .with_system_prompt_flag("pair-lazy-session", "-c developer_instructions")
             .with_hooks()
             .with_session_starts_on_first_user_turn(),
     ));
@@ -364,9 +369,8 @@ fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("trust-lazy-session".into());
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("trust-lazy-session")
+        MockProvider::with_system_prompt_flag("trust-lazy-session", "-c developer_instructions")
             .with_task_delivery(TaskDelivery::InlineFlag)
-            .with_system_prompt_flag("trust-lazy-session", "-c developer_instructions")
             .with_hooks()
             .with_session_starts_on_first_user_turn(),
     ));
@@ -382,7 +386,9 @@ fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
     assert!(!turn_plan.first_turn_will_be_delivered);
 
     crate::service::launch_readiness::owner_prompt_pending(&tab_id, "trust-question-a813");
-    assert!(crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+    assert!(crate::service::launch_readiness::owner_prompt_is_active(
+        &tab_id
+    ));
     let service = harness.service.clone();
     let observer_tab_id = tab_id.clone();
     let observer = std::thread::spawn(move || {
