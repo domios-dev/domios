@@ -81,6 +81,7 @@ function makeSnapshot(workspaces: BackendWs[], gen: number) {
 
 interface MuxLike {
   workspaces: Array<{ id: string; tabs: string[] }>;
+  toasts: Array<{ title: string; body?: string }>;
 }
 function hasTab(state: MuxLike, tabId: string): boolean {
   return state.workspaces.some((w) => w.tabs.includes(tabId));

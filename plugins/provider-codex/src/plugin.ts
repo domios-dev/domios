@@ -5,6 +5,7 @@ import type {
   ModelInfo,
   ParsedPrompt,
   PluginModule,
+  ResumeParams,
   SessionDeltaContext,
   TabState,
 } from "@codeterm/plugin-sdk";

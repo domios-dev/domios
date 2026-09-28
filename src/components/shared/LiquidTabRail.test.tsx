@@ -43,7 +43,7 @@ async function main() {
   const firstTab = host.querySelector<HTMLButtonElement>('[role="tab"]');
   assert(firstTab);
   await act(async () => {
-    firstTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    firstTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event);
   });
   assert.equal(selected, "inspect");
   assert.equal(document.activeElement, host.querySelector('[role="tab"]:nth-of-type(2)'));
