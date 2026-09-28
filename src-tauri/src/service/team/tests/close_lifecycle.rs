@@ -432,17 +432,11 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.status, crate::plan::TaskStatus::Done);
-    assert_eq!(task.lane.tab_id, lane_before.tab_id);
-    assert_eq!(task.lane.worktree_path, lane_before.worktree_path);
-    assert_eq!(task.lane.branch, lane_before.branch);
-    assert_eq!(task.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
-    assert!(task.lane.cleanup_hints.iter().any(|hint| {
-        hint.contains("historical-lane") && hint.contains("lane/completed")
-    }));
+    assert_eq!(task.lane, lane_before);
 }
 
 #[test]
-fn team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks() {
+fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -645,7 +639,11 @@ fn team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks() {
         .lane
         .cleanup_hints
         .iter()
-        .any(|hint| { hint.contains(work_lane.to_str().unwrap()) && hint.contains("lane/work") }));
+        .any(|hint| {
+            hint.contains(work_lane.to_str().unwrap())
+                && hint.contains("lane/work")
+                && hint.contains("unmerged commits ahead of destination main")
+        }));
     let dirty = closed.tasks.iter().find(|task| task.id == dirty_task).unwrap();
     assert_eq!(dirty.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
     assert!(dirty.lane.cleanup_hints.iter().any(|hint| {
@@ -672,18 +670,76 @@ fn team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks() {
 }
 
 #[test]
-fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
-    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
-}
+fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lanes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let (_, team_id, orchestrator, _, _) = team_members();
+    let plan = store
+        .create_plan_for_team(
+            "Terminal lane inventory".into(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&orchestrator),
+            team_id.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let parent_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "unplanned terminal task".into(),
+                kind: "unplanned".into(),
+                acceptance_criteria: vec!["completed".into()],
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let child_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "child lane".into(),
+                kind: "implement".into(),
+                acceptance_criteria: vec!["completed".into()],
+                parent_task_id: Some(parent_id.clone()),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let mut plan = store.get(&plan.id).unwrap();
+    let parent = plan.tasks.iter_mut().find(|task| task.id == parent_id).unwrap();
+    parent.status = crate::plan::TaskStatus::Done;
+    parent.lane = crate::plan::TaskLaneMetadata {
+        branch: Some("lane/unplanned-terminal".into()),
+        base: Some("fork-point".into()),
+        destination: Some("main".into()),
+        ..Default::default()
+    };
+    let child = plan.tasks.iter_mut().find(|task| task.id == child_id).unwrap();
+    child.lane = crate::plan::TaskLaneMetadata {
+        branch: Some("lane/child".into()),
+        base: Some("fork-point".into()),
+        destination: Some("main".into()),
+        ..Default::default()
+    };
+    store.save(&mut plan, 4).unwrap();
 
-#[test]
-fn team_close_keeps_dirty_or_unmerged_lanes_as_cleanup_debt() {
-    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
-}
+    let lanes = team_close_lanes(&store.list_full(), &team_id, &[]);
 
-#[test]
-fn team_close_reports_orphan_lane_branch_without_worktree() {
-    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
+    assert_eq!(lanes.len(), 2);
+    assert!(lanes.iter().any(|lane| {
+        lane.task_id == parent_id
+            && lane.branch.as_deref() == Some("lane/unplanned-terminal")
+            && lane.worktree_path.is_none()
+    }));
+    assert!(lanes.iter().any(|lane| {
+        lane.task_id == child_id
+            && lane.branch.as_deref() == Some("lane/child")
+            && lane.worktree_path.is_none()
+    }));
 }
 
 #[tokio::test]
@@ -850,6 +906,7 @@ fn add_team_lane_task(
         worktree_path: Some(worktree_path.display().to_string()),
         branch: Some(branch.into()),
         base: Some(base.into()),
+        destination: Some("main".into()),
         ..Default::default()
     };
     task.execution_attempts
@@ -860,6 +917,7 @@ fn add_team_lane_task(
             worktree_path: Some(worktree_path.display().to_string()),
             branch: Some(branch.into()),
             base: Some(base.into()),
+            destination: Some("main".into()),
             ..Default::default()
         });
     store.save(&mut plan, now_ms + 1).unwrap();

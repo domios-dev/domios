@@ -536,6 +536,9 @@ export function Sidebar({
       const kept = inventory.kept.map((lane) =>
         `${lane.path ?? "<no worktree>"} (${lane.branch ?? "no branch"}): ${lane.reason ?? "retained"}`,
       );
+      const removed = inventory.removed.map((lane) =>
+        `${lane.path ?? "<no worktree>"} (${lane.branch ?? "no branch"})`,
+      );
       const orphanBranches = inventory.orphan_branches.join(", ");
       addNotification({
         tab_id: null,
@@ -543,6 +546,7 @@ export function Sidebar({
         title: kept.length > 0 ? "Team closed with lanes retained" : "Team closed",
         body: [
           `${inventory.removed.length} lane(s) removed.`,
+          ...(removed.length > 0 ? [`Removed: ${removed.join("; ")}`] : []),
           ...(kept.length > 0 ? [`Kept: ${kept.join("; ")}`] : []),
           ...(orphanBranches ? [`Orphan branches: ${orphanBranches}`] : []),
         ].join(" "),
