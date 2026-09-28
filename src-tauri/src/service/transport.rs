@@ -158,17 +158,11 @@ impl AgentTransport for PtyTransport {
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
         let launch_command =
-            crate::service::launch_session_detection::marked_provider_launch_command(
-                &svc.agent_registry,
+            crate::service::launch_session_detection::marked_launch_command_for_tab(
+                svc,
                 ctx.provider_id,
                 ctx.tab_id,
-                Some(&cwd),
-                crate::service::launch_session_detection::canonical_project_for_tab(
-                    &svc.plan_store,
-                    ctx.tab_id,
-                    &cwd,
-                )
-                .as_deref(),
+                &cwd,
                 &mut params,
             )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
