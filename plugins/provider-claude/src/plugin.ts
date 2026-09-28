@@ -47,6 +47,7 @@ import {
 } from "./classify";
 import {
   buildClaudePromptResponse,
+  claudeOnboardingNotNowStep,
   parseClaudeLetteredPrompt,
   parseClaudeNumberedPrompt,
   parseClaudeWizardPrompt,
@@ -263,6 +264,10 @@ const plugin: PluginModule = {
 
   directoryTrustPromptResponse(screen: string): string[] | null {
     return claudeFolderTrustResponse(screen);
+  },
+
+  launchOnboardingResponse(screen: string): string | null {
+    return claudeOnboardingNotNowStep(screen);
   },
 
   permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {

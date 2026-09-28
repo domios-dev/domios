@@ -272,6 +272,16 @@ impl AgentProvider for JsProvider {
         Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
     }
 
+    fn launch_onboarding_response(&self, screen: &str) -> Option<Vec<u8>> {
+        let step = self
+            .try_call::<Option<String>>("launchOnboardingResponse", &[json!(screen)])??;
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(step.as_bytes())
+            .ok()
+            .filter(|bytes| !bytes.is_empty())
+    }
+
     fn permission_prompt_response(
         &self,
         tool_name: &str,
