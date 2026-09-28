@@ -148,37 +148,28 @@ substitute because it runs against the peer's plan store.
    request and match the identifiers and peer tab. The origin persists ACK and
    report on its attempt. Idempotency keys make relay retry safe.
 4. The origin Orchestrator reviews and accepts the report before integration.
-   Integration is a separate explicit operation and must fetch the recorded
-   peer lane branch and perform a real merge commit. Cherry-pick and squash are
-   not valid integration; verify ancestry with `git merge-base --is-ancestor`.
+   After the origin accepts its review, run `codeterm plan task merge-remote-lane
+   <plan> <task> <attempt>`. The origin fetches a signed peer bundle for the
+   recorded lane, performs a real merge commit, and persists the lane tip and
+   merge commit only after verifying ancestry. Cherry-pick and squash are not
+   valid integration.
 
 Attempt states distinguish `peer_preflight`, `peer_missing_repo`,
 `peer_missing_base`, `peer_offline`, `relay_lost`, `awaiting_worker_ack`,
-`acknowledged`, and `reported`. Offline and uncertain relay outcomes are
-persisted explicitly and never imply Worker failure or report persistence.
-Recovery must resume the same attempt and never create a duplicate Worker.
+`acknowledged`, `reported`, and `integrated`. The origin attempt retains the
+authenticated peer identity, peer lane refs, reported lane tip, and merge
+commit. Offline and uncertain relay outcomes are persisted explicitly and never
+imply Worker failure or report persistence. Recovery must resume the same
+attempt and never create a duplicate Worker.
 
 Both machines enforce their local mesh access policy and the owner's rules.
 Mesh authentication supplies transport identity; no API token, provider
 credential, secret, or secret-bearing environment enters the task payload.
 The Worker receives only its brief and opaque origin binding identifiers.
 
-This contract is not implemented. Do not describe `plan task dispatch --mesh`
-as supported until origin attempt persistence, peer lane provisioning, and
-authenticated ACK/report persistence exist. Running `plan.task.dispatch` over
-generic `--mesh` would put attempt ownership on the peer, not the origin.
-
-`plan task dispatch` is **local-only**: it has no `--mesh`/`--peer` flag. It spawns
-the Worker on the same daemon, binds the execution attempt, and exports
-`CODETERM_PLAN_ID`/`CODETERM_TASK_ID` into the Worker's tab. A Worker spawned on a
-remote peer with `agent spawn --mesh PEER --role Worker` therefore has **no attempt
-on the origin plan store and no plan/task env**, so a bare `agent ack` / `agent
-report --status` refuses with "tab has no plan/task assignment" and the message
-degrades to a plain tab message.
-
-Full cross-mesh dispatch (remote spawn + attempt bound on the origin plan + env
-exported into the remote tab + report routed back across the mesh) is **not wired**
-and is out of scope. Use the supported spawn-then-bind pattern instead:
+The general `agent spawn --mesh PEER --role Worker` path remains task-less and
+does not create an origin attempt. Use plan-bound dispatch for accountable work;
+use task-less mesh spawn only for exploratory work without a plan assignment.
 
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
@@ -206,27 +197,8 @@ and is out of scope. Use the supported spawn-then-bind pattern instead:
    refused without a task binding, on the peer's own daemon; the mesh has no
    binding to give it, so leave the flag off.
 
-2. Have the remote Worker report with **explicit origin ids** — it never has env
-   ids, so pass them by hand. The daemon homes the report to the plan's owning
-   machine over the mesh (text/status only; attachments are not relayed):
-
-   ```bash
-   codeterm agent report --status in_review --plan <origin-plan> --task <task> \
-     --sha <lane-HEAD> "STATUS: in_review ..."
-   ```
-
-   Because explicit `--plan`/`--task` are supplied, the CLI does not fall back to a
-   plain tab message; the report carries the origin ids and homes to the owning
-   peer when the spawning tab has a mesh report target.
-
-3. If the remote Worker was **not** spawned with a mesh report target (no homing
-   peer), the report cannot reach the origin store. In that case the Orchestrator
-   attaches the arriving tab message to the task by hand, or re-runs the report
-   from a tab that does have the origin peer as its report target.
-
-Binding a remote spawn's attempt directly onto the origin plan store still needs
-cross-daemon plan resolution and remains a documented follow-up, not a shipped
-capability.
+The general mesh spawn path remains available for task-less work; it does not
+participate in the origin task/report/merge lifecycle above.
 
 ## Peer API compatibility
 
@@ -265,4 +237,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 35 -->
+<!-- revision: 37 -->

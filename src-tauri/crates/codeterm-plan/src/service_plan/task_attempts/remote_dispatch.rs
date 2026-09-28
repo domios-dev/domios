@@ -186,13 +186,15 @@ impl PlanStore {
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
             if attempt.mesh_peer.as_deref() != Some(peer_id)
-                || attempt.remote_dispatch_state != Some(RemoteDispatchState::Acknowledged)
                 || report.reporter_tab_id.as_deref() != Some(&attempt.executor_tab_id)
             {
                 return Err(PlanError::Io("remote report does not match an origin attempt".into()));
             }
             if attempt.report.as_ref().is_some_and(|existing| existing.id == report.id) {
                 return Ok(false);
+            }
+            if attempt.remote_dispatch_state != Some(RemoteDispatchState::Acknowledged) {
+                return Err(PlanError::Io("remote report does not match an acknowledged origin attempt".into()));
             }
             if task.status.is_terminal() {
                 return Ok(false);
@@ -207,6 +209,46 @@ impl PlanStore {
             task.status_label = None;
             task.updated_at = now_ms;
             Ok(true)
+        })
+    }
+
+    pub fn mark_remote_dispatch_integrated(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        lane_tip: &str,
+        merge_commit: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task.execution_attempts.iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if attempt.remote_dispatch_state == Some(RemoteDispatchState::Integrated) {
+                if attempt.remote_lane_tip.as_deref() != Some(lane_tip)
+                    || attempt.remote_merge_commit.as_deref() != Some(merge_commit)
+                {
+                    return Err(PlanError::Io("remote lane integration result differs from the recorded merge".into()));
+                }
+                return Ok(());
+            }
+            if attempt.judge_verdict.as_deref() != Some("accepted")
+                || !matches!(
+                    attempt.remote_dispatch_state,
+                    Some(RemoteDispatchState::Reported | RemoteDispatchState::PeerOffline | RemoteDispatchState::RelayLost)
+                )
+                || attempt.branch.is_none()
+            {
+                return Err(PlanError::Io("remote lane integration requires an origin-accepted report".into()));
+            }
+            attempt.remote_lane_tip = Some(lane_tip.to_string());
+            attempt.remote_merge_commit = Some(merge_commit.to_string());
+            attempt.remote_dispatch_state = Some(RemoteDispatchState::Integrated);
+            task.updated_at = now_ms;
+            Ok(())
         })
     }
 }
@@ -386,5 +428,44 @@ mod tests {
             detail.task.execution_attempts[0].remote_dispatch_state,
             Some(RemoteDispatchState::PeerOffline)
         );
+    }
+
+    #[test]
+    fn remote_lane_integration_requires_origin_review_and_records_result() {
+        let (_root, store, plan_id, task_id, attempt_id) = remote_attempt();
+        store.record_remote_dispatch_lane(
+            &plan_id, &task_id, &attempt_id, "peer-origin", "remote-tab-1",
+            "lane/remote-attempt", "D:/peer/repo-worktrees/lane", "base-sha", "codex", 4,
+        ).unwrap();
+        store.acknowledge_remote_dispatch(
+            &plan_id, &task_id, &attempt_id, "peer-origin", "remote-tab-1", 5,
+        ).unwrap();
+        let report = TaskExecutionReportSnapshot {
+            id: "remote-report-merge".into(),
+            reporter_tab_id: Some("remote-tab-1".into()),
+            ..Default::default()
+        };
+        store.ingest_remote_dispatch_report(
+            &plan_id, &task_id, &attempt_id, "peer-origin", report, 6,
+        ).unwrap();
+        assert!(store.mark_remote_dispatch_integrated(
+            &plan_id, &task_id, &attempt_id, "lane-tip", "merge-tip", 7,
+        ).is_err());
+        store.with_plan(&plan_id, 8, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
+            task.execution_attempts[0].judge_verdict = Some("accepted".into());
+            task.execution_attempts[0].judged_at = Some(8);
+            Ok(())
+        }).unwrap();
+        store.mark_remote_dispatch_integrated(
+            &plan_id, &task_id, &attempt_id, "lane-tip", "merge-tip", 9,
+        ).unwrap();
+        store.mark_remote_dispatch_integrated(
+            &plan_id, &task_id, &attempt_id, "lane-tip", "merge-tip", 10,
+        ).unwrap();
+        let attempt = &store.show_task(&plan_id, &task_id).unwrap().task.execution_attempts[0];
+        assert_eq!(attempt.remote_dispatch_state, Some(RemoteDispatchState::Integrated));
+        assert_eq!(attempt.remote_lane_tip.as_deref(), Some("lane-tip"));
+        assert_eq!(attempt.remote_merge_commit.as_deref(), Some("merge-tip"));
     }
 }

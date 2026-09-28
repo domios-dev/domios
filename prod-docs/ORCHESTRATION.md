@@ -123,7 +123,7 @@ Judge structure against your role brief's plan-shape contract before dispatch.
 If the Planner is waived, record that on the plan.
 ## Dispatch contract
 
-Before each wave, check provider headroom (reuse live Workers near 95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Each Worker needs `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a brief with exact acceptance and test commands; it ACKs before work and reports last. Dispatch is local only; do not use mesh dispatch.
+Before each wave, check provider headroom (reuse live Workers near 95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Each Worker needs `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a brief with exact acceptance and test commands; it ACKs before work and reports last. For a paired peer with Full access, `codeterm plan task dispatch <plan> <task> --mesh <peer> --execution-intent mutating` creates an origin attempt and peer lane. Review the persisted report on the origin before running `codeterm plan task merge-remote-lane <plan> <task> <attempt>`.
 
 If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
 
@@ -158,4 +158,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 95 -->
+<!-- revision: 96 -->

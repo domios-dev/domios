@@ -18,6 +18,13 @@ entity id, and `data` contains the raw daemon payload with typed fields such as
 `plan create --json` returns `kind == "plan"` and `id == plan_id`, and
 `plan task add --json` returns `kind == "task"` and `id == task_id`.
 
+`plan task dispatch <plan> <task> --mesh <peer> --execution-intent mutating`
+starts origin-owned remote work. The Worker ACKs and reports to that attempt;
+after the Orchestrator accepts the report, run
+`plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the
+authenticated peer lane bundle and create a real merge commit. The generated
+CLI reference and machine-readable command tree are refreshed by `build.sh cli`.
+
 ### CLI JSON Errors
 
 `agent spawn`, `plan task dispatch`, and `team pair` write failures to stdout as
@@ -217,4 +224,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

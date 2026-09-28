@@ -47,13 +47,20 @@ even with `--acknowledge-dirty`.
 Other attempts with an unresolved lane still receive the lane worktree refusal.
 Without the flag every rule above is unchanged.
 
+For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
+and integration. After accepting the attempt, run
+`codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
+The command fetches the authenticated peer bundle into a CodeTerm-owned ref,
+uses `git merge --no-ff`, and records the merge only after the peer lane tip is
+an ancestor of the target. It never accepts cherry-pick or squash as integration.
+
 Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
 so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.

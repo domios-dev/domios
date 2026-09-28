@@ -26,7 +26,7 @@ mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
-mod remote;
+pub(super) mod remote;
 mod recovery;
 mod routing;
 mod startup;
