@@ -187,8 +187,9 @@ impl ServiceContext {
         let Some(pty_id) = pty_id else {
             let (cleared, prompt_identity) = {
                 let mut mux = self.mux.write();
-                mux.get_tab_mut(tab_id)
-                    .map_or((false, None), clear_agent_identity_with_prompt)
+                mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                    clear_agent_identity_with_prompt(tab_id, tab)
+                })
             };
             return self.finish_agent_identity_clear(
                 tab_id,
@@ -251,8 +252,9 @@ impl ServiceContext {
             .and_then(|proof| self.claim_launch_exit(tab_id, Some(&pty_id), None, proof));
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .map_or((false, None), clear_agent_identity_with_prompt)
+            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                clear_agent_identity_with_prompt(tab_id, tab)
+            })
         };
         let finished = self.finish_agent_identity_clear(
             tab_id,
@@ -327,7 +329,9 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map_or((false, None), clear_agent_identity_with_prompt)
+                .map_or((false, None), |tab| {
+                    clear_agent_identity_with_prompt(tab_id, tab)
+                })
         };
         self.finish_agent_identity_clear(
             tab_id,
@@ -362,7 +366,9 @@ impl ServiceContext {
                     tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
                         && !tab.agent_booting
                 })
-                .map_or((false, None), clear_agent_identity_with_prompt)
+                .map_or((false, None), |tab| {
+                    clear_agent_identity_with_prompt(tab_id, tab)
+                })
         };
         self.finish_agent_identity_clear(
             tab_id,
