@@ -120,7 +120,7 @@ fn brackets_in_name_are_stripped() {
 
 #[test]
 fn wrap_appends_body() {
-    let p = Messenger::message("Edison", "e8a0ac20").from_agent(true);
+    let p = Messenger::message("Edison", "e8a0ac20").from_agent(Some(true));
     let wrapped = p.wrap("hello");
     assert!(wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20-=-\nhello\n"));
     let hint = wrapped.rsplit('\n').next().unwrap();
@@ -132,7 +132,7 @@ fn wrap_appends_body() {
 #[test]
 fn mesh_reply_hint_carries_the_return_peer() {
     let p = Messenger::message("Edison", "e8a0ac20")
-        .from_agent(true)
+        .from_agent(Some(true))
         .mesh(Some("BLACKSTAR".into()));
     let wrapped = p.wrap("hello");
     assert!(wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n"));
@@ -142,8 +142,10 @@ fn mesh_reply_hint_carries_the_return_peer() {
 #[test]
 fn reply_hint_for_shell_sender_suggests_no_shell_send() {
     for envelope in [
-        MessageEnvelope::tab("Shell", "e8a0ac20"),
-        MessageEnvelope::tab("Shell", "e8a0ac20").mesh(Some("peer".into())),
+        MessageEnvelope::tab("Shell", "e8a0ac20").from_agent(Some(false)),
+        MessageEnvelope::tab("Shell", "e8a0ac20")
+            .from_agent(Some(false))
+            .mesh(Some("peer".into())),
     ] {
         let wrapped = Messenger::from(envelope).wrap("hello");
         let hint = wrapped.rsplit('\n').next().unwrap();
@@ -153,9 +155,7 @@ fn reply_hint_for_shell_sender_suggests_no_shell_send() {
 
 #[test]
 fn reply_hint_for_agent_sender_unchanged() {
-    let wrapped = Messenger::message("Agent", "e8a0ac20")
-        .from_agent(true)
-        .wrap("hello");
+    let wrapped = Messenger::message("Agent", "e8a0ac20").wrap("hello");
     let hint = wrapped.rsplit('\n').next().unwrap();
     assert!(hint.starts_with(Messenger::AGENT_REPLY_HINT_PREFIX));
     assert!(hint.contains(Messenger::AGENT_REPLY_COMMAND));

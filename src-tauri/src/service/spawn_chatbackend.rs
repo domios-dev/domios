@@ -816,7 +816,8 @@ impl ServiceContext {
                     .read()
                     .get_tab(tab_id)
                     .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-                let envelope = MessageEnvelope::tab("Watcher", tab_id).from_agent(from_agent);
+                let envelope =
+                    MessageEnvelope::tab("Watcher", tab_id).from_agent(Some(from_agent));
                 self.gateway_deliver(
                     target,
                     envelope,
