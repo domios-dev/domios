@@ -278,9 +278,10 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     );
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
 
+    assert!(include_str!("owner_prompt_wait.rs").contains("await_lazy_session_input_readiness"));
     let launch_source = include_str!("../launch.rs");
     let provider_evidence = launch_source
-        .find("await_lazy_session_input_readiness")
+        .find("owner_prompt_wait::await_input_readiness")
         .expect("lazy launch waits for provider-owned composer evidence");
     let input_ready = launch_source
         .find("emit_first_turn_input_ready")
