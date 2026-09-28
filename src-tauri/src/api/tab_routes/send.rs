@@ -214,8 +214,8 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     pub(crate) raw: bool,
-    /// Sender's tab id when CLI is invoked from inside CodeTerm. Daemon
-    /// prepends a CodeTerm marker so the recipient knows the return-address.
+    /// Sender's tab id when CLI is invoked from inside CodeTerm. The daemon
+    /// keeps it in the marker and adds a reply hint based on sender identity.
     /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     pub(crate) source_tab: Option<String>,
@@ -230,6 +230,8 @@ pub(crate) struct SendTextBody {
     pub(crate) source_label: Option<String>,
     #[serde(default)]
     pub(crate) source_model: Option<String>,
+    #[serde(default)]
+    pub(crate) source_is_agent: Option<bool>,
     /// Delivery framing for a mesh-relayed message. `"report"` renders as
     /// `[Report from <label>@<peer>]` (a remote worker's `agent report`); any
     /// other / absent value is a plain tab message. Only honoured alongside
@@ -442,6 +444,7 @@ pub async fn send_text(
                     Some(
                         envelope
                             .model(body.source_model.clone())
+                            .from_agent(body.source_is_agent)
                             .peer(Some(peer.to_string()))
                             .mesh(Some(peer.to_string())),
                     )
@@ -451,12 +454,14 @@ pub async fn send_text(
                     let mux = state.svc.mux.write();
                     let resolved = mux.resolve_tab_id(src)?;
                     let from_label = mux.display_label_for_tab(&resolved);
-                    let model = mux
-                        .get_tab(&resolved)
-                        .and_then(|p| p.agent_session_model.clone());
+                    let source_tab = mux.get_tab(&resolved);
+                    let from_agent = source_tab
+                        .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                    let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
                     Some(
                         crate::service::messenger::MessageEnvelope::tab(from_label, resolved)
-                            .model(model),
+                            .model(model)
+                            .from_agent(Some(from_agent)),
                     )
                 }
             }

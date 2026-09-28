@@ -19,6 +19,7 @@ import {
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
+import { checkCodexUpdate } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
@@ -29,6 +30,7 @@ import { actionTitle } from "./actionTitle";
 import {
   codexProfileInstanceId,
   codexProfileTabId,
+  carryCodexProjectTrustForTab,
   inspectCodexProfiles,
   manageCodexProfiles,
   releaseCodexProfile,
@@ -254,8 +256,16 @@ const plugin: PluginModule = {
     return discoverCodexModels();
   },
 
+  checkForUpdate() {
+    return checkCodexUpdate(host);
+  },
+
   releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {
     return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+
+  folderTrustAnswered(tabId: string, instanceId: string): boolean {
+    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
   },
 
   sweepLaunchArtifacts(request: {

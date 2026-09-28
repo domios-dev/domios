@@ -70,6 +70,37 @@ pub fn record_via(
     AnswerAdmission::Recorded(label.to_string())
 }
 
+pub fn record_detached(
+    notifications: &mut [Notification],
+    id: &str,
+    label: &str,
+) -> AnswerAdmission {
+    let Some(target) = notifications.iter_mut().find(|n| n.id == id) else {
+        return AnswerAdmission::NotOffered;
+    };
+    let offered = target
+        .actions
+        .as_deref()
+        .into_iter()
+        .flatten()
+        .any(|action| action.answer_label() == Some(label));
+    if !offered {
+        return AnswerAdmission::NotOffered;
+    }
+    let Some(slot) = target.answer.as_mut() else {
+        return AnswerAdmission::NotOffered;
+    };
+    if slot.asked_from_tab.is_some() {
+        return AnswerAdmission::Undeliverable;
+    }
+    if let Some(standing) = slot.answered.as_deref() {
+        return AnswerAdmission::AlreadyAnswered(standing.to_string());
+    }
+    slot.answered = Some(label.to_string());
+    slot.answered_via = Some("notification".to_string());
+    AnswerAdmission::Recorded(label.to_string())
+}
+
 /// The tab that asked is gone. Unanswered questions become undeliverable; an
 /// answer already recorded is history and stays exactly as it was.
 pub fn forget_tab(notifications: &mut [Notification], tab_id: &str) {

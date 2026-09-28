@@ -30,6 +30,7 @@ pub struct MessageEnvelope {
     pub kind: MessageKind,
     pub from_label: String,
     pub from_tab: String,
+    pub from_agent: Option<bool>,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
@@ -158,6 +159,11 @@ impl MessageEnvelope {
         self
     }
 
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
+        self.from_agent = from_agent;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.peer = peer.filter(|p| !p.trim().is_empty());
         self
@@ -210,6 +216,9 @@ impl From<MessageEnvelope> for Messenger {
 }
 
 impl Messenger {
+    pub(crate) const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
+    pub(crate) const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
+    const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
     }
@@ -244,6 +253,11 @@ impl Messenger {
 
     pub fn mesh(mut self, mesh: Option<String>) -> Self {
         self.envelope.from_mesh = mesh.filter(|m| !m.trim().is_empty());
+        self
+    }
+
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
+        self.envelope.from_agent = from_agent;
         self
     }
 
@@ -622,8 +636,12 @@ impl Messenger {
         if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
             return None;
         }
+        if self.envelope.from_agent == Some(false) {
+            return Some(Self::SHELL_REPLY_HINT.to_string());
+        }
         let mut command = format!(
-            "codeterm send \"YOUR REPLY\" --tab {}",
+            "{} \"YOUR REPLY\" --tab {}",
+            Self::AGENT_REPLY_COMMAND,
             short_id(&self.envelope.from_tab)
         );
         if let Some(mesh) = self
@@ -636,7 +654,7 @@ impl Messenger {
             command.push_str(" --mesh ");
             command.push_str(mesh);
         }
-        Some(format!("[to reply, run: {command}]"))
+        Some(format!("{}{command}]", Self::AGENT_REPLY_HINT_PREFIX))
     }
 }
 

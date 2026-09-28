@@ -51,6 +51,7 @@ mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
 mod prompt_resolution;
+pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod startup_turn;
 #[cfg(test)]
@@ -60,6 +61,7 @@ pub(crate) use orchestrator::{
     provider_launch_task,
 };
 pub(crate) mod directory_trust;
+mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
@@ -130,6 +132,7 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
+pub use team::TeamCloseResult;
 #[cfg(test)]
 pub(crate) use team::close_team_with_state_change;
 #[cfg(test)]
@@ -636,6 +639,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
+        provider_update::on_state_change(self);
         publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish();
     }

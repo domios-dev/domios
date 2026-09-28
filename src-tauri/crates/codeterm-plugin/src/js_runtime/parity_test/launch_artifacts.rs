@@ -44,6 +44,10 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         Ok(tab_id == "closed-tab" && instance_id == "instance-fixture")
     }
 
+    fn folder_trust_answered(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+        Ok(tab_id == "trusted-tab" && instance_id == "instance-fixture")
+    }
+
     fn sweep_launch_artifacts(
         &self,
         request: &LaunchArtifactSweepRequest,
@@ -103,6 +107,9 @@ fn launch_artifact_release_native_js_parity() {
             releaseTabLaunchArtifacts(tabId, instanceId) {
                 return tabId === "closed-tab" && instanceId === "instance-fixture";
             },
+            folderTrustAnswered(tabId, instanceId) {
+                return tabId === "trusted-tab" && instanceId === "instance-fixture";
+            },
             sweepLaunchArtifacts(request) {
                 const dead = request.liveTabIds.includes("dead-tab") ? [] : ["dead-tab"];
                 const legacy = ["legacy-tab"];
@@ -124,6 +131,10 @@ fn launch_artifact_release_native_js_parity() {
     assert_eq!(
         native.release_tab_launch_artifacts("closed-tab", &request.instance_id),
         js.release_tab_launch_artifacts("closed-tab", &request.instance_id),
+    );
+    assert_eq!(
+        native.folder_trust_answered("trusted-tab", &request.instance_id),
+        js.folder_trust_answered("trusted-tab", &request.instance_id),
     );
     assert_eq!(
         native.sweep_launch_artifacts(&request),

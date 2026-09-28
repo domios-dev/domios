@@ -46,6 +46,10 @@ pub trait AgentProvider: Send + Sync {
         Ok(false)
     }
 
+    fn folder_trust_answered(&self, _tab_id: &str, _instance_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
     fn sweep_launch_artifacts(
         &self,
         _request: &LaunchArtifactSweepRequest,
@@ -736,6 +740,14 @@ pub trait AgentProvider: Send + Sync {
     }
 
     fn update_command(&self, _platform: &str) -> Option<String> {
+        None
+    }
+
+    fn supports_update_check(&self) -> bool {
+        false
+    }
+
+    fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
         None
     }
 

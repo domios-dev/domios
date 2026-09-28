@@ -27,6 +27,162 @@ fn keys_action(keys: &[&str]) -> TabStateAction {
     }
 }
 
+fn classified_prompt_fixture(
+    screen: &str,
+    prompt: PendingPrompt,
+) -> (
+    crate::service::test_fixture::ServiceFixture,
+    std::sync::Arc<crate::service::ServiceContext>,
+    String,
+    String,
+) {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-classified-prompt".to_string();
+    mux.link_pty(&tab_id, pty_id.clone());
+    mux.get_tab_mut(&tab_id).expect("tab").agent_type = Some("structural-fixture".into());
+    let provider = MockProvider::new("structural-fixture")
+        .with_tab_state(classification(
+            TabState::ClarifyingQuestion,
+            1.0,
+            Some(keys_action(&["enter"])),
+        ))
+        .with_parsed_prompt(prompt);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(provider));
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(&pty_id, screen.as_bytes());
+    let service = std::sync::Arc::new(fixture.service.clone());
+    (fixture, service, tab_id, pty_id)
+}
+
+fn reactor_test_prompt() -> PendingPrompt {
+    PendingPrompt {
+        question: "opaque question token?".into(),
+        options: vec![
+            PromptOption {
+                label: "opaque option alpha".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "opaque option beta".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: Some(false),
+        submit_available: Some(false),
+        selected_values: None,
+    }
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn delivered_goal_text_never_raises_needs_response_notification() {
+    let mut prompt = reactor_test_prompt();
+    prompt.selected_values = Some(vec!["1".into()]);
+    let screen = include_str!("fixtures/codex_transcript_with_composer.txt");
+    let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt);
+
+    react(&service, &pty_id, TabStatus::Waiting);
+
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn needs_response_notification_requires_a_real_pending_prompt() {
+    let prompt = reactor_test_prompt();
+    let screen = "opaque question token?\n❯ 1. opaque option alpha\n  2. opaque option beta\nEnter to confirm";
+    let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
+
+    react(&service, &pty_id, TabStatus::Waiting);
+
+    let notif_guard = fixture.service.notif.lock();
+    let notifications = notif_guard.list(false);
+    assert_eq!(notifications.len(), 1);
+    assert_eq!(notifications[0].tab_id.as_deref(), Some(tab_id.as_str()));
+    assert_eq!(
+        notifications[0].body.as_deref(),
+        Some("opaque question token?\nopaque option alpha\nopaque option beta")
+    );
+    assert_eq!(
+        notifications[0]
+            .actions
+            .as_ref()
+            .expect("prompt options are answerable")
+            .iter()
+            .filter_map(|action| action.answer_label())
+            .collect::<Vec<_>>(),
+        vec!["opaque option alpha", "opaque option beta"]
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn classified_terminal_dialogs_keep_their_single_pending_notification() {
+    let dialogs = [
+        (
+            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            ["Trust and continue", "Quit"],
+        ),
+        (
+            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/approval-paragraph.txt"),
+            ["Yes, apply", "No, cancel"],
+        ),
+    ];
+
+    for (screen, labels) in dialogs {
+        let mut prompt = reactor_test_prompt();
+        for (option, label) in prompt.options.iter_mut().zip(labels) {
+            option.label = label.into();
+        }
+        let (fixture, service, _tab_id, pty_id) = classified_prompt_fixture(screen, prompt);
+
+        react(&service, &pty_id, TabStatus::Waiting);
+
+        assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    }
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn another_tabs_pending_prompt_does_not_qualify_for_this_tab() {
+    let prompt = reactor_test_prompt();
+    let screen = "goal question token?\n1) opaque option alpha\n2) opaque option beta\n›";
+    let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
+    let other_tab_id = fixture.service.mux.write().create_tab_record();
+    {
+        let mut mux = fixture.service.mux.write();
+        let other_tab = mux.get_tab_mut(&other_tab_id).expect("other tab");
+        other_tab.pending_prompt = Some(prompt);
+        other_tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
+    }
+
+    react(&service, &pty_id, TabStatus::Waiting);
+
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_prompt.as_ref())
+        .is_none());
+}
+
 #[test]
 fn does_not_fire_while_working() {
     // Gate: even a confident, actionable verdict is ignored while streaming.

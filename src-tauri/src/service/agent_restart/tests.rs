@@ -4,6 +4,19 @@ fn fresh_tracker() -> RestartTracker {
     new_restart_tracker()
 }
 
+#[test]
+fn provider_update_pause_requires_the_captured_session_before_stopping() {
+    assert!(provider_update_session_matches(
+        "session-a",
+        Some("session-a")
+    ));
+    assert!(!provider_update_session_matches(
+        "session-a",
+        Some("session-b")
+    ));
+    assert!(!provider_update_session_matches("session-a", None));
+}
+
 fn check(tracker: &RestartTracker, tab_id: &str) -> Result<(), AgentRestartError> {
     drop(claim_restart_attempt(tracker, tab_id, false)?);
     Ok(())

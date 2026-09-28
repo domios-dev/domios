@@ -26,6 +26,7 @@ $processes = @(
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
   @{ ProcessId = 320; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1555" }
   @{ ProcessId = 330; ParentProcessId = 9998; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 336; ParentProcessId = 9994; Name = "OpenConsole.exe"; ExecutablePath = "\\?\$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "OpenConsole.exe --headless" }
   @{ ProcessId = 331; ParentProcessId = 200; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 332; ParentProcessId = 500; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 333; ParentProcessId = 9997; Name = "OpenConsole.exe"; ExecutablePath = "$namedDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$namedDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
@@ -64,7 +65,7 @@ try {
   }
   $plan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @cleanupArgs | ConvertFrom-Json
 
-  $expected = @(200, 201, 210, 220, 230, 330, 331, 333)
+  $expected = @(200, 201, 210, 220, 230, 330, 331, 333, 336)
   $actual = @($plan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
