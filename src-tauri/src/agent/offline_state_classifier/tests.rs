@@ -21,12 +21,45 @@ fn extracts_complete_authoritative_auth_message() {
 }
 
 use super::{
-    classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
-    StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
+    classify_state, composer_cursor_ready, offline_picker_is_coherent, prompt_glyph_cursor_ready,
+    ClassifyInput, Motion, StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
 use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
 use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
+
+fn codex_composer_fixture(text: &str) -> (Vec<String>, u16) {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let composer_row = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with('›'))
+        .expect("captured fixture contains a prompt row") as u16;
+    (lines, composer_row)
+}
+
+#[test]
+fn codex_composer_ready_without_footer_and_with_warning_rows() {
+    let (lines, cursor_row) = codex_composer_fixture(include_str!(
+        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"
+    ));
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
+    assert!(!prompt_glyph_cursor_ready(&lines, false, cursor_row, 1));
+    assert!(!prompt_glyph_cursor_ready(&lines, true, cursor_row - 1, 1));
+}
+
+#[test]
+fn codex_composer_ready_with_footer() {
+    let (lines, cursor_row) = codex_composer_fixture(include_str!(
+        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"
+    ));
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
+}
+
+#[test]
+fn unsupported_codex_layout_has_no_structural_composer_evidence() {
+    let unsupported = vec!["provider screen with no input row".to_string()];
+    assert!(!prompt_glyph_cursor_ready(&unsupported, true, 0, 0));
+}
 
 fn working() -> TabVerdict {
     TabVerdict {

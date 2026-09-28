@@ -34,6 +34,7 @@
       "kind": "structural_composer",
       "timeoutSecs": 30
     },
+    "composerCursorPosition": "bottom_region",
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": {
       "kind": "cli_flag",
