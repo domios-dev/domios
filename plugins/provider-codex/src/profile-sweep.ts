@@ -1,4 +1,4 @@
-import { carryCodexProjectTrust, hasTrustedProjectEntries } from "./trust-carryover";
+import { carryCodexProjectTrust, hasTrustedProjectEntries, hasTrustedProjectPath } from "./trust-carryover";
 
 export interface ProfileSweepHost {
   platform(): string;
@@ -28,6 +28,15 @@ const INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 function codexConfigPath(host: ProfileSweepHost, home: string): string {
   const separator = host.platform() === "windows" ? "\\" : "/";
   return `${home}${separator}.codex${separator}config.toml`;
+}
+
+export function isCodexDirectoryTrusted(host: ProfileSweepHost, path: string): boolean {
+  const home = host.homeDir();
+  if (!home) return false;
+  const configPath = codexConfigPath(host, home);
+  if (host.fs.isSymlink(configPath) !== false) return false;
+  const config = host.fs.readFile(configPath);
+  return config !== null && hasTrustedProjectPath(config, path);
 }
 
 export function codexProfileTabId(fileName: string): string | null {

@@ -3,6 +3,7 @@ import {
   codexProfileInstanceId,
   codexProfileTabId,
   carryCodexProjectTrustForTab,
+  isCodexDirectoryTrusted,
   manageCodexProfiles,
   releaseCodexProfile,
   sweepCodexProfiles,
@@ -179,6 +180,31 @@ console.log("\n--- answered trust carries only this tab and instance before rele
   assert.ok(files["config.toml"].startsWith(config), "hooks and trusted_hash bytes remain unchanged");
   assert.equal(carryCodexProjectTrustForTab(host, "foreign-tab", "instance-dev"), false,
     "does not carry a sibling instance's profile even when given its tab id");
+}
+
+console.log("\n--- live owner answer makes an already-running sibling eligible ---\n");
+{
+  const liveProfile = [
+    "# codeterm-instance: instance-dev",
+    "",
+    "[projects.'C:\\Users\\test\\SharedFolder']",
+    'trust_level = "trusted"',
+    "",
+  ].join("\r\n");
+  const { host, files } = makeHost({
+    "codeterm-owner.config.toml": liveProfile,
+    "config.toml": "[hooks.state]\r\ntrusted_hash = \"sha256:unchanged\"\r\n",
+  });
+  assert.equal(isCodexDirectoryTrusted(host, "C:\\Users\\test\\SharedFolder"), false,
+    "the sibling is not authorized before the owner's answer is merged");
+  assert.equal(carryCodexProjectTrustForTab(host, "owner", "instance-dev"), true,
+    "the answered live profile is merged without waiting for release");
+  assert.equal(isCodexDirectoryTrusted(host, "c:/users/test/sharedfolder"), true,
+    "the sibling's exact folder is recognized as owner-trusted immediately after merge");
+  assert.equal(isCodexDirectoryTrusted(host, "C:\\Users\\test\\Neighbor"), false,
+    "a sibling in a different folder remains ineligible");
+  assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'),
+    "the hook trust hash stays unchanged during promotion");
 }
 
 console.log("\n--- dead tab profile carries trust before startup sweep removes it ---\n");

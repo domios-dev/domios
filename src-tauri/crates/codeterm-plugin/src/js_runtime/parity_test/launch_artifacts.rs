@@ -48,6 +48,10 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         Ok(tab_id == "trusted-tab" && instance_id == "instance-fixture")
     }
 
+    fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
+        Ok(path.eq_ignore_ascii_case(r"C:\Trust\Exact"))
+    }
+
     fn sweep_launch_artifacts(
         &self,
         request: &LaunchArtifactSweepRequest,
@@ -98,7 +102,7 @@ impl AgentProvider for LaunchArtifactsNativeStub {
 }
 
 #[test]
-fn launch_artifact_release_native_js_parity() {
+fn launch_artifact_and_directory_trust_native_js_parity() {
     let native = LaunchArtifactsNativeStub;
     let js = load_inline_js(
         "artifact-fixture",
@@ -109,6 +113,9 @@ fn launch_artifact_release_native_js_parity() {
             },
             folderTrustAnswered(tabId, instanceId) {
                 return tabId === "trusted-tab" && instanceId === "instance-fixture";
+            },
+            isDirectoryTrusted(path) {
+                return path.toLowerCase() === "c:\\trust\\exact";
             },
             sweepLaunchArtifacts(request) {
                 const dead = request.liveTabIds.includes("dead-tab") ? [] : ["dead-tab"];
@@ -135,6 +142,14 @@ fn launch_artifact_release_native_js_parity() {
     assert_eq!(
         native.folder_trust_answered("trusted-tab", &request.instance_id),
         js.folder_trust_answered("trusted-tab", &request.instance_id),
+    );
+    assert_eq!(
+        native.is_directory_trusted(r"C:\Trust\Exact"),
+        js.is_directory_trusted(r"C:\Trust\Exact"),
+    );
+    assert_eq!(
+        native.is_directory_trusted(r"C:\Trust\Other"),
+        js.is_directory_trusted(r"C:\Trust\Other"),
     );
     assert_eq!(
         native.sweep_launch_artifacts(&request),

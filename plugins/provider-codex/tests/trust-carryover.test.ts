@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   carryCodexProjectTrust,
+  hasTrustedProjectPath,
   mergeTrustedProjectEntries,
   type ProjectTrustCarryHost,
 } from "../src/trust-carryover";
@@ -62,6 +63,26 @@ assert.equal(
   mergeTrustedProjectEntries(untrustedProfile, ""),
   "",
   "does not carry a folder the owner explicitly declined",
+);
+assert.equal(
+  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"trusted\"\n", "c:/users/user/project"),
+  true,
+  "matches the exact shared trusted project path with Windows case and separator normalization",
+);
+assert.equal(
+  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"trusted\"\n", "C:\\Users\\dev\\Other"),
+  false,
+  "does not treat a neighboring folder as trusted",
+);
+assert.equal(
+  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"untrusted\"\n", "C:\\Users\\dev\\Project"),
+  false,
+  "never auto-answers for an explicitly untrusted project",
+);
+assert.equal(
+  hasTrustedProjectPath("[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"untrusted\"\n[projects.'C:\\Users\\dev\\Project']\ntrust_level = \"trusted\"\n", "C:\\Users\\dev\\Project"),
+  false,
+  "fails closed on duplicate entries for the same project path",
 );
 const provisionedProfile = [
   "[projects.'c:\\users\\user\\.codeterm-dev-qa\\provisioned-workspaces\\qa-c9-prov-90b4425239c0']",
