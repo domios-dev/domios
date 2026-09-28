@@ -917,6 +917,22 @@ impl ServiceContext {
             }
             PromptDecision::PromptCleared { tab_id } => {
                 if let Some(identity) = self.clear_pending_prompt(tab_id) {
+                    if super::folder_trust_carryover::should_schedule_owner_clear(Some(
+                        identity.kind,
+                    )) {
+                        let agent_type = self
+                            .mux
+                            .read()
+                            .get_tab(tab_id)
+                            .and_then(|tab| tab.agent_type.clone());
+                        if let Some(agent_type) = agent_type {
+                            super::folder_trust_carryover::owner_trust_prompt_cleared(
+                                self.agent_registry.clone(),
+                                tab_id,
+                                &agent_type,
+                            );
+                        }
+                    }
                     self.resolve_prompt_notifications(tab_id, &identity);
                 }
                 crate::api::events::emit_everywhere(

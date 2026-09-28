@@ -200,6 +200,8 @@ export interface AgentProvider {
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
   releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
+  /** Persist provider-owned folder trust after this tab's trust dialog closes. */
+  folderTrustAnswered?(tabId: string, instanceId: string): boolean;
   sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   /** Implement only when a resumed session drops the launch-time system prompt. */

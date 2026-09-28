@@ -46,6 +46,10 @@ pub trait AgentProvider: Send + Sync {
         Ok(false)
     }
 
+    fn folder_trust_answered(&self, _tab_id: &str, _instance_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
     fn sweep_launch_artifacts(
         &self,
         _request: &LaunchArtifactSweepRequest,

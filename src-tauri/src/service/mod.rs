@@ -60,6 +60,7 @@ pub(crate) use orchestrator::{
     provider_launch_task,
 };
 pub(crate) mod directory_trust;
+mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
