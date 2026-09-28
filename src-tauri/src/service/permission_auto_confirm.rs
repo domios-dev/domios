@@ -636,8 +636,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
                 let retracted = tab.pending_prompt.is_some();
-                let identity =
-                    crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+                let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
                 (retracted, identity)
             })
         };

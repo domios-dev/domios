@@ -1,11 +1,11 @@
 use super::ServiceContext;
 use crate::service::session_model::clear_runtime_model_evidence;
 
+#[cfg(test)]
 pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab: &mut crate::multiplexer::types::Tab,
 ) -> bool {
-    let prompt_identity =
-        crate::service::prompt_resolution::clear_tab_prompt(&tab.id.clone(), Some(tab));
+    let prompt_identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
     clear_agent_identity_after_prompt_clear(tab, prompt_identity.is_some())
 }
 
@@ -57,10 +57,9 @@ fn clear_agent_identity_after_prompt_clear(
 }
 
 fn clear_agent_identity_with_prompt(
-    tab_id: &str,
     tab: &mut crate::multiplexer::types::Tab,
 ) -> (bool, Option<codeterm_types::pty::PromptIdentity>) {
-    let identity = crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+    let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
     let cleared = clear_agent_identity_after_prompt_clear(tab, identity.is_some());
     (cleared, identity.filter(|_| cleared))
 }
@@ -134,9 +133,8 @@ impl ServiceContext {
         };
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
-                clear_agent_identity_with_prompt(tab_id, tab)
-            })
+            mux.get_tab_mut(tab_id)
+                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
@@ -157,9 +155,8 @@ impl ServiceContext {
     pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
-                clear_agent_identity_with_prompt(tab_id, tab)
-            })
+            mux.get_tab_mut(tab_id)
+                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
@@ -189,9 +186,8 @@ impl ServiceContext {
         let Some(pty_id) = pty_id else {
             let (cleared, prompt_identity) = {
                 let mut mux = self.mux.write();
-                mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
-                    clear_agent_identity_with_prompt(tab_id, tab)
-                })
+                mux.get_tab_mut(tab_id)
+                    .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
             };
             crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             return self.finish_agent_identity_clear(
@@ -255,9 +251,8 @@ impl ServiceContext {
             .and_then(|proof| self.claim_launch_exit(tab_id, Some(&pty_id), None, proof));
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
-                clear_agent_identity_with_prompt(tab_id, tab)
-            })
+            mux.get_tab_mut(tab_id)
+                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
@@ -333,9 +328,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map_or((false, None), |tab| {
-                    clear_agent_identity_with_prompt(tab_id, tab)
-                })
+                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
@@ -371,9 +364,7 @@ impl ServiceContext {
                     tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
                         && !tab.agent_booting
                 })
-                .map_or((false, None), |tab| {
-                    clear_agent_identity_with_prompt(tab_id, tab)
-                })
+                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
