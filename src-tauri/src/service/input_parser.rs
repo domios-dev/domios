@@ -22,6 +22,14 @@ const MAX_BUFFERED_LINE: usize = 4096;
 struct LineState {
     text: String,
     poisoned: bool,
+    continuation: Option<Continuation>,
+}
+
+/// Lines typed inside a heredoc body or an unclosed quote are data, not commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Continuation {
+    Heredoc(String),
+    Quote(char),
 }
 
 #[derive(Default)]
@@ -51,7 +59,10 @@ impl InputParser {
         for &b in bytes {
             match b {
                 b'\r' | b'\n' => {
-                    if matched.is_none() && !state.poisoned {
+                    let continuation = state.continuation.take();
+                    let is_command = continuation.is_none();
+                    state.continuation = next_continuation(continuation, &state.text);
+                    if is_command && matched.is_none() && !state.poisoned {
                         matched = self.resolve_line(&state.text);
                     }
                     state.text.clear();
@@ -63,6 +74,9 @@ impl InputParser {
                 0x03 | 0x04 | 0x15 => {
                     state.text.clear();
                     state.poisoned = false;
+                    if b == 0x03 {
+                        state.continuation = None;
+                    }
                 }
                 _ => {
                     if state.text.len() < MAX_BUFFERED_LINE {
@@ -98,6 +112,53 @@ impl InputParser {
         }
         self.registry.as_ref()?.provider_for_binary(&basename)
     }
+}
+
+fn next_continuation(current: Option<Continuation>, line: &str) -> Option<Continuation> {
+    match current {
+        Some(Continuation::Heredoc(delimiter)) => (line.trim_start_matches('\t').trim_end()
+            != delimiter)
+            .then_some(Continuation::Heredoc(delimiter)),
+        Some(Continuation::Quote(quote)) => {
+            let still_open = line.chars().filter(|&c| c == quote).count() % 2 == 0;
+            still_open.then_some(Continuation::Quote(quote))
+        }
+        None => unclosed_quote(line)
+            .map(Continuation::Quote)
+            .or_else(|| heredoc_delimiter(line).map(Continuation::Heredoc)),
+    }
+}
+
+fn unclosed_quote(line: &str) -> Option<char> {
+    let mut quote = None;
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            escaped = false;
+        } else if character == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if quote == Some(character) {
+            quote = None;
+        } else if quote.is_none() && matches!(character, '\'' | '"') {
+            quote = Some(character);
+        }
+    }
+    quote
+}
+
+fn heredoc_delimiter(line: &str) -> Option<String> {
+    let start = line.find("<<")?;
+    let rest = &line[start + 2..];
+    if rest.starts_with('<') {
+        return None;
+    }
+    let rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+    let word: String = rest
+        .chars()
+        .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '|' | '&' | '>' | '<' | ')'))
+        .filter(|c| !matches!(c, '\'' | '"' | '\\'))
+        .collect();
+    (!word.is_empty()).then_some(word)
 }
 
 fn shell_tokens(line: &str) -> Vec<String> {
@@ -201,6 +262,20 @@ fn is_environment_assignment(token: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heredoc_and_quote_continuation_lines_are_never_commands() {
+        use super::{next_continuation, Continuation};
+        let open = next_continuation(None, "cat <<'EOF' > notes.txt");
+        assert_eq!(open, Some(Continuation::Heredoc("EOF".into())));
+        let body = next_continuation(open.clone(), "codex exec -s workspace-write");
+        assert_eq!(body, open);
+        assert_eq!(next_continuation(body, "EOF"), None);
+        assert_eq!(next_continuation(None, "cat <<< \"codex\""), None);
+        let quoted = next_continuation(None, "echo \"first line");
+        assert_eq!(quoted, Some(Continuation::Quote('"')));
+        assert_eq!(next_continuation(quoted, "codex exec\""), None);
+    }
+
     use super::*;
     use crate::agent::provider::{
         AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,

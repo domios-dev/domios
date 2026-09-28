@@ -109,7 +109,8 @@ fn needs_response_notification_requires_a_real_pending_prompt() {
 
     react(&service, &pty_id, TabStatus::Waiting);
 
-    let notifications = fixture.service.notif.lock().list(false);
+    let notif_guard = fixture.service.notif.lock();
+    let notifications = notif_guard.list(false);
     assert_eq!(notifications.len(), 1);
     assert_eq!(notifications[0].tab_id.as_deref(), Some(tab_id.as_str()));
     assert_eq!(
@@ -133,7 +134,7 @@ fn needs_response_notification_requires_a_real_pending_prompt() {
 fn another_tabs_pending_prompt_does_not_qualify_for_this_tab() {
     let prompt = reactor_test_prompt();
     let screen = "goal question token?\n1) opaque option alpha\n2) opaque option beta\n›";
-    let (mut fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
+    let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
     let other_tab_id = fixture.service.mux.write().create_tab_record();
     {
         let mut mux = fixture.service.mux.write();

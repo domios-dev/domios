@@ -135,7 +135,9 @@ fn mesh_reply_hint_carries_the_return_peer() {
         .from_agent(Some(true))
         .mesh(Some("BLACKSTAR".into()));
     let wrapped = p.wrap("hello");
-    assert!(wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n"));
+    assert!(
+        wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n")
+    );
     assert!(wrapped.ends_with("--tab e8a0ac20 --mesh BLACKSTAR]"));
 }
 
