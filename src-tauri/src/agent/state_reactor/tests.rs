@@ -947,12 +947,20 @@ fn transcript_numbered_lines_with_composer_below_are_not_a_dialog() {
   2. 0
 
 › opaque composer placeholder";
-    assert!(composer_follows_options(transcript, &prompt));
+    assert!(prompt_is_composer_text(transcript, &prompt));
     let dialog = "opaque question token?
 
 › 1) opaque step one
   2) opaque step two
 
 Press enter to confirm";
-    assert!(!composer_follows_options(dialog, &prompt));
+    assert!(!prompt_is_composer_text(dialog, &prompt));
+    let unsubmitted = PendingPrompt {
+        question: "› opaque request, answer briefly:".into(),
+        ..prompt.clone()
+    };
+    let composer = "› opaque request, answer briefly:
+  1) opaque step one
+  2) opaque step two";
+    assert!(prompt_is_composer_text(composer, &unsubmitted));
 }
