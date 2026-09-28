@@ -25,6 +25,7 @@ Use `codeterm docs <NAME>` for the full document; bare `codeterm docs` or
 | Narrow plan edits | `codeterm docs PLAN-EDITING` |
 | Bounce evidence and retry limits | `codeterm docs BOUNCE` |
 | Test authoring | `codeterm docs TEST-AUTHORING` |
+| Task lifecycle, groups, dispatch | `codeterm docs ORCHESTRATION-TASKS` |
 | Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
 | CLI syntax | `codeterm <command> --help` |
 
@@ -123,7 +124,7 @@ If the Planner is waived, record that on the plan.
 
 ## Task lifecycle, milestones, and dispatch
 
-See `codeterm docs ORCHESTRATION-OPERATIONS` for lifecycle, group closeout, dispatch, and review procedures.
+See `codeterm docs ORCHESTRATION-TASKS` for task lifecycle, milestones, and dispatch; see `codeterm docs ORCHESTRATION-OPERATIONS` for review, verification, and closeout.
 
 ## Review capacity
 
@@ -163,4 +164,4 @@ Team crons; workspace close applies the same cleanup to each Team it contains.
 Planners without spawn authority route helper requests, with role, reason, and
 owned work, to their Orchestrator.
 
-<!-- revision: 92 -->
+<!-- revision: 93 -->
