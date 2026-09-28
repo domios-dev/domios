@@ -100,7 +100,9 @@ fn composer_last_nonempty_row_with_empty_status_region_is_ready() {
         24,
     );
     assert!(lines[cursor_row as usize].trim().starts_with('›'));
-    assert!(lines[cursor_row as usize + 1..].iter().all(|line| line.is_empty()));
+    assert!(lines[cursor_row as usize + 1..]
+        .iter()
+        .all(|line| line.is_empty()));
     assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 2));
 }
 

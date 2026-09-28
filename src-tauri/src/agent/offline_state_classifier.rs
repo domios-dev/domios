@@ -128,9 +128,7 @@ pub fn prompt_glyph_cursor_ready(
             .any(|(row, line)| {
                 let line = line.trim_start();
                 row as u16 == cursor_row
-                    && (line.starts_with('❯')
-                        || line.starts_with('›')
-                        || line.starts_with('→'))
+                    && (line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
             })
 }
 

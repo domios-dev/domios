@@ -298,8 +298,7 @@ async fn concurrent_orchestrator_adds_serialize_per_team() {
         let _ = started_tx.send(());
         let _guard = second_gate.lock_owned().await;
         let mux = second_mux.lock();
-        prepare_team_member_spawn(&mux, &second_team_id, None, orchestrator_params())
-            .map(|_| ())
+        prepare_team_member_spawn(&mux, &second_team_id, None, orchestrator_params()).map(|_| ())
     });
     started_rx
         .await

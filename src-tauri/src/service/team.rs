@@ -146,8 +146,8 @@ impl ServiceContext {
                 &prepared.expected_role,
                 prepared.expected_profile.as_deref(),
             );
-            let detached = anchors
-                && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
+            let detached =
+                anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
             (prepared, detached)
         };
         if detached_failed_anchor {

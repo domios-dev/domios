@@ -146,9 +146,10 @@ fn task_file_team_spawn_handshake_is_injected_only_for_an_armed_attempt() {
         child.team_id = Some("team-a".into());
     }
 
-    let supervised = fixture
-        .service
-        .prepare_agent_startup_supervision(&tab_id, Some(&parent_tab_id), None);
+    let supervised =
+        fixture
+            .service
+            .prepare_agent_startup_supervision(&tab_id, Some(&parent_tab_id), None);
     assert!(supervised);
     let handshake = crate::service::launch_delivery::startup_starter_prompt(supervised, false);
     assert_eq!(
