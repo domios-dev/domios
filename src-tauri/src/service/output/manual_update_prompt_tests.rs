@@ -376,7 +376,9 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
         submit_available: Some(false),
         selected_values: Some(vec!["1".into()]),
     };
-    let provider = MockProvider::new("fixture").with_parsed_prompt(parsed);
+    let provider = MockProvider::new("fixture")
+        .with_parsed_prompt(parsed.clone())
+        .with_directory_trust_prompt(parsed.clone());
     let pending = super::parse_directory_trust_prompt(&provider, &screen)
         .expect("supported folder trust dialog is parsed without provenance");
 
@@ -436,7 +438,9 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         submit_available: Some(false),
         selected_values: Some(vec!["1".into()]),
     };
-    let provider = MockProvider::new("codex").with_parsed_prompt(prompt.clone());
+    let provider = MockProvider::new("codex")
+        .with_parsed_prompt(prompt.clone())
+        .with_directory_trust_prompt(prompt.clone());
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.link_pty(&tab_id, "pty-user-dir-no-change".into());
     let tab = mux.get_tab_mut(&tab_id).expect("tab");
