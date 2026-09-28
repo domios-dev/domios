@@ -641,6 +641,9 @@ impl ServiceContext {
                 (retracted, identity)
             })
         };
+        if retracted {
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        }
         if let Some(identity) = identity {
             self.resolve_prompt_notifications(tab_id, &identity);
         }

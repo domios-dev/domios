@@ -11,7 +11,6 @@ pub(crate) fn clear_tab_prompt(
         tab.pending_prompt_kind = None;
         identity
     });
-    crate::service::launch_readiness::owner_prompt_cleared(tab_id);
     identity.flatten()
 }
 
