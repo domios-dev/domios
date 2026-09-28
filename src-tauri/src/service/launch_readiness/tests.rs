@@ -67,6 +67,18 @@ fn auto_answered_prompt_does_not_suspend_readiness() {
 }
 
 #[test]
+fn startup_supervision_resumes_when_owner_prompt_clears() {
+    let tab_id = "startup-owner-prompt-tab";
+    owner_prompt_pending(tab_id, "prompt-token-8");
+    let waiter_tab = tab_id.to_string();
+    let waiter = std::thread::spawn(move || {
+        await_owner_prompt_resolution(&waiter_tab, Duration::from_secs(30))
+    });
+    owner_prompt_cleared(tab_id);
+    assert!(waiter.join().unwrap());
+}
+
+#[test]
 fn unanswered_owner_prompt_fails_at_owner_deadline_with_named_reason() {
     let attempt = LaunchAttempt {
         tab_id: "unanswered-owner-prompt-tab".into(),
