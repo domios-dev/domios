@@ -1028,6 +1028,18 @@ pub fn run() {
                 &states.config,
                 service_state.clone(),
             );
+            let (api_port, allow_non_prod_updates) = {
+                let config = states.config.lock();
+                (
+                    config.api.port,
+                    config.updater.allow_provider_updates_in_non_prod,
+                )
+            };
+            service::provider_update::check_available(
+                service_state.clone(),
+                api_port,
+                allow_non_prod_updates,
+            );
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),

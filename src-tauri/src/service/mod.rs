@@ -51,6 +51,7 @@ mod orchestrator;
 mod parked_user_delivery;
 mod process_tree;
 mod prompt_resolution;
+pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod startup_turn;
 #[cfg(test)]
@@ -638,6 +639,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
+        provider_update::on_state_change(self);
         publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish();
     }
