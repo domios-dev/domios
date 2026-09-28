@@ -11,7 +11,7 @@ use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_object};
 
 use clap::{CommandFactory, Parser};
-use client::{discover_socket, discover_socket_resolution, SocketClient};
+use client::{discover_socket, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
@@ -205,16 +205,8 @@ fn main_impl() {
         return;
     };
 
-    let resolved_socket = match discover_socket_resolution() {
-        Ok(resolved) => resolved,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut client = match SocketClient::connect(&resolved_socket.path) {
-        Ok(c) => c,
+    let (mut client, resolved_socket) = match SocketClient::connect_local() {
+        Ok(connection) => connection,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
