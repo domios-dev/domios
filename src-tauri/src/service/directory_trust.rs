@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
@@ -25,6 +25,10 @@ impl SharedTrustCache {
         self.checking.clear();
     }
 }
+static LAUNCH_ONBOARDING_WORKERS: LazyLock<parking_lot::Mutex<HashMap<String, bool>>> =
+    LazyLock::new(Default::default);
+static LAUNCH_ONBOARDING_NOTICES: LazyLock<parking_lot::Mutex<HashSet<String>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectoryTrustRefusal {
@@ -208,6 +212,20 @@ pub(crate) fn decide<R>(
 where
     R: FnOnce(&str) -> Option<DirectoryTrustPromptResponse>,
 {
+    decide_with_frame_identity(applies, tab_id, screen, screen, ledger, recognize)
+}
+
+fn decide_with_frame_identity<R>(
+    applies: bool,
+    tab_id: &str,
+    screen: &str,
+    frame_identity: &str,
+    ledger: &parking_lot::Mutex<TrustLedger>,
+    recognize: R,
+) -> TrustDecision
+where
+    R: FnOnce(&str) -> Option<DirectoryTrustPromptResponse>,
+{
     if !applies {
         return TrustDecision::NotApplicable;
     }
@@ -215,7 +233,7 @@ where
         None => TrustDecision::NoDialog,
         Some(DirectoryTrustPromptResponse::Hold) => TrustDecision::Held,
         Some(DirectoryTrustPromptResponse::Answer { step }) => {
-            if ledger.lock().claim(tab_id, frame_id(screen)) {
+            if ledger.lock().claim(tab_id, frame_id(frame_identity)) {
                 TrustDecision::Answer { step }
             } else {
                 TrustDecision::Waiting
@@ -247,6 +265,43 @@ impl ServiceContext {
         for tab_id in tabs {
             self.respond_to_directory_trust(&tab_id, None);
         }
+    }
+
+    pub(crate) fn enqueue_launch_onboarding_screen_check(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return;
+        }
+        {
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if let Some(pending) = workers.get_mut(tab_id) {
+                *pending = true;
+                return;
+            }
+            workers.insert(tab_id.to_string(), false);
+        }
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let pty_id = pty_id.to_string();
+        let agent_type = agent_type.to_string();
+        std::thread::spawn(move || loop {
+            service.respond_to_launch_onboarding_until_clear(&tab_id, &pty_id, &agent_type);
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if workers.get(&tab_id).copied().unwrap_or(false) {
+                workers.insert(tab_id.clone(), false);
+            } else {
+                workers.remove(&tab_id);
+                break;
+            }
+        });
     }
 
     fn provider_directory_trust_response(
@@ -460,6 +515,193 @@ impl ServiceContext {
         );
     }
 
+    pub(crate) fn respond_to_launch_onboarding(
+        &self,
+        tab_id: &str,
+        agent_type: &str,
+        screen: &str,
+        response_signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
+    ) -> TrustDecision {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| launch_onboarding_check_applies(tab, agent_type))
+                .and_then(|tab| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+        };
+        let Some((pty_id, agent_type)) = target else {
+            return TrustDecision::NotApplicable;
+        };
+        let response = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| provider.launch_onboarding_response(screen))
+            .flatten();
+        let Some(response) = response else {
+            return TrustDecision::NoDialog;
+        };
+        let frame_key = format!("launch-onboarding:{}", response.frame_key);
+        let expected = response.clone();
+        let decision = decide_with_frame_identity(
+            true,
+            tab_id,
+            screen,
+            &frame_key,
+            &LEDGER,
+            |_| {
+                Some(DirectoryTrustPromptResponse::Answer {
+                    step: response.step,
+                })
+            },
+        );
+        if let TrustDecision::Answer { step } = &decision {
+            self.prompt_detector.lock().mark_responded(tab_id);
+            let service = self.clone();
+            let tab = tab_id.to_string();
+            let bound_pty = pty_id.clone();
+            let provider_id = agent_type.clone();
+            let response_signal = response_signal.clone();
+            super::output::write_bound_prompt_steps(
+                self.pty.clone(),
+                pty_id,
+                vec![step.clone()],
+                move || {
+                    let owed = service.launch_onboarding_key_still_owed(
+                        &tab,
+                        &bound_pty,
+                        &provider_id,
+                        &expected,
+                    );
+                    response_signal.mark_changed();
+                    owed
+                },
+            );
+        }
+        decision
+    }
+
+    pub(crate) fn respond_to_launch_onboarding_until_clear(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) -> bool {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return false;
+        }
+        let signal = self
+            .screen_state
+            .lock()
+            .subscribe_screen_changes(pty_id);
+        let mut recognized = false;
+        let mut enter_submitted = false;
+        loop {
+            let generation = signal.generation();
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let has_dialog = self
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.launch_onboarding_response(&screen).is_some()
+                })
+                .unwrap_or(false);
+            if has_dialog {
+                recognized = true;
+                match self.respond_to_launch_onboarding(
+                    tab_id,
+                    agent_type,
+                    &screen,
+                    signal.clone(),
+                ) {
+                    TrustDecision::Answer { step } => {
+                        enter_submitted |= step.as_slice() == b"\r";
+                    }
+                    TrustDecision::Waiting => {}
+                    TrustDecision::NotApplicable => {
+                        recognized = false;
+                        break;
+                    }
+                    TrustDecision::NoDialog | TrustDecision::Held => {
+                        break;
+                    }
+                }
+            } else if recognized {
+                if enter_submitted {
+                    self.notify_launch_onboarding_applied_once(tab_id);
+                }
+                break;
+            } else {
+                break;
+            }
+            if !signal.wait_until_changed(generation) {
+                break;
+            }
+        }
+        self.screen_state
+            .lock()
+            .unsubscribe_screen_changes(pty_id, &signal);
+        recognized
+    }
+
+    pub(crate) fn notify_launch_onboarding_applied_once(&self, tab_id: &str) {
+        if !LAUNCH_ONBOARDING_NOTICES.lock().insert(tab_id.to_string()) {
+            return;
+        }
+        self.create_notification_ext(
+            "Provider onboarding choice applied".into(),
+            Some(format!(
+                "Tab {} completed its provider-declared safe onboarding choice.",
+                tab_id
+            )),
+            Some("info"),
+            None,
+            None,
+            crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+            crate::service::notification::PushIntent::default(),
+            None,
+        );
+    }
+
+    fn launch_onboarding_key_still_owed(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+        expected: &codeterm_plugin::provider::ProviderPromptKeyStep,
+    ) -> bool {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        let owed = applies && {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            self.agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider
+                        .launch_onboarding_response(&screen)
+                        .is_some_and(|response| response == *expected)
+                })
+                .unwrap_or(false)
+        };
+        LEDGER.lock().settle(tab_id);
+        if !owed {
+            log::info!(
+                "[launch-onboarding] Withheld stale key for Tab {}",
+                tab_id
+            );
+        }
+        owed
+    }
+
     fn directory_trust_key_still_owed(
         &self,
         tab_id: &str,
@@ -522,6 +764,13 @@ impl ServiceContext {
     pub(crate) fn forget_directory_trust(&self, tab_id: &str) {
         LEDGER.lock().forget(tab_id);
     }
+}
+
+pub(crate) fn launch_onboarding_check_applies(tab: &Tab, agent_type: &str) -> bool {
+    tab.agent_type.as_deref() == Some(agent_type)
+        && (tab.role == Some(codeterm_types::agent::roles::AgentRole::Worker)
+            || (tab.role == Some(codeterm_types::agent::roles::AgentRole::Manager)
+                && tab.role_profile.as_deref() == Some("planner")))
 }
 
 #[cfg(test)]

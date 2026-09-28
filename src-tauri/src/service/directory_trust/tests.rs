@@ -1,8 +1,8 @@
 use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
-    inherited_workspace_provenance, legacy_auto_approve_permitted,
+    decide, decide_with_frame_identity, directory_trust_check_applies, directory_trust_provenance,
+    directory_trust_skip_reason, inherited_workspace_provenance, legacy_auto_approve_permitted,
     shared_directory_trust_check_applies, DirectoryTrustRefusal, SharedTrustCache, TrustDecision,
     TrustLedger, SHARED_TRUST,
 };
@@ -351,6 +351,147 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-provisioned-trust"),
         1
+    );
+}
+
+#[test]
+fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
+    let capture = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let response = provider
+        .launch_onboarding_response(capture)
+        .expect("captured onboarding prompt");
+    assert_eq!(response.step, b"j");
+    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+
+    let first = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        capture,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(first, TrustDecision::Answer { step: b"j".to_vec() });
+    ledger.lock().settle("onboarding-redraw");
+
+    let redraw = format!("{capture}\nstatus refreshed");
+    let repeated = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        &redraw,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(
+        repeated,
+        TrustDecision::Waiting,
+        "an extra redraw with unchanged focus must not queue another navigation key"
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answered() {
+    use codeterm_types::agent::roles::AgentRole;
+
+    let yes_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let not_now_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
+    let (mut mux, planner_tab_id) = agent_tab(None, true);
+    let planner = mux.get_tab_mut(&planner_tab_id).unwrap();
+    planner.role = Some(AgentRole::Manager);
+    planner.role_profile = Some("planner".into());
+    planner.pty_id = Some("pty-late-onboarding-planner".into());
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let owner_tab_id = mux.create_tab(&workspace_id).expect("owner tab");
+    let owner = mux.get_tab_mut(&owner_tab_id).unwrap();
+    owner.agent_type = Some("claude".into());
+    owner.pty_id = Some("pty-late-onboarding-owner".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::agent_claude::ClaudeProvider::new(),
+    ));
+
+    let screen_signal = || {
+        std::sync::Arc::new(codeterm_pty::pty::screen_state::ScreenChangeSignal::default())
+    };
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &planner_tab_id,
+            "claude",
+            yes_focused,
+            screen_signal(),
+        ),
+        TrustDecision::Answer { step: b"j".to_vec() },
+        "an idle post-launch Planner moves once toward Not now"
+    );
+    super::LEDGER.lock().settle(&planner_tab_id);
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &planner_tab_id,
+            "claude",
+            not_now_focused,
+            screen_signal(),
+        ),
+        TrustDecision::Answer { step: b"\r".to_vec() },
+        "Enter is submitted only after Not now has focus"
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test(
+            "pty-late-onboarding-planner"
+        ),
+        2,
+        "post-launch handling dispatches exactly j followed by Enter"
+    );
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &owner_tab_id,
+            "claude",
+            yes_focused,
+            screen_signal(),
+        ),
+        TrustDecision::NotApplicable,
+        "owner-facing tabs are excluded from the safe auto-response"
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test(
+            "pty-late-onboarding-owner"
+        ),
+        0
+    );
+
+    let prompt = fixture
+        .service
+        .agent_registry
+        .parse_interactive_prompt("claude", yes_focused)
+        .expect("owner prompt parse")
+        .0;
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            Some(owner_tab_id.clone()),
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+    fixture
+        .service
+        .apply_prompt_decision_with_screen(&decision, Some(yes_focused), false, false);
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&owner_tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref()),
+        Some(&prompt),
+        "owner-facing tabs keep the prompt available for a human"
     );
 }
 

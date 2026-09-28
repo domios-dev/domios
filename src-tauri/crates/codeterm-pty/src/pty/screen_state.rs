@@ -69,6 +69,14 @@ impl ScreenChangeSignal {
         let _ = self.cv.wait_for(&mut state, timeout);
         !state.closed && state.generation != generation
     }
+
+    pub fn wait_until_changed(&self, generation: u64) -> bool {
+        let mut state = self.state.lock();
+        while !state.closed && state.generation == generation {
+            self.cv.wait(&mut state);
+        }
+        !state.closed
+    }
 }
 
 impl PromptSignal {

@@ -17,6 +17,7 @@ use crate::agent::status::TabStatus;
 mod agent_idle;
 #[path = "output/launch_exit.rs"]
 mod launch_exit;
+mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
 #[path = "output/prompt_steps.rs"]
@@ -216,6 +217,13 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
+        if matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
+            if let (Some(tab_id), Some(agent_type), Some(_)) =
+                (tab_id.as_deref(), agent_type.as_deref(), changed_screen.as_deref())
+            {
+                self.enqueue_launch_onboarding_screen_check(tab_id, pty_id, agent_type);
+            }
+        }
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
             let trust_candidate = trust_candidate::candidate_for_output(
                 self,
@@ -773,6 +781,32 @@ impl ServiceContext {
     }
 
     fn apply_prompt_decision_with_kind_and_notice(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+        notify_owner: bool,
+    ) {
+        if self.defer_launch_onboarding_prompt(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            notify_owner,
+        ) {
+            return;
+        }
+        self.apply_prompt_decision_immediately(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            notify_owner,
+        );
+    }
+
+    fn apply_prompt_decision_immediately(
         &self,
         decision: &PromptDecision,
         screen_text: Option<&str>,

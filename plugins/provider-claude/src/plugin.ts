@@ -47,6 +47,8 @@ import {
 } from "./classify";
 import {
   buildClaudePromptResponse,
+  claudeOnboardingPrompt,
+  claudeOnboardingNotNowStep,
   parseClaudeLetteredPrompt,
   parseClaudeNumberedPrompt,
   parseClaudeWizardPrompt,
@@ -251,7 +253,9 @@ const plugin: PluginModule = {
   },
 
   parsePrompt(text: string): ParsedPrompt | null {
-    return claudeFolderTrustPrompt(text)
+    const onboarding = claudeOnboardingPrompt(text);
+    return (onboarding && { question: onboarding.question, options: onboarding.options })
+      || claudeFolderTrustPrompt(text)
       || parseClaudeWizardPrompt(text)
       || parseClaudeNumberedPrompt(text)
       || parseClaudeLetteredPrompt(text);
@@ -263,6 +267,10 @@ const plugin: PluginModule = {
 
   directoryTrustPromptResponse(screen: string): string[] | null {
     return claudeFolderTrustResponse(screen);
+  },
+
+  launchOnboardingResponse(screen: string): { frameKey: string; step: string } | null {
+    return claudeOnboardingNotNowStep(screen);
   },
 
   permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {
