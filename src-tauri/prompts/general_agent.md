@@ -85,7 +85,6 @@ Rare-fire procedures live as built-in docs, not in this prompt:
 - `codeterm docs TELEGRAM-SETUP` — Telegram bot setup (token file, allowed_users quoting, restart, smoke-check, HTML formatting rules, sanitizer behaviour, 409 troubleshoot).
 - `codeterm docs SECRETS` — full `codeterm mem secret` CLI ladder (save/get/search/list/delete/sync/lock/unlock/logout/status, master-password persistence config, daemon-internal token files).
 - `codeterm docs TEXT-HOOKS` — inbound message hook daemon pattern (intercept / replace / forward_with_metadata) and `[integrations.text_hooks]` config.
-- `codeterm docs ORCHESTRATION-TASKS` — task lifecycle, group closeout, and dispatch mechanics when supervising a Team.
 
 Read these only when the situation demands — they don't belong in your turn-to-turn context.
 
