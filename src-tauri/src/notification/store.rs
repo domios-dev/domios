@@ -660,6 +660,10 @@ impl NotificationStore {
         answer::record(&mut self.notifications, id, label)
     }
 
+    pub fn record_detached_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
+        answer::record_detached(&mut self.notifications, id, label)
+    }
+
     pub fn record_answer_via(
         &mut self,
         id: &str,

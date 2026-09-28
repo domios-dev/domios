@@ -292,6 +292,13 @@ pub struct ProviderDescriptor {
     pub availability: ProviderAvailability,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ProviderUpdateAvailability {
+    pub current_version: String,
+    pub latest_version: String,
+}
+
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
 pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 17;
 

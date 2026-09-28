@@ -185,7 +185,8 @@
   "permissions": {
     "network": {
       "allow": [
-        "chatgpt.com"
+        "chatgpt.com",
+        "registry.npmjs.org"
       ]
     },
     "subprocess": {

@@ -743,6 +743,14 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn supports_update_check(&self) -> bool {
+        false
+    }
+
+    fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
+        None
+    }
+
     /// Short note picker surfaces show beside this provider's name, such as a
     /// free-tier offer. `None` means the provider makes no such claim.
     fn badge(&self) -> Option<&str> {
