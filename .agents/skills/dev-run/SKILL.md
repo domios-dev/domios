@@ -216,12 +216,15 @@ well as the immediate environment before declaring recovery complete.
   once before constructing the context; do not erase dev state to mask the deadlock.
 - **2026-09-28: next dev start fails with `os error 32`** — an orphaned
   `src-tauri/target/debug/conpty/x64/OpenConsole.exe` still has the build
-  resource open after its daemon exits. `build.sh kill` and `build.ps1 kill`
-  now select the host by its image path under this checkout's target directory
-  and only reap it when its parent is gone or is this instance's daemon. Run
-  the matching kill command, then start dev again; the daemon also closes hosts
-  for PTYs it owns during shutdown. If the lock remains, inspect the selected
-  instance's `OpenConsole.exe` parent and image path before taking further action.
+  resource open after its daemon exits. A named interactive dev can build under
+  this checkout's shared `src-tauri/target`, while named `dev --wait` builds
+  under that instance's `target`; kill-time mode detection cannot distinguish
+  where an already running instance built. Dev records its actual debug target
+  in the instance data directory, and `build.sh kill` uses that record to find
+  orphaned hosts. It reaps hosts only when their parent is gone or is the named
+  instance's daemon, leaving another live instance's hosts alone on a shared
+  target. Run the matching kill command, then start dev again; the daemon also
+  closes hosts for PTYs it owns during shutdown.
 
 ### Linux
 

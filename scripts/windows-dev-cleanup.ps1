@@ -82,9 +82,14 @@ if (-not $OwnedOnly) {
     $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
       ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
     $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
-    $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
+    $instanceConptyPath = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
       (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
         ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
+    $parentGone = -not $parentByPid.ContainsKey([int]$proc.ParentProcessId)
+    $parentIsThisDaemon = @($listeners | Where-Object {
+        [int]$_.port -eq $ApiPort -and [int]$_.process_id -eq [int]$proc.ParentProcessId
+      }).Count -gt 0
+    $matchesInstanceConpty = $instanceConptyPath -and ($parentGone -or $parentIsThisDaemon)
     $ownsApi = $procPorts -contains $ApiPort
     $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
     $matchesWebView = $cmd -and
