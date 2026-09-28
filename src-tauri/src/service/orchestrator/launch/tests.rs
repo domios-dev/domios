@@ -3,6 +3,8 @@ use super::startup_readiness::{
     first_turn_binding_required, input_ready_stage_after_provider_ready,
     launch_waits_for_first_turn_binding,
 };
+#[path = "tests/structural_wait.rs"]
+mod structural_wait;
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
@@ -142,29 +144,6 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     assert!(!tab.launch_session_authenticated());
     drop(mux);
     LAUNCH_REGISTRY.lock().finish(&launch);
-}
-
-#[test]
-fn structural_composer_launch_waits_on_launch_gate_without_provider_frame_wait() {
-    use crate::agent::provider::ProviderReadinessStrategy;
-
-    let structural = ProviderReadinessStrategy::StructuralComposer {
-        timeout: std::time::Duration::from_secs(30),
-    };
-    let frame = ProviderReadinessStrategy::TuiFrame {
-        timeout: std::time::Duration::from_secs(30),
-    };
-
-    assert!(!super::owner_prompt_wait::should_wait_for_provider_frame(
-        &structural,
-        false,
-    ));
-    assert!(super::owner_prompt_wait::should_wait_for_provider_frame(
-        &frame, false,
-    ));
-    assert!(!super::owner_prompt_wait::should_wait_for_provider_frame(
-        &frame, true,
-    ));
 }
 
 #[test]
