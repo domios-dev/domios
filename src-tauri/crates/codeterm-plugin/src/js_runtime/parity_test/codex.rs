@@ -64,13 +64,17 @@ fn codex_sandbox_writable_roots_native_js_parity() {
         "--add-dir".to_string(),
         "D:/repo/.git/worktrees/lane".to_string(),
         "--add-dir".to_string(),
-        "D:/repo/.git".to_string(),
+        "D:/repo/.git/objects".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git/refs".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git/logs".to_string(),
     ];
     let launch = provider.build_launch_command(&AgentLaunchParams {
         args: Some(args.clone()),
         ..Default::default()
     });
-    assert_eq!(launch.matches("--add-dir").count(), 2);
+    assert_eq!(launch.matches("--add-dir").count(), 4);
     let resume = provider
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: CODEX_UUID.to_string(),
@@ -78,7 +82,7 @@ fn codex_sandbox_writable_roots_native_js_parity() {
             ..Default::default()
         })
         .expect("context resume command");
-    assert_eq!(resume.matches("--add-dir").count(), 2);
+    assert_eq!(resume.matches("--add-dir").count(), 4);
 }
 
 #[test]

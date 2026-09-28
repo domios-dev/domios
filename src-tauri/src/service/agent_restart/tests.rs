@@ -277,6 +277,8 @@ fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fallback launch command");
     assert!(!command.contains("--resume"));
@@ -295,6 +297,8 @@ fn build_relaunch_uses_resume_when_session_present() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(command.contains("--resume"));
@@ -313,6 +317,8 @@ fn build_relaunch_unknown_provider_returns_none() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .is_none());
 }
@@ -382,6 +388,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(resume.contains("--dangerously-skip-permissions"));
@@ -395,6 +403,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh command");
     assert!(fresh.contains("--dangerously-skip-permissions"));
@@ -408,6 +418,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("restricted resume command");
     assert!(!restricted.contains("--dangerously-skip-permissions"));
@@ -438,6 +450,8 @@ fn agent_restart_access_does_not_depend_on_tab_class() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(command.contains("--dangerously-skip-permissions"));
@@ -455,6 +469,8 @@ fn build_relaunch_drops_resume_without_session_id() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
@@ -472,6 +488,8 @@ fn fresh_roleless_relaunch_keeps_system_context_without_a_user_turn() {
         None,
         Some("system context"),
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh roleless launch");
 
@@ -491,6 +509,8 @@ fn restored_worker_never_replays_historical_task_or_wakes() {
         None,
         Some("restored worker system context"),
         "tab-restart",
+        None,
+        None,
     )
     .expect("restored worker relaunch");
 
@@ -517,6 +537,8 @@ fn fresh_relaunch_carries_the_tabs_marker_and_resume_carries_none() {
         None,
         None,
         "tab-restart-fresh",
+        None,
+        None,
     )
     .expect("fresh relaunch command");
     let marker = registered_launch_marker("tab-restart-fresh")
@@ -536,6 +558,8 @@ fn fresh_relaunch_carries_the_tabs_marker_and_resume_carries_none() {
         None,
         None,
         "tab-restart-resume",
+        None,
+        None,
     )
     .expect("resume relaunch command");
     assert!(!resumed.contains("--launch-marker"));

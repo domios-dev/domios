@@ -1076,6 +1076,12 @@ impl ServiceContext {
                 &provider,
                 &tab_id_outer,
                 Some(&hidden_cwd),
+                super::launch_session_detection::canonical_project_for_tab(
+                    &svc_outer.plan_store,
+                    &tab_id_outer,
+                    &hidden_cwd,
+                )
+                .as_deref(),
                 &mut launch_params,
             )
             .unwrap_or_else(|| provider.clone());
