@@ -150,6 +150,12 @@ struct TabRestartSnapshot {
     role_profile: Option<String>,
 }
 
+pub(crate) struct ProviderUpdatePause {
+    snap: TabRestartSnapshot,
+    launch_cmd: String,
+    _claim: RestartClaim,
+}
+
 #[derive(Debug)]
 pub(crate) enum RestartAttemptError {
     Request(AgentRestartError),
@@ -167,6 +173,109 @@ impl From<AgentRestartError> for RestartAttemptError {
 }
 
 impl ServiceContext {
+    pub(crate) fn pause_for_provider_update(
+        &self,
+        tab_id: &str,
+        expected_provider: &str,
+        expected_session: &str,
+    ) -> Result<ProviderUpdatePause, String> {
+        let snap = self
+            .snapshot_tab_for_restart(tab_id)
+            .map_err(|error| format!("{error:?}"))?;
+        if snap.provider != expected_provider
+            || snap.session_id.as_deref() != Some(expected_session)
+        {
+            return Err(format!(
+                "Tab {} changed provider or session before update",
+                snap.tab_id
+            ));
+        }
+        if !self.session_file_present(&snap) {
+            return Err(format!(
+                "Tab {} no longer has its bound session",
+                snap.tab_id
+            ));
+        }
+        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+            return Err(format!("Tab {} is no longer idle", snap.tab_id));
+        }
+        let claim = self
+            .claim_restart(&snap.tab_id, true)
+            .map_err(|error| format!("{error:?}"))?;
+        let launch_cmd = build_relaunch_command(self, &snap, true, None)
+            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
+            .ok_or_else(|| format!("provider {} returned no resume command", snap.provider))?;
+        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+            return Err(format!(
+                "Tab {} became busy before it could be paused",
+                snap.tab_id
+            ));
+        }
+        self.request_graceful_exit(&snap, false, Duration::from_secs(DEFAULT_GRACE_SECS));
+        self.tear_down_restart_pty(&snap)?;
+        Ok(ProviderUpdatePause {
+            snap,
+            launch_cmd,
+            _claim: claim,
+        })
+    }
+
+    fn provider_update_tab_is_idle(&self, tab_id: &str) -> bool {
+        let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
+            return false;
+        };
+        snapshot.tab_statuses.get(tab_id) == Some(&codeterm_types::pty::TabStatus::Idle)
+    }
+
+    pub(crate) fn resume_after_provider_update(
+        &self,
+        pause: ProviderUpdatePause,
+    ) -> Result<(), String> {
+        if !self.session_file_present(&pause.snap) {
+            return Err(format!(
+                "Tab {} no longer has session {}",
+                pause.snap.tab_id,
+                pause.snap.session_id.as_deref().unwrap_or("<unknown>")
+            ));
+        }
+        let outcome = RestartOutcome::accepted(&pause.snap, false, false);
+        self.set_and_lock_tab_agent_type_from(
+            &pause.snap.tab_id,
+            pause.snap.provider.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            None,
+        );
+        crate::service::orchestrator::launch_agent_in_background(
+            self.clone(),
+            pause.snap.tab_id.clone(),
+            pause.launch_cmd,
+            pause.snap.provider.clone(),
+            crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+            None,
+            None,
+            None,
+            None,
+        );
+        let ready = self
+            .finish_observed_restart(
+                outcome,
+                Some(pause.snap.pty_id.as_str()),
+                Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        let result = self
+            .settle_restored_binding(ready, &pause.snap)
+            .map_err(|error| format!("{error:?}"))?;
+        if result.session_id.as_deref() != pause.snap.session_id.as_deref() {
+            return Err(format!(
+                "Tab {} resumed a different session",
+                pause.snap.tab_id
+            ));
+        }
+        drop(pause._claim);
+        Ok(())
+    }
+
     pub fn agent_restart(
         &self,
         tab_id: &str,
