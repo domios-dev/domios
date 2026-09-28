@@ -471,10 +471,6 @@ fn lock_windows_file(file: &File, acquire: bool) -> bool {
     }
 }
 
-fn restart_kept_session(expected: &str, actual: Option<&str>) -> bool {
-    actual == Some(expected)
-}
-
 fn notify_owner(service: &ServiceContext, title: String, body: String) {
     service.create_notification_ext(
         title,
@@ -567,12 +563,5 @@ mod tests {
             UpdateGate::WaitForIdle
         );
         assert_eq!(update_consent(LATER), UpdateConsent::Declined);
-    }
-
-    #[test]
-    fn provider_update_requires_the_same_session_after_restart() {
-        assert!(super::restart_kept_session("session-a", Some("session-a")));
-        assert!(!super::restart_kept_session("session-a", Some("session-b")));
-        assert!(!super::restart_kept_session("session-a", None));
     }
 }
