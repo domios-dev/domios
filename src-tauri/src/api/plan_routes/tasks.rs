@@ -1050,6 +1050,12 @@ pub async fn task_respawn(
                 planned_model: draft.planned_model.clone(),
                 planned_reasoning_effort: draft.reasoning_effort.clone(),
                 reasoning_effort: draft.reasoning_effort.clone(),
+                task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                    plan_id: draft.plan_id.clone(),
+                    task_id: draft.task_id.clone(),
+                    attempt_id: draft.attempt_id.clone(),
+                    lane_base: original_task.lane.base.clone(),
+                }),
                 ..Default::default()
             },
             Some(ready_tx),

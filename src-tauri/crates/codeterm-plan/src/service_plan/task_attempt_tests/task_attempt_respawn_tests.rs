@@ -64,6 +64,7 @@ fn attempt_model_fields_round_trip() {
     let respawned = reloaded
         .record_task_respawn_attempt(&plan_id, &task_id, "worker-next", &draft, Some("worker"), 5)
         .unwrap();
+    assert_eq!(respawned.attempt.id, draft.attempt_id);
     assert_eq!(respawned.attempt.provider.as_deref(), Some("codex"));
     assert_eq!(respawned.attempt.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(respawned.attempt.reasoning_effort.as_deref(), Some("xhigh"));

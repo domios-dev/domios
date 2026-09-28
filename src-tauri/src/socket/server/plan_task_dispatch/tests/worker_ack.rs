@@ -141,7 +141,7 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
 }
 
 #[test]
-fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
+fn respawned_attempt_is_armed_and_ackable() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().display().to_string();
     let store = PlanStore::new_for_test(root.path());
@@ -149,13 +149,14 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
         dispatched_worker_task(&store, &project, "blocked-respawn", "tab-first", 1);
     let block_reason = "awaiting dependency evidence";
     store
-        .with_plan(&plan_id, 10, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
-            task.status = TaskStatus::Blocked;
-            task.status_label = Some(block_reason.into());
-            task.status_changed_at = 10;
-            Ok(())
-        })
+        .record_task_attempt_report(
+            &plan_id,
+            &task_id,
+            &crate::plan::AgentRef::from_tab("tab-first"),
+            "STATUS: blocked\nFOLLOWUP: awaiting dependency evidence",
+            Some(codeterm_types::agent::ReportStatus::Blocked),
+            10,
+        )
         .unwrap();
     let draft = store
         .build_task_respawn_draft(
@@ -178,6 +179,23 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
             11,
         )
         .unwrap();
+    assert!(draft.source_attempt.closed_at.is_some());
+    assert_eq!(replacement.attempt.id, draft.attempt_id);
+    let launch_authority = crate::service::TaskLaunchAuthority {
+        plan_id: draft.plan_id.clone(),
+        task_id: draft.task_id.clone(),
+        attempt_id: draft.attempt_id.clone(),
+        lane_base: None,
+    };
+    let task_identity = crate::service::worker_ack::startup_task_identity_from_env(
+        &launch_authority.env(),
+    )
+    .unwrap();
+    assert_eq!(task_identity.attempt_id, replacement.attempt.id);
+    assert_eq!(
+        crate::service::launch_delivery::startup_starter_prompt(true, true),
+        None
+    );
     let pending = store.show_task(&task_id).unwrap().task;
     assert_eq!(pending.status, TaskStatus::Pending);
     assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
@@ -204,6 +222,10 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
 
     assert_eq!(acknowledged.attempt.id, replacement.attempt.id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(13));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
 }
 
 #[test]
