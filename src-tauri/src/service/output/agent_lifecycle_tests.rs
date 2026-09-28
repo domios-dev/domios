@@ -16,6 +16,30 @@ use std::collections::HashSet;
 
 const SHELL_SUFFIXES: [char; 4] = ['>', '$', '%', '#'];
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn printed_provider_tui_never_assigns_agent_type_to_plain_shell() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, "pty-plain-shell".into());
+    let harness = ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("codex"),
+    ));
+
+    let frame = "\x1b[2J\x1b[H╭─ Codex ─╮\r\n│ Ready │\r\n╰────────╯\r\n";
+    harness
+        .service
+        .process_pty_output("pty-plain-shell", frame.as_bytes());
+
+    let mux = harness.service.mux.read();
+    let tab = mux.get_tab(&tab_id).expect("plain shell tab remains");
+    assert_eq!(tab.agent_type, None);
+    assert!(!tab.agent_type_locked);
+}
+
 fn planner_probe(tab: &crate::multiplexer::types::Tab) -> TabProbe {
     let chat_delivery_target = tab.chat_view && tab.pty_id.is_some();
     let agent_accepting_work = chat_delivery_target
