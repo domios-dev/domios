@@ -80,13 +80,11 @@ pub enum SocketCallError {
     Rpc(RpcError),
 }
 
-#[derive(Debug)]
 struct HttpFallbackConfig {
     base_url: String,
     token: String,
 }
 
-#[derive(Debug)]
 enum TransportChoice<T> {
     Socket(T),
     Http(HttpFallbackConfig),
@@ -123,8 +121,8 @@ fn http_fallback_config_from(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "CODETERM_API_TOKEN is not set".to_owned())?;
     let base_url = if let Some(value) = api_url {
-        let url = reqwest::Url::parse(&value)
-            .map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
+        let url =
+            reqwest::Url::parse(&value).map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
         if url.scheme() != "http"
             || url.host_str() != Some("127.0.0.1")
             || url.username() != ""
@@ -241,9 +239,8 @@ impl SocketClient {
                 .map(|resolved| resolved.source)
                 .unwrap_or(ResolutionSource::Absent),
         };
-        let socket_result = discovered.and_then(|resolved| {
-            Self::connect(&resolved.path).map(|client| (client, resolved))
-        });
+        let socket_result = discovered
+            .and_then(|resolved| Self::connect(&resolved.path).map(|client| (client, resolved)));
         let socket_error = socket_result.as_ref().err().cloned().unwrap_or_default();
         match select_transport(socket_result, http_fallback_config)? {
             TransportChoice::Socket(connection) => Ok(connection),
@@ -261,7 +258,6 @@ impl SocketClient {
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
             ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
             ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
-            ("CODETERM_WORKER_ID", "x-codeterm-worker-id"),
         ] {
             if let Ok(value) = std::env::var(env) {
                 if let Ok(value) = value.parse() {
@@ -271,10 +267,33 @@ impl SocketClient {
         }
         let token = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.token))
             .map_err(|_| "CODETERM_API_TOKEN is not a valid HTTP header value".to_owned())?;
+        let base_url = config.base_url;
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| format!("failed to create loopback HTTP client: {error}"))?;
+        let endpoint = format!("{base_url}/api/cli/rpc");
+        let probe = client
+            .post(&endpoint)
+            .header(reqwest::header::AUTHORIZATION, token.clone())
+            .json(&serde_json::json!({
+                "method": "system.identify",
+                "params": null,
+                "protocol_version": crate::protocol::PROTOCOL_VERSION,
+            }))
+            .send()
+            .map_err(|_| "loopback HTTP RPC probe failed".to_owned())?;
+        let status = probe.status();
+        let value = probe
+            .json::<serde_json::Value>()
+            .map_err(|_| "loopback HTTP RPC probe returned invalid JSON".to_owned())?;
+        http_rpc_result(status, value)
+            .map_err(|_| "loopback HTTP RPC probe was refused".to_owned())?;
         Ok(Self {
             transport: ClientTransport::Http {
-                client: reqwest::blocking::Client::new(),
-                endpoint: format!("{}/api/cli/rpc", config.base_url),
+                client,
+                endpoint,
                 token,
                 headers,
             },
@@ -315,45 +334,66 @@ impl SocketClient {
             protocol_version: crate::protocol::PROTOCOL_VERSION,
         };
 
-        if let ClientTransport::Http { client, endpoint, token, headers } = &self.transport {
+        if let ClientTransport::Http {
+            client,
+            endpoint,
+            token,
+            headers,
+        } = &self.transport
+        {
+            let mut identity_headers = headers.clone();
+            let used_headers: &[&str] = match method {
+                "agent.startup_ack" => &["x-codeterm-tab-id", "x-codeterm-binding-nonce"],
+                "agent.ack" | "tab.send_text" => &["x-codeterm-tab-id"],
+                "agent.report" => &[
+                    "x-codeterm-tab-id",
+                    "x-codeterm-session-id",
+                    "x-codeterm-binding-nonce",
+                ],
+                _ => &[],
+            };
+            identity_headers
+                .retain(|name, _| used_headers.iter().any(|used| name.as_str() == *used));
             let response = client
                 .post(endpoint)
                 .header(reqwest::header::AUTHORIZATION, token.clone())
-                .headers(headers.clone())
+                .headers(identity_headers)
                 .json(&serde_json::json!({
                     "method": method,
                     "params": params,
                     "protocol_version": crate::protocol::PROTOCOL_VERSION,
                 }))
                 .send()
-                .map_err(|error| SocketCallError::Transport(format!("HTTP request failed: {error}")))?;
+                .map_err(|error| {
+                    SocketCallError::Transport(format!("HTTP request failed: {error}"))
+                })?;
             let status = response.status();
             let value: serde_json::Value = response.json().map_err(|error| {
                 SocketCallError::Transport(format!("invalid HTTP RPC response: {error}"))
             })?;
-            if let Some(error) = value.get("error") {
-                return Err(SocketCallError::Rpc(RpcError {
-                    code: error.get("code").and_then(serde_json::Value::as_i64).unwrap_or(-32603) as i32,
-                    message: error.get("message").and_then(serde_json::Value::as_str).unwrap_or("HTTP RPC failed").to_owned(),
-                    data: error.get("data").cloned().filter(|value| !value.is_null()),
-                }));
-            }
-            if !status.is_success() {
-                return Err(SocketCallError::Transport(format!("HTTP RPC returned status {status}")));
-            }
-            return Ok(value);
+            return http_rpc_result(status, value);
         }
 
-        let ClientTransport::Socket(reader) = &mut self.transport else { unreachable!() };
+        let ClientTransport::Socket(reader) = &mut self.transport else {
+            unreachable!()
+        };
         let payload = serde_json::to_string(&req)
             .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
         let writer = reader.get_mut();
-        writer.write_all(payload.as_bytes()).map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer.write_all(b"\n").map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer.flush().map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
+        writer
+            .write_all(payload.as_bytes())
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer
+            .write_all(b"\n")
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer
+            .flush()
+            .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
 
         let mut line = String::new();
-        let bytes_read = reader.read_line(&mut line).map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
+        let bytes_read = reader
+            .read_line(&mut line)
+            .map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
 
         if bytes_read == 0 || line.trim().is_empty() {
             return Err(SocketCallError::Transport(format!(
@@ -378,6 +418,35 @@ impl SocketClient {
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
     }
+}
+
+fn http_rpc_result(
+    status: reqwest::StatusCode,
+    response: serde_json::Value,
+) -> Result<serde_json::Value, SocketCallError> {
+    if let Some(error) = response.get("error") {
+        return Err(SocketCallError::Rpc(RpcError {
+            code: error
+                .get("code")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(-32603) as i32,
+            message: error
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("HTTP RPC failed")
+                .to_owned(),
+            data: error.get("data").cloned().filter(|value| !value.is_null()),
+        }));
+    }
+    if !status.is_success() {
+        return Err(SocketCallError::Transport(format!(
+            "HTTP RPC returned status {status}"
+        )));
+    }
+    response
+        .get("result")
+        .cloned()
+        .ok_or_else(|| SocketCallError::Transport("HTTP RPC response is missing result".into()))
 }
 
 /// Skew against a NEWER daemon is refused server-side with the typed

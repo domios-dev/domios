@@ -65,6 +65,7 @@ An empty CORS allowlist permits no cross-origin requests and never disables the 
 |--------|------|------|-------------|
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | GET | `/api/identify` | — | Version, platform, features |
+| POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It accepts a fixed method set for identify, tab listing/sending, and agent ACK/report operations; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
