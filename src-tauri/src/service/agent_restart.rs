@@ -183,7 +183,7 @@ impl ServiceContext {
             .snapshot_tab_for_restart(tab_id)
             .map_err(|error| format!("{error:?}"))?;
         if snap.provider != expected_provider
-            || snap.session_id.as_deref() != Some(expected_session)
+            || !provider_update_session_matches(expected_session, snap.session_id.as_deref())
         {
             return Err(format!(
                 "Tab {} changed provider or session before update",
@@ -764,6 +764,10 @@ impl ServiceContext {
             != Some(snap.pty_id.as_str());
         tab_released && self.pty.lock().get_session(&snap.pty_id).is_none()
     }
+}
+
+fn provider_update_session_matches(expected: &str, current: Option<&str>) -> bool {
+    current == Some(expected)
 }
 
 fn require_observed_live_agent(liveness: AgentLiveness) -> Result<(), AgentRestartError> {
