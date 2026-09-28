@@ -133,7 +133,7 @@ export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
   if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
   const options = parseNumberedOptions(raw);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
   const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
   const question = findQuestion(before) || "Choose an option";
   return {
