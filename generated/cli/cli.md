@@ -148,7 +148,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
-- `--cwd` — Working directory
+- `--cwd` — Working directory (required with --mesh; resolves on the peer)
 - `--description` — Short tab description (max 200 chars)
 - `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
@@ -167,7 +167,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
-- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task
+- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
 - `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag
 - `--title` — Tab title

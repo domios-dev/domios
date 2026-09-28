@@ -535,7 +535,7 @@
               "value_name": "CWD",
               "possible_values": [],
               "default": null,
-              "help": "Working directory",
+              "help": "Working directory (required with --mesh; resolves on the peer)",
               "aliases": []
             },
             {
@@ -734,7 +734,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task",
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task",
               "aliases": []
             },
             {
