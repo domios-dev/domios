@@ -6,7 +6,7 @@ use std::process::Command;
 use clap::Parser;
 use tempfile::TempDir;
 
-use super::{generate, generate_from_paths, sha256, validate, MapSummary};
+use super::{generate_from_paths, sha256, validate, MapSummary};
 use crate::args::essence_map::EssenceMapPaths;
 use crate::{Cli, Commands};
 
@@ -34,6 +34,10 @@ fn fixture_root() -> TempDir {
     let temp = tempfile::tempdir().expect("create essence map fixture");
     copy_essences(&temp.path().join("essences"));
     temp
+}
+
+fn generate(root: &Path, map: &Path) -> Result<super::MapSummary, String> {
+    super::generate_with_data_root(root, map, &root.join("codeterm-data"))
 }
 
 fn run_git(root: &Path, args: &[&str]) {
