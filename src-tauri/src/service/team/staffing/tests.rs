@@ -283,6 +283,47 @@ fn orchestrator_attach_lock_is_shared_per_team_only() {
     assert!(!Arc::ptr_eq(&first, &other));
 }
 
+#[tokio::test]
+async fn concurrent_orchestrator_adds_serialize_per_team() {
+    let (mut initial_mux, team_id, orchestrator, _, _) = live_team();
+    initial_mux.close_tab(&orchestrator).unwrap();
+    let mux = Arc::new(parking_lot::Mutex::new(initial_mux));
+    let locks = TeamOrchestratorAttachLocks::default();
+    let first_guard = locks.for_team(&team_id).lock_owned().await;
+    let second_gate = locks.for_team(&team_id);
+    let second_mux = Arc::clone(&mux);
+    let second_team_id = team_id.clone();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let second_add = tokio::spawn(async move {
+        let _ = started_tx.send(());
+        let _guard = second_gate.lock_owned().await;
+        let mux = second_mux.lock();
+        prepare_team_member_spawn(&mux, &second_team_id, None, orchestrator_params())
+            .map(|_| ())
+    });
+    started_rx
+        .await
+        .expect("the competing add reached the per-Team gate");
+
+    let first_prepared = {
+        let mux = mux.lock();
+        prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params())
+            .expect("the first add sees an unstaffed Team")
+    };
+    {
+        let mut mux = mux.lock();
+        commit_replacement_anchor(&mut mux, &team_id, &first_prepared);
+    }
+    drop(first_guard);
+
+    let error = second_add
+        .await
+        .expect("the competing add task completes")
+        .expect_err("the second add sees the first live Orchestrator");
+    assert!(error.starts_with(codes::TEAM_ORCHESTRATOR_ALREADY_LIVE));
+    assert_eq!(live_team_orchestrators(&mux.lock(), &team_id).len(), 1);
+}
+
 #[test]
 fn a_headless_team_accepts_a_new_orchestrator_with_no_caller() {
     let (mut mux, team_id, orchestrator, planner, _worker) = live_team();

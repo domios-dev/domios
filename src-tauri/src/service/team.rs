@@ -120,6 +120,20 @@ impl ServiceContext {
         } else {
             None
         };
+        let classified = {
+            let mux = self.mux.read();
+            let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
+            if is_cartographer {
+                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
+                    return Ok(existing);
+                }
+            }
+            prepared
+        };
+        self.classify_spawn_target_for_params(
+            classified.spawn_params.agent.as_deref().unwrap_or_default(),
+            &classified.spawn_params,
+        )?;
         let (prepared, detached_failed_anchor) = {
             let mut mux = self.mux.write();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
@@ -128,22 +142,16 @@ impl ServiceContext {
                     return Ok(existing);
                 }
             }
-            self.classify_spawn_target_for_params(
-                prepared.spawn_params.agent.as_deref().unwrap_or_default(),
-                &prepared.spawn_params,
-            )?;
             let anchors = staffing::role_anchors_team(
                 &prepared.expected_role,
                 prepared.expected_profile.as_deref(),
             );
             let detached = anchors
                 && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
-            if detached {
-                crate::service::publish_mux_state_changed(&self.events);
-            }
             (prepared, detached)
         };
         if detached_failed_anchor {
+            crate::service::publish_mux_state_changed(&self.events);
             crate::service::session_persist::persist_session_after_close(self);
             self.emit_state_changed_after_bus_publish();
         }
