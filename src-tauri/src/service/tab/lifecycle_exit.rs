@@ -404,6 +404,7 @@ impl ServiceContext {
         if let Some(identity) = prompt_identity {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.record_lifecycle_end(
             tab_id,
             crate::session::lifecycle::LifecycleTransition::RolledBack {

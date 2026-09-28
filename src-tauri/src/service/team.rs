@@ -358,6 +358,7 @@ impl ServiceContext {
         }
         for tab_id in &cleanup.member_tab_ids {
             self.flag_bound_tasks_for_gone_tab(tab_id, 0);
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             self.prompt_detector.lock().remove_tab(tab_id);
             crate::service::structured_prompt::clear_tab(tab_id);
             self.remote_workers.forget_orchestrator(tab_id);

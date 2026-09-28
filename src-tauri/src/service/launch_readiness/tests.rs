@@ -21,7 +21,11 @@ fn owner_prompt_readiness_round_trip(prefix: &str) {
         pty_id: format!("{prefix}-pty"),
         binding_nonce: format!("{prefix}-nonce"),
     };
-    owner_prompt_pending(&attempt.tab_id, "prompt-token-7");
+    owner_prompt_pending_until(
+        &attempt.tab_id,
+        "prompt-token-7",
+        Instant::now() + Duration::from_secs(30),
+    );
     arm(attempt.clone());
 
     let (changed, events) = std::sync::mpsc::channel();
@@ -30,7 +34,6 @@ fn owner_prompt_readiness_round_trip(prefix: &str) {
         observe_with_owner_prompt(
             &observer_attempt,
             Instant::now() + Duration::from_secs(30),
-            OWNER_PROMPT_DEADLINE,
             |prompt| {
                 changed
                     .send(prompt.map(|_| BootStage::AwaitingOwnerPrompt))
@@ -61,7 +64,7 @@ fn auto_answered_prompt_does_not_suspend_readiness() {
     };
     arm(attempt.clone());
     assert_eq!(
-        observe_with_owner_prompt(&attempt, Instant::now(), OWNER_PROMPT_DEADLINE, |_| {}),
+        observe_with_owner_prompt(&attempt, Instant::now(), |_| {}),
         LaunchObservation::Deadline
     );
 }
@@ -71,11 +74,9 @@ fn startup_supervision_resumes_when_owner_prompt_clears() {
     let tab_id = "startup-owner-prompt-tab";
     owner_prompt_pending(tab_id, "prompt-token-8");
     let waiter_tab = tab_id.to_string();
-    let waiter = std::thread::spawn(move || {
-        await_owner_prompt_resolution(&waiter_tab, Duration::from_secs(30))
-    });
+    let waiter = std::thread::spawn(move || await_owner_prompt_resolution(&waiter_tab));
     owner_prompt_cleared(tab_id);
-    assert!(waiter.join().unwrap());
+    assert_eq!(waiter.join().unwrap(), None);
 }
 
 #[test]
@@ -86,14 +87,9 @@ fn unanswered_owner_prompt_fails_at_owner_deadline_with_named_reason() {
         binding_nonce: "unanswered-owner-prompt-nonce".into(),
     };
     arm(attempt.clone());
-    owner_prompt_pending(&attempt.tab_id, "prompt-token-7");
+    owner_prompt_pending_until(&attempt.tab_id, "prompt-token-7", Instant::now());
     assert_eq!(
-        observe_with_owner_prompt(
-            &attempt,
-            Instant::now() + Duration::from_secs(30),
-            Duration::ZERO,
-            |_| {},
-        ),
+        observe_with_owner_prompt(&attempt, Instant::now() + Duration::from_secs(30), |_| {},),
         LaunchObservation::OwnerDeadline {
             question: "prompt-token-7".into()
         }

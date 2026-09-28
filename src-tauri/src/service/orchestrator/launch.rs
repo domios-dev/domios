@@ -930,7 +930,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
-        let launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
+        let mut launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             startup_binding_deadline,
@@ -955,32 +955,64 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness.requires_composer(),
         );
         let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
-            let readiness = if session_starts_on_first_turn {
-                let provider_frame_wait = if composer_cursor_position
-                    == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
-                {
-                    crate::agent::provider::ProviderReadinessStrategy::TuiFrame {
-                        timeout: input_readiness_timeout,
+            let mut resumed_after_owner_prompt = false;
+            let readiness = loop {
+                if crate::service::launch_readiness::owner_prompt_is_active(&tab_id) {
+                    if let Some(question) =
+                        crate::service::launch_readiness::await_owner_prompt_resolution(&tab_id)
+                    {
+                        break Err(crate::service::launch_input_gate::LaunchInputRefusal::
+                            OwnerPromptDeadline(question));
                     }
+                    resumed_after_owner_prompt = true;
+                    launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
+                    continue;
+                }
+                let readiness = if session_starts_on_first_turn {
+                    if !resumed_after_owner_prompt {
+                        let provider_frame_wait = if composer_cursor_position
+                            == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+                        {
+                            crate::agent::provider::ProviderReadinessStrategy::TuiFrame {
+                                timeout: input_readiness_timeout,
+                            }
+                        } else {
+                            provider_readiness.clone()
+                        };
+                        let _ = svc.await_provider_readiness_on_screen(
+                            &pty_id,
+                            &agent_cmd,
+                            provider_frame_wait,
+                        );
+                    }
+                    svc.await_lazy_session_input_readiness(
+                        &readiness_attempt,
+                        &agent_cmd,
+                        launch_input_deadline.saturating_duration_since(std::time::Instant::now()),
+                    )
                 } else {
-                    provider_readiness.clone()
+                    svc.await_launch_input_readiness(
+                        &readiness_attempt,
+                        &agent_cmd,
+                        input_readiness_timeout,
+                    )
                 };
-                let _ = svc.await_provider_readiness_on_screen(
-                    &pty_id,
-                    &agent_cmd,
-                    provider_frame_wait,
-                );
-                svc.await_lazy_session_input_readiness(
-                    &readiness_attempt,
-                    &agent_cmd,
-                    launch_input_deadline.saturating_duration_since(std::time::Instant::now()),
-                )
-            } else {
-                svc.await_launch_input_readiness(
-                    &readiness_attempt,
-                    &agent_cmd,
-                    input_readiness_timeout,
-                )
+                if readiness.is_err() {
+                    if crate::service::launch_readiness::owner_prompt_is_active(&tab_id) {
+                        continue;
+                    }
+                    let stage_waited_for_owner =
+                        svc.mux.read().get_tab(&tab_id).is_some_and(|tab| {
+                            tab.boot_stage == Some(BootStage::AwaitingOwnerPrompt)
+                        });
+                    if stage_waited_for_owner && !resumed_after_owner_prompt {
+                        resumed_after_owner_prompt = true;
+                        launch_input_deadline =
+                            std::time::Instant::now() + startup_binding_deadline;
+                        continue;
+                    }
+                }
+                break readiness;
             };
             match readiness {
                 Ok(readiness) => Some(readiness),

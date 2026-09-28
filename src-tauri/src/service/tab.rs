@@ -233,6 +233,7 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
         if let (Some(provider_id), Some(session_id)) =
             (provider_id.as_deref(), session_id.as_deref())
         {
