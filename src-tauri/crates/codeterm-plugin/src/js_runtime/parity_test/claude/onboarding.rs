@@ -7,47 +7,51 @@ fn claude_onboarding_prompt_native_js_parity() {
         return;
     }
     let (native, js) = pair();
-    let fixture = std::fs::read_to_string(
-        workspace_plugins_root()
-            .join("provider-claude")
-            .join("tests/fixtures/onboarding/auto-environment.txt"),
-    )
-    .expect("onboarding fixture");
-    assert_eq!(
-        native.launch_onboarding_response(&fixture),
-        js.launch_onboarding_response(&fixture),
-        "provider implementations agree on the safe choice"
-    );
-    assert_eq!(native.launch_onboarding_response(&fixture), Some(b"\r".to_vec()));
-
-    let focused_yes = fixture
-        .replace("❯ 2.", "  2.")
-        .replace("  1.", "❯ 1.");
-    assert_eq!(
-        native.launch_onboarding_response(&focused_yes),
-        Some(b"j".to_vec()),
-        "the host advances only one observed choice at a time"
-    );
-    assert_eq!(native.launch_onboarding_response(&focused_yes), js.launch_onboarding_response(&focused_yes));
-
-    for ambiguous_focus in [
-        fixture.replacen("❯ 2.", "  2.", 1),
-        fixture.replacen("  1.", "❯ 1.", 1),
+    let fixtures = workspace_plugins_root()
+        .join("provider-claude")
+        .join("tests/fixtures/onboarding");
+    for file in [
+        "auto-environment-captured.txt",
+        "auto-environment-variant.txt",
+        "auto-environment-not-now.txt",
+        "auto-environment-boxed-curly.txt",
     ] {
-        assert_eq!(native.launch_onboarding_response(&ambiguous_focus), None);
-        assert_eq!(js.launch_onboarding_response(&ambiguous_focus), None);
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("onboarding fixture");
+        assert_eq!(
+            native.parse_prompt(&screen),
+            js.parse_prompt(&screen),
+            "prompt parse parity for {file}"
+        );
+        let native_response = native.launch_onboarding_response(&screen);
+        assert_eq!(
+            native_response,
+            js.launch_onboarding_response(&screen),
+            "response parity for {file}"
+        );
+        let response = native_response.expect("classified onboarding frame");
+        let expected_step = if file == "auto-environment-captured.txt" {
+            b"j".as_slice()
+        } else {
+            b"\r".as_slice()
+        };
+        assert_eq!(response.step.as_slice(), expected_step, "safe next step for {file}");
     }
 
-    let question = fixture.lines().next().expect("question row");
-    let changed_question = fixture.replacen(question, "A different startup question?", 1);
-    let mut missing_choice = fixture.lines().map(str::to_string).collect::<Vec<_>>();
-    let third = missing_choice
-        .iter_mut()
-        .find(|line| line.trim_start().starts_with("3."))
-        .expect("third option");
-    *third = "  3. Later".into();
-    for unsafe_screen in [changed_question, missing_choice.join("\n")] {
-        assert_eq!(native.launch_onboarding_response(&unsafe_screen), None);
-        assert_eq!(js.launch_onboarding_response(&unsafe_screen), None);
-    }
+    let capture = std::fs::read_to_string(fixtures.join("auto-environment-captured.txt"))
+        .expect("captured onboarding frame");
+    let first_option = capture.find("1. Yes").expect("first choice");
+    let focus = capture[..first_option]
+        .rfind('❯')
+        .expect("captured focus marker");
+    let ambiguous = format!("{}{}", &capture[..focus], &capture[focus + '❯'.len_utf8()..]);
+    assert_eq!(native.launch_onboarding_response(&ambiguous), None);
+    assert_eq!(js.launch_onboarding_response(&ambiguous), None);
+
+    let question = capture
+        .lines()
+        .find(|line| line.trim_end().ends_with('?'))
+        .expect("question row");
+    let changed_question = capture.replacen(question, "A different startup question?", 1);
+    assert_eq!(native.launch_onboarding_response(&changed_question), None);
+    assert_eq!(js.launch_onboarding_response(&changed_question), None);
 }

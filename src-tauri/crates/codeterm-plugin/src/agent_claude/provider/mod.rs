@@ -267,7 +267,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
-        folder_trust::parse_prompt(text)
+        onboarding::parse(text)
+            .map(|prompt| (prompt.question, prompt.options))
+            .or_else(|| folder_trust::parse_prompt(text))
             .or_else(|| crate::detector::parse_permission_prompt(text))
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
@@ -300,8 +302,11 @@ impl AgentProvider for ClaudeProvider {
         folder_trust::response(screen)
     }
 
-    fn launch_onboarding_response(&self, screen: &str) -> Option<Vec<u8>> {
-        onboarding::not_now_step(screen)
+    fn launch_onboarding_response(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderPromptKeyStep> {
+        onboarding::response(screen)
     }
 
     fn permission_prompt_response(

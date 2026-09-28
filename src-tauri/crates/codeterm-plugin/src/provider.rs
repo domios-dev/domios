@@ -28,6 +28,13 @@ pub enum ClassifiedPromptOptionRole {
     Skip,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderPromptKeyStep {
+    pub frame_key: String,
+    pub step: Vec<u8>,
+}
+
 /// Bind address for a provider's structured-prompt server (opencode SSE bus).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

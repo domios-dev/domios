@@ -3,7 +3,8 @@ use std::cell::Cell;
 use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
+    decide, decide_with_frame_identity, directory_trust_check_applies,
+    directory_trust_provenance, directory_trust_skip_reason,
     inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
     TrustDecision, TrustLedger,
 };
@@ -281,6 +282,43 @@ fn provisioned_directory_answers_one_key_per_observed_frame() {
     assert_eq!(held, TrustDecision::Held);
     let gone = decide(applies, &tab_id, "composer", &ledger, |_| None);
     assert_eq!(gone, TrustDecision::NoDialog);
+}
+
+#[test]
+fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
+    let capture = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let response = provider
+        .launch_onboarding_response(capture)
+        .expect("captured onboarding prompt");
+    assert_eq!(response.step, b"j");
+    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+
+    let first = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        capture,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(first, TrustDecision::Answer { step: b"j".to_vec() });
+    ledger.lock().settle("onboarding-redraw");
+
+    let redraw = format!("{capture}\nstatus refreshed");
+    let repeated = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        &redraw,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(
+        repeated,
+        TrustDecision::Waiting,
+        "an extra redraw with unchanged focus must not queue another navigation key"
+    );
 }
 
 #[test]
