@@ -28,6 +28,21 @@ non-zero. Structured daemon error data stays under `data`, including
 ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the
 provider choices and a message asking for `--agent`.
 
+### Sandboxed CLI transport
+
+The CLI uses the local named pipe or Unix socket first. If that transport cannot
+be discovered or connected, selected identity and agent coordination calls can
+use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs
+`CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it
+always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and
+refuses any configured URL that is not exactly an HTTP IPv4 loopback origin.
+The endpoint accepts only `system.identify`, `tab.list`, `tab.send_text`,
+`agent.startup_ack`, `agent.ack`, and `agent.report`. Supplied identity headers
+must match the corresponding request fields. The token must be the local API
+token and the TCP peer must be loopback; mesh peer credentials are refused.
+HTTP success wraps the daemon value in `{result: ...}`, so result objects may
+contain their own `error` field without being mistaken for transport failures.
+
 ### Mesh CLI failures
 
 `codeterm mesh discover`, `codeterm mesh broadcast`, and
@@ -77,6 +92,7 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
+| `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
