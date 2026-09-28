@@ -134,6 +134,7 @@ fn input_observation() -> LaunchInputObservation {
         provider_process_alive: true,
         provider_busy: false,
         directory_trust_prompt: false,
+        directory_trust_pending: false,
         active_interactive_prompt: false,
         classification: None,
     }
@@ -191,15 +192,64 @@ fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
         "an active structured prompt blocks lazy readiness",
     );
 
-    let refusal = decide_launch_input(
+    let readiness = decide_launch_input(
         LaunchInputObservation {
             directory_trust_prompt: true,
             ..input_observation()
         },
         LaunchInputMode::Standard,
-    )
-    .expect_err("provider directory-trust modal blocks launch input");
-    assert_eq!(refusal, LaunchInputRefusal::DirectoryTrustPrompt);
+    );
+    assert_eq!(readiness, Ok(None));
+}
+
+#[test]
+fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrusted_folder() {
+    use codeterm_plugin::provider::DirectoryTrustState;
+
+    assert!(directory_trust_blocks_input(DirectoryTrustState::Untrusted, false, false));
+    assert!(directory_trust_blocks_input(DirectoryTrustState::Untrusted, true, true));
+    assert!(!directory_trust_blocks_input(DirectoryTrustState::Untrusted, false, true));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                directory_trust_pending: true,
+                ..input_observation()
+            },
+            LaunchInputMode::Standard,
+        ),
+        Ok(None),
+    );
+    assert_eq!(
+        decide_launch_input(input_observation(), LaunchInputMode::Standard),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+    );
+}
+
+#[test]
+fn launch_gate_trusted_folder_stays_first_frame_ready() {
+    assert!(!directory_trust_blocks_input(
+        codeterm_plugin::provider::DirectoryTrustState::Trusted,
+        false,
+        false,
+    ));
+    assert_eq!(
+        decide_launch_input(input_observation(), LaunchInputMode::Standard),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+    );
+}
+
+#[test]
+fn launch_gate_does_not_stall_when_predicted_dialog_never_appears() {
+    for state in [
+        codeterm_plugin::provider::DirectoryTrustState::Trusted,
+        codeterm_plugin::provider::DirectoryTrustState::Unknown,
+    ] {
+        assert!(!directory_trust_blocks_input(state, false, false));
+    }
+    assert_eq!(
+        decide_launch_input(input_observation(), LaunchInputMode::Standard),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+    );
 }
 
 #[test]

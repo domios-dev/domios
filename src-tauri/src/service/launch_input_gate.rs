@@ -15,7 +15,6 @@ pub(crate) enum LaunchInputEvidence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchInputRefusal {
-    DirectoryTrustPrompt,
     PendingPrompt,
     ProviderDialog(TabState),
     Deadline,
@@ -27,7 +26,6 @@ pub(crate) enum LaunchInputRefusal {
 impl LaunchInputRefusal {
     pub(crate) fn reason(self) -> String {
         match self {
-            Self::DirectoryTrustPrompt => "active provider directory-trust prompt".into(),
             Self::PendingPrompt => "active provider prompt".into(),
             Self::ProviderDialog(state) => format!("provider classified {state:?} dialog"),
             Self::Deadline => "provider composer readiness deadline elapsed".into(),
@@ -59,6 +57,7 @@ struct LaunchInputObservation {
     provider_process_alive: bool,
     provider_busy: bool,
     directory_trust_prompt: bool,
+    directory_trust_pending: bool,
     active_interactive_prompt: bool,
     classification: Option<TabStateClassification>,
 }
@@ -85,9 +84,10 @@ fn decide_launch_input(
     if mode == LaunchInputMode::LazySessionStart && observation.provider_busy {
         return Ok(None);
     }
-    let refusal = if observation.directory_trust_prompt {
-        Some(LaunchInputRefusal::DirectoryTrustPrompt)
-    } else if mode == LaunchInputMode::LazySessionStart && observation.pending_prompt {
+    if observation.directory_trust_prompt || observation.directory_trust_pending {
+        return Ok(None);
+    }
+    let refusal = if mode == LaunchInputMode::LazySessionStart && observation.pending_prompt {
         Some(LaunchInputRefusal::PendingPrompt)
     } else {
         observation
@@ -151,6 +151,16 @@ fn provider_is_busy(
             value.state == TabState::Working
                 && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
         })
+}
+
+fn directory_trust_blocks_input(
+    trust_state: codeterm_plugin::provider::DirectoryTrustState,
+    prompt_visible: bool,
+    prompt_observed: bool,
+) -> bool {
+    prompt_visible
+        || (trust_state == codeterm_plugin::provider::DirectoryTrustState::Untrusted
+            && !prompt_observed)
 }
 
 impl ServiceContext {
@@ -220,6 +230,7 @@ impl ServiceContext {
                 == crate::agent::provider::ComposerCursorPosition::BottomRegion;
         let mut observed_tui_without_composer = false;
         let mut onboarding_choice_submitted = false;
+        let mut directory_trust_prompt_observed = false;
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -230,7 +241,15 @@ impl ServiceContext {
                 return Err(LaunchInputRefusal::AttemptSuperseded);
             }
 
-            let (session_bound, pending_prompt, session_id, cwd, delegated_role) = {
+            let (
+                session_bound,
+                pending_prompt,
+                session_id,
+                cwd,
+                trust_lookup_path,
+                skip_permissions,
+                delegated_role,
+            ) = {
                 let mux = self.mux.read();
                 let Some(tab) = mux.get_tab(&attempt.tab_id) else {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
@@ -243,6 +262,10 @@ impl ServiceContext {
                     tab.pending_prompt.is_some(),
                     tab.agent_session_id.clone(),
                     tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                    crate::service::directory_trust::directory_trust_check_applies(tab)
+                        .then(|| tab.cwd.clone())
+                        .flatten(),
+                    tab.auto_approve,
                     delegated_role(tab.role, tab.role_profile.as_deref()),
                 )
             };
@@ -267,6 +290,12 @@ impl ServiceContext {
                 cwd,
                 screen_text: screen.clone(),
             };
+            directory_trust_prompt_observed |= self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.directory_trust_prompt_response(&screen).is_some()
+                })
+                .unwrap_or(false);
             if delegated_role {
                 let decision = self.respond_to_launch_onboarding(
                     &attempt.tab_id,
@@ -338,6 +367,14 @@ impl ServiceContext {
                 );
                 let directory_trust_prompt =
                     provider.directory_trust_prompt_response(&screen).is_some();
+                let directory_trust_state = trust_lookup_path.as_deref().map_or(
+                    codeterm_plugin::provider::DirectoryTrustState::Unknown,
+                    |path| {
+                        provider
+                            .directory_trust_state(path, skip_permissions)
+                            .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
+                    },
+                );
                 let classification = provider.classify_tab_state(&snapshot);
                 let provider_busy =
                     provider_is_busy(mode, composer_cursor_position, classification.as_ref());
@@ -350,6 +387,7 @@ impl ServiceContext {
                     provider_tui,
                     terminal_input_ready,
                     directory_trust_prompt,
+                    directory_trust_state,
                     active_interactive_prompt,
                     classification,
                     provider_busy,
@@ -360,12 +398,28 @@ impl ServiceContext {
                 provider_tui,
                 terminal_input_ready,
                 directory_trust_prompt,
+                directory_trust_state,
                 active_interactive_prompt,
                 classification,
                 provider_busy,
-            ) = provider_observation.unwrap_or((false, false, false, false, false, None, false));
+            ) = provider_observation.unwrap_or((
+                false,
+                false,
+                false,
+                false,
+                codeterm_plugin::provider::DirectoryTrustState::Unknown,
+                false,
+                None,
+                false,
+            ));
             observed_tui_without_composer |=
                 uses_prompt_glyph_fingerprint && provider_tui && !terminal_input_ready;
+            directory_trust_prompt_observed |= directory_trust_prompt;
+            let directory_trust_pending = directory_trust_blocks_input(
+                directory_trust_state,
+                directory_trust_prompt,
+                directory_trust_prompt_observed,
+            );
             match decide_launch_input(
                 LaunchInputObservation {
                     session_bound,
@@ -374,6 +428,7 @@ impl ServiceContext {
                     provider_process_alive,
                     provider_busy,
                     directory_trust_prompt,
+                    directory_trust_pending,
                     active_interactive_prompt,
                     classification,
                 },

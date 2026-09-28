@@ -188,23 +188,27 @@ function collectProfileEntries(profile: string): TrustEntry[] | null {
 }
 
 export function hasTrustedProjectPath(config: string, path: string): boolean {
+  return projectTrustForPath(config, path) === "trusted";
+}
+
+export function projectTrustForPath(config: string, path: string): "trusted" | "untrusted" | "missing" | "unknown" {
   const target = normalizedPath(path);
   let activePath: string | null = null;
-  let trust: "trusted" | null = null;
+  let trust: "trusted" | "untrusted" | null = null;
   let trustSeen = false;
+  let result: "trusted" | "untrusted" | "missing" = "missing";
   let found = false;
-  let targetSeen = false;
   const flush = (): boolean => {
     if (activePath === null || normalizedPath(activePath) !== target) return true;
-    if (targetSeen) return false;
-    targetSeen = true;
-    found = trust === "trusted";
+    if (found) return false;
+    found = true;
+    result = trust ?? "missing";
     return true;
   };
   for (const line of config.split(/\r?\n/)) {
     const parts = headerParts(line);
     if (parts) {
-      if (!flush()) return false;
+      if (!flush()) return "unknown";
       activePath = projectTablePath(parts);
       trust = null;
       trustSeen = false;
@@ -213,8 +217,8 @@ export function hasTrustedProjectPath(config: string, path: string): boolean {
     const header = withoutComment(line).trim();
     if (header.startsWith("[")) {
       if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(header)
-        || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return false;
-      if (!flush()) return false;
+        || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return "unknown";
+      if (!flush()) return "unknown";
       activePath = null;
       trust = null;
       trustSeen = false;
@@ -223,11 +227,14 @@ export function hasTrustedProjectPath(config: string, path: string): boolean {
     if (activePath === null) continue;
     const assignment = assignmentParts(line);
     if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
-    if (trustSeen) return false;
+    if (trustSeen) return "unknown";
     trustSeen = true;
-    trust = parseTrustValue(assignment.value);
+    const parsed = parseString(assignment.value.trim());
+    if (!parsed || parsed.next !== assignment.value.trim().length) return "unknown";
+    if (parsed.value !== "trusted" && parsed.value !== "untrusted") return "unknown";
+    trust = parsed.value;
   }
-  return flush() && found;
+  return flush() ? result : "unknown";
 }
 
 export function hasTrustedProjectEntries(profile: string): boolean {

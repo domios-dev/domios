@@ -1,6 +1,7 @@
 use super::*;
 use crate::provider::{
-    LaunchArtifactSweepReport, LaunchArtifactSweepRequest, ReadinessStrategy, TaskDelivery,
+    DirectoryTrustState, LaunchArtifactSweepReport, LaunchArtifactSweepRequest, ReadinessStrategy,
+    TaskDelivery,
 };
 
 struct LaunchArtifactsNativeStub;
@@ -50,6 +51,20 @@ impl AgentProvider for LaunchArtifactsNativeStub {
 
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
         Ok(path.eq_ignore_ascii_case(r"C:\Trust\Exact"))
+    }
+
+    fn directory_trust_state(
+        &self,
+        path: &str,
+        _skip_permissions: bool,
+    ) -> Option<DirectoryTrustState> {
+        Some(if path.eq_ignore_ascii_case(r"C:\Trust\Exact") {
+            DirectoryTrustState::Trusted
+        } else if path.eq_ignore_ascii_case(r"C:\Trust\Untrusted") {
+            DirectoryTrustState::Untrusted
+        } else {
+            DirectoryTrustState::Unknown
+        })
     }
 
     fn sweep_launch_artifacts(
@@ -117,6 +132,11 @@ fn launch_artifact_and_directory_trust_native_js_parity() {
             isDirectoryTrusted(path) {
                 return path.toLowerCase() === "c:\\trust\\exact";
             },
+            directoryTrustState(path, _skipPermissions) {
+                if (path.toLowerCase() === "c:\\trust\\exact") return "trusted";
+                if (path.toLowerCase() === "c:\\trust\\untrusted") return "untrusted";
+                return "unknown";
+            },
             sweepLaunchArtifacts(request) {
                 const dead = request.liveTabIds.includes("dead-tab") ? [] : ["dead-tab"];
                 const legacy = ["legacy-tab"];
@@ -151,10 +171,50 @@ fn launch_artifact_and_directory_trust_native_js_parity() {
         native.is_directory_trusted(r"C:\Trust\Other"),
         js.is_directory_trusted(r"C:\Trust\Other"),
     );
+    for (path, bypass) in [
+        (r"C:\Trust\Exact", false),
+        (r"C:\Trust\Untrusted", false),
+        (r"C:\Trust\Other", false),
+        (r"C:\Trust\Exact", true),
+    ] {
+        assert_eq!(
+            native.directory_trust_state(path, bypass),
+            js.directory_trust_state(path, bypass),
+        );
+    }
     assert_eq!(
         native.sweep_launch_artifacts(&request),
         js.sweep_launch_artifacts(&request),
     );
+}
+
+#[test]
+fn directory_trust_state_native_js_parity() {
+    let native = LaunchArtifactsNativeStub;
+    let js = load_inline_js(
+        "directory-trust-state-fixture",
+        r#"
+        module.exports.default = {
+            directoryTrustState(path, _skipPermissions) {
+                if (path.toLowerCase() === "c:\\trust\\exact") return "trusted";
+                if (path.toLowerCase() === "c:\\trust\\untrusted") return "untrusted";
+                return "unknown";
+            }
+        };
+        "#,
+    );
+
+    for (path, skip_permissions) in [
+        (r"C:\Trust\Exact", false),
+        (r"C:\Trust\Untrusted", false),
+        (r"C:\Trust\Other", false),
+        (r"C:\Trust\Exact", true),
+    ] {
+        assert_eq!(
+            native.directory_trust_state(path, skip_permissions),
+            js.directory_trust_state(path, skip_permissions),
+        );
+    }
 }
 
 #[test]
