@@ -684,7 +684,8 @@ fn observe_with_owner_prompt(
 }
 
 fn owner_prompt_deadline_reason(question: &str) -> String {
-    format!("owner prompt was not answered before the 30 minute deadline: {question}")
+    let minutes = OWNER_PROMPT_DEADLINE.as_secs().div_ceil(60);
+    format!("owner prompt was not answered before the {minutes} minute deadline: {question}")
 }
 
 impl ServiceContext {

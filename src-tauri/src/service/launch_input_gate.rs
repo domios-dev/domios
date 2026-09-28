@@ -1,4 +1,4 @@
-use crate::service::launch_readiness::{attempt_owns_tab, LaunchAttempt};
+use crate::service::launch_readiness::{attempt_owns_tab, LaunchAttempt, OWNER_PROMPT_DEADLINE};
 use crate::service::ServiceContext;
 use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use std::time::Instant;
@@ -13,7 +13,7 @@ pub(crate) enum LaunchInputEvidence {
     ProviderComposer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchInputRefusal {
     DirectoryTrustPrompt,
     PendingPrompt,
@@ -32,7 +32,8 @@ impl LaunchInputRefusal {
             Self::Deadline => "provider composer readiness deadline elapsed".into(),
             Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
             Self::OwnerPromptDeadline(question) => {
-                format!("owner prompt was not answered before the 30 minute deadline: {question}")
+                let minutes = OWNER_PROMPT_DEADLINE.as_secs().div_ceil(60);
+                format!("owner prompt was not answered before the {minutes} minute deadline: {question}")
             }
         }
     }

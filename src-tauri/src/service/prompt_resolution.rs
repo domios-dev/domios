@@ -1,6 +1,20 @@
 use crate::notification::store::NotificationStore;
 use codeterm_types::pty::PromptIdentity;
 
+pub(crate) fn clear_tab_prompt(
+    tab_id: &str,
+    tab: Option<&mut crate::multiplexer::types::Tab>,
+) -> Option<PromptIdentity> {
+    let identity = tab.map(|tab| {
+        let identity = tab.prompt_identity();
+        tab.pending_prompt = None;
+        tab.pending_prompt_kind = None;
+        identity
+    });
+    crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+    identity.flatten()
+}
+
 pub(crate) fn resolve_displaced_prompt(
     store: &mut NotificationStore,
     tab_id: &str,
