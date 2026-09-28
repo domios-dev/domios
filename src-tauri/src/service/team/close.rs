@@ -3,11 +3,12 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use codeterm_types::team::Team;
+use serde::Serialize;
 
 use super::TeamMutationCaller;
 use crate::multiplexer::state::{MultiplexerState, TeamCloseTransaction};
 use crate::multiplexer::types::TabBacking;
-use crate::plan::{Plan, TaskStatus};
+use crate::plan::Plan;
 use crate::process_util;
 use crate::service::plan::{PlanStore, TaskLaneUpdate};
 
@@ -145,21 +146,17 @@ pub(super) fn team_close_lanes(
     let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
     let mut lanes = Vec::new();
     for plan in plans {
+        let team_owned_plan = plan.team_id.as_deref() == Some(team_id);
         let project_path = if plan.canonical_project_path.trim().is_empty() {
             plan.project_path.clone()
         } else {
             plan.canonical_project_path.clone()
         };
         for task in &plan.tasks {
-            if task.status.is_terminal() || task.status == TaskStatus::InReview {
-                continue;
-            }
             let matching_attempts: Vec<_> = task
                 .execution_attempts
                 .iter()
-                .filter(|attempt| {
-                    attempt.closed_at.is_none() && tabs.contains(attempt.executor_tab_id.as_str())
-                })
+                .filter(|attempt| team_owned_plan || tabs.contains(attempt.executor_tab_id.as_str()))
                 .collect();
             let assigned_to_closed_tab = task
                 .assigned_tab_id
@@ -170,14 +167,10 @@ pub(super) fn team_close_lanes(
                     .tab_id
                     .as_deref()
                     .is_some_and(|tab| tabs.contains(tab));
-            let orphaned_in_progress = plan.team_id.as_deref() == Some(team_id)
-                && task.status == TaskStatus::InProgress
-                && task.assigned_tab_id.is_none()
-                && task.lane.tab_id.is_none();
-            if matching_attempts.is_empty() && !assigned_to_closed_tab && !orphaned_in_progress {
+            if matching_attempts.is_empty() && !assigned_to_closed_tab && !team_owned_plan {
                 continue;
             }
-            if assigned_to_closed_tab || orphaned_in_progress {
+            if team_owned_plan || assigned_to_closed_tab {
                 push_lane(
                     &mut lanes,
                     &plan.id,
@@ -211,7 +204,7 @@ pub(super) fn finish_team_lane_cleanup(
     plan_store: &PlanStore,
     lanes: &[TeamCloseLane],
     now_ms: u64,
-) -> Result<(), String> {
+) -> Result<TeamCloseInventory, String> {
     let assessed_lanes: Vec<_> = lanes
         .iter()
         .cloned()
@@ -221,12 +214,36 @@ pub(super) fn finish_team_lane_cleanup(
         })
         .collect();
     let mut outcomes = HashMap::<(String, String), Vec<(&TeamCloseLane, Option<String>)>>::new();
+    let mut inventory = TeamCloseInventory {
+        removed: Vec::new(),
+        kept: Vec::new(),
+        orphan_branches: Vec::new(),
+    };
     for lane in &assessed_lanes {
+        if lane.worktree_path.as_deref().map_or(true, |path| !Path::new(path).exists()) {
+            if let Some(branch) = lane
+                .branch
+                .as_deref()
+                .filter(|branch| matches!(branch_exists(lane, branch), Ok(true)))
+            {
+                inventory.orphan_branches.push(branch.to_string());
+            }
+        }
         let failure = if let Some(reason) = &lane.hold_reason {
             Some(reason.clone())
         } else {
             cleanup_lane(lane).err()
         };
+        let record = TeamCloseLaneRecord {
+            path: lane.worktree_path.clone(),
+            branch: lane.branch.clone(),
+            reason: failure.clone(),
+        };
+        if failure.is_some() {
+            inventory.kept.push(record);
+        } else {
+            inventory.removed.push(record);
+        }
         outcomes
             .entry((lane.plan_id.clone(), lane.task_id.clone()))
             .or_default()
@@ -272,7 +289,9 @@ pub(super) fn finish_team_lane_cleanup(
         }
     }
     if errors.is_empty() {
-        Ok(())
+        inventory.orphan_branches.sort();
+        inventory.orphan_branches.dedup();
+        Ok(inventory)
     } else {
         Err(format!(
             "Team closed, but lane state updates failed: {}",
@@ -410,7 +429,7 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
             }
             Ok(status) if !status.stdout.is_empty() => {
                 return Some(format!(
-                    "git status found uncommitted or untracked changes: {}",
+                    "dirty worktree: git status found uncommitted or untracked changes: {}",
                     String::from_utf8_lossy(&status.stdout).trim()
                 ));
             }
@@ -442,25 +461,34 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
     let Some(base) = lane.base.as_deref() else {
         return Some("lane base is not recorded; cannot verify branch commits".into());
     };
-    let range = format!("{base}..{reference}");
-    let output = match git_output(cwd, &["rev-list", "--count", &range]) {
-        Ok(output) if output.status.success() => output,
-        Ok(output) => return Some(git_output_error("rev-list", cwd, &output)),
-        Err(error) => return Some(error),
-    };
-    match String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<u64>()
-    {
-        Ok(0) => None,
-        Ok(count) => Some(format!(
-            "branch contains {count} commits beyond base {base}"
+    match git_output(cwd, &["merge-base", "--is-ancestor", reference, base]) {
+        Ok(output) if output.status.success() => None,
+        Ok(output) if output.status.code() == Some(1) => Some(format!(
+            "branch has unmerged commits ahead of destination {base}"
         )),
-        Err(_) => Some(format!(
-            "git rev-list returned an invalid commit count: {}",
-            String::from_utf8_lossy(&output.stdout).trim()
-        )),
+        Ok(output) => Some(git_output_error("merge-base --is-ancestor", cwd, &output)),
+        Err(error) => Some(error),
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamCloseResult {
+    pub team: Team,
+    pub inventory: TeamCloseInventory,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamCloseInventory {
+    pub removed: Vec<TeamCloseLaneRecord>,
+    pub kept: Vec<TeamCloseLaneRecord>,
+    pub orphan_branches: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TeamCloseLaneRecord {
+    pub path: Option<String>,
+    pub branch: Option<String>,
+    pub reason: Option<String>,
 }
 
 fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
@@ -482,7 +510,22 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
     }
     if let Some(branch) = lane.branch.as_deref() {
         if branch_exists(lane, branch)? {
-            run_git(&lane.project_path, &["branch", "-d", branch])
+            let base = lane
+                .base
+                .as_deref()
+                .ok_or_else(|| "lane base is not recorded; cannot verify branch commits".to_string())?;
+            let ancestry = git_output(
+                &lane.project_path,
+                &["merge-base", "--is-ancestor", branch, base],
+            )?;
+            if !ancestry.status.success() {
+                return Err(if ancestry.status.code() == Some(1) {
+                    format!("branch has unmerged commits ahead of destination {base}")
+                } else {
+                    git_output_error("merge-base --is-ancestor", &lane.project_path, &ancestry)
+                });
+            }
+            run_git(&lane.project_path, &["branch", "-D", branch])
                 .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
         }
     }

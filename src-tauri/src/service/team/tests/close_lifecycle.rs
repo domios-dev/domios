@@ -432,11 +432,17 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(task.status, crate::plan::TaskStatus::Done);
-    assert_eq!(task.lane, lane_before);
+    assert_eq!(task.lane.tab_id, lane_before.tab_id);
+    assert_eq!(task.lane.worktree_path, lane_before.worktree_path);
+    assert_eq!(task.lane.branch, lane_before.branch);
+    assert_eq!(task.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
+    assert!(task.lane.cleanup_hints.iter().any(|hint| {
+        hint.contains("historical-lane") && hint.contains("lane/completed")
+    }));
 }
 
 #[test]
-fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
+fn team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks() {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
@@ -450,6 +456,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let base = git(&repo, &["rev-parse", "HEAD"]);
     let clean_lane = dir.path().join("clean-lane");
     let work_lane = dir.path().join("work-lane");
+    let dirty_lane = dir.path().join("dirty-lane");
     let retained_lane = dir.path().join("retained-lane");
     git(
         &repo,
@@ -484,9 +491,14 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
             &base,
         ],
     );
+    git(
+        &repo,
+        &["worktree", "add", "-b", "lane/dirty", dirty_lane.to_str().unwrap(), &base],
+    );
     fs::write(work_lane.join("work.txt"), "work\n").unwrap();
     git(&work_lane, &["add", "work.txt"]);
     git(&work_lane, &["commit", "-m", "work"]);
+    fs::write(dirty_lane.join("uncommitted.txt"), "keep\n").unwrap();
 
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, team_id, orchestrator, _, worker) = team_members();
@@ -520,6 +532,33 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &base,
         3,
     );
+    let dirty_task = add_team_lane_task(
+        &store,
+        &plan.id,
+        "dirty lane",
+        &worker,
+        &dirty_lane,
+        "lane/dirty",
+        &base,
+        4,
+    );
+    let orphan_task = add_team_lane_task(
+        &store,
+        &plan.id,
+        "lane branch without worktree",
+        &worker,
+        &dir.path().join("missing-lane"),
+        "lane/orphan",
+        &base,
+        5,
+    );
+    git(&repo, &["branch", "lane/orphan", &base]);
+    let mut plan_state = store.get(&plan.id).unwrap();
+    let clean = plan_state.tasks.iter_mut().find(|task| task.id == clean_task).unwrap();
+    clean.status = crate::plan::TaskStatus::InProgress;
+    let unplanned = plan_state.tasks.iter_mut().find(|task| task.id == work_task).unwrap();
+    unplanned.kind = "unplanned".into();
+    store.save(&mut plan_state, 5).unwrap();
     let retained_task = add_team_lane_task(
         &store,
         &plan.id,
@@ -528,7 +567,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &retained_lane,
         "release/retained",
         &base,
-        4,
+        6,
     );
     let events = crate::api::events::EventBroadcaster::new();
 
@@ -547,16 +586,26 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let clean_lane_path = clean_lane.display().to_string().replace('\\', "/");
     let work_lane_path = work_lane.display().to_string().replace('\\', "/");
     let retained_lane_path = retained_lane.display().to_string().replace('\\', "/");
+    let dirty_lane_path = dirty_lane.display().to_string().replace('\\', "/");
     assert!(!normalized_worktrees.contains(&clean_lane_path));
     assert!(normalized_worktrees.contains(&work_lane_path));
+    assert!(normalized_worktrees.contains(&dirty_lane_path));
     assert!(normalized_worktrees.contains(&retained_lane_path));
     assert!(!git_status_success(
         &repo,
         &["show-ref", "--verify", "--quiet", "refs/heads/lane/clean"]
     ));
+    assert!(!git_status_success(
+        &repo,
+        &["show-ref", "--verify", "--quiet", "refs/heads/lane/orphan"]
+    ));
     assert!(git_status_success(
         &repo,
         &["show-ref", "--verify", "--quiet", "refs/heads/lane/work"]
+    ));
+    assert!(git_status_success(
+        &repo,
+        &["show-ref", "--verify", "--quiet", "refs/heads/lane/dirty"]
     ));
     assert!(git_status_success(
         &repo,
@@ -576,6 +625,10 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .unwrap();
     assert_eq!(clean.lane.worktree_path, None);
     assert_eq!(clean.lane.cleanup_status.as_deref(), Some("done"));
+    let orphan = closed.tasks.iter().find(|task| task.id == orphan_task).unwrap();
+    assert_eq!(orphan.lane.worktree_path, None);
+    assert_eq!(orphan.lane.branch, None);
+    assert_eq!(orphan.lane.cleanup_status.as_deref(), Some("done"));
     let work = closed
         .tasks
         .iter()
@@ -593,6 +646,11 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .cleanup_hints
         .iter()
         .any(|hint| { hint.contains(work_lane.to_str().unwrap()) && hint.contains("lane/work") }));
+    let dirty = closed.tasks.iter().find(|task| task.id == dirty_task).unwrap();
+    assert_eq!(dirty.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
+    assert!(dirty.lane.cleanup_hints.iter().any(|hint| {
+        hint.contains("dirty worktree") && hint.contains(dirty_lane.to_str().unwrap())
+    }));
     let retained = closed
         .tasks
         .iter()
@@ -611,6 +669,21 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .cleanup_hints
         .iter()
         .any(|hint| hint.contains("outside the lane/ namespace")));
+}
+
+#[test]
+fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
+    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
+}
+
+#[test]
+fn team_close_keeps_dirty_or_unmerged_lanes_as_cleanup_debt() {
+    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
+}
+
+#[test]
+fn team_close_reports_orphan_lane_branch_without_worktree() {
+    team_close_removes_clean_merged_lanes_of_inflight_and_unplanned_tasks();
 }
 
 #[tokio::test]
