@@ -82,6 +82,7 @@ pub(crate) fn task_binding_from_spawn(agent: &AgentSpawnSpec) -> Option<TaskBind
     Some(TaskBinding {
         plan_id,
         task_id,
+        attempt_id: None,
         spawn_handle,
         bound_at: now_unix_secs(),
     })

@@ -6,6 +6,7 @@ use codeterm_types::agent::ReportStatus;
 use super::{PlanError, PlanStore};
 
 mod plan_skill_evidence;
+pub mod remote_dispatch;
 mod report_ingest;
 
 #[cfg(test)]

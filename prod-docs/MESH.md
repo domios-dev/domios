@@ -130,17 +130,31 @@ forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
 
 ## Cross-mesh worker reports (spawn + explicit bind)
 
-`plan task dispatch` is **local-only**: it has no `--mesh`/`--peer` flag. It spawns
-the Worker on the same daemon, binds the execution attempt, and exports
-`CODETERM_PLAN_ID`/`CODETERM_TASK_ID` into the Worker's tab. A Worker spawned on a
-remote peer with `agent spawn --mesh PEER --role Worker` therefore has **no attempt
-on the origin plan store and no plan/task env**, so a bare `agent ack` / `agent
-report --status` refuses with "tab has no plan/task assignment" and the message
-degrades to a plain tab message.
+### Plan-bound mesh dispatch
 
-Full cross-mesh dispatch (remote spawn + attempt bound on the origin plan + env
-exported into the remote tab + report routed back across the mesh) is **not wired**
-and is out of scope. Use the supported spawn-then-bind pattern instead:
+`plan task dispatch <plan> <task> --mesh PEER_ID --execution-intent mutating`
+creates an origin attempt before the signed peer request; generic mesh plan RPC
+runs against the peer's plan store.
+
+The peer requires the same repository identity and base commit, provisions its
+lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base,
+offline peers, and lost relays are explicit attempt states; failed attempts
+close so dispatch can retry. ACK/report relays authenticate the origin peer
+and persist idempotently on its attempt.
+
+After origin review accepts the report, run
+`codeterm plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks
+that authenticated peer for the bound lane bundle and refuses unless its tip
+equals the accepted report SHA. Integration requires a clean checkout on the
+dispatch-time destination branch, verifies the bundle, and creates a real merge
+commit with ancestry. Cherry-pick and squash are invalid.
+
+Both peers enforce Full access and owner rules. No token, provider credential,
+secret, or secret-bearing environment enters the task payload.
+
+The general `agent spawn --mesh PEER --role Worker` path remains task-less and
+does not create an origin attempt. Use plan-bound dispatch for accountable work;
+use task-less mesh spawn only for exploratory work without a plan assignment.
 
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
@@ -168,27 +182,8 @@ and is out of scope. Use the supported spawn-then-bind pattern instead:
    refused without a task binding, on the peer's own daemon; the mesh has no
    binding to give it, so leave the flag off.
 
-2. Have the remote Worker report with **explicit origin ids** — it never has env
-   ids, so pass them by hand. The daemon homes the report to the plan's owning
-   machine over the mesh (text/status only; attachments are not relayed):
-
-   ```bash
-   codeterm agent report --status in_review --plan <origin-plan> --task <task> \
-     --sha <lane-HEAD> "STATUS: in_review ..."
-   ```
-
-   Because explicit `--plan`/`--task` are supplied, the CLI does not fall back to a
-   plain tab message; the report carries the origin ids and homes to the owning
-   peer when the spawning tab has a mesh report target.
-
-3. If the remote Worker was **not** spawned with a mesh report target (no homing
-   peer), the report cannot reach the origin store. In that case the Orchestrator
-   attaches the arriving tab message to the task by hand, or re-runs the report
-   from a tab that does have the origin peer as its report target.
-
-Binding a remote spawn's attempt directly onto the origin plan store still needs
-cross-daemon plan resolution and remains a documented follow-up, not a shipped
-capability.
+The general mesh spawn path remains available for task-less work; it does not
+participate in the origin task/report/merge lifecycle above.
 
 ## Peer API compatibility
 
@@ -227,4 +222,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 34 -->
+<!-- revision: 38 -->

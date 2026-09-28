@@ -190,7 +190,8 @@ impl SpawnTabSpec {
             activate: agent.activate,
             audience: self.audience,
             structured_prompt_server: None,
-        })
+            remote_task_binding: None,
+    })
     }
 }
 

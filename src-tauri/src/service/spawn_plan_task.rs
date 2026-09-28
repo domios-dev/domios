@@ -341,6 +341,19 @@ impl ServiceContext {
         tab_id: &str,
     ) -> Result<(), String> {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
+            if let Some(binding) = params.remote_task_binding.as_ref() {
+                let mut mux = self.mux.write();
+                let tab = mux.get_tab_mut(tab_id)
+                    .ok_or_else(|| format!("remote task-bound Worker tab {tab_id} disappeared"))?;
+                tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                    plan_id: Some(binding.plan_id.clone()),
+                    task_id: Some(binding.task_id.clone()),
+                    attempt_id: Some(binding.attempt_id.clone()),
+                    spawn_handle: None,
+                    bound_at: epoch_ms(),
+                });
+                tab.report_target_mesh_peer = Some(binding.origin_peer_id.clone());
+            }
             return Ok(());
         };
         let now_ms = epoch_ms();

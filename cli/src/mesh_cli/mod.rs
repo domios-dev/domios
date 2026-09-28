@@ -117,6 +117,26 @@ pub(crate) fn is_socket_relayed(command: &Commands) -> bool {
     crate::transport::is_socket_relayed(command)
 }
 
+pub(crate) fn run_plan_task_dispatch_origin(cli: super::Cli, peer: &str) {
+    let Commands::Plan {
+        action:
+            crate::PlanAction::Task {
+                action: task @ crate::args::plan::PlanTaskAction::Dispatch { .. },
+            },
+    } = cli.command
+    else {
+        return;
+    };
+    let (mut client, _) = match crate::client::SocketClient::connect_local() {
+        Ok(connection) => connection,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
+    };
+    crate::cmd::plan::handle_mesh_dispatch(&mut client, cli.json, task, peer);
+}
+
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
 pub fn run_via_mesh(cli: super::Cli, target: &str) {

@@ -388,6 +388,38 @@ pub enum PlanTaskAction {
         )]
         provider_reserve_pct: f32,
     },
+    /// Acknowledge a remote Worker attempt on the origin plan
+    RemoteAck {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+    },
+    /// Persist a remote Worker's in-review report on the origin plan
+    RemoteReport {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        message: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        message_file: Option<String>,
+        #[arg(long)]
+        sha: Option<String>,
+        #[arg(long = "changed-file")]
+        changed_files: Vec<String>,
+        #[arg(long)]
+        test_cmd: Option<String>,
+        #[arg(long)]
+        test_result: Option<String>,
+        #[arg(long)]
+        skipped: Option<String>,
+    },
+    /// Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout
+    MergeRemoteLane {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+    },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
     /// Show one execution attempt for a plan task
@@ -572,5 +604,28 @@ mod tests {
                 "{subcommand}: {help}"
             );
         }
+    }
+
+    #[test]
+    fn plan_task_merge_remote_lane_parses_origin_review_attempt() {
+        use clap::Parser;
+        assert!(matches!(
+            Cli::try_parse_from([
+                "codeterm",
+                "plan",
+                "task",
+                "merge-remote-lane",
+                "plan_1",
+                "task_1",
+                "attempt_1",
+            ])
+            .expect("remote lane merge parses")
+            .command,
+            crate::Commands::Plan {
+                action: crate::PlanAction::Task {
+                    action: super::PlanTaskAction::MergeRemoteLane { .. }
+                }
+            }
+        ));
     }
 }

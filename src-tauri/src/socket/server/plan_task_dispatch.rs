@@ -2,7 +2,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
-
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
@@ -26,6 +25,7 @@ mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
+pub(super) mod remote;
 mod recovery;
 mod routing;
 mod startup;
@@ -406,6 +406,14 @@ where
     ) -> Result<crate::service::SpawnResult, String>,
     O: FnOnce(),
 {
+    if params
+        .as_ref()
+        .and_then(|value| value.get("mesh_peer"))
+        .and_then(Value::as_str)
+        .is_some_and(|peer| !peer.trim().is_empty())
+    {
+        return remote::dispatch(params, app, svc, now);
+    }
     dispatch_with_spawn_approval_exemption(
         params,
         app,

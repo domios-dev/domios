@@ -53,7 +53,7 @@ mod tab;
 mod team;
 mod workspace;
 
-pub(crate) use dispatch::dispatch_service_rpc;
+pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
@@ -573,12 +573,16 @@ fn respond_to_request(
     let id = req.id.clone();
     let id_for_panic = id.clone();
     let method = req.method.clone();
+    let mut local_params = req.params;
+    if let Some(object) = local_params.as_mut().and_then(serde_json::Value::as_object_mut) {
+        object.remove("authenticated_mesh_peer_id");
+    }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         dispatch::dispatch(
             &req.method,
-            req.params,
+            local_params,
             mux,
             pty,
             notif,

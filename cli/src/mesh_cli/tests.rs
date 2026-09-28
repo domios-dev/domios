@@ -1165,10 +1165,8 @@ fn parse_spawn_command(args: &[&str]) -> Commands {
         .command
 }
 
-/// `plan task dispatch` is local-only, so a Worker staffed on a peer owns no
-/// task and reaches that peer through this map alone. `role` is the field the
-/// peer resolves the Worker doctrine from, so a relay that dropped it would
-/// hand the remote agent no reporting contract at all.
+/// A generic task-less mesh Worker still relies on `role` for its Worker
+/// doctrine; plan-bound dispatch uses the separate origin-owned protocol.
 #[test]
 fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
     let _guard = crate::test_env_lock().lock().unwrap();
