@@ -239,11 +239,14 @@ impl ServiceContext {
             };
             let provider_process_alive = mode == LaunchInputMode::Standard
                 || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
-            let (screen, input) = {
+            let (screen, screen_rows, input) = {
                 let screen_state = self.screen_state.lock();
                 (
                     screen_state
                         .get_screen_text(&attempt.pty_id)
+                        .unwrap_or_default(),
+                    screen_state
+                        .get_screen_rows(&attempt.pty_id)
                         .unwrap_or_default(),
                     screen_state.composer_input_state(&attempt.pty_id),
                 )
@@ -267,7 +270,7 @@ impl ServiceContext {
                         launch_composer_input_ready(
                             state,
                             input_position,
-                            uses_prompt_glyph_fingerprint.then_some(screen.as_str()),
+                            uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
                             status_bar_rows,
                         )
                     });
@@ -374,15 +377,15 @@ impl ServiceContext {
 fn launch_composer_input_ready(
     input: &codeterm_pty::pty::screen_state::ComposerInputState,
     cursor_position: crate::agent::provider::ComposerCursorPosition,
-    screen: Option<&str>,
+    screen_rows: Option<&[String]>,
     status_bar_rows: u16,
 ) -> bool {
     if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
         return input.alternate_screen && input.cursor_visible;
     }
-    if let Some(screen) = screen {
+    if let Some(screen_rows) = screen_rows {
         return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready(
-            &screen.lines().map(str::to_string).collect::<Vec<_>>(),
+            screen_rows,
             input.cursor_visible,
             input.cursor_row,
             status_bar_rows,

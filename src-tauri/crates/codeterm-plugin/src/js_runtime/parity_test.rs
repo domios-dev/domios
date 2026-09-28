@@ -640,6 +640,13 @@ fn codex_composer_fingerprint_native_js_parity() {
         native.composer_cursor_position()
     );
     assert_eq!(js.status_bar_rows(), native.status_bar_rows());
+
+    let cursor = load_js("cursor");
+    assert!(cursor.provider_readiness_strategy().requires_composer());
+    assert_eq!(
+        cursor.composer_cursor_position(),
+        crate::provider::ComposerCursorPosition::BottomRegion
+    );
 }
 
 fn classify_tab_state_snapshot() -> crate::tab_state::TabStateSnapshot {
