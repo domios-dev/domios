@@ -104,7 +104,8 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         // observer giving up on a launch is not evidence that the process died.
         Some(BootStage::PtyReattached)
         | Some(BootStage::LaunchDeadlineElapsed)
-        | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,
+        | Some(BootStage::LaunchBindingUnconfirmed)
+        | Some(BootStage::AwaitingOwnerPrompt) => AgentLiveness::Unobserved,
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
         None => AgentLiveness::Unobserved,

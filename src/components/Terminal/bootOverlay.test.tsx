@@ -55,6 +55,8 @@ async function main() {
   await test("view maps launch stages to Starting", () => {
     assert(tabBootOverlayView(tab("pty_starting")).kind === "starting", "pty_starting starts");
     assert(tabBootOverlayView(tab("agent_launching")).kind === "starting", "agent_launching starts");
+    const waiting = tabBootOverlayView(tab("awaiting_owner_prompt"));
+    assert(waiting.kind === "starting" && waiting.label === "Waiting for you", "owner prompt is visible");
   });
 
   await test("view maps ready to no overlay", () => {

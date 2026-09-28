@@ -4,6 +4,15 @@ use crate::service::session_model::clear_runtime_model_evidence;
 pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab: &mut crate::multiplexer::types::Tab,
 ) -> bool {
+    let prompt_identity =
+        crate::service::prompt_resolution::clear_tab_prompt(&tab.id.clone(), Some(tab));
+    clear_agent_identity_after_prompt_clear(tab, prompt_identity.is_some())
+}
+
+fn clear_agent_identity_after_prompt_clear(
+    tab: &mut crate::multiplexer::types::Tab,
+    had_prompt: bool,
+) -> bool {
     if let (Some(provider_id), Some(session_id)) =
         (tab.agent_type.as_deref(), tab.agent_session_id.as_deref())
     {
@@ -19,7 +28,7 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
         || tab.session_binding_nonce.is_some()
         || tab.reported_session_binding_nonce.is_some()
         || tab.agent_state.is_some()
-        || tab.pending_prompt.is_some();
+        || had_prompt;
     if !has_identity {
         return false;
     }
@@ -35,8 +44,6 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;
-    tab.pending_prompt = None;
-    tab.pending_prompt_kind = None;
     tab.exit_suspected_at = None;
     // Provider and model are one identity; clearing only the provider leaves a
     // stale model label attached to the tab.
@@ -50,10 +57,11 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
 }
 
 fn clear_agent_identity_with_prompt(
+    tab_id: &str,
     tab: &mut crate::multiplexer::types::Tab,
 ) -> (bool, Option<codeterm_types::pty::PromptIdentity>) {
-    let identity = tab.prompt_identity();
-    let cleared = clear_agent_identity_for_lifecycle_exit(tab);
+    let identity = crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+    let cleared = clear_agent_identity_after_prompt_clear(tab, identity.is_some());
     (cleared, identity.filter(|_| cleared))
 }
 
@@ -126,8 +134,9 @@ impl ServiceContext {
         };
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .map_or((false, None), clear_agent_identity_with_prompt)
+            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                clear_agent_identity_with_prompt(tab_id, tab)
+            })
         };
         let finished = self.finish_agent_identity_clear(
             tab_id,
@@ -147,8 +156,9 @@ impl ServiceContext {
     pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .map_or((false, None), clear_agent_identity_with_prompt)
+            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                clear_agent_identity_with_prompt(tab_id, tab)
+            })
         };
         self.finish_agent_identity_clear(
             tab_id,

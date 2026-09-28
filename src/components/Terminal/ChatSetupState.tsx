@@ -17,6 +17,7 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
   provider_ready: 92,
   delivering_instructions: 84,
   agent_ready: 100,
+  awaiting_owner_prompt: 76,
   pty_reattached: 100,
   launch_deadline_elapsed: 92,
   launch_binding_unconfirmed: 92,
@@ -44,6 +45,8 @@ export function chatSetupStageLabel(stage: BootStage | null | undefined, subject
       return "Launching provider…";
     case "launch_written":
       return "Waiting for provider…";
+    case "awaiting_owner_prompt":
+      return "Waiting for you";
     case "provider_ready":
       return "Provider ready…";
     case "delivering_instructions":
@@ -90,6 +93,7 @@ export function chatSetupView(
     case "launch_written":
     case "provider_ready":
     case "delivering_instructions":
+    case "awaiting_owner_prompt":
       return { kind: "starting", label: "Starting" };
   }
   return unreachableBootStage(stage);

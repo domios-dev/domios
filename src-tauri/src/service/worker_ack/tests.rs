@@ -1042,6 +1042,16 @@ fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
 }
 
 #[test]
+fn startup_notice_treats_awaiting_owner_prompt_as_waiting() {
+    let payload = json!({
+        "kind": "agent_startup_overdue",
+        "attempt_id": "attempt-launch",
+        "waiting_for_owner_prompt": true,
+    });
+    assert!(startup_notice_waits_for_owner(&payload));
+}
+
+#[test]
 fn provider_startup_failure_is_in_the_single_line_notice() {
     let notice = worker_lifecycle_notice(
         "Nora",

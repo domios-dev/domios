@@ -24,6 +24,8 @@ pub enum BootStage {
     DeliveringInstructions,
     /// Agent booted and the initial task (if any) was delivered.
     AgentReady,
+    /// Launch is paused until the owner answers a surfaced prompt.
+    AwaitingOwnerPrompt,
     /// A restored tab proved its PTY is live and re-attached without a spawn.
     PtyReattached,
     /// The launch-output deadline elapsed with no provider evidence yet.
@@ -72,6 +74,7 @@ impl BootStage {
             BootStage::PreparingRoleInstructions => "preparing_role_instructions",
             BootStage::DeliveringInstructions => "delivering_instructions",
             BootStage::AgentReady => "agent_ready",
+            BootStage::AwaitingOwnerPrompt => "awaiting_owner_prompt",
             BootStage::PtyReattached => "pty_reattached",
             BootStage::LaunchDeadlineElapsed => "launch_deadline_elapsed",
             BootStage::LaunchBindingUnconfirmed => "launch_binding_unconfirmed",

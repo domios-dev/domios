@@ -22,10 +22,9 @@ impl ServiceContext {
                 Some(tab) if tab.agent_type.is_some() => {
                     let changed = tab.agent_state.as_ref() != Some(&idle_state)
                         || tab.pending_prompt.is_some();
-                    let previous_identity = tab.prompt_identity();
+                    let previous_identity =
+                        crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
                     tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    tab.pending_prompt_kind = None;
                     (changed, previous_identity)
                 }
                 _ => (false, None),

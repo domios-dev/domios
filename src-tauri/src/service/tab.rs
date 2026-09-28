@@ -233,6 +233,7 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        crate::service::prompt_resolution::clear_tab_prompt(&canonical_tab_id, None);
         if let (Some(provider_id), Some(session_id)) =
             (provider_id.as_deref(), session_id.as_deref())
         {
@@ -752,9 +753,8 @@ impl ServiceContext {
     ) -> Option<codeterm_types::pty::PromptIdentity> {
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id)?;
-        let identity = tab.prompt_identity();
-        tab.pending_prompt = None;
-        tab.pending_prompt_kind = None;
+        let identity = crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+        drop(mux);
         identity
     }
 

@@ -503,16 +503,32 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&authority) {
                 return;
             }
-            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
+            let mut notice = agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id);
+            let waiting_for_owner_prompt =
+                crate::service::launch_readiness::owner_prompt_is_active(&agent_tab_id);
+            if waiting_for_owner_prompt {
+                notice["waiting_for_owner_prompt"] = serde_json::Value::Bool(true);
+            }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
                 &agent_title,
-                agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
+                notice,
             );
             if !service.startup_attempt_is_current(&authority) {
                 return;
             }
+            if waiting_for_owner_prompt {
+                if crate::service::launch_readiness::await_owner_prompt_resolution(&agent_tab_id)
+                    .is_some()
+                {
+                    return;
+                }
+                if !service.startup_attempt_is_current(&authority) {
+                    return;
+                }
+            }
+            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
             loop {
                 match await_agent_startup_notice_with_generation(
                     &receiver,

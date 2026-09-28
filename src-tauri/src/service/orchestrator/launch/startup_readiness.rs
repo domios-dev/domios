@@ -100,6 +100,9 @@ pub(super) fn emit_agent_ready(
                 LAUNCH_REGISTRY.lock().finish(launch);
                 reason
             }
+            LaunchSettlement::OwnerPromptDeadline { reason } => {
+                fail_unbound_launch(launch, svc, reason)
+            }
             LaunchSettlement::Superseded => {
                 LAUNCH_REGISTRY.lock().finish(launch);
                 "launch readiness was superseded".into()

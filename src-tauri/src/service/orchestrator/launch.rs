@@ -27,12 +27,17 @@ mod failure;
 use exit_recovery_shell::exited_provider_recovery_has_shell_ready_evidence;
 #[path = "launch/generation.rs"]
 mod generation;
+#[path = "launch/owner_prompt_wait.rs"]
+mod owner_prompt_wait;
 mod public_send;
+#[path = "launch/reader_readiness.rs"]
+mod reader_readiness;
 mod startup_readiness;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
 };
+use reader_readiness::{BackendPty, ReaderReadiness};
 #[cfg(test)]
 pub(crate) use startup_readiness::launch_waits_for_first_turn_binding;
 #[cfg(test)]
@@ -193,51 +198,6 @@ fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) 
     } else {
         false
     }
-}
-
-enum ReaderReadiness {
-    Ready,
-    Pending {
-        startup: std::sync::mpsc::Receiver<Result<(), LaunchFailure>>,
-        closed: std::sync::mpsc::Receiver<()>,
-    },
-}
-
-enum ReaderMonitor {
-    Active(std::sync::mpsc::Receiver<()>),
-    Unavailable,
-}
-
-impl ReaderMonitor {
-    fn closed(&self) -> bool {
-        match self {
-            Self::Active(rx) => !matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
-            Self::Unavailable => false,
-        }
-    }
-}
-
-impl ReaderReadiness {
-    fn wait(self, timeout: std::time::Duration) -> Result<ReaderMonitor, LaunchFailure> {
-        match self {
-            Self::Ready => Ok(ReaderMonitor::Unavailable),
-            Self::Pending { startup, closed } => match startup.recv_timeout(timeout) {
-                Ok(Ok(())) => Ok(ReaderMonitor::Active(closed)),
-                Ok(Err(error)) => Err(error),
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    Err(LaunchFailure::ReaderReadyTimeout)
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
-                    LaunchFailure::ReaderRuntime("reader startup channel closed".into()),
-                ),
-            },
-        }
-    }
-}
-
-struct BackendPty {
-    id: String,
-    reader: ReaderReadiness,
 }
 
 fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
@@ -930,7 +890,6 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
-        let launch_input_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             startup_binding_deadline,
@@ -955,33 +914,18 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness.requires_composer(),
         );
         let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
-            let readiness = if session_starts_on_first_turn {
-                let provider_frame_wait = if composer_cursor_position
-                    == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
-                {
-                    crate::agent::provider::ProviderReadinessStrategy::TuiFrame {
-                        timeout: input_readiness_timeout,
-                    }
-                } else {
-                    provider_readiness.clone()
-                };
-                let _ = svc.await_provider_readiness_on_screen(
-                    &pty_id,
-                    &agent_cmd,
-                    provider_frame_wait,
-                );
-                svc.await_lazy_session_input_readiness(
-                    &readiness_attempt,
-                    &agent_cmd,
-                    launch_input_deadline.saturating_duration_since(std::time::Instant::now()),
-                )
-            } else {
-                svc.await_launch_input_readiness(
-                    &readiness_attempt,
-                    &agent_cmd,
-                    input_readiness_timeout,
-                )
-            };
+            let readiness = owner_prompt_wait::await_input_readiness(
+                &svc,
+                &tab_id,
+                &pty_id,
+                &agent_cmd,
+                &readiness_attempt,
+                session_starts_on_first_turn,
+                startup_binding_deadline,
+                input_readiness_timeout,
+                provider_readiness,
+                composer_cursor_position,
+            );
             match readiness {
                 Ok(readiness) => Some(readiness),
                 Err(refusal) => {

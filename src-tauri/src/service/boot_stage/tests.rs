@@ -103,7 +103,7 @@ fn agent_ready_is_recorded_when_nothing_owns_the_input() {
     assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
 }
 
-const EVERY_STAGE: [BootStage; 14] = [
+const EVERY_STAGE: [BootStage; 15] = [
     BootStage::PtyStarting,
     BootStage::PtySpawned,
     BootStage::ReaderReady,
@@ -114,6 +114,7 @@ const EVERY_STAGE: [BootStage; 14] = [
     BootStage::PreparingRoleInstructions,
     BootStage::DeliveringInstructions,
     BootStage::AgentReady,
+    BootStage::AwaitingOwnerPrompt,
     BootStage::PtyReattached,
     BootStage::LaunchDeadlineElapsed,
     BootStage::LaunchBindingUnconfirmed,
@@ -136,10 +137,11 @@ fn every_stage_covers_the_enum() {
             BootStage::PreparingRoleInstructions => 7,
             BootStage::DeliveringInstructions => 8,
             BootStage::AgentReady => 9,
-            BootStage::PtyReattached => 10,
-            BootStage::LaunchDeadlineElapsed => 11,
-            BootStage::LaunchBindingUnconfirmed => 12,
-            BootStage::SpawnFailed => 13,
+            BootStage::AwaitingOwnerPrompt => 10,
+            BootStage::PtyReattached => 11,
+            BootStage::LaunchDeadlineElapsed => 12,
+            BootStage::LaunchBindingUnconfirmed => 13,
+            BootStage::SpawnFailed => 14,
         }
     }
     let mut seen = vec![false; EVERY_STAGE.len()];
