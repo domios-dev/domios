@@ -72,7 +72,7 @@ Real terminals, one per tab, and the input path into them.
 What makes a tab an agent: provider capabilities, launch and resume, detection, session binding and the chat-backend shells that run without a terminal. A plugin-backed shell's active system prompt is visible in chat.
 
 - Part of: core:service-layer.
-- Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract.
+- Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a provider may declare a safe onboarding choice for delegated Worker and Planner launches, while owner-facing prompts stay visible to the owner; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract.
 
 ### Prompts {#core:prompts}
 

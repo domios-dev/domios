@@ -209,6 +209,10 @@ export interface AgentProvider {
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Whether the provider's own config already trusts this exact folder. */
+  isDirectoryTrusted?(path: string): boolean;
+  /** One next base64 key plus its stable choice/focus identity, or null. */
+  launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */
   parseDirectoryTrustPrompt?(screen: string): ParsedPrompt | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */

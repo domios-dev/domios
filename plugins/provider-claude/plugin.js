@@ -1330,7 +1330,7 @@ function parseWizardOptions(body) {
 }
 function parseNumberedOptions(text2) {
   const options = [];
-  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
+  const re = /^\s*[❯>]?\s*(\d+)\.[ ]+([^\r\n]*)/gm;
   let m;
   while ((m = re.exec(text2)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -1488,6 +1488,52 @@ function buildClaudePromptResponse(optionIndex, screen) {
   steps.push("DQ==");
   if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
   return steps;
+}
+function claudeOnboardingPrompt(screen) {
+  const lines = String(screen || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/).map(onboardingRow);
+  const candidates = lines.flatMap((line, index) => {
+    const match = /^\s*([❯>])?\s*(\d+)\.[ ]+(.*?)\s*$/.exec(line);
+    return match ? [{ focused: Boolean(match[1]), number: match[2], label: match[3].trim(), line: index }] : [];
+  });
+  const options = candidates.slice(-3);
+  if (options.length !== 3 || options.some((option, index) => option.number !== String(index + 1))) return null;
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const first = options[0].line;
+  const last = options[2].line;
+  if (last - first > 4) return null;
+  const footer = lines.slice(last + 1, last + 4).join(" ").toLowerCase();
+  if (!footer.includes("enter") || !footer.includes("esc")) return null;
+  let question = "";
+  for (let index = first - 1; index >= Math.max(0, first - 5); index--) {
+    if (lines[index].endsWith("?")) {
+      question = lines[index];
+      break;
+    }
+  }
+  const questionWords = question.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!questionWords.includes("auto") || !questionWords.includes("environment")) return null;
+  const labels = options.map((option) => normalizeOnboardingLabel(option.label));
+  const target = labels.findIndex((label) => label.startsWith("not now"));
+  if (target < 0 || labels.filter((label) => label.startsWith("yes")).length !== 1) return null;
+  if (labels.filter((label) => label.startsWith("don't show again")).length !== 1) return null;
+  const current = options.findIndex((option) => option.focused);
+  const step = current === target ? "DQ==" : target > current ? "ag==" : "aw==";
+  return {
+    question,
+    options: options.map((option) => [option.label, option.number]),
+    frameKey: `onboarding:focus-${current}:target-${target}`,
+    step
+  };
+}
+function claudeOnboardingNotNowStep(screen) {
+  const prompt = claudeOnboardingPrompt(screen);
+  return prompt ? { frameKey: prompt.frameKey, step: prompt.step } : null;
+}
+function onboardingRow(row) {
+  return row.replace(/^\s*[│┃║]\s*/, "").replace(/\s*[│┃║]\s*$/, "").trim();
+}
+function normalizeOnboardingLabel(label) {
+  return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 function moveToOption(targetIndex, screen) {
   const current = currentHighlightedOptionIndex(screen);
@@ -1746,13 +1792,17 @@ var plugin = {
     return events;
   },
   parsePrompt(text2) {
-    return claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
+    const onboarding = claudeOnboardingPrompt(text2);
+    return onboarding && { question: onboarding.question, options: onboarding.options } || claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);
+  },
+  launchOnboardingResponse(screen) {
+    return claudeOnboardingNotNowStep(screen);
   },
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);

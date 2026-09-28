@@ -63,6 +63,15 @@ struct LaunchInputObservation {
     classification: Option<TabStateClassification>,
 }
 
+fn delegated_role(
+    role: Option<crate::multiplexer::types::AgentRole>,
+    role_profile: Option<&str>,
+) -> bool {
+    role == Some(codeterm_types::agent::roles::AgentRole::Worker)
+        || (role == Some(codeterm_types::agent::roles::AgentRole::Manager)
+            && role_profile == Some("planner"))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LaunchInputMode {
     Standard,
@@ -210,6 +219,7 @@ impl ServiceContext {
             && composer_cursor_position
                 == crate::agent::provider::ComposerCursorPosition::BottomRegion;
         let mut observed_tui_without_composer = false;
+        let mut onboarding_choice_submitted = false;
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -220,7 +230,7 @@ impl ServiceContext {
                 return Err(LaunchInputRefusal::AttemptSuperseded);
             }
 
-            let (session_bound, pending_prompt, session_id, cwd) = {
+            let (session_bound, pending_prompt, session_id, cwd, delegated_role) = {
                 let mux = self.mux.read();
                 let Some(tab) = mux.get_tab(&attempt.tab_id) else {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
@@ -233,6 +243,7 @@ impl ServiceContext {
                     tab.pending_prompt.is_some(),
                     tab.agent_session_id.clone(),
                     tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                    delegated_role(tab.role, tab.role_profile.as_deref()),
                 )
             };
             let provider_process_alive = mode == LaunchInputMode::Standard
@@ -256,6 +267,46 @@ impl ServiceContext {
                 cwd,
                 screen_text: screen.clone(),
             };
+            if delegated_role {
+                let decision = self.respond_to_launch_onboarding(
+                    &attempt.tab_id,
+                    agent_id,
+                    &screen,
+                    signal.clone(),
+                );
+                let wait_for_response = match decision {
+                    crate::service::directory_trust::TrustDecision::Answer { step } => {
+                        onboarding_choice_submitted |= step.as_slice() == b"\r";
+                        true
+                    }
+                    crate::service::directory_trust::TrustDecision::Waiting => true,
+                    crate::service::directory_trust::TrustDecision::NoDialog
+                        if onboarding_choice_submitted =>
+                    {
+                        self.notify_launch_onboarding_applied_once(&attempt.tab_id);
+                        false
+                    }
+                    _ => false,
+                };
+                if wait_for_response {
+                    let remaining = deadline
+                        .checked_duration_since(Instant::now())
+                        .ok_or_else(|| {
+                            launch_readiness_deadline_refusal(
+                                declares_structural_composer,
+                                observed_tui_without_composer,
+                            )
+                        })?;
+                    if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                        return Err(launch_readiness_deadline_refusal(
+                            declares_structural_composer,
+                            observed_tui_without_composer,
+                        ));
+                    }
+                    generation = signal.generation();
+                    continue;
+                }
+            }
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
                 let input_position = if mode == LaunchInputMode::LazySessionStart {
                     composer_cursor_position
