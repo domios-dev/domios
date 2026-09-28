@@ -24,7 +24,7 @@ pub(crate) fn resolve_current_pad(
             .and_then(|value| value.as_str())
             .ok_or("tab.agent_pad returned no path")?,
     );
-    if !path.is_absolute() || path.file_name().and_then(|v| v.to_str()) != Some(tab_id.as_str()) {
+    if !path.is_absolute() || path.file_name().and_then(|v| v.to_str()) != Some(tab_id) {
         return Err("resolved AgentPad does not belong to the current full tab id".into());
     }
     let canonical = path

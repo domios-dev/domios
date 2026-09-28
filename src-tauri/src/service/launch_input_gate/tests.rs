@@ -34,10 +34,7 @@ fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
     .lines()
     .collect::<Vec<_>>()
     .join("\r\n");
-    screens.process(
-        "cursor",
-        format!("\x1b[2J\x1b[H{text}\x1b[?25h").as_bytes(),
-    );
+    screens.process("cursor", format!("\x1b[2J\x1b[H{text}\x1b[?25h").as_bytes());
     let rows = screens.get_screen_rows("cursor").expect("screen rows");
     let composer_row = rows
         .iter()
@@ -373,7 +370,7 @@ fn opencode_sessionless_home_frame_accepts_centered_visible_composer() {
     };
     let position = provider.composer_cursor_position();
     let tui_evidence = provider.screen_has_tui(&screen);
-    let terminal_input_ready = launch_composer_input_ready(&input, position);
+    let terminal_input_ready = launch_composer_input_ready(&input, position, None, 0);
     let classification = provider.classify_tab_state(&snapshot);
     let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
         value.state == TabState::ClarifyingQuestion
@@ -425,6 +422,8 @@ fn centered_composer_readiness_rejects_busy_and_non_tui_frames() {
             last_nonblank_row: None,
         },
         crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+        None,
+        0,
     );
     assert!(input_ready);
     assert!(!provider_composer_is_ready(
@@ -465,6 +464,8 @@ fn centered_composer_readiness_rejects_busy_and_non_tui_frames() {
             last_nonblank_row: None,
         },
         crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+        None,
+        0,
     );
     assert!(!busy_input_ready);
     assert_eq!(
@@ -495,6 +496,8 @@ fn centered_cursor_capability_does_not_change_bottom_composer_providers() {
     assert!(!launch_composer_input_ready(
         &input,
         crate::agent::provider::ComposerCursorPosition::BottomRegion,
+        None,
+        0
     ));
     assert!(!provider_composer_is_ready(
         LaunchInputMode::LazySessionStart,
