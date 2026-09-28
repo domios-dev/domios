@@ -256,6 +256,11 @@ impl Messenger {
         self
     }
 
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
+        self.envelope.from_agent = from_agent;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.envelope.peer = peer.filter(|p| !p.trim().is_empty());
         self

@@ -25,10 +25,10 @@ pub(crate) struct CloseTeamCleanup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TeamCloseLane {
     plan_id: String,
-    task_id: String,
+    pub(super) task_id: String,
     project_path: String,
-    worktree_path: Option<String>,
-    branch: Option<String>,
+    pub(super) worktree_path: Option<String>,
+    pub(super) branch: Option<String>,
     base: Option<String>,
     destination: Option<String>,
     hold_reason: Option<String>,
@@ -157,7 +157,9 @@ pub(super) fn team_close_lanes(
             let matching_attempts: Vec<_> = task
                 .execution_attempts
                 .iter()
-                .filter(|attempt| team_owned_plan || tabs.contains(attempt.executor_tab_id.as_str()))
+                .filter(|attempt| {
+                    team_owned_plan || tabs.contains(attempt.executor_tab_id.as_str())
+                })
                 .collect();
             let assigned_to_closed_tab = task
                 .assigned_tab_id
@@ -239,7 +241,11 @@ pub(super) fn finish_team_lane_cleanup(
         orphan_branches: Vec::new(),
     };
     for lane in &assessed_lanes {
-        if lane.worktree_path.as_deref().map_or(true, |path| !Path::new(path).exists()) {
+        if lane
+            .worktree_path
+            .as_deref()
+            .map_or(true, |path| !Path::new(path).exists())
+        {
             if let Some(branch) = lane
                 .branch
                 .as_deref()
@@ -485,7 +491,10 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
     let Some(destination) = lane.destination.as_deref() else {
         return Some("lane destination is not recorded; cannot verify merged commits".into());
     };
-    match git_output(cwd, &["merge-base", "--is-ancestor", reference, destination]) {
+    match git_output(
+        cwd,
+        &["merge-base", "--is-ancestor", reference, destination],
+    ) {
         Ok(output) if output.status.success() => None,
         Ok(output) if output.status.code() == Some(1) => Some(format!(
             "branch has unmerged commits ahead of destination {destination}"
@@ -535,10 +544,9 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
     }
     if let Some(branch) = lane.branch.as_deref() {
         if branch_exists(lane, branch)? {
-            let destination = lane
-                .destination
-                .as_deref()
-                .ok_or_else(|| "lane destination is not recorded; cannot verify merged commits".to_string())?;
+            let destination = lane.destination.as_deref().ok_or_else(|| {
+                "lane destination is not recorded; cannot verify merged commits".to_string()
+            })?;
             let ancestry = git_output(
                 &lane.project_path,
                 &["merge-base", "--is-ancestor", branch, destination],
@@ -552,10 +560,9 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
             }
             if let Err(error) = run_git(&lane.project_path, &["branch", "-d", branch]) {
                 if let Some(path) = removed_worktree {
-                    if let Err(restore) = run_git(
-                        &lane.project_path,
-                        &["worktree", "add", &path, branch],
-                    ) {
+                    if let Err(restore) =
+                        run_git(&lane.project_path, &["worktree", "add", &path, branch])
+                    {
                         return Err(format!(
                             "branch {branch} could not be deleted: {error}; worktree {path} could not be restored: {restore}"
                         ));
