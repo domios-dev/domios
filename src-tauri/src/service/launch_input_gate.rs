@@ -19,6 +19,7 @@ pub(crate) enum LaunchInputRefusal {
     PendingPrompt,
     ProviderDialog(TabState),
     Deadline,
+    ComposerNotRecognised,
     AttemptSuperseded,
     OwnerPromptDeadline(String),
 }
@@ -30,12 +31,24 @@ impl LaunchInputRefusal {
             Self::PendingPrompt => "active provider prompt".into(),
             Self::ProviderDialog(state) => format!("provider classified {state:?} dialog"),
             Self::Deadline => "provider composer readiness deadline elapsed".into(),
+            Self::ComposerNotRecognised => "provider composer layout was not recognised".into(),
             Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
             Self::OwnerPromptDeadline(question) => {
                 let minutes = OWNER_PROMPT_DEADLINE.as_secs().div_ceil(60);
                 format!("owner prompt was not answered before the {minutes} minute deadline: {question}")
             }
         }
+    }
+}
+
+fn launch_readiness_deadline_refusal(
+    requires_structural_composer: bool,
+    observed_tui_without_composer: bool,
+) -> LaunchInputRefusal {
+    if requires_structural_composer && observed_tui_without_composer {
+        LaunchInputRefusal::ComposerNotRecognised
+    } else {
+        LaunchInputRefusal::Deadline
     }
 }
 
@@ -195,6 +208,10 @@ impl ServiceContext {
                 0,
             ));
         let declares_structural_composer = provider_readiness.requires_composer();
+        let uses_prompt_glyph_fingerprint = declares_structural_composer
+            && composer_cursor_position
+                == crate::agent::provider::ComposerCursorPosition::BottomRegion;
+        let mut observed_tui_without_composer = false;
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -250,7 +267,7 @@ impl ServiceContext {
                         launch_composer_input_ready(
                             state,
                             input_position,
-                            declares_structural_composer.then_some(screen.as_str()),
+                            uses_prompt_glyph_fingerprint.then_some(screen.as_str()),
                             status_bar_rows,
                         )
                     });
@@ -280,6 +297,8 @@ impl ServiceContext {
                 }) && provider.parse_prompt(&screen).is_some();
                 (
                     composer_ready,
+                    provider_tui,
+                    terminal_input_ready,
                     directory_trust_prompt,
                     active_interactive_prompt,
                     classification,
@@ -288,11 +307,15 @@ impl ServiceContext {
             });
             let (
                 composer_ready,
+                provider_tui,
+                terminal_input_ready,
                 directory_trust_prompt,
                 active_interactive_prompt,
                 classification,
                 provider_busy,
-            ) = provider_observation.unwrap_or((false, false, false, None, false));
+            ) = provider_observation.unwrap_or((false, false, false, false, false, None, false));
+            observed_tui_without_composer |=
+                uses_prompt_glyph_fingerprint && provider_tui && !terminal_input_ready;
             match decide_launch_input(
                 LaunchInputObservation {
                     session_bound,
@@ -313,9 +336,17 @@ impl ServiceContext {
 
             let remaining = deadline
                 .checked_duration_since(Instant::now())
-                .ok_or(LaunchInputRefusal::Deadline)?;
+                .ok_or_else(|| {
+                    launch_readiness_deadline_refusal(
+                        declares_structural_composer,
+                        observed_tui_without_composer,
+                    )
+                })?;
             if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                return Err(LaunchInputRefusal::Deadline);
+                return Err(launch_readiness_deadline_refusal(
+                    declares_structural_composer,
+                    observed_tui_without_composer,
+                ));
             }
             generation = signal.generation();
         }

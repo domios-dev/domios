@@ -2,6 +2,28 @@ use super::*;
 use crate::agent::provider::AgentProvider;
 use crate::agent::test_provider::MockProvider;
 
+#[test]
+fn unsupported_codex_layout_fails_with_named_reason() {
+    let refusal = launch_readiness_deadline_refusal(true, true);
+    assert_eq!(refusal, LaunchInputRefusal::ComposerNotRecognised);
+    assert_eq!(
+        refusal.reason(),
+        "provider composer layout was not recognised"
+    );
+}
+
+#[test]
+fn readiness_deadline_without_provider_tui_keeps_generic_reason() {
+    assert_eq!(
+        launch_readiness_deadline_refusal(true, false),
+        LaunchInputRefusal::Deadline
+    );
+    assert_eq!(
+        launch_readiness_deadline_refusal(false, true),
+        LaunchInputRefusal::Deadline
+    );
+}
+
 fn launch_classification(state: TabState) -> Option<TabStateClassification> {
     Some(TabStateClassification {
         state,

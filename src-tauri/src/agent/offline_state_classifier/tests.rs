@@ -45,6 +45,12 @@ fn codex_composer_ready_without_footer_and_with_warning_rows() {
     assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
     assert!(!prompt_glyph_cursor_ready(&lines, false, cursor_row, 1));
     assert!(!prompt_glyph_cursor_ready(&lines, true, cursor_row - 1, 1));
+    assert!(!prompt_glyph_cursor_ready(
+        &["› status row".to_string(), "› composer".to_string()],
+        true,
+        0,
+        1,
+    ));
 }
 
 #[test]
