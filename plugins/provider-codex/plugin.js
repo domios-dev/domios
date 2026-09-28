@@ -1800,6 +1800,47 @@ function collectProfileEntries(profile) {
   }
   return flush() ? [...entries.values()] : null;
 }
+function hasTrustedProjectPath(config, path) {
+  const target = normalizedPath(path);
+  let activePath = null;
+  let trust = null;
+  let trustSeen = false;
+  let found = false;
+  let targetSeen = false;
+  const flush = () => {
+    if (activePath === null || normalizedPath(activePath) !== target) return true;
+    if (targetSeen) return false;
+    targetSeen = true;
+    found = trust === "trusted";
+    return true;
+  };
+  for (const line of config.split(/\r?\n/)) {
+    const parts = headerParts(line);
+    if (parts) {
+      if (!flush()) return false;
+      activePath = projectTablePath(parts);
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    const header = withoutComment(line).trim();
+    if (header.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(header) || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return false;
+      if (!flush()) return false;
+      activePath = null;
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    if (activePath === null) continue;
+    const assignment = assignmentParts(line);
+    if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
+    if (trustSeen) return false;
+    trustSeen = true;
+    trust = parseTrustValue(assignment.value);
+  }
+  return flush() && found;
+}
 function hasTrustedProjectEntries(profile) {
   const entries = collectProfileEntries(profile);
   return entries !== null && entries.length > 0;
@@ -1989,6 +2030,14 @@ var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 function codexConfigPath(host2, home) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return `${home}${separator}.codex${separator}config.toml`;
+}
+function isCodexDirectoryTrusted(host2, path) {
+  const home = host2.homeDir();
+  if (!home) return false;
+  const configPath = codexConfigPath(host2, home);
+  if (host2.fs.isSymlink(configPath) !== false) return false;
+  const config = host2.fs.readFile(configPath);
+  return config !== null && hasTrustedProjectPath(config, path);
 }
 function codexProfileTabId(fileName) {
   return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
@@ -3417,6 +3466,9 @@ var plugin = {
   },
   folderTrustAnswered(tabId, instanceId) {
     return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  },
+  isDirectoryTrusted(path) {
+    return isCodexDirectoryTrusted(profileSweepHost(), path);
   },
   sweepLaunchArtifacts(request) {
     return manageCodexProfiles(
