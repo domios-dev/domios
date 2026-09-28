@@ -56,6 +56,10 @@ function fixture(name: string): string {
   return fs.readFileSync(path.join(here, "fixtures", "tab-state", name), "utf8");
 }
 
+function composerFixture(name: string): string {
+  return fs.readFileSync(path.join(here, "fixtures", "composer-readiness", name), "utf8");
+}
+
 function classify(plugin: any, screenText: string) {
   return plugin.classifyTabState({
     tabId: "tab-1",
@@ -123,6 +127,9 @@ for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"])
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
 for (const f of ["stale-auth-ready-composer.txt", "stale-auth-streaming.txt"]) {
   assertNoInputRequest(classify(plugin, fixture(f)), f);
+}
+for (const f of ["codex-0.154.0.txt", "codex-0.157.1.txt"]) {
+  assertNoInputRequest(classify(plugin, composerFixture(f)), `${f}: normal composer screen`);
 }
 {
   const prose = "We discussed sign in, login, OAuth authentication, API keys, and authorization codes.";

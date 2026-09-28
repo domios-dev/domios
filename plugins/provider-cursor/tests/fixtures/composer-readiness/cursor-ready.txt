@@ -1,0 +1,6 @@
+  Cursor Agent
+  v2026.06.16-20-30-07-a07d3ac
+  Type ? in the prompt bar to show in-app hints.
+  → Plan, search, build anything
+  Auto                                                  Run Everything
+  /private/tmp/ct_cursor_probe

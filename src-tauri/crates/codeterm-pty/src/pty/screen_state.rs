@@ -260,6 +260,16 @@ impl ScreenState {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
 
+    pub fn get_screen_rows(&self, pty_id: &str) -> Option<Vec<String>> {
+        let screen = self.parsers.get(pty_id)?.screen();
+        let (rows, cols) = screen.size();
+        Some(
+            (0..rows)
+                .map(|row| screen.contents_between(row, 0, row, cols).trim_end().to_string())
+                .collect(),
+        )
+    }
+
     pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
         self.parsers
             .get(pty_id)
