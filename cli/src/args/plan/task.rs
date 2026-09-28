@@ -388,6 +388,32 @@ pub enum PlanTaskAction {
         )]
         provider_reserve_pct: f32,
     },
+    /// Acknowledge a remote Worker attempt on the origin plan
+    RemoteAck {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+    },
+    /// Persist a remote Worker's in-review report on the origin plan
+    RemoteReport {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        message: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        message_file: Option<String>,
+        #[arg(long)]
+        sha: Option<String>,
+        #[arg(long = "changed-file")]
+        changed_files: Vec<String>,
+        #[arg(long)]
+        test_cmd: Option<String>,
+        #[arg(long)]
+        test_result: Option<String>,
+        #[arg(long)]
+        skipped: Option<String>,
+    },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
     /// Show one execution attempt for a plan task

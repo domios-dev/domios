@@ -79,7 +79,7 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
 }
 
 /// Verify relay sender: must be paired. Paired = trusted.
-fn check_mesh_relay_auth(
+pub(super) fn check_mesh_relay_auth(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<String, (StatusCode, String)> {

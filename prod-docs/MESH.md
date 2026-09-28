@@ -130,12 +130,11 @@ forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
 
 ## Cross-mesh worker reports (spawn + explicit bind)
 
-### Future contract: plan-bound mesh dispatch
+### Plan-bound mesh dispatch
 
-The current spawn-then-bind workflow below is task-less and does not satisfy
-origin-owned accountability. A future `plan task dispatch --mesh PEER` must use
-an origin-owned protocol; generic mesh plan RPC is not a substitute because it
-runs against the peer's plan store.
+`plan task dispatch --mesh PEER` creates an origin-owned attempt before calling
+the peer's signed worker-dispatch endpoint. Generic mesh plan RPC is not a
+substitute because it runs against the peer's plan store.
 
 1. The origin validates plan, task, caller authority, provider, and intent, then
    durably creates an attempt before contacting the peer. It records peer
@@ -148,15 +147,16 @@ runs against the peer's plan store.
    assignment. ACK and report relay are authenticated by the paired mesh
    request and match the identifiers and peer tab. The origin persists ACK and
    report on its attempt. Idempotency keys make relay retry safe.
-4. The origin Orchestrator reviews and accepts the report. Integration fetches
-   the recorded peer lane branch and performs a real merge commit; acceptance
-   requires the lane tip to be an ancestor of the resulting target tip.
+4. The origin Orchestrator reviews and accepts the report before integration.
+   Integration is a separate explicit operation and must fetch the recorded
+   peer lane branch and perform a real merge commit. Cherry-pick and squash are
+   not valid integration; verify ancestry with `git merge-base --is-ancestor`.
 
 Attempt states distinguish `peer_preflight`, `peer_missing_repo`,
 `peer_missing_base`, `peer_offline`, `relay_lost`, `awaiting_worker_ack`,
 `acknowledged`, and `reported`. Offline and uncertain relay outcomes are
 persisted explicitly and never imply Worker failure or report persistence.
-Recovery resumes the same attempt and never creates a duplicate Worker.
+Recovery must resume the same attempt and never create a duplicate Worker.
 
 Both machines enforce their local mesh access policy and the owner's rules.
 Mesh authentication supplies transport identity; no API token, provider
@@ -265,4 +265,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->
