@@ -633,11 +633,12 @@ mod tests {
         } else {
             lane.join(lane_gitdir)
         };
-        let expected_lane_gitdir = lane_gitdir.canonicalize().expect("lane gitdir resolves");
+        let expected_lane_gitdir =
+            canonical_path_from_path(&lane_gitdir).expect("lane gitdir resolves");
         assert_eq!(roots[0], expected_lane_gitdir);
         assert!(roots[0].join("commondir").is_file());
         assert_ne!(roots[0], repo);
-        let common = repo.join(".git").canonicalize().expect("common directory");
+        let common = canonical_path_from_path(&repo.join(".git")).expect("common directory");
         let worktrees = common.join("worktrees");
         assert_eq!(roots[0].parent(), Some(worktrees.as_path()));
         assert_eq!(roots[1], common.join("objects"));
