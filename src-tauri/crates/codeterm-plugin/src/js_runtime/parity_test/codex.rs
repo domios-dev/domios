@@ -79,6 +79,7 @@ fn codex_sandbox_writable_roots_native_js_parity() {
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: CODEX_UUID.to_string(),
             args,
+            instance_id: Some("parity-instance".to_string()),
             ..Default::default()
         })
         .expect("context resume command");
