@@ -63,11 +63,11 @@ Every Worker has a clear Orchestrator title and description,
 brief with exact acceptance and test commands; it ACKs first and reports last.
 
 For work on a paired peer, dispatch with `plan task dispatch <plan> <task>
---mesh <peer> --execution-intent mutating`. The origin owns the attempt and
+--mesh <peer-instance-id> --execution-intent mutating`. The origin owns the attempt and
 review trail; the peer provisions the lane and binds the Worker to the origin
 plan/task/attempt identifiers. Accept the report on the origin before running
 `plan task merge-remote-lane <plan> <task> <attempt>` to fetch the signed peer
-bundle and create a real merge commit.
+bundle at the accepted report SHA and merge into the clean dispatch-time branch.
 
 ## Owner decision holds
 

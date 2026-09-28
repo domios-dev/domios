@@ -116,6 +116,8 @@ pub struct SpawnAgentParams {
     #[serde(default, skip)]
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
     #[serde(default, skip)]
+    pub(crate) remote_task_binding: Option<RemoteTaskBinding>,
+    #[serde(default, skip)]
     pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
@@ -208,6 +210,14 @@ pub(crate) struct TaskLaunchAuthority {
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
     pub(crate) lane_base: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteTaskBinding {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub origin_peer_id: String,
 }
 
 impl TaskLaunchAuthority {

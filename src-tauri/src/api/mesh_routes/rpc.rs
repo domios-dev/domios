@@ -178,17 +178,14 @@ pub async fn mesh_rpc(
         let method = request.method.clone();
         let mut params = request.params;
         sanitize_remote_context(&mut params);
-        if let Some(peer_id) = authenticated_peer {
-            if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
-                object.insert(
-                    "authenticated_mesh_peer_id".into(),
-                    serde_json::Value::String(peer_id),
-                );
-            }
-        }
+        let mesh_peer = authenticated_peer;
         let svc = state.svc.clone();
         match tokio::task::spawn_blocking(move || {
-            crate::socket::server::dispatch_service_rpc(&method, params, &svc)
+            if let Some(peer_id) = mesh_peer {
+                crate::socket::server::dispatch_mesh_rpc(&method, params, &svc, &peer_id)
+            } else {
+                crate::socket::server::dispatch_service_rpc(&method, params, &svc)
+            }
         })
         .await
         {

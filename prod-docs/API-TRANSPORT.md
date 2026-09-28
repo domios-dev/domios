@@ -215,11 +215,10 @@ carries the exact command).
 | `activity.list` | `{source?, since?, limit?}` | Recent activity events (push / health / peer / cron). Default `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to an external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute media path. `append`: concatenate to the previous message. |
 
-Plan-bound mesh Workers use signed peer-only HTTP routes rather than arbitrary
-Git remotes: `POST /api/mesh/worker-dispatch` provisions a lane after repository
-identity/base preflight, and `POST /api/mesh/worker-lane-bundle` returns the
-recorded lane as a Git bundle to a paired Full-access peer. Origin integration
-uses `plan.task.merge_remote_lane` after review.
+Plan-bound Workers use signed peer routes, never arbitrary Git remotes.
+`POST /api/mesh/worker-dispatch` provisions after repo/base preflight;
+`worker-lane-bundle` requires the bound attempt, accepted SHA, and Full access.
+Origin `plan.task.merge_remote_lane` verifies the bundle after review.
 
 A `team pair` mints its Team with the two launch attempts it reserves and holds a lease on that exact reservation. When a leased attempt starts, is held, or the pair rolls back, the lease retires and the Team becomes ordinary. When a leased attempt reaches its terminal startup deadline, the closing tab sweeps the lease and removes that exact Team, only while it is still forming, empty, and free of any member the reservation never claimed. Normal, active, adopted, manually created, nonempty, and mismatched Teams are never touched, and `team.close` is unchanged.
 
@@ -236,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

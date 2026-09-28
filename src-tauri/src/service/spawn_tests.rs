@@ -238,6 +238,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     }
 }
 
@@ -795,6 +796,7 @@ fn from_agent_params_carries_model_into_spec() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(params);
     assert_eq!(spec.description.as_deref(), Some("triage failing snapshot"));
@@ -948,6 +950,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(p.clone());
     match spec.command {
@@ -1017,6 +1020,7 @@ fn from_agent_params_carries_activate_into_spec() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(p.clone());
     match spec.command {

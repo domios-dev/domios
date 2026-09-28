@@ -204,7 +204,7 @@ pub(crate) use orchestrator::{
 };
 pub(crate) use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
-    TaskLaunchAuthority,
+    RemoteTaskBinding, TaskLaunchAuthority,
 };
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,

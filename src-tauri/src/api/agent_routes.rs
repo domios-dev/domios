@@ -328,6 +328,7 @@ pub async fn spawn_agent(
         audience: body.audience,
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let default_provider = crate::config::default_agent_provider();
     let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
