@@ -25,6 +25,7 @@
     }
   ],
   "spawn": {
+    "sandboxedLaunchRestriction": "requires_unsandboxed_linux",
     "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",

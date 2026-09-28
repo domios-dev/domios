@@ -87,6 +87,17 @@ fn codex_sandbox_writable_roots_native_js_parity() {
 }
 
 #[test]
+fn codex_sandboxed_launch_restriction_is_declared() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        codex().sandboxed_launch_restriction(),
+        Some(crate::provider::SandboxedLaunchRestriction::RequiresUnsandboxedLinux)
+    );
+}
+
+#[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;

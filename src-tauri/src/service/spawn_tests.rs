@@ -389,8 +389,50 @@ fn provider_cli_availability_rejects_invalid_binary_name() {
     let registry =
         registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
 
-    let err = provider_launch_preflight(&registry, "bad-cli").unwrap_err();
+    let err = provider_launch_preflight(&registry, "bad-cli", false).unwrap_err();
     assert_eq!(err.code(), "invalid_provider_binary");
+}
+
+#[test]
+fn sandbox_restriction_refuses_linux_before_tab_creation() {
+    use codeterm_plugin::provider::SandboxedLaunchRestriction::RequiresUnsandboxedLinux;
+
+    let restriction = Some(RequiresUnsandboxedLinux);
+    assert!(crate::service::spawn_cli::sandbox_launch_restriction_applies(
+        restriction,
+        true,
+        "linux"
+    ));
+    assert!(!crate::service::spawn_cli::sandbox_launch_restriction_applies(
+        restriction,
+        false,
+        "linux"
+    ));
+    assert!(!crate::service::spawn_cli::sandbox_launch_restriction_applies(
+        restriction,
+        true,
+        "windows"
+    ));
+
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("sandbox-fixture")
+            .with_sandboxed_launch_restriction(RequiresUnsandboxedLinux),
+    ));
+    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let before = mux.snapshot().tabs.len();
+    let refusal = crate::service::spawn_cli::provider_launch_preflight_for_platform(
+        &registry,
+        "sandbox-fixture",
+        true,
+        "linux",
+    )
+    .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
+    let error = refusal.expect_err("restricted sandbox must be refused before creating a tab");
+    assert_eq!(error.code(), "sandboxed_launch_unsupported");
+    assert!(error.to_string().contains("Enable full access"));
+    assert_eq!(mux.snapshot().tabs.len(), before);
 }
 
 /// The defect this replaces: an unresolvable provider produced a live tab whose
@@ -406,7 +448,7 @@ fn unresolvable_launch_binary_is_refused_before_a_tab_exists() {
         "install missing-cli",
     ));
 
-    let refused = provider_launch_preflight(&registry, "missing-cli")
+    let refused = provider_launch_preflight(&registry, "missing-cli", false)
         .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
 
     let err = refused.expect_err("an unresolvable binary must not launch");

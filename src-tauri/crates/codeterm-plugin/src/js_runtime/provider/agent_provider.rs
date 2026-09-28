@@ -57,6 +57,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.additional_writable_dir_flag.clone()
     }
 
+    fn sandboxed_launch_restriction(&self) -> Option<provider::SandboxedLaunchRestriction> {
+        self.manifest.spawn.sandboxed_launch_restriction
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if !self.has_js("buildLaunchCommand") {
             if let Some(command) = launch_command_from_template(&self.manifest, params) {
