@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn create_lane_bundle_refuses_binding_to_foreign_origin() {
-        let (state, request, _, _, _fixture) = bundle_fixture("different-peer");
+        let (state, request, _, _root, _fixture) = bundle_fixture("different-peer");
         let error = create_lane_bundle_with_limit(
             state,
             "peer-origin".into(),
@@ -356,15 +356,20 @@ mod tests {
 
     #[test]
     fn create_lane_bundle_refuses_bundle_over_size_limit() {
-        let (state, request, _, _, _fixture) = bundle_fixture("peer-origin");
+        let (state, request, _, _root, _fixture) = bundle_fixture("peer-origin");
         let error =
             create_lane_bundle_with_limit(state, "peer-origin".into(), request, 1).unwrap_err();
-        assert_eq!(error.0, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(
+            error.0,
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "{}",
+            error.1
+        );
     }
 
     #[test]
     fn create_lane_bundle_refuses_head_or_lane_tip_different_from_report_sha() {
-        let (state, mut request, _, _, _fixture) = bundle_fixture("peer-origin");
+        let (state, mut request, _, _root, _fixture) = bundle_fixture("peer-origin");
         request.report_sha = "unreviewed-sha".into();
         let error = create_lane_bundle_with_limit(
             state,

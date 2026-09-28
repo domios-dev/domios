@@ -2375,12 +2375,43 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
+#### `codeterm plan task merge-remote-lane`
+
+Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
+
+#### `codeterm plan task remote-ack`
+
+Acknowledge a remote Worker attempt on the origin plan
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task remote-report`
+
+Persist a remote Worker's in-review report on the origin plan
+
+- `<attempt_id>`
+- `--changed-file`
+- `--message`
+- `--message-file`
+- `<plan_id>`
+- `--sha`
+- `--skipped`
+- `<task_id>`
+- `--test-cmd`
+- `--test-result`
 
 #### `codeterm plan task respawn`
 

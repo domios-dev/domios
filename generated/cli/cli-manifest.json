@@ -10977,6 +10977,44 @@
               "subcommands": []
             },
             {
+              "name": "merge-remote-lane",
+              "about": "Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "relink",
               "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
@@ -10996,6 +11034,152 @@
                   "positional": true,
                   "required": true,
                   "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remote-ack",
+              "about": "Acknowledge a remote Worker attempt on the origin plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remote-report",
+              "about": "Persist a remote Worker's in-review report on the origin plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "changed-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CHANGED_FILES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MESSAGE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sha",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SHA",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "skipped",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SKIPPED",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-cmd",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEST_CMD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-result",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEST_RESULT",
                   "possible_values": [],
                   "default": null,
                   "help": null,

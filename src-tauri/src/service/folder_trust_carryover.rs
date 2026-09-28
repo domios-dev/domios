@@ -184,6 +184,7 @@ fn start_attempt(service: ServiceContext, tab_id: String) {
 #[cfg(test)]
 mod tests {
     use super::CarrySchedule;
+    use super::MAX_OUTPUT_RETRIES;
     use crate::service::folder_trust_carryover::should_schedule_owner_clear;
     use codeterm_types::pty::PromptKind;
 

@@ -343,7 +343,7 @@ mod tests {
                         method: method.into(),
                         params: Some(serde_json::json!({})),
                         request_id: format!("{method}-{case}"),
-                        protocol_version: None,
+                        protocol_version: Some(serde_json::json!(crate::socket::server::protocol::PROTOCOL_VERSION)),
                     }),
                 ).await.0;
                 let error = response.error.expect("unauthorized remote lifecycle mutation");

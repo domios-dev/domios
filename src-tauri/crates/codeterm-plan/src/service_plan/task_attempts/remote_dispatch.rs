@@ -365,6 +365,20 @@ mod tests {
     #[test]
     fn remote_dispatch_ack_is_authenticated_and_idempotent() {
         let (_root, store, plan_id, task_id, attempt_id) = remote_attempt();
+        store
+            .record_remote_dispatch_lane(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "mesh-worker:attempt_remote",
+                "lane/remote-attempt",
+                "D:/peer/repo-worktrees/lane",
+                "base-sha",
+                "codex",
+                3,
+            )
+            .unwrap();
         assert!(store
             .acknowledge_remote_dispatch(
                 &plan_id,
@@ -385,7 +399,7 @@ mod tests {
                 5,
             )
             .unwrap());
-        let detail = store.show_task(&plan_id, &task_id).unwrap();
+        let detail = store.show_task(&task_id).unwrap();
         let attempt = &detail.task.execution_attempts[0];
         assert_eq!(
             attempt.remote_dispatch_state,
@@ -407,7 +421,7 @@ mod tests {
                 4,
             )
             .is_err());
-        let detail = store.show_task(&plan_id, &task_id).unwrap();
+        let detail = store.show_task(&task_id).unwrap();
         let attempt = &detail.task.execution_attempts[0];
         assert_eq!(
             attempt.remote_dispatch_state,
@@ -471,7 +485,7 @@ mod tests {
                 7,
             )
             .unwrap());
-        let detail = store.show_task(&plan_id, &task_id).unwrap();
+        let detail = store.show_task(&task_id).unwrap();
         assert_eq!(detail.task.status, TaskStatus::InReview);
         let attempt = &detail.task.execution_attempts[0];
         assert_eq!(attempt.mesh_peer.as_deref(), Some("peer-origin"));
@@ -506,7 +520,7 @@ mod tests {
                 9,
             )
             .unwrap();
-        let detail = store.show_task(&plan_id, &task_id).unwrap();
+        let detail = store.show_task(&task_id).unwrap();
         assert_eq!(
             detail.task.execution_attempts[0].remote_dispatch_state,
             Some(RemoteDispatchState::PeerOffline)
@@ -526,7 +540,7 @@ mod tests {
                 9,
             )
             .unwrap();
-        let closed = store.show_task(&plan_id, &task_id).unwrap();
+        let closed = store.show_task(&task_id).unwrap();
         assert!(closed.task.execution_attempts[0].closed_at.is_some());
         assert!(closed.task.assigned_tab_id.is_none());
         assert!(closed.task.execution_attempts[0].executor_tab_id.is_empty());
@@ -544,7 +558,7 @@ mod tests {
                 10,
             )
             .unwrap();
-        let retried = store.show_task(&plan_id, &task_id).unwrap();
+        let retried = store.show_task(&task_id).unwrap();
         assert_eq!(retried.task.execution_attempts.len(), 2);
         assert_eq!(
             retried.task.assigned_tab_id.as_deref(),
@@ -633,7 +647,7 @@ mod tests {
             )
             .unwrap();
         let attempt = &store
-            .show_task(&plan_id, &task_id)
+            .show_task(&task_id)
             .unwrap()
             .task
             .execution_attempts[0];
