@@ -234,6 +234,7 @@ impl ServiceContext {
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
         crate::service::prompt_resolution::clear_tab_prompt(&canonical_tab_id, None);
+        crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
         if let (Some(provider_id), Some(session_id)) =
             (provider_id.as_deref(), session_id.as_deref())
         {
@@ -755,6 +756,7 @@ impl ServiceContext {
         let tab = mux.get_tab_mut(tab_id)?;
         let identity = crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
         drop(mux);
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         identity
     }
 

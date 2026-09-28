@@ -312,9 +312,36 @@ struct OwnerPrompt {
     deadline: Instant,
 }
 
+type InputWake = (
+    LaunchAttempt,
+    std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
+);
+
 struct ObservationState {
     armed: HashMap<String, Armed>,
     owner_prompts: HashMap<String, OwnerPrompt>,
+    input_wakes: HashMap<String, InputWake>,
+}
+
+pub(crate) struct LaunchInputWakeRegistration {
+    attempt: LaunchAttempt,
+    signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
+}
+
+impl Drop for LaunchInputWakeRegistration {
+    fn drop(&mut self) {
+        let mut state = OBSERVATIONS.state.lock();
+        let registered =
+            state
+                .input_wakes
+                .get(&self.attempt.tab_id)
+                .is_some_and(|(attempt, signal)| {
+                    attempt == &self.attempt && std::sync::Arc::ptr_eq(signal, &self.signal)
+                });
+        if registered {
+            state.input_wakes.remove(&self.attempt.tab_id);
+        }
+    }
 }
 
 struct Observations {
@@ -327,6 +354,7 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
     state: Mutex::new(ObservationState {
         armed: HashMap::new(),
         owner_prompts: HashMap::new(),
+        input_wakes: HashMap::new(),
     }),
     changed: Condvar::new(),
     prompt_changed: Condvar::new(),
@@ -379,6 +407,21 @@ pub(crate) fn attempt_is_armed(attempt: &LaunchAttempt) -> bool {
         .armed
         .get(&attempt.tab_id)
         .is_some_and(|observed| &observed.attempt == attempt)
+}
+
+pub(crate) fn register_input_wake(
+    attempt: &LaunchAttempt,
+    signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
+) -> LaunchInputWakeRegistration {
+    OBSERVATIONS
+        .state
+        .lock()
+        .input_wakes
+        .insert(attempt.tab_id.clone(), (attempt.clone(), signal.clone()));
+    LaunchInputWakeRegistration {
+        attempt: attempt.clone(),
+        signal,
+    }
 }
 
 fn arm_inner(
@@ -468,6 +511,17 @@ fn owner_prompt_pending_until(tab_id: &str, question: &str, deadline: Instant) {
 pub(crate) fn owner_prompt_cleared(tab_id: &str) {
     let mut state = OBSERVATIONS.state.lock();
     update_owner_prompt_locked(&mut state, tab_id, None);
+    let wake = state.input_wakes.get(tab_id).and_then(|(attempt, signal)| {
+        state
+            .armed
+            .get(tab_id)
+            .filter(|armed| armed.attempt == *attempt)
+            .map(|_| signal.clone())
+    });
+    drop(state);
+    if let Some(wake) = wake {
+        wake.mark_changed();
+    }
 }
 
 fn update_owner_prompt_locked(

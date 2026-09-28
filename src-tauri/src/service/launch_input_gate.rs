@@ -184,6 +184,9 @@ impl ServiceContext {
             .screen_state
             .lock()
             .arm_screen_change_signal(&attempt.pty_id);
+        let _input_wake = (mode == LaunchInputMode::LazySessionStart).then(|| {
+            crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
+        });
         let deadline = Instant::now() + timeout;
         let mut generation = signal.generation();
         let (
