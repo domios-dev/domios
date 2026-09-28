@@ -532,7 +532,24 @@ export function Sidebar({
     const closeTeam = teamActions?.onCloseTeam;
     if (!pending || !closeTeam) return;
     try {
-      await closeTeam(pending.teamId);
+      const inventory = await closeTeam(pending.teamId);
+      const kept = inventory.kept.map((lane) =>
+        `${lane.path ?? "<no worktree>"} (${lane.branch ?? "no branch"}): ${lane.reason ?? "retained"}`,
+      );
+      const orphanBranches = inventory.orphan_branches.join(", ");
+      addNotification({
+        tab_id: null,
+        workspace_id: pending.workspaceId,
+        title: kept.length > 0 ? "Team closed with lanes retained" : "Team closed",
+        body: [
+          `${inventory.removed.length} lane(s) removed.`,
+          ...(kept.length > 0 ? [`Kept: ${kept.join("; ")}`] : []),
+          ...(orphanBranches ? [`Orphan branches: ${orphanBranches}`] : []),
+        ].join(" "),
+        severity: kept.length > 0 ? "Warning" : "Info",
+        level: kept.length > 0 ? "action_needed" : "verbose",
+        sticky: kept.length > 0,
+      });
     } catch (error) {
       addNotification({
         tab_id: null,
