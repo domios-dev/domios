@@ -65,7 +65,7 @@ An empty CORS allowlist permits no cross-origin requests and never disables the 
 |--------|------|------|-------------|
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | GET | `/api/identify` | — | Version, platform, features |
-| POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It accepts a fixed method set for identify, tab listing/sending, and agent ACK/report operations; mesh peer tokens are refused. See API-CLI. |
+| POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
@@ -230,4 +230,4 @@ Local `codeterm send` uses socket `tab.send_text`: it prints `OK (sent)` after
 confirmed delivery, `OK (pending)` for accepted or unconfirmed delivery, and an
 explicit refusal when no payload bytes were written. The resolved payload echo
 is emitted for confirmed delivery and for pending sends reporting written bytes.
-<!-- revision: 172 -->
+<!-- revision: 173 -->

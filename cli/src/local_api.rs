@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::{header::HeaderMap, StatusCode};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::client::{discover_socket, SocketClient};
+use crate::client::SocketClient;
 
 #[derive(Clone)]
 pub struct LocalApiClient {
@@ -13,8 +13,7 @@ pub struct LocalApiClient {
 
 impl LocalApiClient {
     pub fn connect() -> Result<Self, LocalApiError> {
-        let socket = discover_socket().map_err(LocalApiError::new)?;
-        let client = SocketClient::connect(&socket).map_err(LocalApiError::new)?;
+        let (client, _) = SocketClient::connect_local().map_err(LocalApiError::new)?;
         let mut headers = HeaderMap::new();
         for (env, header) in [
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
