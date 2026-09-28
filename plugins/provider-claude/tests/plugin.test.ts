@@ -224,18 +224,50 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 }
 
 {
-  const onboarding = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "onboarding", "auto-environment.txt"),
-    "utf8",
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "onboarding");
+  const files = [
+    "auto-environment-captured.txt",
+    "auto-environment-not-now.txt",
+    "auto-environment-boxed-curly.txt",
+    "auto-environment-variant.txt",
+  ];
+  const cleanRow = (row: string) => row
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/^\s*[│┃║]\s*/, "")
+    .replace(/\s*[│┃║]\s*$/, "")
+    .trim();
+  for (const file of files) {
+    const screen = fs.readFileSync(path.join(dir, file), "utf8");
+    const rows = screen.split(/\r?\n/).map(cleanRow);
+    const optionRows = rows.flatMap((row) => {
+      const match = /^\s*([❯>])?\s*(\d+)\.\s*(.*?)\s*$/.exec(row);
+      return match ? [{ focused: Boolean(match[1]), label: match[3], value: match[2] }] : [];
+    }).slice(-3);
+    const first = rows.findIndex((row) => /^\s*([❯>])?\s*1\.\s/.test(row));
+    const question = rows.slice(Math.max(0, first - 5), first).reverse().find((row) => row.endsWith("?"));
+    const parsed = hostPlugin.parsePrompt(screen);
+    const response = hostPlugin.launchOnboardingResponse(screen);
+    assert(Boolean(response), `onboarding capability recognizes ${file}`);
+    eq(parsed?.question, question, `pending prompt question comes from the dialog row in ${file}`);
+    eq(parsed?.options?.map(([label, value]) => [label, value]), optionRows.map(({ label, value }) => [label, value]), `pending prompt choices preserve captured order in ${file}`);
+    const focused = optionRows.findIndex((option) => option.focused);
+    eq(response?.frameKey, `onboarding:focus-${focused}:target-1`, `stable onboarding identity tracks focus in ${file}`);
+    eq(response?.step, focused === 1 ? "DQ==" : "ag==", `one next key moves only toward the safe choice in ${file}`);
+  }
+
+  const captured = fs.readFileSync(path.join(dir, files[0]), "utf8");
+  const capturedQuestion = captured.split(/\r?\n/).find((row) => cleanRow(row).endsWith("?"));
+  assert(Boolean(capturedQuestion), "captured dialog has a structural question row");
+  const firstOption = captured.indexOf("1. Yes");
+  const focus = captured.lastIndexOf("❯", firstOption);
+  assert(firstOption >= 0 && focus >= 0, "captured default focus is on the first option");
+  eq(hostPlugin.launchOnboardingResponse(captured.slice(0, focus) + captured.slice(focus + 1)), null, "ambiguous focus is left unanswered");
+  eq(
+    hostPlugin.launchOnboardingResponse(`${captured}\nstatus refreshed`)?.frameKey,
+    hostPlugin.launchOnboardingResponse(captured)?.frameKey,
+    "incidental status redraw retains the same choice/focus identity",
   );
-  eq(hostPlugin.launchOnboardingResponse(onboarding), "DQ==", "onboarding responder confirms only the focused Not now option");
-  const rows = onboarding.split("\n");
-  const yes = rows.findIndex((row) => /^\s*1\./.test(row));
-  const notNow = rows.findIndex((row) => /^❯\s*2\./.test(row));
-  rows[yes] = rows[yes].replace(/^\s*/, "❯ ");
-  rows[notNow] = rows[notNow].replace(/^❯\s*/, "  ");
-  eq(hostPlugin.launchOnboardingResponse(rows.join("\n")), "ag==", "onboarding responder advances one observed key toward the safe option");
-  eq(hostPlugin.launchOnboardingResponse(onboarding.replace(/^[^\r\n]+\?$/m, "A different startup question?")), null, "unclassified startup dialog is left alone");
+  eq(hostPlugin.launchOnboardingResponse(captured.replace(capturedQuestion!, "A different startup question?")), null, "unclassified startup dialog is left alone");
 }
 
 {

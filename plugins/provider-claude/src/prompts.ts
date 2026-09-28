@@ -278,20 +278,74 @@ export function buildClaudePromptResponse(optionIndex: number, screen: string): 
   return steps;
 }
 
-export function claudeOnboardingNotNowStep(screen: string): string | null {
-  const prompt = parseClaudeNumberedPrompt(screen);
-  if (!prompt || !/\bauto\b/i.test(prompt.question) || !/\benvironment\b/i.test(prompt.question)) return null;
-  const labels = prompt.options.map(([, label]) => label.trim().toLowerCase());
-  if (labels.length !== 3) return null;
-  const target = labels.findIndex((label) => /^not\s+now(?:\b|$)/.test(label));
-  const yes = labels.filter((label) => /^yes(?:\b|$)/.test(label)).length;
-  const persistent = labels.filter((label) => /\bdon't\s+show\s+again\b/.test(label)).length;
-  if (target < 0 || yes !== 1 || persistent !== 1) return null;
-  const focused = parseNumberedOptions(screen).findIndex((option) => option.highlighted);
-  if (focused < 0 || parseNumberedOptions(screen).filter((option) => option.highlighted).length !== 1) return null;
-  const current = focused;
-  if (current === target) return "DQ==";
-  return target > current ? "ag==" : "aw==";
+export interface ClaudeOnboardingPrompt {
+  question: string;
+  options: [string, string][];
+  frameKey: string;
+  step: string;
+}
+
+interface OnboardingOption {
+  focused: boolean;
+  number: string;
+  label: string;
+  line: number;
+}
+
+export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt | null {
+  const lines = String(screen || "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .split(/\r?\n/)
+    .map(onboardingRow);
+  const candidates = lines.flatMap((line, index) => {
+    const match = /^\s*([❯>])?\s*(\d+)\.\s*(.*?)\s*$/.exec(line);
+    return match ? [{ focused: Boolean(match[1]), number: match[2], label: match[3].trim(), line: index }] : [];
+  });
+  const options = candidates.slice(-3);
+  if (options.length !== 3 || options.some((option, index) => option.number !== String(index + 1))) return null;
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const first = options[0].line;
+  const last = options[2].line;
+  if (last - first > 4) return null;
+  const footer = lines.slice(last + 1, last + 4).join(" ").toLowerCase();
+  if (!footer.includes("enter") || !footer.includes("esc")) return null;
+  let question = "";
+  for (let index = first - 1; index >= Math.max(0, first - 5); index--) {
+    if (lines[index].endsWith("?")) {
+      question = lines[index];
+      break;
+    }
+  }
+  const questionWords = question.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!questionWords.includes("auto") || !questionWords.includes("environment")) return null;
+  const labels = options.map((option) => normalizeOnboardingLabel(option.label));
+  const target = labels.findIndex((label) => label.startsWith("not now"));
+  if (target < 0 || labels.filter((label) => label.startsWith("yes")).length !== 1) return null;
+  if (labels.filter((label) => label.startsWith("don't show again")).length !== 1) return null;
+  const current = options.findIndex((option) => option.focused);
+  const step = current === target ? "DQ==" : target > current ? "ag==" : "aw==";
+  return {
+    question,
+    options: options.map((option) => [option.label, option.number]),
+    frameKey: `onboarding:focus-${current}:target-${target}`,
+    step,
+  };
+}
+
+export function claudeOnboardingNotNowStep(screen: string): { frameKey: string; step: string } | null {
+  const prompt = claudeOnboardingPrompt(screen);
+  return prompt ? { frameKey: prompt.frameKey, step: prompt.step } : null;
+}
+
+function onboardingRow(row: string): string {
+  return row
+    .replace(/^\s*[│┃║]\s*/, "")
+    .replace(/\s*[│┃║]\s*$/, "")
+    .trim();
+}
+
+function normalizeOnboardingLabel(label: string): string {
+  return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 
 export function moveToOption(targetIndex: number, screen: string): string[] {

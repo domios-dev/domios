@@ -220,6 +220,7 @@ impl ServiceContext {
                 == crate::agent::provider::ComposerCursorPosition::BottomRegion;
         let mut observed_tui_without_composer = false;
         let mut onboarding_notice_emitted = false;
+        let mut onboarding_choice_submitted = false;
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -268,53 +269,58 @@ impl ServiceContext {
                 screen_text: screen.clone(),
             };
             if delegated_role {
-                let onboarding_step = self
-                    .agent_registry
-                    .with_provider(agent_id, |provider| {
-                        provider.launch_onboarding_response(&screen)
-                    })
-                    .flatten();
-                if let Some(step) = onboarding_step {
-                    let selects_safe_choice = step.as_slice() == b"\r";
-                    let response_queued = self
-                        .inject_raw_keys_async(&attempt.tab_id, vec![step])
-                        .is_ok();
-                    if response_queued {
-                        if selects_safe_choice && !onboarding_notice_emitted {
-                            self.create_notification_ext(
-                                "Provider onboarding choice applied".into(),
-                                Some(format!(
-                                    "Tab {} received its provider-declared safe onboarding choice.",
-                                    attempt.tab_id
-                                )),
-                                Some("info"),
-                                None,
-                                None,
-                                crate::service::notification::NotificationOrigin::local_tab(
-                                    attempt.tab_id.clone(),
-                                ),
-                                crate::service::notification::PushIntent::default(),
-                                None,
-                            );
-                            onboarding_notice_emitted = true;
-                        }
-                        let remaining = deadline
-                            .checked_duration_since(Instant::now())
-                            .ok_or_else(|| {
-                                launch_readiness_deadline_refusal(
-                                    declares_structural_composer,
-                                    observed_tui_without_composer,
-                                )
-                            })?;
-                        if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                            return Err(launch_readiness_deadline_refusal(
+                let decision = self.respond_to_launch_onboarding(
+                    &attempt.tab_id,
+                    agent_id,
+                    &screen,
+                    signal.clone(),
+                );
+                let wait_for_response = match decision {
+                    crate::service::directory_trust::TrustDecision::Answer { step } => {
+                        onboarding_choice_submitted |= step.as_slice() == b"\r";
+                        true
+                    }
+                    crate::service::directory_trust::TrustDecision::Waiting => true,
+                    crate::service::directory_trust::TrustDecision::NoDialog
+                        if onboarding_choice_submitted && !onboarding_notice_emitted =>
+                    {
+                        self.create_notification_ext(
+                            "Provider onboarding choice applied".into(),
+                            Some(format!(
+                                "Tab {} completed its provider-declared safe onboarding choice.",
+                                attempt.tab_id
+                            )),
+                            Some("info"),
+                            None,
+                            None,
+                            crate::service::notification::NotificationOrigin::local_tab(
+                                attempt.tab_id.clone(),
+                            ),
+                            crate::service::notification::PushIntent::default(),
+                            None,
+                        );
+                        onboarding_notice_emitted = true;
+                        false
+                    }
+                    _ => false,
+                };
+                if wait_for_response {
+                    let remaining = deadline
+                        .checked_duration_since(Instant::now())
+                        .ok_or_else(|| {
+                            launch_readiness_deadline_refusal(
                                 declares_structural_composer,
                                 observed_tui_without_composer,
-                            ));
-                        }
-                        generation = signal.generation();
-                        continue;
+                            )
+                        })?;
+                    if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                        return Err(launch_readiness_deadline_refusal(
+                            declares_structural_composer,
+                            observed_tui_without_composer,
+                        ));
                     }
+                    generation = signal.generation();
+                    continue;
                 }
             }
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {

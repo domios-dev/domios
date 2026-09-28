@@ -272,14 +272,27 @@ impl AgentProvider for JsProvider {
         Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
     }
 
-    fn launch_onboarding_response(&self, screen: &str) -> Option<Vec<u8>> {
-        let step = self
-            .try_call::<Option<String>>("launchOnboardingResponse", &[json!(screen)])??;
+    fn launch_onboarding_response(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderPromptKeyStep> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct WireResponse {
+            frame_key: String,
+            step: String,
+        }
+        let response = self
+            .try_call::<Option<WireResponse>>("launchOnboardingResponse", &[json!(screen)])??;
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD
-            .decode(step.as_bytes())
+        let step = base64::engine::general_purpose::STANDARD
+            .decode(response.step.as_bytes())
             .ok()
-            .filter(|bytes| !bytes.is_empty())
+            .filter(|bytes| !bytes.is_empty())?;
+        (!response.frame_key.is_empty()).then_some(crate::provider::ProviderPromptKeyStep {
+            frame_key: response.frame_key,
+            step,
+        })
     }
 
     fn permission_prompt_response(
