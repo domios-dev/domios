@@ -107,6 +107,7 @@ impl Default for KpiConfig {
 #[serde(default)]
 pub struct UpdaterConfig {
     pub channel: crate::update::Channel,
+    pub allow_provider_updates_in_non_prod: bool,
 }
 
 /// Per-provider settings owned by an agent plugin.

@@ -3,6 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -36,8 +37,10 @@ static OFFERED_VERSIONS: LazyLock<Mutex<HashSet<String>>> =
 static INSTALLING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static SNAPSHOT_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
 
-pub fn check_available(service: Arc<ServiceContext>) {
+pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_prod: bool) {
     let providers = service.agent_registry.all_provider_arcs();
+    let instance_override = std::env::var("CODETERM_INSTANCE").ok();
+    let instance = offer_instance_name(instance_override.as_deref(), api_port, allow_non_prod);
     let spawned = std::thread::Builder::new()
         .name("provider-update-check".into())
         .spawn(move || {
@@ -51,7 +54,14 @@ pub fn check_available(service: Arc<ServiceContext>) {
                 let Some(version) = provider.check_for_update() else {
                     continue;
                 };
-                offer(service.as_ref(), provider, version, command);
+                if let Some(instance) = instance.as_deref() {
+                    offer(service.as_ref(), provider, version, command, instance);
+                } else {
+                    log::info!(
+                        "[provider-update] {} update available: {} -> {}; this instance cannot offer provider updates",
+                        provider.display_name(), version.current_version, version.latest_version
+                    );
+                }
             }
         });
     if let Err(error) = spawned {
@@ -59,18 +69,39 @@ pub fn check_available(service: Arc<ServiceContext>) {
     }
 }
 
+fn offer_instance_name(
+    instance_override: Option<&str>,
+    api_port: u16,
+    allow_non_prod: bool,
+) -> Option<String> {
+    if let Some(name) = instance_override {
+        let name = name.trim();
+        if !name.is_empty() {
+            return allow_non_prod.then(|| name.to_string());
+        }
+    }
+    if api_port == 7685 {
+        return Some("production".into());
+    }
+    allow_non_prod.then(|| format!("instance on port {api_port}"))
+}
+
 fn offer(
     service: &ServiceContext,
     provider: Arc<dyn AgentProvider>,
     version: ProviderUpdateAvailability,
     command: String,
+    instance: &str,
 ) {
     let key = format!("{}:{}", provider.id(), version.latest_version);
-    if !OFFERED_VERSIONS.lock().insert(key) {
+    if OFFERED_VERSIONS.lock().contains(&key) {
         return;
     }
-    let key = format!("{}:{}", provider.id(), version.latest_version);
-    if !mark_version_offered(&key) {
+    let Ok(_lock) = acquire_machine_update_lock() else {
+        log::info!("[provider-update] offer deferred because another instance holds the machine update lock");
+        return;
+    };
+    if version_was_offered(&key) {
         return;
     }
     let actions = Some(vec![
@@ -82,10 +113,12 @@ fn offer(
         },
     ]);
     let id = service.create_notification_ext(
-        format!("{} update available", provider.display_name()),
+        format!("{} update available in {instance}", provider.display_name()),
         Some(format!(
-            "Version {} is installed. Version {} is available.",
-            version.current_version, version.latest_version
+            "{instance}: {} {} -> {} is available.",
+            provider.display_name(),
+            version.current_version,
+            version.latest_version
         )),
         Some("info"),
         actions,
@@ -105,6 +138,10 @@ fn offer(
             command,
         },
     );
+    OFFERED_VERSIONS.lock().insert(key.clone());
+    if let Err(error) = record_version_offered(&key) {
+        log::warn!("[provider-update] could not persist offer deduplication: {error}");
+    }
 }
 
 pub fn answer(
@@ -146,9 +183,7 @@ fn process_accepted(service: &ServiceContext) {
     let jobs = std::mem::take(&mut *ACCEPTED.lock());
     for (id, offer) in jobs {
         match restart_targets(service, &offer.provider) {
-            Ok(RestartReadiness::Ready(targets)) => {
-                start_update(service.clone(), id, offer, targets)
-            }
+            Ok(RestartReadiness::Ready(_)) => start_update(service.clone(), id, offer),
             Ok(RestartReadiness::Busy) => {
                 ACCEPTED.lock().insert(id, offer);
             }
@@ -203,7 +238,6 @@ enum RestartReadiness {
 
 #[derive(Debug, PartialEq, Eq)]
 enum UpdateGate {
-    NoConsent,
     WaitForIdle,
     Ready,
 }
@@ -223,10 +257,7 @@ fn update_consent(label: &str) -> UpdateConsent {
     }
 }
 
-fn update_gate(consent: UpdateConsent, statuses: &[Option<TabStatus>]) -> UpdateGate {
-    if consent != UpdateConsent::Accepted {
-        return UpdateGate::NoConsent;
-    }
+fn update_gate(statuses: &[Option<TabStatus>]) -> UpdateGate {
     if statuses
         .iter()
         .any(|status| !matches!(status, Some(TabStatus::Idle | TabStatus::Dead)))
@@ -258,7 +289,7 @@ fn restart_targets(
             })
         })
         .collect::<Vec<_>>();
-    if update_gate(UpdateConsent::Accepted, &statuses) == UpdateGate::WaitForIdle {
+    if update_gate(&statuses) == UpdateGate::WaitForIdle {
         return Ok(RestartReadiness::Busy);
     }
     let mut targets = Vec::new();
@@ -272,9 +303,6 @@ fn restart_targets(
         else {
             return Err(format!("Tab {tab_id} has no bound session to resume"));
         };
-        if !provider.session_exists(cwd, session_id) {
-            return Err(format!("Tab {tab_id} no longer has its bound session"));
-        }
         targets.push(RestartTarget {
             tab_id: tab_id.clone(),
             cwd: cwd.to_string(),
@@ -284,7 +312,7 @@ fn restart_targets(
     Ok(RestartReadiness::Ready(targets))
 }
 
-fn start_update(service: ServiceContext, id: String, offer: Offer, targets: Vec<RestartTarget>) {
+fn start_update(service: ServiceContext, id: String, offer: Offer) {
     if !INSTALLING.lock().insert(offer.provider.id().to_string()) {
         ACCEPTED.lock().insert(id, offer);
         return;
@@ -294,37 +322,77 @@ fn start_update(service: ServiceContext, id: String, offer: Offer, targets: Vec<
         .name("provider-update-install".into())
         .spawn(move || {
             let outcome = acquire_machine_update_lock().and_then(|_lock| {
-                match restart_targets(&service, &offer.provider)? {
-                    RestartReadiness::Ready(_) => {}
-                    RestartReadiness::Busy => {
-                        return Err("a provider agent became busy before update".into())
-                    }
-                    RestartReadiness::SnapshotBusy => {
-                        return Err("provider state changed before update".into())
-                    }
-                }
                 let mut paused = Vec::new();
-                for target in &targets {
-                    match service.pause_for_provider_update(
-                        &target.tab_id,
-                        offer.provider.id(),
-                        &target.session_id,
-                    ) {
-                        Ok(tab) => paused.push(tab),
-                        Err(error) => {
-                            let resume_errors = resume_paused(&service, paused);
+                let mut paused_ids = HashSet::new();
+                loop {
+                    let targets = match restart_targets(&service, &offer.provider)? {
+                        RestartReadiness::Ready(targets) => targets,
+                        RestartReadiness::Busy => {
+                            let failures = resume_paused(&service, paused);
                             return Err(format!(
-                                "could not pause tabs: {error}; {}",
-                                resume_errors.join("; ")
+                                "a provider agent became busy before update; {}",
+                                failures.join("; ")
                             ));
+                        }
+                        RestartReadiness::SnapshotBusy => {
+                            let failures = resume_paused(&service, paused);
+                            return Err(format!(
+                                "provider state changed before update; {}",
+                                failures.join("; ")
+                            ));
+                        }
+                    };
+                    let targets = targets
+                        .into_iter()
+                        .filter(|target| !paused_ids.contains(&target.tab_id))
+                        .collect::<Vec<_>>();
+                    if targets.is_empty() {
+                        break;
+                    }
+                    for target in targets {
+                        if !offer
+                            .provider
+                            .session_exists(&target.cwd, &target.session_id)
+                        {
+                            let failures = resume_paused(&service, paused);
+                            return Err(format!(
+                                "Tab {} no longer has its bound session; {}",
+                                target.tab_id,
+                                failures.join("; ")
+                            ));
+                        }
+                        match service.pause_for_provider_update(
+                            &target.tab_id,
+                            offer.provider.id(),
+                            &target.session_id,
+                        ) {
+                            Ok(tab) => {
+                                paused_ids.insert(target.tab_id);
+                                paused.push(tab);
+                            }
+                            Err(error) => {
+                                let resume_errors = resume_paused(&service, paused);
+                                return Err(format!(
+                                    "could not pause tabs: {error}; {}",
+                                    resume_errors.join("; ")
+                                ));
+                            }
                         }
                     }
                 }
                 let update_result = run_update_command(&offer.command);
+                if let Err(failure) = &update_result {
+                    if !failure.child_stopped {
+                        return Err(format!(
+                            "{}; updater could not be stopped, so affected tabs remain stopped",
+                            failure.reason
+                        ));
+                    }
+                }
                 let resume_errors = resume_paused(&service, paused);
                 match (update_result, resume_errors.is_empty()) {
                     (Ok(()), true) => Ok(()),
-                    (Err(error), _) => Err(format!("{error}; {}", resume_errors.join("; "))),
+                    (Err(error), _) => Err(format!("{}; {}", error.reason, resume_errors.join("; "))),
                     (Ok(()), false) => {
                         Err(format!("tab resume failed: {}", resume_errors.join("; ")))
                     }
@@ -370,33 +438,33 @@ fn resume_paused(
 
 struct MachineUpdateLock(File);
 
-fn mark_version_offered(key: &str) -> bool {
-    let Ok(_lock) = acquire_machine_update_lock() else {
-        return false;
+fn version_was_offered(key: &str) -> bool {
+    let Some(path) = provider_update_state_dir().map(|dir| dir.join("provider-update-offers"))
+    else {
+        return true;
     };
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-    let path = home.join(".codeterm-provider-update-offers");
     let mut contents = String::new();
-    if let Ok(mut file) = File::open(&path) {
-        if file.read_to_string(&mut contents).is_err() {
-            return false;
-        }
+    match File::open(&path) {
+        Ok(mut file) if file.read_to_string(&mut contents).is_err() => return true,
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return true,
     }
-    if contents.lines().any(|line| line == key) {
-        return false;
-    }
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
-        return false;
-    };
-    writeln!(file, "{key}").is_ok()
+    contents.lines().any(|line| line == key)
+}
+
+fn record_version_offered(key: &str) -> std::io::Result<()> {
+    let path = provider_update_state_dir()
+        .ok_or_else(|| std::io::Error::other("home directory is unavailable"))?
+        .join("provider-update-offers");
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{key}")
 }
 
 fn acquire_machine_update_lock() -> Result<MachineUpdateLock, String> {
-    let path = dirs::home_dir()
-        .ok_or_else(|| "could not resolve the machine home directory".to_string())?
-        .join(".codeterm-provider-update.lock");
+    let path = provider_update_state_dir()
+        .ok_or_else(|| "could not resolve the home CodeTerm directory".to_string())?
+        .join("provider-update.lock");
     let file = OpenOptions::new()
         .create(true)
         .read(true)
@@ -412,7 +480,15 @@ fn acquire_machine_update_lock() -> Result<MachineUpdateLock, String> {
             "another CodeTerm instance is already updating a provider on this machine".into(),
         );
     }
+    file.set_len(0).map_err(|error| error.to_string())?;
+    writeln!(&file, "{}", std::process::id()).map_err(|error| error.to_string())?;
     Ok(MachineUpdateLock(file))
+}
+
+fn provider_update_state_dir() -> Option<PathBuf> {
+    let path = dirs::home_dir()?.join(".codeterm");
+    std::fs::create_dir_all(&path).ok()?;
+    Some(path)
 }
 
 impl Drop for MachineUpdateLock {
@@ -491,8 +567,58 @@ fn notify_owner(service: &ServiceContext, title: String, body: String) {
     );
 }
 
-fn run_update_command(command: &str) -> Result<(), String> {
+struct UpdateCommandFailure {
+    reason: String,
+    child_stopped: bool,
+}
+
+fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
     use wait_timeout::ChildExt;
+    let (executable, args) = update_argv(command).map_err(|reason| UpdateCommandFailure {
+        reason,
+        child_stopped: true,
+    })?;
+    let mut process = Command::new(executable);
+    process.args(args);
+    codeterm_util::process_util::no_window_std(&mut process);
+    let mut child = process
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| UpdateCommandFailure {
+            reason: error.to_string(),
+            child_stopped: true,
+        })?;
+    let wait_result = match child.wait_timeout(std::time::Duration::from_secs(300)) {
+        Ok(result) => result,
+        Err(error) => {
+            let killed = child.kill().is_ok();
+            let stopped = if killed { child.wait().is_ok() } else { child.try_wait().ok().flatten().is_some() };
+            return Err(UpdateCommandFailure {
+                reason: format!("waiting for provider update failed: {error}"),
+                child_stopped: stopped,
+            });
+        }
+    };
+    match wait_result {
+        Some(status) if status.success() => Ok(()),
+        Some(status) => Err(UpdateCommandFailure {
+            reason: format!("provider update exited with {status}"),
+            child_stopped: true,
+        }),
+        None => {
+            let killed = child.kill().is_ok();
+            let stopped = if killed { child.wait().is_ok() } else { child.try_wait().ok().flatten().is_some() };
+            Err(UpdateCommandFailure {
+                reason: "provider update exceeded the 300 second deadline".into(),
+                child_stopped: stopped,
+            })
+        }
+    }
+}
+
+fn update_argv(command: &str) -> Result<(PathBuf, Vec<std::ffi::OsString>), String> {
     let mut parts = command.split_whitespace();
     let executable = parts
         .next()
@@ -510,29 +636,67 @@ fn run_update_command(command: &str) -> Result<(), String> {
     }) {
         return Err("provider update arguments contain unsupported characters".into());
     }
-    let mut process = Command::new(executable);
-    process.args(args);
-    codeterm_util::process_util::no_window_std(&mut process);
-    let mut child = process
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    match child
-        .wait_timeout(std::time::Duration::from_secs(300))
-        .map_err(|error| error.to_string())?
-    {
-        Some(status) if status.success() => Ok(()),
-        Some(status) => Err(format!("provider update exited with {status}")),
-        None => {
-            child
-                .kill()
-                .map_err(|error| format!("update timed out and could not be stopped: {error}"))?;
-            let _ = child.wait();
-            Err("provider update exceeded the 300 second deadline".into())
+    let resolved = match codeterm_plugin::js_runtime::probe_bin(executable).resolution {
+        codeterm_plugin::js_runtime::BinResolution::Found(path) => path,
+        codeterm_plugin::js_runtime::BinResolution::Missing
+        | codeterm_plugin::js_runtime::BinResolution::Unknown => {
+            #[cfg(windows)]
+            return Err(format!(
+                "provider update executable {executable} was not resolved through PATH/PATHEXT"
+            ));
+            #[cfg(not(windows))]
+            PathBuf::from(executable)
         }
+    };
+    #[cfg(windows)]
+    if resolved
+        .extension()
+        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("cmd"))
+    {
+        return windows_npm_shim_argv(&resolved, &args);
     }
+    Ok((resolved, args.into_iter().map(Into::into).collect()))
+}
+
+#[cfg(windows)]
+fn windows_npm_shim_argv(
+    shim_path: &Path,
+    args: &[&str],
+) -> Result<(PathBuf, Vec<std::ffi::OsString>), String> {
+    let contents = std::fs::read_to_string(shim_path).map_err(|error| error.to_string())?;
+    let script = npm_shim_script(shim_path.parent().unwrap_or(Path::new(".")), &contents)
+        .ok_or_else(|| {
+            format!(
+                "could not resolve the node entrypoint in {}",
+                shim_path.display()
+            )
+        })?;
+    let node = match codeterm_plugin::js_runtime::probe_bin("node").resolution {
+        codeterm_plugin::js_runtime::BinResolution::Found(path) => path,
+        _ => return Err("Node.js was not found while resolving the Codex Windows shim".into()),
+    };
+    let mut argv = vec![script.into_os_string()];
+    argv.extend(args.iter().map(std::ffi::OsString::from));
+    Ok((node, argv))
+}
+
+fn npm_shim_script(parent: &Path, contents: &str) -> Option<PathBuf> {
+    let marker = "\"%_prog%\" \"";
+    let line = contents.lines().find(|line| {
+        line.to_ascii_lowercase()
+            .contains(&marker.to_ascii_lowercase())
+            && line.contains("%*")
+    })?;
+    let start = line
+        .to_ascii_lowercase()
+        .find(&marker.to_ascii_lowercase())?
+        + marker.len();
+    let target = line[start..].split_once('"')?.0;
+    let relative = target
+        .strip_prefix("%dp0%")?
+        .trim_start_matches(['\\', '/']);
+    let relative = relative.replace('\\', "/");
+    Some(parent.join(relative))
 }
 
 fn platform_key() -> &'static str {
@@ -545,42 +709,105 @@ fn platform_key() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{update_consent, update_gate, UpdateConsent, UpdateGate, LATER, UPDATE_NOW};
+    use super::{
+        offer_instance_name, update_consent, update_gate, NotificationOrigin, PushIntent,
+        UpdateConsent, UpdateGate, LATER,
+    };
     use codeterm_types::pty::TabStatus;
+    use std::path::Path;
 
     #[test]
     fn provider_update_waits_for_owner_choice_and_idle_agents() {
-        assert_eq!(
-            update_gate(update_consent(LATER), &[Some(TabStatus::Idle)]),
-            UpdateGate::NoConsent
-        );
-        assert_eq!(
-            update_gate(update_consent(UPDATE_NOW), &[Some(TabStatus::Working)]),
-            UpdateGate::WaitForIdle
-        );
-        assert_eq!(
-            update_gate(update_consent(UPDATE_NOW), &[Some(TabStatus::Idle)]),
-            UpdateGate::Ready
-        );
-        assert_eq!(
-            update_gate(update_consent(UPDATE_NOW), &[None]),
-            UpdateGate::WaitForIdle
-        );
         assert_eq!(update_consent(LATER), UpdateConsent::Declined);
+        assert_eq!(
+            update_gate(&[Some(TabStatus::Working)]),
+            UpdateGate::WaitForIdle
+        );
+        assert_eq!(update_gate(&[Some(TabStatus::Idle)]), UpdateGate::Ready);
+        assert_eq!(update_gate(&[None]), UpdateGate::WaitForIdle);
+    }
+
+    #[test]
+    fn only_default_production_instance_offers_without_opt_in() {
+        assert_eq!(
+            offer_instance_name(None, 7685, false).as_deref(),
+            Some("production")
+        );
+        assert_eq!(offer_instance_name(None, 7686, false), None);
+        assert_eq!(offer_instance_name(Some("dev-a"), 7685, false), None);
+        assert_eq!(
+            offer_instance_name(Some("dev-a"), 7686, true).as_deref(),
+            Some("dev-a")
+        );
+    }
+
+    #[test]
+    fn npm_windows_shim_resolves_to_a_direct_node_script() {
+        let parent = Path::new("C:/Users/owner/AppData/Roaming/npm");
+        let shim =
+            "@ECHO off\n\"%_prog%\" \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\" %*\n";
+        assert_eq!(
+            super::npm_shim_script(parent, shim),
+            Some(parent.join("node_modules/@openai/codex/bin/codex.js"))
+        );
     }
 
     #[test]
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-    fn generic_notification_answers_cannot_claim_update_offers() {
-        use super::{Offer, OFFERS, UPDATE_NOW};
+    fn http_answer_is_refused_then_owner_answer_queues_update() {
+        use super::{Offer, ACCEPTED, OFFERS, UPDATE_NOW};
         use crate::plugin::agent_claude::ClaudeProvider;
         use crate::service::test_fixture::ServiceFixture;
         use codeterm_plugin::provider::ProviderUpdateAvailability;
+        use codeterm_types::notification::CallerAction;
+        use codeterm_types::pty::{BootStage, TabVerdict, TimelineState};
         use std::sync::Arc;
 
-        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.list_workspaces()[0].id.clone();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        let pty_id = "update-consent-busy-pty";
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some(pty_id.into());
+        tab.agent_type = Some("claude".into());
+        tab.boot_stage = Some(BootStage::AgentReady);
+        tab.agent_state = Some(
+            TabVerdict {
+                state: TimelineState::Working,
+                subtype: None,
+            }
+            .into(),
+        );
         let fixture = ServiceFixture::new(mux);
-        let id = "provider-update-owner-only-test";
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(ClaudeProvider::new()));
+        fixture
+            .service
+            .agent_tracker
+            .lock()
+            .update_output(pty_id, [1u8; 32]);
+        let id = fixture.service.create_notification_ext(
+            "Update available".into(),
+            Some("version 1 -> 2".into()),
+            Some("info"),
+            Some(vec![
+                CallerAction::Answer {
+                    label: UPDATE_NOW.into(),
+                },
+                CallerAction::Answer {
+                    label: LATER.into(),
+                },
+            ]),
+            Some(true),
+            NotificationOrigin::default(),
+            PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+                event_key: Some("provider-update-test".into()),
+            },
+            None,
+        );
         OFFERS.lock().insert(
             id.into(),
             Offer {
@@ -593,8 +820,17 @@ mod tests {
             },
         );
 
-        assert!(fixture.service.answer_notification(id, UPDATE_NOW).is_err());
-        assert!(OFFERS.lock().contains_key(id));
-        OFFERS.lock().remove(id);
+        assert!(fixture
+            .service
+            .answer_notification(&id, UPDATE_NOW)
+            .is_err());
+        assert!(OFFERS.lock().contains_key(&id));
+        fixture
+            .service
+            .answer_owner_notification(&id, UPDATE_NOW)
+            .expect("owner answer should be recorded");
+        assert!(ACCEPTED.lock().contains_key(&id));
+        ACCEPTED.lock().remove(&id);
+        OFFERS.lock().remove(&id);
     }
 }
