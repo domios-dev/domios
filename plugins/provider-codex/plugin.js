@@ -1800,24 +1800,24 @@ function collectProfileEntries(profile) {
   }
   return flush() ? [...entries.values()] : null;
 }
-function hasTrustedProjectPath(config, path) {
+function projectTrustForPath(config, path) {
   const target = normalizedPath(path);
   let activePath = null;
   let trust = null;
   let trustSeen = false;
+  let result = "missing";
   let found = false;
-  let targetSeen = false;
   const flush = () => {
     if (activePath === null || normalizedPath(activePath) !== target) return true;
-    if (targetSeen) return false;
-    targetSeen = true;
-    found = trust === "trusted";
+    if (found) return false;
+    found = true;
+    result = trust ?? "missing";
     return true;
   };
   for (const line of config.split(/\r?\n/)) {
     const parts = headerParts(line);
     if (parts) {
-      if (!flush()) return false;
+      if (!flush()) return "unknown";
       activePath = projectTablePath(parts);
       trust = null;
       trustSeen = false;
@@ -1825,8 +1825,8 @@ function hasTrustedProjectPath(config, path) {
     }
     const header = withoutComment(line).trim();
     if (header.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(header) || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return false;
-      if (!flush()) return false;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(header) || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return "unknown";
+      if (!flush()) return "unknown";
       activePath = null;
       trust = null;
       trustSeen = false;
@@ -1835,11 +1835,14 @@ function hasTrustedProjectPath(config, path) {
     if (activePath === null) continue;
     const assignment = assignmentParts(line);
     if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
-    if (trustSeen) return false;
+    if (trustSeen) return "unknown";
     trustSeen = true;
-    trust = parseTrustValue(assignment.value);
+    const parsed = parseString(assignment.value.trim());
+    if (!parsed || parsed.next !== assignment.value.trim().length) return "unknown";
+    if (parsed.value !== "trusted" && parsed.value !== "untrusted") return "unknown";
+    trust = parsed.value;
   }
-  return flush() && found;
+  return flush() ? result : "unknown";
 }
 function hasTrustedProjectEntries(profile) {
   const entries = collectProfileEntries(profile);
@@ -2032,12 +2035,122 @@ function codexConfigPath(host2, home) {
   return `${home}${separator}.codex${separator}config.toml`;
 }
 function isCodexDirectoryTrusted(host2, path) {
+  return codexDirectoryTrustState(host2, path) === "trusted";
+}
+function codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
   const home = host2.homeDir();
-  if (!home) return false;
+  if (!home || !isAbsolutePath(host2, cwd)) return "unknown";
   const configPath = codexConfigPath(host2, home);
-  if (host2.fs.isSymlink(configPath) !== false) return false;
-  const config = host2.fs.readFile(configPath);
-  return config !== null && hasTrustedProjectPath(config, path);
+  const configSymlink = host2.fs.isSymlink(configPath);
+  if (configSymlink !== false) return "unknown";
+  const configExists = host2.fs.fileExists(configPath);
+  const config = configExists ? host2.fs.readFile(configPath) : "";
+  if (config === null) return "unknown";
+  const markers = projectRootMarkers(config);
+  if (!markers) return "unknown";
+  const roots = codexTrustRoots(host2, cwd, markers);
+  if (!roots) return "unknown";
+  for (const root of roots) {
+    const trust = projectTrustForPath(config, root);
+    if (trust === "trusted") return "trusted";
+    if (trust === "untrusted") return "untrusted";
+    if (trust === "unknown") return "unknown";
+  }
+  return "untrusted";
+}
+function isAbsolutePath(host2, path) {
+  return host2.platform() === "windows" ? /^[A-Za-z]:[\\/]/.test(path) || /^\\\\/.test(path) : path.startsWith("/");
+}
+function projectRootMarkers(config) {
+  const lines = config.split(/\r?\n/);
+  const assignments = lines.filter((line) => /^\s*project_root_markers\s*=/.test(line));
+  if (assignments.length === 0) return [".git"];
+  if (assignments.length !== 1) return null;
+  const value = assignments[0].slice(assignments[0].indexOf("=") + 1).trim();
+  if (!value.startsWith("[") || !value.endsWith("]")) return null;
+  const body = value.slice(1, -1).trim();
+  if (!body) return [];
+  const markers = [];
+  let rest = body;
+  while (rest) {
+    const match = /^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:,\s*|$)/.exec(rest);
+    if (!match) return null;
+    const parsed = match[1][0] === '"' ? (() => {
+      try {
+        return JSON.parse(match[1]);
+      } catch {
+        return null;
+      }
+    })() : match[1].slice(1, -1);
+    if (parsed === null || parsed.length === 0) return null;
+    markers.push(parsed);
+    rest = rest.slice(match[0].length);
+  }
+  return markers;
+}
+function codexTrustRoots(host2, cwd, markers) {
+  const windows = host2.platform() === "windows";
+  const normalizedCwd = normalizeAbsolutePath(cwd, windows);
+  if (!normalizedCwd) return null;
+  const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host2, normalizedCwd, markers, windows);
+  const gitRoot = findRoot(host2, normalizedCwd, [".git"], windows);
+  if (projectRoot === null || gitRoot === null) return null;
+  return uniquePaths([normalizedCwd, projectRoot, gitRoot].filter((path) => path !== void 0), windows);
+}
+function findRoot(host2, cwd, markers, windows) {
+  const separator = windows ? "\\" : "/";
+  let current = cwd;
+  const root = windows ? current.slice(0, 3) : "/";
+  while (current) {
+    if (host2.fs.isSymlink(current) !== false) return null;
+    for (const markerName of markers) {
+      const marker = `${current.replace(/[\\/]$/, "")}${separator}${markerName}`;
+      const markerSymlink = host2.fs.isSymlink(marker);
+      if (markerSymlink === null || markerSymlink === true) return null;
+      if (host2.fs.fileExists(marker)) return current;
+    }
+    if (current === root) break;
+    const parent = parentPath(current, windows);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return markers.length === 0 ? cwd : void 0;
+}
+function normalizeAbsolutePath(path, windows) {
+  const value = windows ? path.replace(/\//g, "\\") : path;
+  const prefix = windows ? /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)/.exec(value)?.[0] : "/";
+  if (!prefix) return null;
+  const tail = value.slice(prefix.length);
+  const parts = [];
+  for (const part of tail.split(/[\\/]+/)) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length === 0) return null;
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  const joined = `${prefix}${parts.join(windows ? "\\" : "/")}`;
+  return windows ? joined.toLowerCase() : joined;
+}
+function parentPath(path, windows) {
+  const separator = windows ? "\\" : "/";
+  const normalized = path.replace(/[\\/]$/, "");
+  const index = normalized.lastIndexOf(separator);
+  if (index < 0) return null;
+  if (windows && index === 2) return normalized.slice(0, 3);
+  if (!windows && index === 0) return "/";
+  return normalized.slice(0, index);
+}
+function uniquePaths(paths, windows) {
+  const seen = /* @__PURE__ */ new Set();
+  return paths.filter((path) => {
+    const key = windows ? path.toLowerCase() : path;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 function codexProfileTabId(fileName) {
   return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
@@ -3469,6 +3582,9 @@ var plugin = {
   },
   isDirectoryTrusted(path) {
     return isCodexDirectoryTrusted(profileSweepHost(), path);
+  },
+  directoryTrustState(path, skipPermissions) {
+    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
   },
   sweepLaunchArtifacts(request) {
     return manageCodexProfiles(
