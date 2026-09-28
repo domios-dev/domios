@@ -15,18 +15,6 @@ pub(crate) struct RpcRequest {
     protocol_version: Option<serde_json::Value>,
 }
 
-fn supported_method(method: &str) -> bool {
-    matches!(
-        method,
-        "system.identify"
-            | "tab.list"
-            | "tab.send_text"
-            | "agent.startup_ack"
-            | "agent.ack"
-            | "agent.report"
-    )
-}
-
 fn local_caller(
     remote: SocketAddr,
     expected_token: Option<&str>,
@@ -140,18 +128,6 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
-    if !supported_method(&request.method) {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": {
-                    "code": -32601,
-                    "message": "Method not found on HTTP fallback",
-                    "data": null,
-                }
-            })),
-        ));
-    }
     if let Some(error) = crate::socket::server::protocol::version_skew_gate(
         crate::socket::server::protocol::client_protocol_version(request.protocol_version.as_ref()),
         crate::socket::server::protocol::PROTOCOL_VERSION,
@@ -214,25 +190,9 @@ pub(crate) async fn dispatch(
 
 #[cfg(test)]
 mod tests {
-    use super::{identity_matches, local_caller, supported_method};
+    use super::{identity_matches, local_caller};
     use axum::http::HeaderMap;
     use std::net::SocketAddr;
-
-    #[test]
-    fn http_rpc_fallback_only_exposes_the_required_cli_methods() {
-        for method in [
-            "system.identify",
-            "tab.list",
-            "tab.send_text",
-            "agent.startup_ack",
-            "agent.ack",
-            "agent.report",
-        ] {
-            assert!(supported_method(method), "{method}");
-        }
-        assert!(!supported_method("agent.spawn"));
-        assert!(!supported_method("plan.delete"));
-    }
 
     #[test]
     fn mesh_peer_identity_cannot_use_loopback_rpc_fallback() {
@@ -247,6 +207,24 @@ mod tests {
             "127.0.0.1:7000".parse().unwrap(),
             Some("secret"),
             Some("Bearer secret")
+        ));
+    }
+
+    #[test]
+    fn rest_identity_headers_are_accepted_for_local_auth_and_refused_for_mesh_callers() {
+        let local = "127.0.0.1:7000".parse().unwrap();
+        let peer = "192.0.2.10:7000".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-codeterm-tab-id", "worker-1".parse().unwrap());
+        let params = serde_json::json!({"tab_id": "worker-1"});
+        let local_authenticated = local_caller(local, Some("secret"), Some("Bearer secret"));
+        assert!(local_authenticated);
+        assert!(local_authenticated && identity_matches("agent.ack", Some(&params), &headers));
+        assert!(!local_caller(peer, Some("secret"), Some("Bearer secret")));
+        assert!(!local_caller(
+            local,
+            Some("secret"),
+            Some("Bearer peer-token")
         ));
     }
 
