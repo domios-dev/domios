@@ -311,8 +311,6 @@ impl AgentProvider for JsProvider {
             "directoryTrustState",
             &[json!(path), json!(skip_permissions)],
         )
-        .ok()
-        .flatten()
         .unwrap_or(crate::provider::DirectoryTrustState::Unknown))
     }
 
