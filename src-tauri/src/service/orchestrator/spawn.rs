@@ -684,7 +684,11 @@ impl ServiceContext {
                 attempt_id: authority.attempt_id.clone(),
             }
         });
-        let startup_supervised = self.prepare_agent_startup_supervision(
+        let remote_task_bound = remote_task_binding_matches(
+            params.remote_task_binding.as_ref(),
+            task_identity.as_ref(),
+        );
+        let startup_supervised = !remote_task_bound && self.prepare_agent_startup_supervision(
             &tab_id,
             params
                 .parent_tab_id
@@ -693,7 +697,7 @@ impl ServiceContext {
                 .or(params.creator_tab_id.as_deref()),
             task_identity.clone(),
         );
-        if params.task_launch_authority.is_some() && !startup_supervised {
+        if params.task_launch_authority.is_some() && !startup_supervised && !remote_task_bound {
             if tab_created_by_spawn {
                 self.cancel_agent_startup_supervision(&tab_id);
                 let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
@@ -1084,6 +1088,18 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+fn remote_task_binding_matches(
+    remote: Option<&super::types::RemoteTaskBinding>,
+    identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
+) -> bool {
+    remote.zip(identity).is_some_and(|(remote, identity)| {
+        !remote.origin_peer_id.trim().is_empty()
+            && remote.plan_id == identity.plan_id
+            && remote.task_id == identity.task_id
+            && remote.attempt_id == identity.attempt_id
+    })
 }
 
 /// A chat backend has no interactive turn to paste a task into, so the launch
