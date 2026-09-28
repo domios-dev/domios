@@ -11,7 +11,7 @@ use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_object};
 
 use clap::{CommandFactory, Parser};
-use client::{discover_socket, SocketClient};
+use client::SocketClient;
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
@@ -591,10 +591,7 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
-    let Ok(socket_path) = discover_socket() else {
-        return;
-    };
-    let Ok(mut client) = SocketClient::connect(&socket_path) else {
+    let Ok((mut client, _)) = SocketClient::connect_local() else {
         return;
     };
     let Ok(response) = client.call(
