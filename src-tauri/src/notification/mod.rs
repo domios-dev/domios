@@ -81,7 +81,7 @@ pub fn answer_notification(
     id: String,
     label: String,
 ) -> Result<serde_json::Value, String> {
-    svc.answer_notification(&id, &label)
+    svc.answer_owner_notification(&id, &label)
 }
 
 /// Mark a single notification as read.
