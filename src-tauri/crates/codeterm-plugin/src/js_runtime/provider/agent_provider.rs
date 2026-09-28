@@ -285,6 +285,18 @@ impl AgentProvider for JsProvider {
         Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
     }
 
+    fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
+        const METHOD: &str = "isDirectoryTrusted";
+        if self.has_js(METHOD) {
+            return super::call_json_strict(&self.vm, METHOD, &[json!(path)]).map_err(|error| {
+                format!("[plugin {}] {METHOD} failed: {error}", self.manifest.id)
+            });
+        }
+        self.native()
+            .map(|native| native.is_directory_trusted(path))
+            .unwrap_or(Ok(false))
+    }
+
     fn permission_prompt_response(
         &self,
         tool_name: &str,

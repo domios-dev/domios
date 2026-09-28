@@ -112,12 +112,12 @@ pub(super) fn candidate_for_output(
     tab_id: &str,
     agent_type: &str,
     screen: Option<&str>,
-    provenance_applies: bool,
+    trust_check_applies: bool,
     auto_approve: bool,
     skip_reason: Option<&'static str>,
 ) -> bool {
     service.maybe_detect_agent_session(tab_id, agent_type);
-    let candidate = if provenance_applies && screen.is_some() {
+    let candidate = if trust_check_applies && screen.is_some_and(may_be_directory_trust_prompt) {
         service
             .respond_to_directory_trust(tab_id, screen)
             .owns_prompt()
@@ -128,7 +128,7 @@ pub(super) fn candidate_for_output(
     } else {
         false
     };
-    if !provenance_applies {
+    if !trust_check_applies {
         if let Some(reason) = skip_reason {
             service.note_directory_trust(tab_id, reason, None);
         }

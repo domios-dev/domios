@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
@@ -201,20 +199,81 @@ fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
 }
 
 #[test]
-fn user_directory_never_invokes_the_recognizer() {
+fn user_directory_is_eligible_before_session_authentication() {
     let (state, tab_id) = agent_tab(None, false);
     let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
-    assert!(!applies);
-    let invoked = Cell::new(false);
-    let ledger = parking_lot::Mutex::new(TrustLedger::default());
-    let decision = decide(applies, &tab_id, "any screen", &ledger, |_| {
-        invoked.set(true);
-        answer(b"\r")
-    });
-    assert_eq!(decision, TrustDecision::NotApplicable);
-    assert!(
-        !invoked.get(),
-        "a user directory must never reach the recognizer"
+    assert!(applies);
+}
+
+#[test]
+fn shared_trust_gate_requires_the_exact_owner_trusted_path() {
+    let (mut mux, tab_id) = agent_tab(None, false);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.cwd = Some(r"C:\Users\owner\Trusted".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let response = DirectoryTrustPromptResponse::Answer {
+        step: b"\r".to_vec(),
+    };
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "codex",
+            response.clone(),
+        )
+        .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
+    ));
+
+    assert_eq!(
+        fixture.service.directory_trust_response(
+            "codex",
+            r"C:\Users\owner\Trusted",
+            "recognized trust prompt",
+        ),
+        Some(response.clone()),
+        "the owner-trusted exact folder may use the existing affirmative responder",
+    );
+    assert_eq!(
+        fixture.service.directory_trust_response(
+            "codex",
+            r"C:\Users\owner\Neighbor",
+            "recognized trust prompt",
+        ),
+        None,
+        "a neighbor folder cannot borrow the trust entry",
+    );
+}
+
+#[test]
+fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
+    let (mut mux, tab_id) = agent_tab(None, false);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("codex".into());
+    tab.cwd = Some(r"C:\Users\owner\Trusted".into());
+    tab.pty_id = Some("pty-shared-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "codex",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        )
+        .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
+    ));
+
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
+
+    assert_eq!(
+        decision,
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        }
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-shared-trust"),
+        1,
+        "an already-open sibling prompt receives one bound trust key",
     );
 }
 

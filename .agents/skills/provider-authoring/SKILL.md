@@ -233,7 +233,8 @@ instead.
 |---|---|---|---|
 | `parsePrompt(text)` | screen text | `{question, options: [[id, label], …]}` or `null` | universal permission-prompt parser. |
 | `buildPromptResponse(optionIndex, screen)` | selected index, live screen | array of **base64-encoded** byte strings, one per PTY write step (vim j/k, arrows, escape sequences — whatever the TUI expects; `screen` lets you navigate relative to the live highlight) | arrow-down × index + Enter. |
-| `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core asks only for an agent tab in the directory CodeTerm created whose launch session is not yet authenticated, and writes one key per observed frame. | `null` — directory-trust dialogs stay with the user. |
+| `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core writes one key per observed frame only when `isDirectoryTrusted(cwd)` confirms the exact current folder. | `null` — directory-trust dialogs stay with the user. |
+| `isDirectoryTrusted(cwd)` | current tab working directory | bool — true only when the provider's shared configuration explicitly trusts this exact folder; core fails closed on false or errors. | `false` — automatic trust responses stay disabled. |
 | `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
 
 ### Session discovery
