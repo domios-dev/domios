@@ -235,7 +235,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
-    "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
+    "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
