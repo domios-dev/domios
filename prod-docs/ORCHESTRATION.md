@@ -121,10 +121,15 @@ When a Planner is present:
 
 Judge structure against your role brief's plan-shape contract before dispatch.
 If the Planner is waived, record that on the plan.
+## Dispatch contract
+
+Before each wave, check provider headroom (reuse live Workers near 95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Each Worker needs `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a brief with exact acceptance and test commands; it ACKs before work and reports last. Dispatch is local only; do not use mesh dispatch.
+
+If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
 
 ## Task lifecycle, milestones, and dispatch
 
-See `codeterm docs ORCHESTRATION-TASKS` for task lifecycle, milestones, and dispatch; see `codeterm docs ORCHESTRATION-OPERATIONS` for review, verification, and closeout.
+The task guide covers lifecycle and dispatch; the operations guide covers review, verification, and closeout.
 
 ## Review capacity
 
@@ -153,15 +158,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-## Team-bound resources
-
-Created agents, utility shells, and schedules belong to their Team. Use
-`codeterm tab new --team <team-id>` and `codeterm cron create --team <team-id>`;
-ad-hoc helpers join with `codeterm agent spawn <provider> --team <team-id>` or
-`codeterm team adopt-agent <team-id> <tab-id>`. A standalone shell or cron needs
-an explicit user request. Team close finalizes members, attempts, lanes, and
-Team crons; workspace close applies the same cleanup to each Team it contains.
-Planners without spawn authority route helper requests, with role, reason, and
-owned work, to their Orchestrator.
-
-<!-- revision: 93 -->
+<!-- revision: 94 -->
