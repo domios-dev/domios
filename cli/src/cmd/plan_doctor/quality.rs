@@ -349,6 +349,10 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         .get("correctness")
         .and_then(Value::as_str)
         .is_none_or(|s| s.trim().is_empty());
+    let terminal = task
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| matches!(status, "done" | "cancelled"));
 
     // Same field list `plan task add` warns on at creation (crate::cmd::hints);
     // section link is doctor-only, tracked separately from that shared set.
@@ -364,7 +368,7 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
     ));
     if !missing.is_empty() {
         findings.push(Finding {
-            severity: "error",
+            severity: if terminal { "warning" } else { "error" },
             kind: "task_quality_gap",
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),

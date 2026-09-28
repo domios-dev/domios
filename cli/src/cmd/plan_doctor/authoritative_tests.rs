@@ -80,6 +80,26 @@ fn production_layout_real_plan_is_inspected() {
 }
 
 #[test]
+fn approval_accepts_a_plan_with_quality_gaps_only_on_terminal_tasks() {
+    let plan = json!({
+        "id": "pl_terminal_gaps",
+        "title": "Approved work",
+        "status": "active",
+        "mode": "planning",
+        "goal": {"vector": "finish the active plan"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "Ship the work"}],
+        "tasks": [
+            {"id": "done", "status": "done"},
+            {"id": "cancelled", "status": "cancelled"}
+        ]
+    });
+    let mut client = FakeRpc::with_plan(plan);
+
+    assert_quality_ready(&mut client, "pl_terminal_gaps").unwrap();
+}
+
+#[test]
 fn production_layout_unknown_plan_queries_authority() {
     let mut client = FakeRpc::not_found();
     let (_project, project) = project_arg();
