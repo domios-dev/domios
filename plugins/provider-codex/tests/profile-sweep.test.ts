@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   codexProfileInstanceId,
   codexProfileTabId,
-  carryLiveCodexProjectTrust,
+  carryCodexProjectTrustForTab,
   manageCodexProfiles,
   releaseCodexProfile,
   sweepCodexProfiles,
@@ -146,7 +146,7 @@ console.log("\n--- profile release carries project trust before removal ---\n");
   assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
 }
 
-console.log("\n--- live trust answers reach shared config before profile release ---\n");
+console.log("\n--- answered trust carries only this tab and instance before release ---\n");
 {
   const config = "[hooks.state]\r\ntrusted_hash = \"sha256:unchanged\"\r\n";
   const { host, files } = makeHost({
@@ -170,12 +170,15 @@ console.log("\n--- live trust answers reach shared config before profile release
     ].join("\n"),
     "config.toml": config,
   });
-  assert.equal(carryLiveCodexProjectTrust(host), true, "live profiles can persist trust while their tabs remain open");
+  assert.equal(carryCodexProjectTrustForTab(host, "live-tab", "instance-dev"), true,
+    "the answered tab can persist trust while its profile remains live");
   assert.ok(files["config.toml"].includes("[projects.'C:\\Users\\test\\TeamProject']"),
     "the live tab trust is immediately available to sibling and later Codex launches");
   assert.ok(!files["config.toml"].includes("C:\\Foreign"), "does not collect another instance's profile trust");
   assert.ok(!files["config.toml"].includes("C:\\Legacy"), "does not collect unmarked profile trust");
   assert.ok(files["config.toml"].startsWith(config), "hooks and trusted_hash bytes remain unchanged");
+  assert.equal(carryCodexProjectTrustForTab(host, "foreign-tab", "instance-dev"), false,
+    "does not carry a sibling instance's profile even when given its tab id");
 }
 
 console.log("\n--- dead tab profile carries trust before startup sweep removes it ---\n");

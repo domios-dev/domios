@@ -82,18 +82,24 @@ function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string): boo
   return readProfile(host, path) === original && removeProfile(host, path);
 }
 
-export function carryLiveCodexProjectTrust(host: ProfileSweepHost): boolean {
+export function carryCodexProjectTrustForTab(
+  host: ProfileSweepHost,
+  tabId: string,
+  instanceId: string,
+): boolean {
   const listing = profiles(host);
   const home = host.homeDir();
   if (!listing || !home) return false;
   const configPath = `${home}\\.codex\\config.toml`;
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const owned = listing
+    .filter((name) => codexProfileTabId(name) === suffix)
+    .map((name) => profilePath(host, name))
+    .filter((path): path is string => path !== null)
+    .filter((path) => codexProfileInstanceId(readProfile(host, path) || "") === instanceId);
+  if (owned.length === 0) return false;
   let carried = true;
-  for (const name of listing) {
-    if (codexProfileTabId(name) === null) continue;
-    const path = profilePath(host, name);
-    if (!path) continue;
-    const contents = readProfile(host, path);
-    if (contents === null || codexProfileInstanceId(contents) === null) continue;
+  for (const path of owned) {
     if (!carryCodexProjectTrust(host, path, configPath)) carried = false;
   }
   return carried;

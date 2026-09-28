@@ -123,10 +123,10 @@ function assignmentParts(line: string): { key: string[]; value: string } | null 
   return null;
 }
 
-function parseTrustValue(value: string): "trusted" | "untrusted" | null {
+function parseTrustValue(value: string): "trusted" | null {
   const parsed = parseString(value.trim());
   if (!parsed || parsed.next !== value.trim().length) return null;
-  return parsed.value === "trusted" || parsed.value === "untrusted" ? parsed.value : null;
+  return parsed.value === "trusted" ? parsed.value : null;
 }
 
 function projectTablePath(parts: string[] | null): string | null {

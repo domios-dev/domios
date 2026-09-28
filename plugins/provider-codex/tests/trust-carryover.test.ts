@@ -60,8 +60,8 @@ assert.equal(
 );
 assert.equal(
   mergeTrustedProjectEntries(untrustedProfile, ""),
-  "[projects.'C:\\Untrusted']\r\ntrust_level = 'untrusted'\r\n",
-  "carries Codex's explicit untrusted answer as well as trusted answers",
+  "",
+  "does not carry a folder the owner explicitly declined",
 );
 const provisionedProfile = [
   "[projects.'c:\\users\\user\\.codeterm-dev-qa\\provisioned-workspaces\\qa-c9-prov-90b4425239c0']",
