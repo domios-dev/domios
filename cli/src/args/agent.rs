@@ -240,7 +240,7 @@ pub enum AgentAction {
         /// Short tab description (max 200 chars)
         #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
-        /// Working directory
+        /// Working directory (required with --mesh; resolves on the peer)
         #[arg(long)]
         cwd: Option<String>,
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
@@ -267,8 +267,8 @@ pub enum AgentAction {
         #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
-        /// Relative paths resolve from --cwd. Content bypasses the caller's shell
-        /// and remains byte-exact. Mutually exclusive with --task.
+        /// Local relative paths resolve from --cwd; mesh paths resolve on the
+        /// caller. Content remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
         /// Extra provider args. Put this after all CodeTerm spawn options.

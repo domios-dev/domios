@@ -1174,6 +1174,8 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
     let _guard = crate::test_env_lock().lock().unwrap();
     let (method, path, body) = cli_command_to_api(&parse_spawn_command(&[
         "claude",
+        "--cwd",
+        "D:/peer/workspace",
         "--role",
         "Worker",
         "--task",
@@ -1194,3 +1196,5 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
         "no declared intent is its own shape: {body}"
     );
 }
+#[path = "tests/mesh_spawn_close.rs"]
+mod mesh_spawn_close;
