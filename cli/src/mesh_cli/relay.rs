@@ -737,7 +737,30 @@ pub fn mesh_close_tab_and_forget_remote_worker(
     json_mode: bool,
 ) {
     let path = format!("/api/tabs/{tab_id}/close");
-    let data = mesh_relay_invoke(target, "POST", &path, None, json_mode);
+    let before = mesh_relay_invoke_result(target, "GET", "/api/tabs", None);
+    let before = match before {
+        Ok(tabs) => tabs,
+        Err(failure) => failure.print_and_exit(json_mode),
+    };
+    if remote_tab_exists(&before, tab_id) != Some(true) {
+        MeshSpawnFailure::new(
+            target,
+            "remote tab was not present before close",
+            "check `codeterm tab list --mesh <peer>` and retry with an existing tab id",
+        )
+        .print_and_exit(json_mode);
+    }
+    let close = mesh_relay_invoke_result(target, "POST", &path, None);
+    let after = mesh_relay_invoke_result(target, "GET", "/api/tabs", None);
+    let data = match verified_close_result(Ok(before), close, after, tab_id) {
+        Ok(data) => data,
+        Err(failure) => failure.print_and_exit(json_mode),
+    };
+    let data = if data.is_null() {
+        serde_json::json!({"ok": true, "tab_id": tab_id})
+    } else {
+        data
+    };
 
     if let Ok(local) = crate::build_local_api() {
         let _ = local
@@ -748,12 +771,51 @@ pub fn mesh_close_tab_and_forget_remote_worker(
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
-    } else if data.is_null() {
-        eprintln!("Error: unexpected response from peer (null data)");
-        std::process::exit(1);
     } else {
         crate::cmd::print::print_human(&data);
     }
+}
+
+fn remote_tab_exists(tabs: &serde_json::Value, tab_id: &str) -> Option<bool> {
+    let tabs = tabs.as_array()?;
+    let ids: Option<Vec<_>> = tabs.iter().map(|tab| tab.get("id")?.as_str()).collect();
+    Some(ids?.contains(&tab_id))
+}
+
+pub(crate) fn verified_close_result(
+    before: Result<serde_json::Value, MeshSpawnFailure>,
+    close: Result<serde_json::Value, MeshSpawnFailure>,
+    after: Result<serde_json::Value, MeshSpawnFailure>,
+    tab_id: &str,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let before = before?;
+    if remote_tab_exists(&before, tab_id) != Some(true) {
+        return Err(MeshSpawnFailure::new(
+            "peer",
+            "remote tab was not present before close",
+            "check the remote tab id and retry",
+        ));
+    }
+    let close_failure = close.err();
+    let after = match after {
+        Ok(after) => after,
+        Err(verification_failure) => return Err(close_failure.unwrap_or(verification_failure)),
+    };
+    match remote_tab_exists(&after, tab_id) {
+        Some(false) => Ok(serde_json::json!({"ok": true, "tab_id": tab_id})),
+        Some(true) | None => Err(close_failure.unwrap_or_else(|| {
+            MeshSpawnFailure::new(
+                "peer",
+                "remote tab remains after close",
+                "retry the close after checking the peer tab list",
+            )
+        })),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_close_failure() -> MeshSpawnFailure {
+    MeshSpawnFailure::new("peer", "close failed", "retry")
 }
 
 #[cfg(test)]

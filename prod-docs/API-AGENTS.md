@@ -183,7 +183,7 @@ dispatch, and team pair.
 
 ### Remote mesh workers
 
-A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab).
+A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER --cwd <peer-workspace> [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab). Mesh spawn requires an explicit peer-side `--cwd`; `--task-file` is read on the caller and only its contents are relayed.
 
 The worker just runs `codeterm agent report "..."` (no `--mesh`/`--tab`). Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint, never a silent drop.
 
@@ -237,4 +237,4 @@ A failing command returns `{"error": "message", "method": "..."}`; later command
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
