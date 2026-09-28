@@ -217,4 +217,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

@@ -230,4 +230,4 @@ Local `codeterm send` uses socket `tab.send_text`: it prints `OK (sent)` after
 confirmed delivery, `OK (pending)` for accepted or unconfirmed delivery, and an
 explicit refusal when no payload bytes were written. The resolved payload echo
 is emitted for confirmed delivery and for pending sends reporting written bytes.
-<!-- revision: 171 -->
+<!-- revision: 172 -->
