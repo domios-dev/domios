@@ -328,6 +328,7 @@ fn start_update(service: ServiceContext, id: String, offer: Offer) {
         return;
     }
     let provider_id = offer.provider.id().to_string();
+    let thread_provider_id = provider_id.clone();
     let spawned = std::thread::Builder::new()
         .name("provider-update-install".into())
         .spawn(move || {
@@ -427,7 +428,7 @@ fn start_update(service: ServiceContext, id: String, offer: Offer) {
                     );
                 }
             }
-            INSTALLING.lock().remove(&provider_id);
+            INSTALLING.lock().remove(&thread_provider_id);
         });
     if let Err(error) = spawned {
         INSTALLING.lock().remove(&provider_id);
@@ -454,8 +455,11 @@ fn version_was_offered(key: &str) -> bool {
     };
     let mut contents = String::new();
     match File::open(&path) {
-        Ok(mut file) if file.read_to_string(&mut contents).is_err() => return true,
-        Ok(_) => {}
+        Ok(mut file) => {
+            if file.read_to_string(&mut contents).is_err() {
+                return true;
+            }
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return true,
     }
@@ -843,7 +847,7 @@ mod tests {
             None,
         );
         OFFERS.lock().insert(
-            id.into(),
+            id.clone(),
             Offer {
                 provider: Arc::new(ClaudeProvider::new()),
                 version: ProviderUpdateAvailability {
