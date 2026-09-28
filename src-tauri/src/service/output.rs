@@ -218,9 +218,11 @@ impl ServiceContext {
                 .unwrap_or_default()
         });
         if matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
-            if let (Some(tab_id), Some(agent_type), Some(_)) =
-                (tab_id.as_deref(), agent_type.as_deref(), changed_screen.as_deref())
-            {
+            if let (Some(tab_id), Some(agent_type), Some(_)) = (
+                tab_id.as_deref(),
+                agent_type.as_deref(),
+                changed_screen.as_deref(),
+            ) {
                 self.enqueue_launch_onboarding_screen_check(tab_id, pty_id, agent_type);
             }
         }

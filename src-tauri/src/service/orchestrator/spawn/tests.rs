@@ -16,7 +16,10 @@ fn remote_task_binding_matches_startup_identity_without_local_supervisor() {
     assert!(remote_task_binding_matches(Some(&remote), Some(&identity)));
     let mut mismatched = identity;
     mismatched.attempt_id = "attempt-other".into();
-    assert!(!remote_task_binding_matches(Some(&remote), Some(&mismatched)));
+    assert!(!remote_task_binding_matches(
+        Some(&remote),
+        Some(&mismatched)
+    ));
     assert!(!remote_task_binding_matches(Some(&remote), None));
 }
 

@@ -2132,7 +2132,7 @@ function normalizeAbsolutePath(path, windows) {
     }
   }
   const joined = `${prefix}${parts.join(windows ? "\\" : "/")}`;
-  return windows ? joined.toLowerCase() : joined;
+  return joined;
 }
 function parentPath(path, windows) {
   const separator = windows ? "\\" : "/";

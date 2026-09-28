@@ -318,14 +318,15 @@ impl ServiceContext {
                     _ => false,
                 };
                 if wait_for_response {
-                    let remaining = deadline
-                        .checked_duration_since(Instant::now())
-                        .ok_or_else(|| {
-                            launch_readiness_deadline_refusal(
-                                declares_structural_composer,
-                                observed_tui_without_composer,
-                            )
-                        })?;
+                    let remaining =
+                        deadline
+                            .checked_duration_since(Instant::now())
+                            .ok_or_else(|| {
+                                launch_readiness_deadline_refusal(
+                                    declares_structural_composer,
+                                    observed_tui_without_composer,
+                                )
+                            })?;
                     if remaining.is_zero() || !signal.wait_after(generation, remaining) {
                         return Err(launch_readiness_deadline_refusal(
                             declares_structural_composer,

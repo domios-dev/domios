@@ -307,11 +307,13 @@ impl AgentProvider for JsProvider {
                 .native()
                 .and_then(|native| native.directory_trust_state(path, skip_permissions));
         }
-        Some(self.try_call::<crate::provider::DirectoryTrustState>(
-            "directoryTrustState",
-            &[json!(path), json!(skip_permissions)],
+        Some(
+            self.try_call::<crate::provider::DirectoryTrustState>(
+                "directoryTrustState",
+                &[json!(path), json!(skip_permissions)],
+            )
+            .unwrap_or(crate::provider::DirectoryTrustState::Unknown),
         )
-        .unwrap_or(crate::provider::DirectoryTrustState::Unknown))
     }
 
     fn launch_onboarding_response(
@@ -324,8 +326,8 @@ impl AgentProvider for JsProvider {
             frame_key: String,
             step: String,
         }
-        let response = self
-            .try_call::<Option<WireResponse>>("launchOnboardingResponse", &[json!(screen)])??;
+        let response =
+            self.try_call::<Option<WireResponse>>("launchOnboardingResponse", &[json!(screen)])??;
         use base64::Engine;
         let step = base64::engine::general_purpose::STANDARD
             .decode(response.step.as_bytes())

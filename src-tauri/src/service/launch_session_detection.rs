@@ -993,10 +993,9 @@ mod tests {
                 lane.to_str().unwrap(),
             ],
         );
-        let git_roots =
-            git_worktree_metadata_dirs(lane.to_str().unwrap(), repo.to_str().unwrap())
-                .expect("valid lane metadata")
-                .expect("linked worktree");
+        let git_roots = git_worktree_metadata_dirs(lane.to_str().unwrap(), repo.to_str().unwrap())
+            .expect("valid lane metadata")
+            .expect("linked worktree");
 
         for (state, expected_count) in [
             (codeterm_plugin::provider::DirectoryTrustState::Trusted, 10),

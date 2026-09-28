@@ -5,9 +5,9 @@ use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+mod remote_task_startup;
 mod startup_binding;
 mod startup_supervision_honesty;
-mod remote_task_startup;
 
 fn lifecycle_fixture(
     parent_agent: bool,

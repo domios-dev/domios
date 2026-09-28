@@ -7,7 +7,10 @@ fn claude_onboarding_prompt_follows_declared_policy() {
     use codeterm_types::agent::roles::AgentRole;
     assert!(delegated_role(Some(AgentRole::Worker), None));
     assert!(delegated_role(Some(AgentRole::Manager), Some("planner")));
-    assert!(!delegated_role(Some(AgentRole::Manager), Some("orchestrator")));
+    assert!(!delegated_role(
+        Some(AgentRole::Manager),
+        Some("orchestrator")
+    ));
     assert!(!delegated_role(None, None));
 }
 
@@ -206,9 +209,21 @@ fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
 fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrusted_folder() {
     use codeterm_plugin::provider::DirectoryTrustState;
 
-    assert!(directory_trust_blocks_input(DirectoryTrustState::Untrusted, false, false));
-    assert!(directory_trust_blocks_input(DirectoryTrustState::Untrusted, true, true));
-    assert!(!directory_trust_blocks_input(DirectoryTrustState::Untrusted, false, true));
+    assert!(directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        false,
+        false
+    ));
+    assert!(directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        true,
+        true
+    ));
+    assert!(!directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        false,
+        true
+    ));
     assert_eq!(
         decide_launch_input(
             LaunchInputObservation {

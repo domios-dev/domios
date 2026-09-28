@@ -60,8 +60,14 @@ pub(super) fn parse(screen: &str) -> Option<Prompt> {
         .iter()
         .map(|option| normalize_label(&option.label))
         .collect::<Vec<_>>();
-    let target = labels.iter().position(|label| label.starts_with("not now"))?;
-    if labels.iter().filter(|label| label.starts_with("yes")).count() != 1
+    let target = labels
+        .iter()
+        .position(|label| label.starts_with("not now"))?;
+    if labels
+        .iter()
+        .filter(|label| label.starts_with("yes"))
+        .count()
+        != 1
         || labels
             .iter()
             .filter(|label| label.starts_with("don't show again"))
@@ -117,7 +123,9 @@ fn strip_csi(value: &str) -> String {
 
 fn parse_option(row: &str, line: usize) -> Option<OptionRow> {
     let focused = row.starts_with('❯') || row.starts_with('>');
-    let content = row.trim_start_matches(|character| character == '❯' || character == '>').trim();
+    let content = row
+        .trim_start_matches(|character| character == '❯' || character == '>')
+        .trim();
     let (number, label) = content.split_once(". ")?;
     if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
         return None;
