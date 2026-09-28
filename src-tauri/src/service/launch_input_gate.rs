@@ -173,19 +173,26 @@ impl ServiceContext {
             .arm_screen_change_signal(&attempt.pty_id);
         let deadline = Instant::now() + timeout;
         let mut generation = signal.generation();
-        let (provider_readiness, composer_cursor_position, provider_binary_name) = self
+        let (
+            provider_readiness,
+            composer_cursor_position,
+            provider_binary_name,
+            status_bar_rows,
+        ) = self
             .agent_registry
             .with_provider(agent_id, |provider| {
                 (
                     provider.provider_readiness_strategy(),
                     provider.composer_cursor_position(),
                     provider.binary_name().to_string(),
+                    provider.status_bar_rows(),
                 )
             })
             .unwrap_or((
                 crate::agent::provider::ProviderReadinessStrategy::default(),
                 crate::agent::provider::ComposerCursorPosition::default(),
                 String::new(),
+                0,
             ));
         let declares_structural_composer = provider_readiness.requires_composer();
 
@@ -239,7 +246,14 @@ impl ServiceContext {
                 };
                 let terminal_input_ready = input
                     .as_ref()
-                    .is_some_and(|state| launch_composer_input_ready(state, input_position));
+                    .is_some_and(|state| {
+                        launch_composer_input_ready(
+                            state,
+                            input_position,
+                            declares_structural_composer.then_some(screen.as_str()),
+                            status_bar_rows,
+                        )
+                    });
                 let provider_tui = provider.screen_has_tui(&screen);
                 let tui_evidence = if mode == LaunchInputMode::LazySessionStart
                     && composer_cursor_position
@@ -329,9 +343,19 @@ impl ServiceContext {
 fn launch_composer_input_ready(
     input: &codeterm_pty::pty::screen_state::ComposerInputState,
     cursor_position: crate::agent::provider::ComposerCursorPosition,
+    screen: Option<&str>,
+    status_bar_rows: u16,
 ) -> bool {
     if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
         return input.alternate_screen && input.cursor_visible;
+    }
+    if let Some(screen) = screen {
+        return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready(
+            &screen.lines().map(str::to_string).collect::<Vec<_>>(),
+            input.cursor_visible,
+            input.cursor_row,
+            status_bar_rows,
+        );
     }
     crate::agent::offline_state_classifier::composer_cursor_ready(
         input.cursor_visible,

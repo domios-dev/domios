@@ -110,6 +110,30 @@ pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -
     cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
 }
 
+/// A prompt row is composer evidence only when the visible cursor is on that
+/// row. Provider chrome is skipped from the bottom; intervening rows are not
+/// assumed to have a fixed count.
+pub fn prompt_glyph_cursor_ready(
+    screen_lines: &[String],
+    cursor_visible: bool,
+    cursor_row: u16,
+    status_bar_rows: u16,
+) -> bool {
+    cursor_visible
+        && screen_lines
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(status_bar_rows as usize)
+            .any(|(row, line)| {
+                let line = line.trim_start();
+                row as u16 == cursor_row
+                    && (line.starts_with('❯')
+                        || line.starts_with('›')
+                        || line.starts_with('→'))
+            })
+}
+
 /// The 3-state classification core — the ONE place the verdict is decided.
 ///
 /// Order: picker question → structural working → rate-limit notice → idle

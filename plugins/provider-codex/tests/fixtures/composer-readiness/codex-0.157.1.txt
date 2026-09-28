@@ -1,0 +1,7 @@
+╭──────────────────────────────────────────╮
+│ model:       loading   /model to change │
+│ directory:   ~\…\abcodex-c3427f2ab864   │
+│ permissions: YOLO mode                  │
+╰──────────────────────────────────────────╯
+› Ask Codex to do anything
+  ? for shortcuts
