@@ -3,6 +3,7 @@ import {
   codexProfileInstanceId,
   codexProfileTabId,
   carryCodexProjectTrustForTab,
+  codexDirectoryTrustState,
   isCodexDirectoryTrusted,
   manageCodexProfiles,
   releaseCodexProfile,
@@ -90,6 +91,47 @@ console.log("\n--- unreadable directories fail closed ---\n");
   const report = sweepCodexProfiles(host, [], "instance-dev");
   eq(report.removed, [], "reports no removals after a directory read failure");
   eq(removed, [], "keeps files after a directory read failure");
+}
+
+console.log("\n--- launch trust state follows Codex trust-key precedence ---\n");
+{
+  const cwd = "C:\\ws\\repo\\lane";
+  const projectRoot = "C:\\ws\\repo";
+  const gitRoot = "C:\\ws";
+  const configPath = "C:\\Users\\test\\.codex\\config.toml";
+  const makeTrustHost = (config: string | null, symlinks: string[] = []) => {
+    const host: ProfileSweepHost = {
+      platform: () => "windows",
+      homeDir: () => "C:\\Users\\test",
+      fs: {
+        fileExists: (path) => path === configPath || path === `${projectRoot}\\.codeterm-root` || path === `${gitRoot}\\.git`,
+        isSymlink: (path) => symlinks.includes(path) ? true : false,
+        readDir: () => [],
+        readFile: (path) => path === configPath ? config : null,
+        removeFile: () => false,
+        writeFileAtomic: () => false,
+        lockFile: () => null,
+        unlockFile: () => false,
+      },
+    };
+    return host;
+  };
+  const entries = (...values: Array<[string, "trusted" | "untrusted"]>) => values
+    .map(([path, trust]) => `[projects.'${path}']\ntrust_level = "${trust}"`)
+    .join("\n");
+
+  eq(codexDirectoryTrustState(makeTrustHost(entries([cwd, "trusted"], [projectRoot, "untrusted"])), cwd),
+    "trusted", "cwd exact key takes precedence over project root");
+  eq(codexDirectoryTrustState(makeTrustHost(`project_root_markers = [\".codeterm-root\"]\n${entries([projectRoot, "untrusted"], [gitRoot, "trusted"])}`), cwd),
+    "untrusted", "project-root key takes precedence over git root");
+  eq(codexDirectoryTrustState(makeTrustHost(entries([gitRoot, "trusted"])), cwd),
+    "trusted", "git-root key applies when nearer roots have no entry");
+  eq(codexDirectoryTrustState(makeTrustHost(""), cwd),
+    "untrusted", "no configured key means Codex's default untrusted decision");
+  eq(codexDirectoryTrustState(makeTrustHost(null), cwd),
+    "unknown", "an unreadable existing config cannot predict the prompt");
+  eq(codexDirectoryTrustState(makeTrustHost("", [`${projectRoot}\\.git`]), cwd),
+    "unknown", "a symlinked trust root cannot predict the prompt");
 }
 
 console.log("\n--- owner command dry run and legacy opt-in ---\n");

@@ -28,6 +28,7 @@ import { codexFileDiffs } from "./fileDiffs";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
+  codexDirectoryTrustState,
   codexProfileInstanceId,
   codexProfileTabId,
   carryCodexProjectTrustForTab,
@@ -271,6 +272,10 @@ const plugin: PluginModule = {
 
   isDirectoryTrusted(path: string): boolean {
     return isCodexDirectoryTrusted(profileSweepHost(), path);
+  },
+
+  directoryTrustState(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown" {
+    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
   },
 
   sweepLaunchArtifacts(request: {

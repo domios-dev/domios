@@ -24,6 +24,14 @@ pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum DirectoryTrustState {
+    Trusted,
+    Untrusted,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ClassifiedPromptOptionRole {
     Skip,
 }
