@@ -53,6 +53,61 @@ fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
     ));
 }
 
+fn codex_live_composer_fixture_is_ready(fixture: &str) -> bool {
+    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    screens.resize("codex-live", 160, 32);
+    let text = fixture.lines().collect::<Vec<_>>().join("\r\n");
+    screens.process(
+        "codex-live",
+        format!("\x1b[2J\x1b[H{text}\x1b[?25h").as_bytes(),
+    );
+    let rows = screens.get_screen_rows("codex-live").expect("screen rows");
+    let composer_row = rows
+        .iter()
+        .position(|line| line.trim_start().starts_with('›'))
+        .expect("captured Codex composer") as u16;
+    screens.process(
+        "codex-live",
+        format!("\x1b[{};1H", composer_row + 1).as_bytes(),
+    );
+    let input = screens
+        .composer_input_state("codex-live")
+        .expect("composer input state");
+    let rows = screens.get_screen_rows("codex-live").expect("screen rows");
+    let composer_ready = launch_composer_input_ready(
+        &input,
+        crate::agent::provider::ComposerCursorPosition::BottomRegion,
+        Some(&rows),
+        1,
+    );
+    provider_composer_is_ready(
+        LaunchInputMode::LazySessionStart,
+        true,
+        composer_ready,
+        true,
+    ) && decide_launch_input(
+        LaunchInputObservation {
+            composer_ready,
+            ..input_observation()
+        },
+        LaunchInputMode::LazySessionStart,
+    ) == Ok(Some(LaunchInputEvidence::ProviderComposer))
+}
+
+#[test]
+fn structural_composer_live_wait_ready_on_first_matching_frame_without_footer() {
+    assert!(codex_live_composer_fixture_is_ready(include_str!(
+        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"
+    )));
+}
+
+#[test]
+fn structural_composer_live_wait_unchanged_for_footer_layout() {
+    assert!(codex_live_composer_fixture_is_ready(include_str!(
+        "../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"
+    )));
+}
+
 fn launch_classification(state: TabState) -> Option<TabStateClassification> {
     Some(TabStateClassification {
         state,
