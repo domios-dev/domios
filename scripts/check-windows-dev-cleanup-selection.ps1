@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$targetDebug = Join-Path $repo ".codeterm-targets\shared\debug"
+$targetDebug = Join-Path $repo "src-tauri\target\debug"
 $defaultTargetDebug = Join-Path $repo ".codeterm-targets\default\debug"
 $namedDataDir = Join-Path $env:USERPROFILE ".codeterm-dev-provider-model-oracle"
 $defaultDataDir = Join-Path $env:USERPROFILE ".codeterm-dev"
@@ -32,6 +32,8 @@ $processes = @(
   @{ ProcessId = 334; ParentProcessId = 9996; Name = "OpenConsole.exe"; ExecutablePath = "C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe"; CommandLine = "`"C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 340; ParentProcessId = 9995; Name = "OpenConsole.exe"; ExecutablePath = "$defaultTargetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$defaultTargetDebug\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 500; ParentProcessId = 1; Name = "foreign-daemon.exe"; ExecutablePath = "C:\other\daemon.exe"; CommandLine = "foreign daemon" }
+  @{ ProcessId = 550; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" }
+  @{ ProcessId = 335; ParentProcessId = 550; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
 )
 $listeners = @(
   @{ port = 7686; process_id = 100 },
@@ -41,6 +43,7 @@ $listeners = @(
   @{ port = 1560; process_id = 220 },
   @{ port = 9363; process_id = 230 },
   @{ port = 7799; process_id = 310 },
+  @{ port = 7788; process_id = 550 },
   @{ port = 1555; process_id = 320 }
 )
 @{ self_pid = 999; processes = $processes; listeners = $listeners } |
@@ -66,7 +69,7 @@ try {
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
   }
-  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300, 332, 334)) {
+  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300, 332, 334, 335, 550)) {
     if ($actual -contains $defaultPid) {
       throw "named cleanup selected default/unowned pid $defaultPid"
     }
