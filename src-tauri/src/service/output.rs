@@ -114,6 +114,7 @@ impl ServiceContext {
             tab_cwd,
             agent_session_id,
             directory_trust_eligible,
+            shared_directory_trust_eligible,
             directory_trust_skip,
         ) = {
             let mux = self.mux.read();
@@ -126,6 +127,8 @@ impl ServiceContext {
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
             let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
+            let shared_trust =
+                tab.is_some_and(super::directory_trust::shared_directory_trust_check_applies);
             let skip = tab.and_then(super::directory_trust::directory_trust_skip_reason);
             (
                 pid,
@@ -136,6 +139,7 @@ impl ServiceContext {
                 cwd,
                 sid,
                 trust,
+                shared_trust,
                 skip,
             )
         };
@@ -219,6 +223,7 @@ impl ServiceContext {
                 at,
                 changed_screen.as_deref(),
                 directory_trust_eligible,
+                shared_directory_trust_eligible,
                 is_auto_approve,
                 directory_trust_skip,
             );

@@ -8,6 +8,23 @@ use super::ServiceContext;
 use crate::multiplexer::types::Tab;
 
 static LEDGER: LazyLock<parking_lot::Mutex<TrustLedger>> = LazyLock::new(Default::default);
+static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
+    LazyLock::new(Default::default);
+
+#[derive(Default)]
+struct SharedTrustCache {
+    generation: u64,
+    trusted: HashMap<String, bool>,
+    checking: HashMap<String, u64>,
+}
+
+impl SharedTrustCache {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.trusted.clear();
+        self.checking.clear();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectoryTrustRefusal {
@@ -57,7 +74,18 @@ pub(crate) fn inherited_workspace_provenance(
 pub(crate) fn directory_trust_check_applies(tab: &Tab) -> bool {
     tab.agent_type.is_some()
         && !tab.launch_session_authenticated()
+        && directory_trust_provenance(tab).is_ok()
+}
+
+pub(crate) fn shared_directory_trust_check_applies(tab: &Tab) -> bool {
+    tab.agent_type.is_some()
+        && !tab.launch_session_authenticated()
         && tab.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
+        && tab.provisioned_cwd.is_none()
+}
+
+pub(crate) fn invalidate_shared_trust_cache() {
+    SHARED_TRUST.lock().invalidate();
 }
 
 /// Why a provisioned agent tab skips the trust responder; `None` when it
@@ -221,28 +249,117 @@ impl ServiceContext {
         }
     }
 
-    fn directory_trust_response(
+    fn provider_directory_trust_response(
         &self,
         agent_type: &str,
-        path: &str,
         screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
-        let response = self
-            .agent_registry
+        self.agent_registry
             .with_provider(agent_type, |provider| {
                 provider.directory_trust_prompt_response(screen)
             })
-            .flatten()?;
-        match self
-            .agent_registry
-            .with_provider(agent_type, |provider| provider.is_directory_trusted(path))
-        {
-            Some(Ok(true)) => Some(response),
-            Some(Err(error)) => {
-                log::warn!("[directory-trust] Trust lookup failed for Tab path: {error}");
-                None
+            .flatten()
+    }
+
+    fn schedule_shared_trust_lookup(&self, tab_id: &str, agent_type: &str, cwd: &str) {
+        let key = cwd.to_string();
+        let generation = {
+            let mut cache = SHARED_TRUST.lock();
+            match cache.trusted.get(cwd).copied() {
+                Some(true) => None,
+                Some(false) => return,
+                None => {
+                    if cache.checking.contains_key(&key) {
+                        return;
+                    }
+                    let generation = cache.generation;
+                    cache.checking.insert(key.clone(), generation);
+                    Some(generation)
+                }
             }
-            _ => None,
+        };
+        let Some(generation) = generation else {
+            self.schedule_cached_shared_responder(tab_id, cwd);
+            return;
+        };
+        let service = self.clone();
+        let tab = tab_id.to_string();
+        let agent = agent_type.to_string();
+        let path = cwd.to_string();
+        std::thread::spawn(move || {
+            let result = service
+                .agent_registry
+                .with_provider(&agent, |provider| provider.is_directory_trusted(&path));
+            let trusted = match result {
+                Some(Ok(trusted)) => trusted,
+                Some(Err(error)) => {
+                    log::warn!("[directory-trust] Trust lookup failed for Tab path: {error}");
+                    false
+                }
+                None => false,
+            };
+            {
+                let mut cache = SHARED_TRUST.lock();
+                if cache.generation == generation && cache.checking.get(&path) == Some(&generation)
+                {
+                    cache.checking.remove(&path);
+                    cache.trusted.insert(path.clone(), trusted);
+                } else {
+                    return;
+                }
+            }
+            if trusted {
+                service.respond_to_shared_trust_prompt(&tab, &path);
+                service.respond_to_pending_directory_trust_prompts();
+            }
+        });
+    }
+
+    fn schedule_cached_shared_responder(&self, tab_id: &str, cwd: &str) {
+        let service = self.clone();
+        let tab = tab_id.to_string();
+        let path = cwd.to_string();
+        std::thread::spawn(move || service.respond_to_shared_trust_prompt(&tab, &path));
+    }
+
+    fn respond_to_shared_trust_prompt(&self, tab_id: &str, expected_cwd: &str) {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                (shared_directory_trust_check_applies(tab)
+                    && tab.cwd.as_deref() == Some(expected_cwd))
+                .then(|| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+                .flatten()
+            })
+        };
+        let Some((pty_id, agent_type)) = target else {
+            return;
+        };
+        let trusted = SHARED_TRUST
+            .lock()
+            .trusted
+            .get(expected_cwd)
+            .copied()
+            .unwrap_or(false);
+        if !trusted {
+            return;
+        }
+        let screen = self
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
+        let Some(response) = self.provider_directory_trust_response(&agent_type, &screen) else {
+            return;
+        };
+        let decision = decide(true, tab_id, &screen, &LEDGER, |_| Some(response));
+        if let TrustDecision::Answer { step } = decision {
+            self.answer_directory_trust_prompt(
+                tab_id,
+                &pty_id,
+                &agent_type,
+                DirectoryTrustPromptResponse::Answer { step },
+            );
         }
     }
 
@@ -254,16 +371,19 @@ impl ServiceContext {
         let target = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .filter(|tab| directory_trust_check_applies(tab))
+                .filter(|tab| {
+                    directory_trust_check_applies(tab) || shared_directory_trust_check_applies(tab)
+                })
                 .and_then(|tab| {
                     Some((
                         tab.pty_id.clone()?,
                         tab.agent_type.clone()?,
                         tab.cwd.clone()?,
+                        directory_trust_check_applies(tab),
                     ))
                 })
         };
-        let Some((pty_id, agent_type, cwd)) = target else {
+        let Some((pty_id, agent_type, cwd, provisioned)) = target else {
             return TrustDecision::NotApplicable;
         };
         let screen = match screen_text {
@@ -274,8 +394,16 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
+        if !provisioned {
+            self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
+            return if SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true) {
+                TrustDecision::Waiting
+            } else {
+                TrustDecision::NotApplicable
+            };
+        }
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
-            self.directory_trust_response(&agent_type, &cwd, screen)
+            self.provider_directory_trust_response(&agent_type, screen)
         });
         match &decision {
             TrustDecision::NoDialog
@@ -298,21 +426,38 @@ impl ServiceContext {
                 tab_id,
                 key_name(step)
             );
-            self.prompt_detector.lock().mark_responded(tab_id);
-            let svc = self.clone();
-            let tab = tab_id.to_string();
-            let expected = step.clone();
-            let bound_pty = pty_id.clone();
-            super::output::write_bound_prompt_steps(
-                self.pty.clone(),
-                pty_id,
-                vec![step.clone()],
-                move || {
-                    svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent_type, &expected)
-                },
+            self.answer_directory_trust_prompt(
+                tab_id,
+                &pty_id,
+                &agent_type,
+                DirectoryTrustPromptResponse::Answer { step: step.clone() },
             );
         }
         decision
+    }
+
+    fn answer_directory_trust_prompt(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+        response: DirectoryTrustPromptResponse,
+    ) {
+        let DirectoryTrustPromptResponse::Answer { step } = response else {
+            return;
+        };
+        self.prompt_detector.lock().mark_responded(tab_id);
+        let svc = self.clone();
+        let tab = tab_id.to_string();
+        let expected = step.clone();
+        let bound_pty = pty_id.to_string();
+        let agent = agent_type.to_string();
+        super::output::write_bound_prompt_steps(
+            self.pty.clone(),
+            pty_id.to_string(),
+            vec![step.clone()],
+            move || svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &expected),
+        );
     }
 
     fn directory_trust_key_still_owed(
@@ -323,9 +468,11 @@ impl ServiceContext {
         expected: &[u8],
     ) -> bool {
         let cwd = self.mux.read().get_tab(tab_id).and_then(|tab| {
-            (tab.pty_id.as_deref() == Some(pty_id) && directory_trust_check_applies(tab))
-                .then(|| tab.cwd.clone())
-                .flatten()
+            (tab.pty_id.as_deref() == Some(pty_id)
+                && (directory_trust_check_applies(tab)
+                    || shared_directory_trust_check_applies(tab)))
+            .then(|| tab.cwd.clone())
+            .flatten()
         });
         let owed = cwd.is_some_and(|cwd| {
             let screen = self
@@ -333,10 +480,15 @@ impl ServiceContext {
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            matches!(
-                self.directory_trust_response(agent_type, &cwd, &screen),
-                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
-            )
+            let provisioned = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(directory_trust_check_applies);
+            let eligible = provisioned || SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true);
+            eligible
+                && matches!(self.provider_directory_trust_response(agent_type, &screen),
+                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected)
         });
         LEDGER.lock().settle(tab_id);
         if !owed {
