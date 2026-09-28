@@ -47,7 +47,8 @@ impl PlanStore {
                 });
                 attempt.reported_at = Some(now_ms);
                 if attempt.remote_dispatch_state.is_some() {
-                    attempt.remote_dispatch_state = Some(crate::plan::RemoteDispatchState::Reported);
+                    attempt.remote_dispatch_state =
+                        Some(crate::plan::RemoteDispatchState::Reported);
                 }
             }
             Ok(())
@@ -198,7 +199,8 @@ impl PlanStore {
                 });
                 attempt.reported_at = Some(now_ms);
                 if attempt.remote_dispatch_state.is_some() {
-                    attempt.remote_dispatch_state = Some(crate::plan::RemoteDispatchState::Reported);
+                    attempt.remote_dispatch_state =
+                        Some(crate::plan::RemoteDispatchState::Reported);
                 }
             }
             let entering_review = committed_review && task.status != TaskStatus::InReview;

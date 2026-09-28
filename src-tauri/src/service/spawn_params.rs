@@ -191,7 +191,7 @@ impl SpawnTabSpec {
             audience: self.audience,
             structured_prompt_server: None,
             remote_task_binding: None,
-    })
+        })
     }
 }
 

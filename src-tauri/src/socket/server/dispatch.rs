@@ -336,7 +336,10 @@ pub(crate) fn dispatch_mesh_rpc(
     peer_id: &str,
 ) -> Result<serde_json::Value, JsonRpcError> {
     if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
-        object.insert("authenticated_mesh_peer_id".into(), serde_json::Value::String(peer_id.into()));
+        object.insert(
+            "authenticated_mesh_peer_id".into(),
+            serde_json::Value::String(peer_id.into()),
+        );
     }
     dispatch_service_rpc_inner(method, params, svc)
 }

@@ -168,9 +168,7 @@ fn history_dir(map_path: &Path, data_root: &Path) -> PathBuf {
         .canonicalize()
         .unwrap_or_else(|_| project_root.to_path_buf());
     let project_key = sha256(project_root.to_string_lossy().as_bytes());
-    data_root
-        .join(HISTORY_DIR_NAME)
-        .join(project_key)
+    data_root.join(HISTORY_DIR_NAME).join(project_key)
 }
 
 fn history_file(map_path: &Path, digest: &str, data_root: &Path) -> PathBuf {

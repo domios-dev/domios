@@ -10,10 +10,9 @@ fn send_text_body_only_text() {
 
 #[test]
 fn send_text_body_without_source_agent_keeps_agent_reply_hint() {
-    let body: SendTextBody = serde_json::from_str(
-        r#"{"text":"hello","source_tab":"sender","source_peer":"BLACKSTAR"}"#,
-    )
-    .unwrap();
+    let body: SendTextBody =
+        serde_json::from_str(r#"{"text":"hello","source_tab":"sender","source_peer":"BLACKSTAR"}"#)
+            .unwrap();
     assert_eq!(body.source_is_agent, None);
 
     let envelope = crate::service::messenger::MessageEnvelope::tab("Sender", "sender")

@@ -833,7 +833,7 @@ mod tests {
         let task_binding = TaskBinding {
             plan_id: Some(plan.id),
             task_id: Some(task_id),
-attempt_id: None,
+            attempt_id: None,
             spawn_handle: None,
             bound_at: 3,
         };

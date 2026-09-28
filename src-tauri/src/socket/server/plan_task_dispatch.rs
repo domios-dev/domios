@@ -1,7 +1,3 @@
-use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use tauri::AppHandle;
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
@@ -11,6 +7,10 @@ use crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
 use crate::service::{
     verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
 };
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tauri::AppHandle;
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
@@ -25,8 +25,8 @@ mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
-pub(super) mod remote;
 mod recovery;
+pub(super) mod remote;
 mod routing;
 mod startup;
 mod tab_reservation;

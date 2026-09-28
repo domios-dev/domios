@@ -23,25 +23,38 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
     plan.team_id = Some(team_id.clone());
     let plan_id = plan.id.clone();
     store.save(&mut plan, 1).unwrap();
-    let task_id = store.add_task(
-        &plan_id,
-        NewTask { name: "Remote task".into(), kind: "implement".into(), ..Default::default() },
-        2,
-    ).unwrap();
-    store.with_plan(&plan_id, 3, |plan| {
-        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-        task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
-            id: "attempt_remote".into(),
-            executor_tab_id: "mesh-worker:attempt_remote".into(),
-            mesh_peer: Some("peer-1".into()),
-            branch: Some("lane/remote".into()),
-            base: Some("base-sha".into()),
-            remote_worktree_path: Some(peer_path.display().to_string()),
-            ..Default::default()
-        });
-        task.status = crate::plan::TaskStatus::InProgress;
-        Ok(())
-    }).unwrap();
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Remote task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt_remote".into(),
+                    executor_tab_id: "mesh-worker:attempt_remote".into(),
+                    mesh_peer: Some("peer-1".into()),
+                    branch: Some("lane/remote".into()),
+                    base: Some("base-sha".into()),
+                    remote_worktree_path: Some(peer_path.display().to_string()),
+                    ..Default::default()
+                });
+            task.status = crate::plan::TaskStatus::InProgress;
+            Ok(())
+        })
+        .unwrap();
 
     let plan_snapshot = store.get(&plan_id).unwrap();
     assert!(super::super::close::team_close_lanes(&[plan_snapshot], &team_id, &[]).is_empty());
@@ -54,7 +67,8 @@ fn team_close_skips_remote_lane_without_touching_peer_worktree() {
         &team_id,
         &TeamMutationCaller::Human,
         4,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(fs::read_to_string(marker).unwrap(), "peer-owned");
 }
 
@@ -539,7 +553,14 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     );
     git(
         &repo,
-        &["worktree", "add", "-b", "lane/dirty", dirty_lane.to_str().unwrap(), &base],
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/dirty",
+            dirty_lane.to_str().unwrap(),
+            &base,
+        ],
     );
     fs::write(work_lane.join("work.txt"), "work\n").unwrap();
     git(&work_lane, &["add", "work.txt"]);
@@ -600,9 +621,17 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     );
     git(&repo, &["branch", "lane/orphan", &base]);
     let mut plan_state = store.get(&plan.id).unwrap();
-    let clean = plan_state.tasks.iter_mut().find(|task| task.id == clean_task).unwrap();
+    let clean = plan_state
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == clean_task)
+        .unwrap();
     clean.status = crate::plan::TaskStatus::InProgress;
-    let unplanned = plan_state.tasks.iter_mut().find(|task| task.id == work_task).unwrap();
+    let unplanned = plan_state
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == work_task)
+        .unwrap();
     unplanned.kind = "unplanned".into();
     store.save(&mut plan_state, 5).unwrap();
     let retained_task = add_team_lane_task(
@@ -671,7 +700,11 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         .unwrap();
     assert_eq!(clean.lane.worktree_path, None);
     assert_eq!(clean.lane.cleanup_status.as_deref(), Some("done"));
-    let orphan = closed.tasks.iter().find(|task| task.id == orphan_task).unwrap();
+    let orphan = closed
+        .tasks
+        .iter()
+        .find(|task| task.id == orphan_task)
+        .unwrap();
     assert_eq!(orphan.lane.worktree_path, None);
     assert_eq!(orphan.lane.branch, None);
     assert_eq!(orphan.lane.cleanup_status.as_deref(), Some("done"));
@@ -687,16 +720,16 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     );
     assert_eq!(work.lane.branch.as_deref(), Some("lane/work"));
     assert_eq!(work.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
-    assert!(work
-        .lane
-        .cleanup_hints
+    assert!(work.lane.cleanup_hints.iter().any(|hint| {
+        hint.contains(work_lane.to_str().unwrap())
+            && hint.contains("lane/work")
+            && hint.contains("unmerged commits ahead of destination main")
+    }));
+    let dirty = closed
+        .tasks
         .iter()
-        .any(|hint| {
-            hint.contains(work_lane.to_str().unwrap())
-                && hint.contains("lane/work")
-                && hint.contains("unmerged commits ahead of destination main")
-        }));
-    let dirty = closed.tasks.iter().find(|task| task.id == dirty_task).unwrap();
+        .find(|task| task.id == dirty_task)
+        .unwrap();
     assert_eq!(dirty.lane.cleanup_status.as_deref(), Some("cleanup_debt"));
     assert!(dirty.lane.cleanup_hints.iter().any(|hint| {
         hint.contains("dirty worktree") && hint.contains(dirty_lane.to_str().unwrap())
@@ -762,7 +795,11 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
         )
         .unwrap();
     let mut plan = store.get(&plan.id).unwrap();
-    let parent = plan.tasks.iter_mut().find(|task| task.id == parent_id).unwrap();
+    let parent = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == parent_id)
+        .unwrap();
     parent.status = crate::plan::TaskStatus::Done;
     parent.lane = crate::plan::TaskLaneMetadata {
         branch: Some("lane/unplanned-terminal".into()),
@@ -770,7 +807,11 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
         destination: Some("main".into()),
         ..Default::default()
     };
-    let child = plan.tasks.iter_mut().find(|task| task.id == child_id).unwrap();
+    let child = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == child_id)
+        .unwrap();
     child.lane = crate::plan::TaskLaneMetadata {
         branch: Some("lane/child".into()),
         base: Some("fork-point".into()),

@@ -274,7 +274,9 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
     assert_ne!(digest(&map), baseline);
     let history = history_root(root)
         .join("map-history")
-        .join(sha256(root.canonicalize().unwrap().to_string_lossy().as_bytes()))
+        .join(sha256(
+            root.canonicalize().unwrap().to_string_lossy().as_bytes(),
+        ))
         .join(format!("{baseline}.jsonl"));
     assert!(
         history.is_file(),
@@ -283,9 +285,8 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
     assert!(!root.join(".codeterm").exists());
     assert!(!root.join("essences/map-history").exists());
 
-    let outcome =
-        journal::revert(&map, &decisions, "decision-0001", &history_root(root))
-            .expect("take the revert");
+    let outcome = journal::revert(&map, &decisions, "decision-0001", &history_root(root))
+        .expect("take the revert");
     assert_eq!(outcome.restored, "decision-0001");
     assert_eq!(outcome.map_sha256, baseline);
     assert_eq!(outcome.decision, "decision-0003");

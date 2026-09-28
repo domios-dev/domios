@@ -646,11 +646,7 @@ mod tests {
                 10,
             )
             .unwrap();
-        let attempt = &store
-            .show_task(&task_id)
-            .unwrap()
-            .task
-            .execution_attempts[0];
+        let attempt = &store.show_task(&task_id).unwrap().task.execution_attempts[0];
         assert_eq!(
             attempt.remote_dispatch_state,
             Some(RemoteDispatchState::Integrated)

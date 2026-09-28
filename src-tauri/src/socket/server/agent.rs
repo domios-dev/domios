@@ -673,7 +673,7 @@ mod tests {
             .task_binding = Some(TaskBinding {
             plan_id: Some(plan.id.clone()),
             task_id: Some(task_id.clone()),
-attempt_id: None,
+            attempt_id: None,
             spawn_handle: None,
             bound_at: 1,
         });

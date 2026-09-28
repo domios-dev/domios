@@ -263,21 +263,25 @@ mod tests {
         crate::api::routes::AppState {
             svc: std::sync::Arc::new(fixture.service.clone()),
             cron: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("mesh-rpc-crons.json")),
+                crate::cron::store::CronStore::new_with_path(
+                    fixture.temp.path().join("mesh-rpc-crons.json"),
+                ),
             )),
             cron_wake: std::sync::Arc::new(std::sync::Condvar::new()),
             api_port: 0,
-            update_state: std::sync::Arc::new(parking_lot::Mutex::new(crate::update::UpdateState {
-                install_method: crate::update::InstallMethod::Unknown,
-                last_check: None,
-                last_check_time: None,
-                channel: config.updater.channel,
-                phase: crate::update::UpdatePhase::Idle,
-                last_error: None,
-                phase_changed_at: None,
-                downloaded_bytes: 0,
-                download_total_bytes: None,
-            })),
+            update_state: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::update::UpdateState {
+                    install_method: crate::update::InstallMethod::Unknown,
+                    last_check: None,
+                    last_check_time: None,
+                    channel: config.updater.channel,
+                    phase: crate::update::UpdatePhase::Idle,
+                    last_error: None,
+                    phase_changed_at: None,
+                    downloaded_bytes: 0,
+                    download_total_bytes: None,
+                },
+            )),
             config: std::sync::Arc::new(parking_lot::Mutex::new(config)),
             mesh: std::sync::Arc::new(parking_lot::Mutex::new(mesh)),
             keepawake: std::sync::Arc::new(parking_lot::Mutex::new(None)),
@@ -290,7 +294,9 @@ mod tests {
         }
     }
 
-    fn remote_peer(access_level: crate::mesh::types::AccessLevel) -> (crate::mesh::types::PairedPeer, String) {
+    fn remote_peer(
+        access_level: crate::mesh::types::AccessLevel,
+    ) -> (crate::mesh::types::PairedPeer, String) {
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         (
             crate::mesh::types::PairedPeer {
@@ -321,15 +327,31 @@ mod tests {
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         for method in ["plan.task.remote_ack", "plan.task.remote_report"] {
             for (case, paired_peer, authorization, expected) in [
-                ("unauthenticated", None, None, "Invalid or unknown signature"),
+                (
+                    "unauthenticated",
+                    None,
+                    None,
+                    "Invalid or unknown signature",
+                ),
                 ("unpaired", None, Some(true), "Invalid or unknown signature"),
-                ("read_only", Some(crate::mesh::types::AccessLevel::ReadOnly), Some(true), "requires Full mesh access"),
+                (
+                    "read_only",
+                    Some(crate::mesh::types::AccessLevel::ReadOnly),
+                    Some(true),
+                    "requires Full mesh access",
+                ),
             ] {
-                let signed = remote_peer(paired_peer.unwrap_or(crate::mesh::types::AccessLevel::Full));
-                let peer = if case == "read_only" { Some(signed.0.clone()) } else { None };
+                let signed =
+                    remote_peer(paired_peer.unwrap_or(crate::mesh::types::AccessLevel::Full));
+                let peer = if case == "read_only" {
+                    Some(signed.0.clone())
+                } else {
+                    None
+                };
                 let state = app_state(&fixture, peer);
                 let headers = if authorization == Some(true) {
-                    let token = crate::mesh::crown::sign_request(&signed.1, &signed.0.instance_id).unwrap();
+                    let token =
+                        crate::mesh::crown::sign_request(&signed.1, &signed.0.instance_id).unwrap();
                     let mut headers = axum::http::HeaderMap::new();
                     headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
                     headers
@@ -343,11 +365,22 @@ mod tests {
                         method: method.into(),
                         params: Some(serde_json::json!({})),
                         request_id: format!("{method}-{case}"),
-                        protocol_version: Some(serde_json::json!(crate::socket::server::protocol::PROTOCOL_VERSION)),
+                        protocol_version: Some(serde_json::json!(
+                            crate::socket::server::protocol::PROTOCOL_VERSION
+                        )),
                     }),
-                ).await.0;
-                let error = response.error.expect("unauthorized remote lifecycle mutation");
-                assert!(error.message.contains(expected), "{}: {}", case, error.message);
+                )
+                .await
+                .0;
+                let error = response
+                    .error
+                    .expect("unauthorized remote lifecycle mutation");
+                assert!(
+                    error.message.contains(expected),
+                    "{}: {}",
+                    case,
+                    error.message
+                );
             }
         }
     }

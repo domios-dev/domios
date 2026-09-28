@@ -799,7 +799,9 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
-        "plan.task.merge_remote_lane" => super::plan_task_dispatch::remote::merge_lane(params, app, svc, now),
+        "plan.task.merge_remote_lane" => {
+            super::plan_task_dispatch::remote::merge_lane(params, app, svc, now)
+        }
         "plan.task.remote_ack" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
             let attempt_id = get_string_param(params, "attempt_id")?;
@@ -822,7 +824,9 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
-            Ok(json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}))
+            Ok(
+                json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
+            )
         }
         "plan.task.remote_report" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
@@ -839,18 +843,19 @@ pub(super) fn dispatch(
                     data: None,
                 }
             })?;
-            let report: crate::plan::TaskExecutionReportSnapshot = serde_json::from_value(
-                body.get("report").cloned().ok_or_else(|| JsonRpcError {
+            let report: crate::plan::TaskExecutionReportSnapshot =
+                serde_json::from_value(body.get("report").cloned().ok_or_else(|| {
+                    JsonRpcError {
+                        code: -32602,
+                        message: "remote report snapshot is required".into(),
+                        data: None,
+                    }
+                })?)
+                .map_err(|error| JsonRpcError {
                     code: -32602,
-                    message: "remote report snapshot is required".into(),
+                    message: format!("invalid remote report snapshot: {error}"),
                     data: None,
-                })?,
-            )
-            .map_err(|error| JsonRpcError {
-                code: -32602,
-                message: format!("invalid remote report snapshot: {error}"),
-                data: None,
-            })?;
+                })?;
             if report.id.trim().is_empty() {
                 return Err(JsonRpcError {
                     code: -32602,
@@ -861,7 +866,8 @@ pub(super) fn dispatch(
             if report.status.as_deref() != Some("in_review") {
                 return Err(JsonRpcError {
                     code: -32602,
-                    message: "remote task reports must enter in_review for origin acceptance".into(),
+                    message: "remote task reports must enter in_review for origin acceptance"
+                        .into(),
                     data: None,
                 });
             }
@@ -876,7 +882,9 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
-            Ok(json!({"reported": reported, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}))
+            Ok(
+                json!({"reported": reported, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
+            )
         }
         "plan.task.dispatch_unplanned" => {
             super::plan_task_dispatch::dispatch_unplanned(params, app, svc, now)

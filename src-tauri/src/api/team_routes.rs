@@ -106,10 +106,7 @@ async fn close_team_adapter<T>(
     headers: &HeaderMap,
     team_id: String,
     body: CloseTeamBody,
-    close: impl AsyncFnOnce(
-        String,
-        crate::service::TeamMutationCaller,
-    ) -> Result<T, String>,
+    close: impl AsyncFnOnce(String, crate::service::TeamMutationCaller) -> Result<T, String>,
 ) -> Result<T, (StatusCode, String)> {
     let caller = close_team_caller(headers, &team_id, &body);
     close(team_id, caller).await.map_err(map_close_team_error)
