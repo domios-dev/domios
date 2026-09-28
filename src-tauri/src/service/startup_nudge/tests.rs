@@ -101,6 +101,7 @@ fn only_deliver_writes() {
     for nudge in [
         StartupNudge::AnsweredTrustDialog,
         StartupNudge::BlockedOnPrompt,
+        StartupNudge::WaitingForOwnerPrompt,
         StartupNudge::UnboundSession,
         StartupNudge::NoAgent,
     ] {

@@ -24,6 +24,8 @@ pub(crate) const EXITED_BEFORE_READINESS: &str = "provider process exited before
 pub(crate) const GENERAL_AGENT_OUTPUT_DEADLINE: &str = "agent output deadline elapsed";
 /// An ordinary spawn's readiness deadline: this observer gave up, nothing more.
 pub(crate) const SPAWN_READINESS_DEADLINE: &str = "launch readiness deadline elapsed";
+pub(crate) const OWNER_PROMPT_DEADLINE: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
 
 /// The one launch an observation speaks for: the tab, the PTY it launched on,
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
@@ -67,6 +69,9 @@ pub(crate) enum LaunchEvidence {
 pub(crate) enum LaunchSettlement {
     Ready,
     AwaitingFirstTurn,
+    OwnerPromptDeadline {
+        reason: String,
+    },
     Failed {
         reason: String,
         exit_code: Option<i32>,
@@ -215,6 +220,9 @@ pub(crate) enum LaunchObservation {
     Evidence(LaunchEvidence),
     /// The bounded deadline elapsed with nothing observed.
     Deadline,
+    OwnerDeadline {
+        question: String,
+    },
     /// Somebody else already consumed this observation.
     Retired,
 }
@@ -294,16 +302,34 @@ struct Armed {
     /// A verdict already published for this attempt. Kept so the launch thread
     /// can see it and never claims ready over a launch known to be gone.
     failure: Option<String>,
+    owner_prompt: Option<OwnerPrompt>,
+    prompt_revision: u64,
+}
+
+#[derive(Clone)]
+struct OwnerPrompt {
+    question: String,
+    deadline: Instant,
+}
+
+struct ObservationState {
+    armed: HashMap<String, Armed>,
+    owner_prompts: HashMap<String, OwnerPrompt>,
 }
 
 struct Observations {
-    armed: Mutex<HashMap<String, Armed>>,
+    state: Mutex<ObservationState>,
     changed: Condvar,
+    prompt_changed: Condvar,
 }
 
 static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
-    armed: Mutex::new(HashMap::new()),
+    state: Mutex::new(ObservationState {
+        armed: HashMap::new(),
+        owner_prompts: HashMap::new(),
+    }),
     changed: Condvar::new(),
+    prompt_changed: Condvar::new(),
 });
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
@@ -348,8 +374,9 @@ pub(crate) fn arm_with_origin(
 
 pub(crate) fn attempt_is_armed(attempt: &LaunchAttempt) -> bool {
     OBSERVATIONS
-        .armed
+        .state
         .lock()
+        .armed
         .get(&attempt.tab_id)
         .is_some_and(|observed| &observed.attempt == attempt)
 }
@@ -358,7 +385,9 @@ fn arm_inner(
     attempt: LaunchAttempt,
     origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
 ) {
-    OBSERVATIONS.armed.lock().insert(
+    let mut state = OBSERVATIONS.state.lock();
+    let owner_prompt = state.owner_prompts.get(&attempt.tab_id).cloned();
+    state.armed.insert(
         attempt.tab_id.clone(),
         Armed {
             attempt,
@@ -366,6 +395,8 @@ fn arm_inner(
             evidence: None,
             exit_claimed: false,
             failure: None,
+            owner_prompt,
+            prompt_revision: 0,
         },
     );
     // Releases any observer still waiting on the launch this one supersedes.
@@ -381,8 +412,8 @@ fn note(
     evidence: LaunchEvidence,
     owns_attempt: impl Fn(&LaunchAttempt) -> bool,
 ) -> bool {
-    let mut armed = OBSERVATIONS.armed.lock();
-    let Some(observed) = armed.get_mut(tab_id) else {
+    let mut state = OBSERVATIONS.state.lock();
+    let Some(observed) = state.armed.get_mut(tab_id) else {
         return false;
     };
     if observed.attempt.pty_id != pty_id
@@ -404,6 +435,91 @@ pub(crate) fn note_acknowledged(tab_id: &str, pty_id: &str, binding_nonce: &str)
     })
 }
 
+pub(crate) fn owner_prompt_pending(tab_id: &str, question: &str) {
+    let mut state = OBSERVATIONS.state.lock();
+    let deadline = state
+        .owner_prompts
+        .get(tab_id)
+        .map(|prompt| prompt.deadline)
+        .unwrap_or_else(|| Instant::now() + OWNER_PROMPT_DEADLINE);
+    update_owner_prompt_locked(
+        &mut state,
+        tab_id,
+        Some(OwnerPrompt {
+            question: question.to_string(),
+            deadline,
+        }),
+    );
+}
+
+#[cfg(test)]
+fn owner_prompt_pending_until(tab_id: &str, question: &str, deadline: Instant) {
+    let mut state = OBSERVATIONS.state.lock();
+    update_owner_prompt_locked(
+        &mut state,
+        tab_id,
+        Some(OwnerPrompt {
+            question: question.to_string(),
+            deadline,
+        }),
+    );
+}
+
+pub(crate) fn owner_prompt_cleared(tab_id: &str) {
+    let mut state = OBSERVATIONS.state.lock();
+    update_owner_prompt_locked(&mut state, tab_id, None);
+}
+
+fn update_owner_prompt_locked(
+    state: &mut ObservationState,
+    tab_id: &str,
+    prompt: Option<OwnerPrompt>,
+) {
+    if let Some(prompt) = prompt {
+        state.owner_prompts.insert(tab_id.to_string(), prompt);
+    } else {
+        state.owner_prompts.remove(tab_id);
+    }
+    let owner_prompt = state.owner_prompts.get(tab_id).cloned();
+    if let Some(observed) = state.armed.get_mut(tab_id) {
+        if observed
+            .owner_prompt
+            .as_ref()
+            .map(|active| &active.question)
+            != owner_prompt.as_ref().map(|active| &active.question)
+        {
+            observed.owner_prompt = owner_prompt;
+            observed.prompt_revision = observed.prompt_revision.wrapping_add(1);
+        }
+    }
+    OBSERVATIONS.changed.notify_all();
+    OBSERVATIONS.prompt_changed.notify_all();
+}
+
+pub(crate) fn await_owner_prompt_resolution(tab_id: &str) -> Option<String> {
+    let mut state = OBSERVATIONS.state.lock();
+    loop {
+        let Some(prompt) = state.owner_prompts.get(tab_id) else {
+            return None;
+        };
+        let deadline = prompt.deadline;
+        if OBSERVATIONS
+            .prompt_changed
+            .wait_until(&mut state, deadline)
+            .timed_out()
+        {
+            return state
+                .owner_prompts
+                .get(tab_id)
+                .map(|prompt| prompt.question.clone());
+        }
+    }
+}
+
+pub(crate) fn owner_prompt_is_active(tab_id: &str) -> bool {
+    OBSERVATIONS.state.lock().owner_prompts.contains_key(tab_id)
+}
+
 /// Take this tab's launch for an exit observed right now. One lock does the
 /// whole claim, so the observer waiting on this launch cannot take it away
 /// mid-claim. It asks nothing of the shell's reported command line: the
@@ -421,8 +537,8 @@ fn claim_exit(
     LaunchExitProof,
     Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
 )> {
-    let mut armed = OBSERVATIONS.armed.lock();
-    let observed = armed.get_mut(tab_id)?;
+    let mut state = OBSERVATIONS.state.lock();
+    let observed = state.armed.get_mut(tab_id)?;
     if proof.attempt != observed.attempt
         || pty_id.is_some_and(|pty_id| pty_id != observed.attempt.pty_id)
         || observed.exit_claimed
@@ -442,8 +558,8 @@ fn claim_exit(
 
 /// Mark this attempt's verdict as published.
 fn record_published_failure(attempt: &LaunchAttempt, reason: &str) {
-    let mut armed = OBSERVATIONS.armed.lock();
-    if let Some(observed) = armed.get_mut(&attempt.tab_id) {
+    let mut state = OBSERVATIONS.state.lock();
+    if let Some(observed) = state.armed.get_mut(&attempt.tab_id) {
         if &observed.attempt == attempt {
             observed.evidence = None;
             observed.failure = Some(reason.to_string());
@@ -455,13 +571,13 @@ fn record_published_failure(attempt: &LaunchAttempt, reason: &str) {
 /// Take the verdict already published for this attempt, so the launch thread
 /// stops instead of claiming ready over a launch that is known to be gone.
 pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> {
-    let mut armed = OBSERVATIONS.armed.lock();
-    let observed = armed.get(&attempt.tab_id)?;
+    let mut state = OBSERVATIONS.state.lock();
+    let observed = state.armed.get(&attempt.tab_id)?;
     if &observed.attempt != attempt {
         return None;
     }
     let reason = observed.failure.clone()?;
-    armed.remove(&attempt.tab_id);
+    state.armed.remove(&attempt.tab_id);
     Some(reason)
 }
 
@@ -469,27 +585,107 @@ pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> 
 /// Event-driven on the evidence notes; the deadline only bounds the failure to
 /// observe anything and is never itself treated as readiness.
 pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObservation {
-    let mut armed = OBSERVATIONS.armed.lock();
+    let mut state = OBSERVATIONS.state.lock();
     loop {
-        let Some(observed) = armed.get_mut(&attempt.tab_id) else {
+        let Some(observed) = state.armed.get_mut(&attempt.tab_id) else {
             return LaunchObservation::Retired;
         };
         if &observed.attempt != attempt || observed.failure.is_some() {
             return LaunchObservation::Retired;
         }
         if let Some(evidence) = observed.evidence.take() {
-            armed.remove(&attempt.tab_id);
+            state.armed.remove(&attempt.tab_id);
             return LaunchObservation::Evidence(evidence);
         }
         if OBSERVATIONS
             .changed
-            .wait_until(&mut armed, deadline)
+            .wait_until(&mut state, deadline)
             .timed_out()
         {
-            armed.remove(&attempt.tab_id);
+            state.armed.remove(&attempt.tab_id);
             return LaunchObservation::Deadline;
         }
     }
+}
+
+fn observe_with_owner_prompt(
+    attempt: &LaunchAttempt,
+    mut normal_deadline: Instant,
+    mut owner_prompt_changed: impl FnMut(Option<&str>),
+) -> LaunchObservation {
+    let mut state = OBSERVATIONS.state.lock();
+    let mut last_revision = None;
+    let mut owner_deadline = None;
+    let readiness_window = normal_deadline.saturating_duration_since(Instant::now());
+    loop {
+        let Some(observed) = state.armed.get_mut(&attempt.tab_id) else {
+            return LaunchObservation::Retired;
+        };
+        if &observed.attempt != attempt || observed.failure.is_some() {
+            return LaunchObservation::Retired;
+        }
+        if let Some(evidence) = observed.evidence.take() {
+            state.armed.remove(&attempt.tab_id);
+            return LaunchObservation::Evidence(evidence);
+        }
+        if last_revision != Some(observed.prompt_revision) {
+            last_revision = Some(observed.prompt_revision);
+            let prompt = observed.owner_prompt.clone();
+            if let Some(active) = observed.owner_prompt.as_ref() {
+                owner_deadline = Some(active.deadline);
+            } else {
+                if owner_deadline.is_some() {
+                    normal_deadline = Instant::now() + readiness_window;
+                }
+                owner_deadline = None;
+            }
+            drop(state);
+            owner_prompt_changed(prompt.as_ref().map(|active| active.question.as_str()));
+            state = OBSERVATIONS.state.lock();
+        }
+        let deadline = owner_deadline.unwrap_or(normal_deadline);
+        if OBSERVATIONS
+            .changed
+            .wait_until(&mut state, deadline)
+            .timed_out()
+        {
+            if state
+                .armed
+                .get(&attempt.tab_id)
+                .filter(|observed| &observed.attempt == attempt)
+                .is_some_and(|observed| Some(observed.prompt_revision) != last_revision)
+            {
+                continue;
+            }
+            let question = state
+                .owner_prompts
+                .get(&attempt.tab_id)
+                .map(|prompt| prompt.question.clone())
+                .or_else(|| {
+                    state
+                        .armed
+                        .get(&attempt.tab_id)
+                        .filter(|observed| &observed.attempt == attempt)
+                        .and_then(|observed| {
+                            observed
+                                .owner_prompt
+                                .as_ref()
+                                .map(|prompt| prompt.question.clone())
+                        })
+                });
+            if let Some(question) = question {
+                state.armed.remove(&attempt.tab_id);
+                return LaunchObservation::OwnerDeadline { question };
+            }
+            state.armed.remove(&attempt.tab_id);
+            return LaunchObservation::Deadline;
+        }
+    }
+}
+
+fn owner_prompt_deadline_reason(question: &str) -> String {
+    let minutes = OWNER_PROMPT_DEADLINE.as_secs().div_ceil(60);
+    format!("owner prompt was not answered before the {minutes} minute deadline: {question}")
 }
 
 impl ServiceContext {
@@ -521,6 +717,10 @@ impl ServiceContext {
                 "[launch-readiness] Tab {} awaiting first turn on PTY {}",
                 attempt.tab_id,
                 attempt.pty_id
+            ),
+            LaunchSettlement::OwnerPromptDeadline { reason } => log::error!(
+                "[launch-readiness] Tab {} owner prompt expired: {reason}",
+                attempt.tab_id
             ),
             LaunchSettlement::Provisional { stage, reason } => match stage {
                 BootStage::LaunchDeadlineElapsed => {
@@ -767,8 +967,18 @@ impl ServiceContext {
         let (settled, receiver) = std::sync::mpsc::sync_channel(1);
         let svc = self.clone();
         std::thread::spawn(move || {
-            let evidence = match observe(&attempt, Instant::now() + deadline) {
+            let normal_deadline = Instant::now() + deadline;
+            let evidence = match observe_with_owner_prompt(&attempt, normal_deadline, |question| {
+                if question.is_some() {
+                    svc.emit_boot_stage(&attempt.tab_id, BootStage::AwaitingOwnerPrompt, None)
+                }
+            }) {
                 LaunchObservation::Evidence(evidence) => evidence,
+                LaunchObservation::OwnerDeadline { question } => {
+                    let reason = owner_prompt_deadline_reason(&question);
+                    let _ = settled.send(LaunchSettlement::OwnerPromptDeadline { reason });
+                    return;
+                }
                 LaunchObservation::Deadline
                     if session_starts_on_first_user_turn
                         && svc.launch_attempt_is_waiting_for_first_turn(&attempt) =>

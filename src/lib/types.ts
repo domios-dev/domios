@@ -146,6 +146,7 @@ export type BootStage =
   | "preparing_role_instructions"
   | "delivering_instructions"
   | "agent_ready"
+  | "awaiting_owner_prompt"
   | "pty_reattached"
   | "launch_deadline_elapsed"
   | "launch_binding_unconfirmed"
