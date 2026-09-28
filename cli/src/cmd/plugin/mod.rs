@@ -173,8 +173,7 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
         .ok_or("usage: codeterm plugin <id> <verb> [args…]")?;
     let args: Vec<String> = it.collect();
 
-    let socket = crate::client::discover_socket()?;
-    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let (mut client, _) = crate::client::SocketClient::connect_local()?;
     let session_id = std::env::var("CODETERM_WORKER_ID")
         .ok()
         .filter(|s| !s.is_empty())

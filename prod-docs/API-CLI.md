@@ -31,14 +31,14 @@ provider choices and a message asking for `--agent`.
 ### Sandboxed CLI transport
 
 The CLI uses the local named pipe or Unix socket first. If that transport cannot
-be discovered or connected, selected identity and agent coordination calls can
-use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs
+be discovered or connected, socket RPC and REST-backed CLI commands can use the
+authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs
 `CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it
 always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and
 refuses any configured URL that is not exactly an HTTP IPv4 loopback origin.
-The endpoint accepts only `system.identify`, `tab.list`, `tab.send_text`,
-`agent.startup_ack`, `agent.ack`, and `agent.report`. Supplied identity headers
-must match the corresponding request fields. The token must be the local API
+The endpoint dispatches the same RPC methods as the local socket. This includes
+`api.request`, used for REST-backed commands such as plan reads, tab inspection,
+notifications, and agent-pad access. The token must be the local API
 token and the TCP peer must be loopback; mesh peer credentials are refused.
 HTTP success wraps the daemon value in `{result: ...}`, so result objects may
 contain their own `error` field without being mistaken for transport failures.
@@ -217,4 +217,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

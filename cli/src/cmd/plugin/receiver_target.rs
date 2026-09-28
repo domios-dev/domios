@@ -38,8 +38,7 @@ pub(super) fn run_over_socket(
     set: Option<&str>,
     clear: bool,
 ) -> Result<Value, String> {
-    let socket = crate::client::discover_socket()?;
-    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let (mut client, _) = crate::client::SocketClient::connect_local()?;
     run(&mut client, plugin_id, set, clear)
 }
 

@@ -6,8 +6,14 @@ pub fn current_pad() -> Result<PathBuf, String> {
         .ok()
         .filter(|v| !v.trim().is_empty())
         .ok_or("AgentPad requires CODETERM_TAB_ID; focused-tab fallback is not allowed")?;
-    let socket = crate::client::discover_socket()?;
-    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let (mut client, _) = crate::client::SocketClient::connect_local()?;
+    resolve_current_pad(&tab_id, &mut client)
+}
+
+pub(crate) fn resolve_current_pad(
+    tab_id: &str,
+    client: &mut dyn crate::client::RpcClient,
+) -> Result<PathBuf, String> {
     let resolved = client.call(
         "tab.agent_pad",
         Some(serde_json::json!({ "tab_id": tab_id })),
