@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn remote_task_binding_matches_startup_identity_without_local_supervisor() {
+    let remote = crate::service::RemoteTaskBinding {
+        plan_id: "plan-remote".into(),
+        task_id: "task-remote".into(),
+        attempt_id: "attempt-remote".into(),
+        origin_peer_id: "origin-peer".into(),
+    };
+    let identity = crate::service::startup_lease::StartupTaskIdentity {
+        plan_id: "plan-remote".into(),
+        task_id: "task-remote".into(),
+        attempt_id: "attempt-remote".into(),
+    };
+    assert!(remote_task_binding_matches(Some(&remote), Some(&identity)));
+    let mut mismatched = identity;
+    mismatched.attempt_id = "attempt-other".into();
+    assert!(!remote_task_binding_matches(Some(&remote), Some(&mismatched)));
+    assert!(!remote_task_binding_matches(Some(&remote), None));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_spawn_persists_restorable_launch_parameters() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
