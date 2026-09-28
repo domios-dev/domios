@@ -26,8 +26,8 @@ pub(crate) use prompt_compose::{provider_launch_task, restorable_identity_task, 
 pub(crate) use prompt_compose::{role_onboarding_task, spawn_onboarding_task};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
 pub(crate) use spawn::move_chatbackend_task_to_system_prompt;
-pub(crate) use types::TaskLaunchAuthority;
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
+pub(crate) use types::{RemoteTaskBinding, TaskLaunchAuthority};
 
 #[cfg(test)]
 mod tests;
