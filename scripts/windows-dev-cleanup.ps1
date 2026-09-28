@@ -110,6 +110,29 @@ if (-not $OwnedOnly) {
   }
 }
 
+$conptyRoot = (Join-Path $targetDebugPath "conpty")
+$conptyPrefix = $conptyRoot.TrimEnd('\', '/') + '\'
+$daemonPids = New-Object System.Collections.Generic.HashSet[int]
+foreach ($listener in $listeners) {
+  if ([int]$listener.port -eq $ApiPort) {
+    [void]$daemonPids.Add([int]$listener.process_id)
+  }
+}
+foreach ($proc in $all) {
+  if (-not ([string]$proc.Name).Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase)) {
+    continue
+  }
+  $procId = [int]$proc.ProcessId
+  $parentId = [int]$proc.ParentProcessId
+  $imagePath = [string]$proc.ExecutablePath
+  $underThisTarget = $imagePath.StartsWith($conptyPrefix, [StringComparison]::OrdinalIgnoreCase)
+  $parentGone = -not $parentByPid.ContainsKey($parentId)
+  $parentIsThisDaemon = $daemonPids.Contains($parentId)
+  if ($underThisTarget -and ($parentGone -or $parentIsThisDaemon)) {
+    [void]$victimRoots.Add($procId)
+  }
+}
+
 $selected = New-Object System.Collections.Generic.HashSet[int]
 function Add-ProcessTree {
   param([int] $ProcessId)
