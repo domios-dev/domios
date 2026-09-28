@@ -737,7 +737,22 @@ pub fn mesh_close_tab_and_forget_remote_worker(
     json_mode: bool,
 ) {
     let path = format!("/api/tabs/{tab_id}/close");
-    let data = mesh_relay_invoke(target, "POST", &path, None, json_mode);
+    let close = mesh_relay_invoke_result(target, "POST", &path, None);
+    let data = match close {
+        Ok(data) => data,
+        Err(close_failure) => {
+            let tabs = mesh_relay_invoke_result(target, "GET", "/api/tabs", None);
+            match verified_close_result(Err(close_failure), tabs, tab_id) {
+                Ok(data) => data,
+                Err(failure) => failure.print_and_exit(json_mode),
+            }
+        }
+    };
+    let data = if data.is_null() {
+        serde_json::json!({"ok": true, "tab_id": tab_id})
+    } else {
+        data
+    };
 
     if let Ok(local) = crate::build_local_api() {
         let _ = local
@@ -748,12 +763,37 @@ pub fn mesh_close_tab_and_forget_remote_worker(
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
-    } else if data.is_null() {
-        eprintln!("Error: unexpected response from peer (null data)");
-        std::process::exit(1);
     } else {
         crate::cmd::print::print_human(&data);
     }
+}
+
+fn remote_tab_exists(tabs: &serde_json::Value, tab_id: &str) -> Option<bool> {
+    tabs.as_array().map(|tabs| {
+        tabs.iter()
+            .any(|tab| tab.get("id").and_then(serde_json::Value::as_str) == Some(tab_id))
+    })
+}
+
+pub(crate) fn verified_close_result(
+    close: Result<serde_json::Value, MeshSpawnFailure>,
+    tabs: Result<serde_json::Value, MeshSpawnFailure>,
+    tab_id: &str,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    match close {
+        Ok(data) => Ok(data),
+        Err(failure) => match tabs {
+            Ok(tabs) if remote_tab_exists(&tabs, tab_id) == Some(false) => {
+                Ok(serde_json::json!({"ok": true, "tab_id": tab_id}))
+            }
+            _ => Err(failure),
+        },
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_close_failure() -> MeshSpawnFailure {
+    MeshSpawnFailure::new("peer", "close failed", "retry")
 }
 
 #[cfg(test)]

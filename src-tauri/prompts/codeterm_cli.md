@@ -85,6 +85,8 @@ Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the genera
 
 Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Long `--task` bodies over mesh go via `paste put --mesh PEER --pop`, not inline.
 
+Mesh `agent spawn` requires `--cwd <peer-workspace-path>` so the remote process does not inherit the daemon's own directory. Mesh `--task-file` is read on the caller and sends the file body; the local path is never forwarded.
+
 ## Memory (mem)
 
 Persistent vector + keyword store; hybrid search fuses FTS5 + embeddings on every query. Protocol:

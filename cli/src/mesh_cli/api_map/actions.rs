@@ -766,10 +766,14 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                     "agent spawn --team is local-only: run it on the peer that owns the Team",
                 );
             }
-            let task = match crate::cmd::agent::resolve_spawn_task(
+            if cwd.as_deref().is_none_or(|path| path.trim().is_empty()) {
+                return unsupported(
+                    "agent spawn --mesh requires a non-empty --cwd so the remote agent uses an explicit peer workspace directory",
+                );
+            }
+            let task = match crate::cmd::agent::resolve_mesh_spawn_task(
                 task.clone(),
                 task_file.clone(),
-                cwd.as_deref(),
                 &mut std::io::stdin(),
             ) {
                 Ok(t) => t,

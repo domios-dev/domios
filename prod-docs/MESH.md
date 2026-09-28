@@ -145,7 +145,7 @@ and is out of scope. Use the supported spawn-then-bind pattern instead:
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
    ```bash
-   codeterm agent spawn claude --mesh PEER --role Worker --task-file <brief-path>
+   codeterm agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
    ```
 
    A brief is authored prose, so it travels as a file. `--task "<brief>"` is
@@ -153,6 +153,10 @@ and is out of scope. Use the supported spawn-then-bind pattern instead:
    have expanded it before the CLI ran, and a remote Worker cannot be handed a
    silently truncated assignment. `--task-file -` with a single-quoted heredoc
    works the same way.
+
+   Mesh spawns require `--cwd` to name a workspace directory on the peer. A
+   `--task-file` path is read on the caller machine and its contents are sent;
+   the local path is never sent to the peer.
 
    This is a **supported task-less Worker shape**, including for work that
    changes source on the peer: it owns no task because none can exist for it,
