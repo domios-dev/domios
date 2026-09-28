@@ -3,6 +3,8 @@ use super::startup_readiness::{
     first_turn_binding_required, input_ready_stage_after_provider_ready,
     launch_waits_for_first_turn_binding,
 };
+#[path = "tests/structural_wait.rs"]
+mod structural_wait;
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
