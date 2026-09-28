@@ -134,6 +134,10 @@ pub fn answer(
     ))
 }
 
+pub(super) fn is_offer(id: &str) -> bool {
+    OFFERS.lock().contains_key(id)
+}
+
 pub fn on_state_change(service: &ServiceContext) {
     process_accepted(service);
 }
