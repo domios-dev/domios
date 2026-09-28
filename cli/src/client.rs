@@ -341,7 +341,6 @@ impl SocketClient {
             headers,
         } = &self.transport
         {
-            let mut identity_headers = headers.clone();
             let used_headers: &[&str] = match method {
                 "agent.startup_ack" => &["x-codeterm-tab-id", "x-codeterm-binding-nonce"],
                 "agent.ack" | "tab.send_text" => &["x-codeterm-tab-id"],
@@ -352,8 +351,11 @@ impl SocketClient {
                 ],
                 _ => &[],
             };
-            identity_headers
-                .retain(|name, _| used_headers.iter().any(|used| name.as_str() == *used));
+            let identity_headers: reqwest::header::HeaderMap = headers
+                .iter()
+                .filter(|(name, _)| used_headers.contains(&name.as_str()))
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect();
             let response = client
                 .post(endpoint)
                 .header(reqwest::header::AUTHORIZATION, token.clone())
