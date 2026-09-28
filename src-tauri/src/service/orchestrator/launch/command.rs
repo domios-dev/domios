@@ -159,13 +159,9 @@ fn build_agent_command_inner(
         args.extend(effort_args);
     }
 
-    let system_prompt = registry
+    let command_task = registry
         .with_provider(agent_cmd, |provider| {
-            crate::service::launch_delivery::content_for_descriptor(
-                &provider.system_prompt_delivery(),
-                task,
-            )
-            .system_prompt
+            crate::service::launch_delivery::command_task(provider, task)
         })
         .flatten();
 
@@ -174,7 +170,9 @@ fn build_agent_command_inner(
             session_id: session_id.clone(),
             skip_permissions: params.permission_bypass_requested(agent_cmd),
             agent_name: params.agent_name.clone(),
-            system_prompt: system_prompt.clone(),
+            system_prompt: command_task
+                .as_ref()
+                .and_then(|task| task.system_prompt.clone()),
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             args: args.clone(),
         };
@@ -188,17 +186,8 @@ fn build_agent_command_inner(
         }
     }
 
-    let launch_task = registry
-        .with_provider(agent_cmd, |provider| {
-            system_prompt.clone().or_else(|| {
-                matches!(
-                    provider.task_delivery(),
-                    crate::agent::provider::TaskDelivery::InlineFlag
-                )
-                .then(|| task.map(str::to_string))
-                .flatten()
-            })
-        })
+    let launch_task = command_task
+        .and_then(|task| task.text)
         .unwrap_or_default();
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),

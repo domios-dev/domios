@@ -37,6 +37,8 @@ pub struct MockProvider {
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
+    starter_prompt_text: Option<String>,
+    has_hooks: bool,
     session_starts_on_first_user_turn: bool,
     provider_readiness_strategy: ProviderReadinessStrategy,
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
@@ -69,6 +71,8 @@ impl MockProvider {
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
+            starter_prompt_text: None,
+            has_hooks: false,
             session_starts_on_first_user_turn: false,
             provider_readiness_strategy: ProviderReadinessStrategy::default(),
             launch_artifact_sweep_log: None,
@@ -159,6 +163,21 @@ impl MockProvider {
 
     pub fn with_session_config_delivery(mut self) -> Self {
         self.system_prompt_delivery = SystemPromptDelivery::SessionConfig;
+        self
+    }
+
+    pub fn with_task_delivery(mut self, task_delivery: TaskDelivery) -> Self {
+        self.task_delivery = task_delivery;
+        self
+    }
+
+    pub fn with_starter_prompt_text(mut self, text: &str) -> Self {
+        self.starter_prompt_text = Some(text.to_string());
+        self
+    }
+
+    pub fn with_hooks(mut self) -> Self {
+        self.has_hooks = true;
         self
     }
 
@@ -368,6 +387,15 @@ impl AgentProvider for MockProvider {
     }
     fn task_delivery(&self) -> TaskDelivery {
         self.task_delivery.clone()
+    }
+    fn starter_prompt_text(
+        &self,
+        _prompt: crate::agent::provider::StarterPrompt,
+    ) -> Option<String> {
+        self.starter_prompt_text.clone()
+    }
+    fn has_hooks(&self) -> bool {
+        self.has_hooks
     }
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.session_starts_on_first_user_turn
