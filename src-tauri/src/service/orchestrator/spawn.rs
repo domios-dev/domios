@@ -454,8 +454,12 @@ impl ServiceContext {
         }
 
         let clearance =
-            crate::service::spawn::provider_launch_preflight(&self.agent_registry, &agent_cmd)
-                .map_err(|e| e.to_string())?;
+            crate::service::spawn::provider_launch_preflight(
+                &self.agent_registry,
+                &agent_cmd,
+                params.permission_bypass_requested(&agent_cmd),
+            )
+            .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);

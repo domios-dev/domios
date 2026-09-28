@@ -46,6 +46,7 @@ pub struct MockProvider {
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
+    sandboxed_launch_restriction: Option<codeterm_plugin::provider::SandboxedLaunchRestriction>,
 }
 
 impl MockProvider {
@@ -81,6 +82,7 @@ impl MockProvider {
             resume_context_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
+            sandboxed_launch_restriction: None,
         }
     }
 
@@ -106,6 +108,14 @@ impl MockProvider {
 
     pub fn with_additional_writable_dir_flag(mut self, flag: &str) -> Self {
         self.additional_writable_dir_flag = Some(flag.to_string());
+        self
+    }
+
+    pub fn with_sandboxed_launch_restriction(
+        mut self,
+        restriction: codeterm_plugin::provider::SandboxedLaunchRestriction,
+    ) -> Self {
+        self.sandboxed_launch_restriction = Some(restriction);
         self
     }
 
@@ -315,6 +325,12 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn sandboxed_launch_restriction(
+        &self,
+    ) -> Option<codeterm_plugin::provider::SandboxedLaunchRestriction> {
+        self.sandboxed_launch_restriction
+    }
+
     fn additional_writable_dir_flag(&self) -> Option<String> {
         self.additional_writable_dir_flag.clone()
     }

@@ -562,6 +562,12 @@ struct NativeCodexReadiness;
 
 #[async_trait::async_trait]
 impl AgentProvider for NativeCodexReadiness {
+    fn sandboxed_launch_restriction(
+        &self,
+    ) -> Option<crate::provider::SandboxedLaunchRestriction> {
+        Some(crate::provider::SandboxedLaunchRestriction::RequiresUnsandboxedLinux)
+    }
+
     fn id(&self) -> &str {
         "codex-readiness-fixture"
     }
@@ -640,12 +646,24 @@ fn codex_composer_fingerprint_native_js_parity() {
         native.composer_cursor_position()
     );
     assert_eq!(js.status_bar_rows(), native.status_bar_rows());
-
     let cursor = load_js("cursor");
     assert!(cursor.provider_readiness_strategy().requires_composer());
     assert_eq!(
         cursor.composer_cursor_position(),
         crate::provider::ComposerCursorPosition::BottomRegion
+    );
+}
+
+#[test]
+fn codex_linux_sandbox_codeterm_reach_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let native = NativeCodexReadiness;
+    let js = load_js("codex");
+    assert_eq!(
+        js.sandboxed_launch_restriction(),
+        native.sandboxed_launch_restriction()
     );
 }
 

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
     ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
-    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
-    TurnEvidenceNormalization, VerifySubmitStrategy,
+    ReadinessStrategy, ReasoningEffortInfo, SandboxedLaunchRestriction, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -27,6 +27,8 @@ pub struct SubprocessPermission {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
+    #[serde(default)]
+    pub sandboxed_launch_restriction: Option<SandboxedLaunchRestriction>,
     #[serde(default)]
     pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,

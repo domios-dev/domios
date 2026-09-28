@@ -3,6 +3,7 @@ use crate::agent::provider::{
 };
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::state::MultiplexerState;
+use codeterm_plugin::provider::SandboxedLaunchRestriction;
 
 fn valid_cli_binary(binary: &str) -> bool {
     !binary.is_empty()
@@ -44,6 +45,9 @@ pub(crate) enum ProviderPreflightError {
         searched: Vec<std::path::PathBuf>,
         install_hint: Option<String>,
     },
+    SandboxedLaunchUnsupported {
+        display_name: String,
+    },
 }
 
 impl ProviderPreflightError {
@@ -53,6 +57,7 @@ impl ProviderPreflightError {
             Self::UnknownProvider { .. } => "unknown_provider",
             Self::InvalidBinary { .. } => "invalid_provider_binary",
             Self::BinaryUnavailable { .. } => "provider_binary_unavailable",
+            Self::SandboxedLaunchUnsupported { .. } => "sandboxed_launch_unsupported",
         }
     }
 }
@@ -99,6 +104,13 @@ impl std::fmt::Display for ProviderPreflightError {
                     .as_deref()
                     .unwrap_or("No install command is available for this platform.")
             ),
+            Self::SandboxedLaunchUnsupported { display_name } => write!(
+                f,
+                concat!(
+                    "Launch refused before a tab was created: {display_name} cannot reach CodeTerm ",
+                    "from its Linux sandbox. Enable full access or run it outside the Linux sandbox."
+                )
+            ),
         }
     }
 }
@@ -115,13 +127,29 @@ pub(crate) struct LaunchClearance {
 pub(crate) fn provider_launch_preflight(
     registry: &AgentRegistry,
     provider_id: &str,
+    permission_bypassed: bool,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
-    let Some((display_name, launch_binary, install_command)) =
+    provider_launch_preflight_for_platform(
+        registry,
+        provider_id,
+        permission_bypassed,
+        crate::agent::provider::current_platform_tag(),
+    )
+}
+
+pub(crate) fn provider_launch_preflight_for_platform(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    permission_bypassed: bool,
+    platform: &str,
+) -> Result<LaunchClearance, ProviderPreflightError> {
+    let Some((display_name, launch_binary, install_command, sandbox_restriction)) =
         registry.with_provider(provider_id, |p| {
             (
                 p.display_name().to_string(),
                 p.binary_name().to_string(),
                 p.install_command(crate::agent::provider::current_platform_tag()),
+                p.sandboxed_launch_restriction(),
             )
         })
     else {
@@ -131,6 +159,13 @@ pub(crate) fn provider_launch_preflight(
         });
     };
     let binary = launch_binary;
+    if sandbox_launch_restriction_applies(
+        sandbox_restriction,
+        !permission_bypassed,
+        platform,
+    ) {
+        return Err(ProviderPreflightError::SandboxedLaunchUnsupported { display_name });
+    }
     if !valid_cli_binary(&binary) {
         return Err(ProviderPreflightError::InvalidBinary {
             provider_id: provider_id.to_string(),
@@ -145,6 +180,16 @@ pub(crate) fn provider_launch_preflight(
         observed,
         install_command.filter(|s| !s.trim().is_empty()),
     )
+}
+
+pub(crate) fn sandbox_launch_restriction_applies(
+    restriction: Option<SandboxedLaunchRestriction>,
+    sandboxed: bool,
+    platform: &str,
+) -> bool {
+    sandboxed
+        && restriction == Some(SandboxedLaunchRestriction::RequiresUnsandboxedLinux)
+        && platform == "linux"
 }
 
 pub(crate) fn clearance_for(
