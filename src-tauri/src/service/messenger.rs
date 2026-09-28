@@ -30,7 +30,7 @@ pub struct MessageEnvelope {
     pub kind: MessageKind,
     pub from_label: String,
     pub from_tab: String,
-    pub from_agent: bool,
+    pub from_agent: Option<bool>,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
@@ -159,7 +159,7 @@ impl MessageEnvelope {
         self
     }
 
-    pub fn from_agent(mut self, from_agent: bool) -> Self {
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
         self.from_agent = from_agent;
         self
     }
@@ -216,8 +216,8 @@ impl From<MessageEnvelope> for Messenger {
 }
 
 impl Messenger {
-    const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
-    const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
+    pub(crate) const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
+    pub(crate) const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
     const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
@@ -631,7 +631,7 @@ impl Messenger {
         if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
             return None;
         }
-        if !self.envelope.from_agent {
+        if self.envelope.from_agent == Some(false) {
             return Some(Self::SHELL_REPLY_HINT.to_string());
         }
         let mut command = format!(

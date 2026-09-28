@@ -231,7 +231,7 @@ pub(crate) struct SendTextBody {
     #[serde(default)]
     pub(crate) source_model: Option<String>,
     #[serde(default)]
-    pub(crate) source_is_agent: bool,
+    pub(crate) source_is_agent: Option<bool>,
     /// Delivery framing for a mesh-relayed message. `"report"` renders as
     /// `[Report from <label>@<peer>]` (a remote worker's `agent report`); any
     /// other / absent value is a plain tab message. Only honoured alongside
@@ -461,7 +461,7 @@ pub async fn send_text(
                     Some(
                         crate::service::messenger::MessageEnvelope::tab(from_label, resolved)
                             .model(model)
-                            .from_agent(from_agent),
+                            .from_agent(Some(from_agent)),
                     )
                 }
             }

@@ -258,7 +258,7 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::tab(from_label, src.to_string())
                         .model(model)
-                        .from_agent(from_agent);
+                        .from_agent(Some(from_agent));
                 let (delivery, pad_file) = svc
                     .as_ref()
                     .gateway_deliver_with_pad_file(
