@@ -20,6 +20,7 @@ pub(crate) enum LaunchInputRefusal {
     ProviderDialog(TabState),
     Deadline,
     AttemptSuperseded,
+    OwnerPromptDeadline(String),
 }
 
 impl LaunchInputRefusal {
@@ -30,6 +31,9 @@ impl LaunchInputRefusal {
             Self::ProviderDialog(state) => format!("provider classified {state:?} dialog"),
             Self::Deadline => "provider composer readiness deadline elapsed".into(),
             Self::AttemptSuperseded => "launch attempt changed before input readiness".into(),
+            Self::OwnerPromptDeadline(question) => {
+                format!("owner prompt was not answered before the 30 minute deadline: {question}")
+            }
         }
     }
 }

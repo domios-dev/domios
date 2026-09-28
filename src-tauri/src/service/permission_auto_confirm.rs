@@ -645,6 +645,7 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         if retracted {
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             crate::api::events::emit_everywhere(
                 &self.app_handle,
                 "prompt-state-changed",

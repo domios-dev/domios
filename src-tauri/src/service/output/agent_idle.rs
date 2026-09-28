@@ -33,6 +33,7 @@ impl ServiceContext {
         };
         if let Some(identity) = previous_identity {
             self.resolve_prompt_notifications(tab_id, &identity);
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         }
         if changed {
             self.emit_state_changed();

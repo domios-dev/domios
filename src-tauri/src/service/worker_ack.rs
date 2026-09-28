@@ -817,12 +817,7 @@ fn worker_lifecycle_notice(
             task_id.as_deref().unwrap_or("unknown task")
         ),
         "agent_startup_failed" => "failed to start".to_string(),
-        "agent_startup_overdue"
-            if payload
-                .get("waiting_for_owner_prompt")
-                .and_then(Value::as_bool)
-                == Some(true) =>
-        {
+        "agent_startup_overdue" if startup_notice_waits_for_owner(payload) => {
             "is waiting for your response".to_string()
         }
         "agent_startup_overdue" => "is still starting".to_string(),
@@ -859,6 +854,13 @@ fn worker_lifecycle_notice(
         None => format!("Agent {title} ({provider}) {action}, attempt {attempt_id}."),
     };
     compact_notice_text(&message, 280)
+}
+
+fn startup_notice_waits_for_owner(payload: &Value) -> bool {
+    payload
+        .get("waiting_for_owner_prompt")
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 fn epoch_ms() -> u64 {
