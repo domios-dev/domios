@@ -163,6 +163,7 @@ pub(crate) fn marked_provider_launch_command(
         registry,
         provider_id,
         params.skip_permissions,
+        cwd,
         &crate::paths::data_dir(),
         tab_id,
         &mut args,
@@ -178,6 +179,7 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     skip_permissions: bool,
+    cwd: Option<&str>,
     data_dir: &std::path::Path,
     tab_id: &str,
     args: &mut Vec<String>,
@@ -193,6 +195,9 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     else {
         return;
     };
+    if !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "agent_pad") {
+        return;
+    }
     let pad = match crate::service::agent_pad::restore(
         data_dir,
         tab_id,
@@ -231,6 +236,9 @@ pub(crate) fn append_sandbox_git_metadata_args(
     else {
         return;
     };
+    if !sandbox_additional_writable_dirs_allowed(registry, provider_id, cwd, "git_metadata") {
+        return;
+    }
     let Some(cwd) = cwd else { return };
     let canonical_project = canonical_project.expect("checked above");
     let paths = match git_worktree_metadata_dirs(cwd, canonical_project) {
@@ -244,6 +252,28 @@ pub(crate) fn append_sandbox_git_metadata_args(
     for path in paths {
         args.push(flag.clone());
         args.push(path.to_string_lossy().into_owned());
+    }
+}
+
+fn sandbox_additional_writable_dirs_allowed(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    cwd: Option<&str>,
+    source: &str,
+) -> bool {
+    let trust_state = registry
+        .with_provider(provider_id, |provider| {
+            provider.directory_trust_state(cwd.unwrap_or_default(), false)
+        })
+        .flatten();
+    match trust_state {
+        None | Some(codeterm_plugin::provider::DirectoryTrustState::Trusted) => true,
+        Some(state) => {
+            log::info!(
+                "[sandbox-additional-roots] provider={provider_id} source={source} omitted: directory trust state is {state:?}"
+            );
+            false
+        }
     }
 }
 
@@ -774,6 +804,7 @@ mod tests {
             &registry,
             "fixture",
             false,
+            Some(temp.path().to_str().unwrap()),
             data.path(),
             "tab-pad-1",
             &mut sandboxed,
@@ -792,6 +823,7 @@ mod tests {
             &registry,
             "fixture",
             true,
+            Some(temp.path().to_str().unwrap()),
             data.path(),
             "tab-pad-1",
             &mut full_access,
@@ -802,6 +834,7 @@ mod tests {
             &registry,
             "no-flag",
             false,
+            Some(temp.path().to_str().unwrap()),
             data.path(),
             "tab-pad-1",
             &mut undeclared,
@@ -812,6 +845,7 @@ mod tests {
             &registry,
             "fixture",
             false,
+            Some(temp.path().to_str().unwrap()),
             data.path(),
             "tab-without-pad",
             &mut created,
@@ -919,6 +953,88 @@ mod tests {
             &mut ordinary_args,
         );
         assert_eq!(ordinary_args, vec!["--existing".to_string()]);
+    }
+
+    #[test]
+    fn sandboxed_additional_roots_follow_provider_directory_trust_state() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let data = temp.path().join("data");
+        std::fs::create_dir(&data).expect("data directory");
+        let pad = crate::service::agent_pad::AgentPad::create(
+            &data,
+            "trust-state-tab",
+            crate::service::agent_pad::AgentPadRole::General,
+        )
+        .expect("pad");
+        let repo = temp.path().join("repo");
+        let lane = temp.path().join("lane");
+        std::fs::create_dir(&repo).expect("repository directory");
+        git(&repo, &["init"]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=CodeTerm",
+                "-c",
+                "user.email=codeterm@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        );
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "lane/trust-state",
+                lane.to_str().unwrap(),
+            ],
+        );
+        let git_roots =
+            git_worktree_metadata_dirs(lane.to_str().unwrap(), repo.to_str().unwrap())
+                .expect("valid lane metadata")
+                .expect("linked worktree");
+
+        for (state, expected_count) in [
+            (codeterm_plugin::provider::DirectoryTrustState::Trusted, 10),
+            (codeterm_plugin::provider::DirectoryTrustState::Untrusted, 0),
+            (codeterm_plugin::provider::DirectoryTrustState::Unknown, 0),
+        ] {
+            let registry = crate::agent::registry::AgentRegistry::new();
+            registry.register_provider(Box::new(
+                crate::agent::test_provider::MockProvider::new("fixture")
+                    .with_additional_writable_dir_flag("--add-dir")
+                    .with_directory_trust_state(state),
+            ));
+            let mut args = Vec::new();
+            append_sandbox_agent_pad_arg(
+                &registry,
+                "fixture",
+                false,
+                Some(lane.to_str().unwrap()),
+                &data,
+                "trust-state-tab",
+                &mut args,
+            );
+            append_sandbox_git_metadata_args(
+                &registry,
+                "fixture",
+                false,
+                Some(lane.to_str().unwrap()),
+                Some(repo.to_str().unwrap()),
+                &mut args,
+            );
+            assert_eq!(args.len(), expected_count);
+            if state == codeterm_plugin::provider::DirectoryTrustState::Trusted {
+                let expected_pad = canonical_path_from_path(pad.path()).expect("pad resolves");
+                assert_eq!(args[1], expected_pad.to_string_lossy());
+                assert_eq!(args[3], git_roots[0].to_string_lossy());
+                assert_eq!(args[5], git_roots[1].to_string_lossy());
+            }
+        }
     }
 
     #[test]

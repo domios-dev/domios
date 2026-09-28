@@ -301,14 +301,19 @@ impl AgentProvider for JsProvider {
         &self,
         path: &str,
         skip_permissions: bool,
-    ) -> crate::provider::DirectoryTrustState {
-        self.try_call::<crate::provider::DirectoryTrustState>(
+    ) -> Option<crate::provider::DirectoryTrustState> {
+        if !self.has_js("directoryTrustState") {
+            return self
+                .native()
+                .and_then(|native| native.directory_trust_state(path, skip_permissions));
+        }
+        Some(self.try_call::<crate::provider::DirectoryTrustState>(
             "directoryTrustState",
             &[json!(path), json!(skip_permissions)],
         )
         .ok()
         .flatten()
-        .unwrap_or(crate::provider::DirectoryTrustState::Unknown)
+        .unwrap_or(crate::provider::DirectoryTrustState::Unknown))
     }
 
     fn launch_onboarding_response(

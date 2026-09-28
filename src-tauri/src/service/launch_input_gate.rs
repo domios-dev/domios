@@ -369,7 +369,11 @@ impl ServiceContext {
                     provider.directory_trust_prompt_response(&screen).is_some();
                 let directory_trust_state = trust_lookup_path.as_deref().map_or(
                     codeterm_plugin::provider::DirectoryTrustState::Unknown,
-                    |path| provider.directory_trust_state(path, skip_permissions),
+                    |path| {
+                        provider
+                            .directory_trust_state(path, skip_permissions)
+                            .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
+                    },
                 );
                 let classification = provider.classify_tab_state(&snapshot);
                 let provider_busy =
