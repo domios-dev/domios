@@ -131,6 +131,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_dispatch_state: Option<RemoteDispatchState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_lane_tip: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_merge_commit: Option<String>,
