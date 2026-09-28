@@ -53,14 +53,18 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         Ok(path.eq_ignore_ascii_case(r"C:\Trust\Exact"))
     }
 
-    fn directory_trust_state(&self, path: &str, _skip_permissions: bool) -> DirectoryTrustState {
-        if path.eq_ignore_ascii_case(r"C:\Trust\Exact") {
+    fn directory_trust_state(
+        &self,
+        path: &str,
+        _skip_permissions: bool,
+    ) -> Option<DirectoryTrustState> {
+        Some(if path.eq_ignore_ascii_case(r"C:\Trust\Exact") {
             DirectoryTrustState::Trusted
         } else if path.eq_ignore_ascii_case(r"C:\Trust\Untrusted") {
             DirectoryTrustState::Untrusted
         } else {
             DirectoryTrustState::Unknown
-        }
+        })
     }
 
     fn sweep_launch_artifacts(

@@ -351,8 +351,8 @@ pub trait AgentProvider: Send + Sync {
         &self,
         _path: &str,
         _skip_permissions: bool,
-    ) -> crate::provider::DirectoryTrustState {
-        crate::provider::DirectoryTrustState::Unknown
+    ) -> Option<crate::provider::DirectoryTrustState> {
+        None
     }
 
     /// One next key for a provider-declared, safe launch onboarding choice.

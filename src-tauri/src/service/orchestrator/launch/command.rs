@@ -183,6 +183,7 @@ fn build_agent_command_inner(
             registry,
             agent_cmd,
             skip_permissions,
+            params.cwd.as_deref(),
             &service.agent_pad_data_dir,
             tab_id,
             &mut args,
