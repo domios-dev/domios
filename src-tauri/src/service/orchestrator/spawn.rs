@@ -868,10 +868,6 @@ impl ServiceContext {
         if let Some(spec) = fallback_spec.as_ref() {
             create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
-        let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-            params.task.as_deref(),
-            fallback_spec.as_ref(),
-        );
         let startup_turn_text = crate::service::startup_turn::resolve(
             &self.agent_registry,
             &agent_cmd,
@@ -880,6 +876,10 @@ impl ServiceContext {
             bg_task.as_deref(),
             true,
             None,
+        );
+        let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+            startup_turn_text.as_deref(),
+            fallback_spec.as_ref(),
         );
         launch_agent_in_background_with_task_turn(
             self.clone(),

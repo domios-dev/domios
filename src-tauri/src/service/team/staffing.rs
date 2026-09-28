@@ -89,6 +89,7 @@ pub(crate) fn live_team_orchestrators(mux: &MultiplexerState, team_id: &str) -> 
             tab.team_id.as_deref() == Some(team_id)
                 && tab.anchors_team()
                 && tab_is_agent_capable(tab)
+                && tab.boot_stage != Some(crate::service::boot_stage::BootStage::SpawnFailed)
         })
         .map(|tab| tab.id.clone())
         .collect();
