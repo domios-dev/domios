@@ -398,7 +398,8 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             }
         }
     }
-    if !task_kind_is_planning(task)
+    if !terminal
+        && !task_kind_is_planning(task)
         && task
             .get("executor_role")
             .and_then(Value::as_str)

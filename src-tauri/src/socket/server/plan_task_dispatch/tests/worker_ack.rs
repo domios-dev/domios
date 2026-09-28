@@ -149,14 +149,13 @@ fn respawned_attempt_is_armed_and_ackable() {
         dispatched_worker_task(&store, &project, "blocked-respawn", "tab-first", 1);
     let block_reason = "awaiting dependency evidence";
     store
-        .record_task_attempt_report(
-            &plan_id,
-            &task_id,
-            &crate::plan::AgentRef::from_tab("tab-first"),
-            "STATUS: blocked\nFOLLOWUP: awaiting dependency evidence",
-            Some(codeterm_types::agent::ReportStatus::Blocked),
-            10,
-        )
+        .with_plan(&plan_id, 10, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
+            task.status = TaskStatus::Blocked;
+            task.status_label = Some(block_reason.into());
+            task.status_changed_at = 10;
+            Ok(())
+        })
         .unwrap();
     let draft = store
         .build_task_respawn_draft(
@@ -179,7 +178,13 @@ fn respawned_attempt_is_armed_and_ackable() {
             11,
         )
         .unwrap();
-    assert!(draft.source_attempt.closed_at.is_some());
+    let source_after = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .into_iter()
+        .find(|view| view.attempt_id == draft.source_attempt.id)
+        .expect("source attempt stays recorded");
+    assert!(source_after.attempt.closed_at.is_some());
     assert_eq!(replacement.attempt.id, draft.attempt_id);
     let launch_authority = crate::service::TaskLaunchAuthority {
         plan_id: draft.plan_id.clone(),
@@ -187,10 +192,9 @@ fn respawned_attempt_is_armed_and_ackable() {
         attempt_id: draft.attempt_id.clone(),
         lane_base: None,
     };
-    let task_identity = crate::service::worker_ack::startup_task_identity_from_env(
-        &launch_authority.env(),
-    )
-    .unwrap();
+    let task_identity =
+        crate::service::worker_ack::startup_task_identity_from_env(&launch_authority.env())
+            .unwrap();
     assert_eq!(task_identity.attempt_id, replacement.attempt.id);
     assert_eq!(
         crate::service::launch_delivery::startup_starter_prompt(true, true),
