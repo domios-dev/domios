@@ -25,7 +25,7 @@ pub(super) fn dispatch(
     let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let detail = svc
         .plan_store
-        .show_task(&plan_id, &task_id)
+        .show_task(&task_id)
         .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
     super::preflight::preflight_dispatch_task_status(&plan_id, &detail.task)?;
     if owned_str(p, "execution_intent").as_deref() != Some("mutating")
@@ -67,12 +67,20 @@ pub(super) fn dispatch(
     let destination = crate::service::worker_lane::current_branch(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     if destination.is_empty() {
-        return Err(invalid_dispatch("mesh dispatch requires an attached destination branch"));
+        return Err(invalid_dispatch(
+            "mesh dispatch requires an attached destination branch",
+        ));
     }
-    if detail.task.lane.destination.as_deref()
+    if detail
+        .task
+        .lane
+        .destination
+        .as_deref()
         .is_some_and(|requested| !requested.trim().is_empty() && requested != destination.as_str())
     {
-        return Err(invalid_dispatch("canonical checkout is not on the task's requested destination branch"));
+        return Err(invalid_dispatch(
+            "canonical checkout is not on the task's requested destination branch",
+        ));
     }
     let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
@@ -90,7 +98,10 @@ pub(super) fn dispatch(
     match super::regression_dispatch_decision(&plan, &detail.task) {
         super::RegressionDispatchDecision::Clear
         | super::RegressionDispatchDecision::Exempt { .. } => {}
-        super::RegressionDispatchDecision::Blocked { blocking, retrospectives } => {
+        super::RegressionDispatchDecision::Blocked {
+            blocking,
+            retrospectives,
+        } => {
             return Err(super::regression_blocked_error(blocking, retrospectives));
         }
     }
@@ -133,8 +144,9 @@ pub(super) fn dispatch(
             "paired peer is offline; the origin attempt is retained for retry",
         ));
     }
-    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(&svc.plan_store, &plan_id)
-        .map_err(super::super::plan::plan_rpc_err)?;
+    let manifest =
+        crate::service::plan::plan_skills::plan_skill_manifest(&svc.plan_store, &plan_id)
+            .map_err(super::super::plan::plan_rpc_err)?;
     let mut brief = super::brief::build_brief_with_manifest(
         &detail.task,
         &detail.sections,
@@ -186,9 +198,7 @@ pub(super) fn dispatch(
             return Err(remote_failure(label, &attempt_id, &error));
         }
     };
-    let worker_tab_id = response
-        .get("worker_tab_id")
-        .and_then(Value::as_str);
+    let worker_tab_id = response.get("worker_tab_id").and_then(Value::as_str);
     let Some(worker_tab_id) = worker_tab_id else {
         svc.plan_store
             .set_remote_dispatch_state(
@@ -207,7 +217,10 @@ pub(super) fn dispatch(
             "peer response omitted worker_tab_id; the origin attempt is retained",
         ));
     };
-    let branch = response.get("branch").and_then(Value::as_str).unwrap_or_default();
+    let branch = response
+        .get("branch")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let worktree_path = response
         .get("worktree_path")
         .and_then(Value::as_str)
@@ -286,16 +299,31 @@ pub(crate) fn merge_lane(
         })?;
     let attempt_id = owned_str(params.as_ref(), "attempt_id")
         .ok_or_else(|| invalid_dispatch("attempt_id is required"))?;
-    let detail = svc.plan_store.show_task(&plan_id, &task_id)
+    let detail = svc
+        .plan_store
+        .show_task(&task_id)
         .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
-    let attempt = detail.task.execution_attempts.iter().find(|attempt| attempt.id == attempt_id)
+    let attempt = detail
+        .task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
         .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::TaskNotFound))?;
     if attempt.judge_verdict.as_deref() != Some("accepted") {
-        return Err(invalid_dispatch("remote lane can merge only after origin acceptance"));
+        return Err(invalid_dispatch(
+            "remote lane can merge only after origin acceptance",
+        ));
     }
-    let report_sha = attempt.report.as_ref().and_then(|report| report.sha.clone())
+    let report_sha = attempt
+        .report
+        .as_ref()
+        .and_then(|report| report.sha.clone())
         .ok_or_else(|| invalid_dispatch("accepted remote report has no reviewed lane SHA"))?;
-    let destination = detail.task.lane.destination.clone()
+    let destination = detail
+        .task
+        .lane
+        .destination
+        .clone()
         .filter(|destination| attempt.destination.as_ref() == Some(destination))
         .ok_or_else(|| invalid_dispatch("remote attempt destination differs from its task lane"))?;
     if attempt.remote_dispatch_state == Some(RemoteDispatchState::Integrated) {
@@ -308,32 +336,55 @@ pub(crate) fn merge_lane(
     }
     if !matches!(
         attempt.remote_dispatch_state,
-        Some(RemoteDispatchState::Reported | RemoteDispatchState::PeerOffline | RemoteDispatchState::RelayLost)
+        Some(
+            RemoteDispatchState::Reported
+                | RemoteDispatchState::PeerOffline
+                | RemoteDispatchState::RelayLost
+        )
     ) {
-        return Err(invalid_dispatch("remote attempt must have a persisted report before integration"));
+        return Err(invalid_dispatch(
+            "remote attempt must have a persisted report before integration",
+        ));
     }
-    let peer_id = attempt.mesh_peer.clone().ok_or_else(|| invalid_dispatch("remote attempt has no peer identity"))?;
-    let branch = attempt.branch.clone().ok_or_else(|| invalid_dispatch("remote attempt has no peer lane branch"))?;
-    let base = attempt.base.clone().ok_or_else(|| invalid_dispatch("remote attempt has no recorded base"))?;
-    let plan = svc.plan_store.get(&plan_id)
+    let peer_id = attempt
+        .mesh_peer
+        .clone()
+        .ok_or_else(|| invalid_dispatch("remote attempt has no peer identity"))?;
+    let branch = attempt
+        .branch
+        .clone()
+        .ok_or_else(|| invalid_dispatch("remote attempt has no peer lane branch"))?;
+    let base = attempt
+        .base
+        .clone()
+        .ok_or_else(|| invalid_dispatch("remote attempt has no recorded base"))?;
+    let plan = svc
+        .plan_store
+        .get(&plan_id)
         .ok_or_else(|| super::super::plan::plan_rpc_err(PlanError::NotFound))?;
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
-    } else { plan.canonical_project_path.clone() };
+    } else {
+        plan.canonical_project_path.clone()
+    };
     crate::service::worker_lane::verify_worker_lane(
         &canonical_cwd,
         &canonical_cwd,
         Some(&destination),
         None,
         crate::service::LaneProtection::Enforced,
-    ).map_err(|error| invalid_dispatch(&error))?;
+    )
+    .map_err(|error| invalid_dispatch(&error))?;
     let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let (peer_paired, peer_client) = {
-        let mesh = app.state::<crate::MeshStateHandle>().lock();
+        let mesh_state = app.state::<crate::MeshStateHandle>();
+        let mesh = mesh_state.lock();
         let paired = if let Some(peer) = mesh.paired_peers.get(&peer_id) {
             if peer.access_level != crate::mesh::types::AccessLevel::Full {
-                return Err(invalid_dispatch("remote lane integration requires Full peer access"));
+                return Err(invalid_dispatch(
+                    "remote lane integration requires Full peer access",
+                ));
             }
             true
         } else {
@@ -342,11 +393,22 @@ pub(crate) fn merge_lane(
         (paired, mesh.client_for(&peer_id))
     };
     let Some(peer_client) = peer_client.filter(|_| peer_paired) else {
-        svc.plan_store.set_remote_dispatch_state(
-            &plan_id, &task_id, &attempt_id, &peer_id, RemoteDispatchState::PeerOffline, now,
-        ).map_err(super::super::plan::plan_rpc_err)?;
+        svc.plan_store
+            .set_remote_dispatch_state(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                &peer_id,
+                RemoteDispatchState::PeerOffline,
+                now,
+            )
+            .map_err(super::super::plan::plan_rpc_err)?;
         super::emit_plan_changed(app, &plan_id);
-        return Err(remote_failure("peer_offline", &attempt_id, "peer is offline while retrieving its lane"));
+        return Err(remote_failure(
+            "peer_offline",
+            &attempt_id,
+            "peer is offline while retrieving its lane",
+        ));
     };
     let request = json!({
         "repository_identity": repository_identity,
@@ -364,26 +426,45 @@ pub(crate) fn merge_lane(
         Ok(response) => response,
         Err(error) => {
             let (state, label) = remote_error_state(&error);
-            svc.plan_store.set_remote_dispatch_state(
-                &plan_id, &task_id, &attempt_id, &peer_id, state, now,
-            ).map_err(super::super::plan::plan_rpc_err)?;
+            svc.plan_store
+                .set_remote_dispatch_state(&plan_id, &task_id, &attempt_id, &peer_id, state, now)
+                .map_err(super::super::plan::plan_rpc_err)?;
             super::emit_plan_changed(app, &plan_id);
             return Err(remote_failure(label, &attempt_id, &error));
         }
     };
-    let response_branch = response.get("branch").and_then(Value::as_str).unwrap_or_default();
-    let response_base = response.get("base_commit").and_then(Value::as_str).unwrap_or_default();
-    let lane_tip = response.get("lane_tip").and_then(Value::as_str).unwrap_or_default();
-    let bundle = response.get("bundle").and_then(Value::as_str).unwrap_or_default();
+    let response_branch = response
+        .get("branch")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let response_base = response
+        .get("base_commit")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let lane_tip = response
+        .get("lane_tip")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let bundle = response
+        .get("bundle")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     const MAX_BUNDLE_BYTES: usize = 32 * 1024 * 1024;
     if !encoded_bundle_size_allowed(bundle.len(), MAX_BUNDLE_BYTES) {
         return Err(invalid_dispatch("peer lane bundle exceeds 32 MiB"));
     }
-    if response_branch != branch || response_base != base || lane_tip != report_sha || bundle.is_empty() {
-        return Err(invalid_dispatch("authenticated peer returned inconsistent lane provenance"));
+    if response_branch != branch
+        || response_base != base
+        || lane_tip != report_sha
+        || bundle.is_empty()
+    {
+        return Err(invalid_dispatch(
+            "authenticated peer returned inconsistent lane provenance",
+        ));
     }
     use base64::Engine;
-    let bundle = base64::engine::general_purpose::STANDARD.decode(bundle)
+    let bundle = base64::engine::general_purpose::STANDARD
+        .decode(bundle)
         .map_err(|_| invalid_dispatch("peer lane bundle is not valid base64"))?;
     if bundle.len() > MAX_BUNDLE_BYTES {
         return Err(invalid_dispatch("peer lane bundle exceeds 32 MiB"));
@@ -403,16 +484,19 @@ pub(crate) fn merge_lane(
             &expected_tip,
             &destination,
         )
-    })).map_err(|error| invalid_dispatch(&format!("remote lane merge task failed: {error}")))?
-        .map_err(|error| invalid_dispatch(&error))?;
-    svc.plan_store.mark_remote_dispatch_integrated(
-        &plan_id,
-        &task_id,
-        &attempt_id,
-        &merged.lane_tip,
-        &merged.target_tip,
-        now,
-    ).map_err(super::super::plan::plan_rpc_err)?;
+    }))
+    .map_err(|error| invalid_dispatch(&format!("remote lane merge task failed: {error}")))?
+    .map_err(|error| invalid_dispatch(&error))?;
+    svc.plan_store
+        .mark_remote_dispatch_integrated(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            &merged.lane_tip,
+            &merged.target_tip,
+            now,
+        )
+        .map_err(super::super::plan::plan_rpc_err)?;
     super::emit_plan_changed(app, &plan_id);
     Ok(json!({
         "integrated": true,
@@ -434,7 +518,15 @@ enum PeerState {
 fn select_peer(
     app: &tauri::AppHandle,
     target: &str,
-) -> Result<(String, String, Option<crate::mesh::transport::PeerClient>, PeerState), JsonRpcError> {
+) -> Result<
+    (
+        String,
+        String,
+        Option<crate::mesh::transport::PeerClient>,
+        PeerState,
+    ),
+    JsonRpcError,
+> {
     let mesh_handle = app.state::<crate::MeshStateHandle>();
     let mesh = mesh_handle.lock();
     let mut candidates: Vec<_> = mesh
@@ -442,12 +534,24 @@ fn select_peer(
         .values()
         .filter(|peer| peer_matches_id(&peer.instance_id, target))
         .collect();
-    candidates.sort_by(|a, b| b.online.cmp(&a.online).then_with(|| a.instance_id.cmp(&b.instance_id)));
-    let peer = candidates.first().ok_or_else(|| invalid_dispatch("mesh peer is not paired"))?;
+    candidates.sort_by(|a, b| {
+        b.online
+            .cmp(&a.online)
+            .then_with(|| a.instance_id.cmp(&b.instance_id))
+    });
+    let peer = candidates
+        .first()
+        .ok_or_else(|| invalid_dispatch("mesh peer is not paired"))?;
     if peer.access_level != crate::mesh::types::AccessLevel::Full {
-        return Err(invalid_dispatch("mesh task dispatch requires Full peer access"));
+        return Err(invalid_dispatch(
+            "mesh task dispatch requires Full peer access",
+        ));
     }
-    let state = if peer.online { PeerState::Online } else { PeerState::Offline };
+    let state = if peer.online {
+        PeerState::Online
+    } else {
+        PeerState::Offline
+    };
     let client = mesh.client_for(&peer.instance_id);
     Ok((
         peer.instance_id.clone(),
@@ -477,7 +581,9 @@ fn remote_failure(state: &str, attempt_id: &str, detail: &str) -> JsonRpcError {
     JsonRpcError {
         code: -32024,
         message: format!("remote dispatch {state} for attempt {attempt_id}: {detail}"),
-        data: Some(json!({"type": "remote_dispatch_state", "state": state, "attempt_id": attempt_id})),
+        data: Some(
+            json!({"type": "remote_dispatch_state", "state": state, "attempt_id": attempt_id}),
+        ),
     }
 }
 
@@ -521,6 +627,9 @@ mod tests {
     fn origin_remote_bundle_response_size_cap_rejects_oversize() {
         let max_encoded = (32 * 1024 * 1024_usize).div_ceil(3) * 4;
         assert!(encoded_bundle_size_allowed(max_encoded, 32 * 1024 * 1024));
-        assert!(!encoded_bundle_size_allowed(max_encoded + 1, 32 * 1024 * 1024));
+        assert!(!encoded_bundle_size_allowed(
+            max_encoded + 1,
+            32 * 1024 * 1024
+        ));
     }
 }

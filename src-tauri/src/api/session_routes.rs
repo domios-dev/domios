@@ -388,6 +388,7 @@ pub async fn resume_session_api(
 
     let spawn_params = crate::service::SpawnAgentParams {
         agent: Some(meta.provider.clone()),
+        remote_task_binding: None,
         agent_name: None,
         args: None,
         cwd: Some(cwd.clone()),

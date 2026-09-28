@@ -107,9 +107,16 @@ fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
         "authenticated_mesh_peer_id": "peer-origin"
     }));
     let error = crate::socket::server::dispatch_service_rpc(
-        "plan.task.remote_ack", params, &fixture.service,
-    ).expect_err("local RPC must not impersonate signed mesh transport");
-    assert!(error.message.contains("authenticated mesh transport"), "{}", error.message);
+        "plan.task.remote_ack",
+        params,
+        &std::sync::Arc::new(fixture.service.clone()),
+    )
+    .expect_err("local RPC must not impersonate signed mesh transport");
+    assert!(
+        error.message.contains("authenticated mesh transport"),
+        "{}",
+        error.message
+    );
 }
 
 fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
@@ -490,7 +497,7 @@ fn starting_worker_with_live_pty(
         worker.task_binding = Some(crate::multiplexer::types::TaskBinding {
             plan_id: Some(plan_id.to_string()),
             task_id: Some(task_id.to_string()),
-attempt_id: None,
+            attempt_id: None,
             spawn_handle: None,
             bound_at: 5,
         });
@@ -780,7 +787,7 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
                         tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
                             plan_id: Some(plan_id),
                             task_id: Some(task_id),
-attempt_id: None,
+                            attempt_id: None,
                             spawn_handle: None,
                             bound_at: 7,
                         });
