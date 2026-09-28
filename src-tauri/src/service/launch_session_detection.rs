@@ -193,10 +193,19 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     else {
         return;
     };
-    let Ok(pad) = crate::service::agent_pad::AgentPad::open(data_dir, tab_id) else {
-        return;
+    let pad = match crate::service::agent_pad::restore(
+        data_dir,
+        tab_id,
+        crate::service::agent_pad::AgentPadRole::General,
+    ) {
+        Ok(pad) => pad,
+        Err(error) => {
+            log::warn!("[sandbox-agent-pad] tab={tab_id} provider={provider_id} skipped: {error}");
+            return;
+        }
     };
     let Some(path) = canonical_path_from_path(pad.path()) else {
+        log::warn!("[sandbox-agent-pad] tab={tab_id} provider={provider_id} skipped: pad path does not resolve");
         return;
     };
     args.push(flag);
@@ -798,16 +807,25 @@ mod tests {
             &mut undeclared,
         );
         assert!(undeclared.is_empty());
-        let mut missing = Vec::new();
+        let mut created = Vec::new();
         append_sandbox_agent_pad_arg(
             &registry,
             "fixture",
             false,
             data.path(),
             "tab-without-pad",
-            &mut missing,
+            &mut created,
         );
-        assert!(missing.is_empty());
+        let created_pad = crate::service::agent_pad::AgentPad::open(data.path(), "tab-without-pad")
+            .expect("launch creates the missing pad");
+        let created_path = canonical_path_from_path(created_pad.path()).expect("pad resolves");
+        assert_eq!(
+            created,
+            vec![
+                "--add-dir".to_string(),
+                created_path.to_string_lossy().into_owned()
+            ]
+        );
     }
 
     #[test]
