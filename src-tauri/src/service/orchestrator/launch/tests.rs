@@ -125,9 +125,10 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     let input_ready_stage = input_ready_stage_after_provider_ready(true);
     assert_eq!(input_ready_stage, BootStage::AgentReady);
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
+    assert!(include_str!("owner_prompt_wait.rs").contains("await_lazy_session_input_readiness"));
     let launch_source = include_str!("../launch.rs");
     let provider_up = launch_source
-        .find("await_lazy_session_input_readiness")
+        .find("owner_prompt_wait::await_input_readiness")
         .expect("first-turn readiness waits for provider composer evidence");
     let input_ready = launch_source
         .find("emit_first_turn_input_ready")
