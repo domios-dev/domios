@@ -558,6 +558,97 @@ fn provider_readiness_native_js_parity() {
     }
 }
 
+struct NativeCodexReadiness;
+
+#[async_trait::async_trait]
+impl AgentProvider for NativeCodexReadiness {
+    fn id(&self) -> &str {
+        "codex-readiness-fixture"
+    }
+
+    fn display_name(&self) -> &str {
+        "Codex readiness fixture"
+    }
+
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+
+    fn readiness_strategy(&self) -> crate::provider::ReadinessStrategy {
+        crate::provider::ReadinessStrategy::PollShellPrompt {
+            timeout: std::time::Duration::from_secs(30),
+        }
+    }
+
+    fn task_delivery(&self) -> crate::provider::TaskDelivery {
+        crate::provider::TaskDelivery::InlineFlag
+    }
+
+    fn provider_readiness_strategy(&self) -> crate::provider::ProviderReadinessStrategy {
+        crate::provider::ProviderReadinessStrategy::StructuralComposer {
+            timeout: std::time::Duration::from_secs(30),
+        }
+    }
+
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        crate::provider::ComposerCursorPosition::BottomRegion
+    }
+
+    fn status_bar_rows(&self) -> u16 {
+        1
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+}
+
+#[test]
+fn codex_composer_fingerprint_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let native = NativeCodexReadiness;
+    let js = load_js("codex");
+    assert_eq!(
+        js.provider_readiness_strategy(),
+        native.provider_readiness_strategy()
+    );
+    assert_eq!(
+        js.composer_cursor_position(),
+        native.composer_cursor_position()
+    );
+    assert_eq!(js.status_bar_rows(), native.status_bar_rows());
+
+    let cursor = load_js("cursor");
+    assert!(cursor.provider_readiness_strategy().requires_composer());
+    assert_eq!(
+        cursor.composer_cursor_position(),
+        crate::provider::ComposerCursorPosition::BottomRegion
+    );
+}
+
 fn classify_tab_state_snapshot() -> crate::tab_state::TabStateSnapshot {
     crate::tab_state::TabStateSnapshot {
         tab_id: "tab-1".into(),

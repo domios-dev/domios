@@ -2,6 +2,60 @@ use super::*;
 use crate::agent::provider::AgentProvider;
 use crate::agent::test_provider::MockProvider;
 
+#[test]
+fn unsupported_codex_layout_fails_with_named_reason() {
+    let refusal = launch_readiness_deadline_refusal(true, true);
+    assert_eq!(refusal, LaunchInputRefusal::ComposerNotRecognised);
+    assert_eq!(
+        refusal.reason(),
+        "provider composer layout was not recognised"
+    );
+}
+
+#[test]
+fn readiness_deadline_without_provider_tui_keeps_generic_reason() {
+    assert_eq!(
+        launch_readiness_deadline_refusal(true, false),
+        LaunchInputRefusal::Deadline
+    );
+    assert_eq!(
+        launch_readiness_deadline_refusal(false, true),
+        LaunchInputRefusal::Deadline
+    );
+}
+
+#[test]
+fn provider_cursor_composer_matches_captured_bottom_region_fixture() {
+    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    screens.resize("cursor", 120, 24);
+    let text = include_str!(
+        "../../../../plugins/provider-cursor/tests/fixtures/composer-readiness/cursor-ready.txt"
+    )
+    .lines()
+    .collect::<Vec<_>>()
+    .join("\r\n");
+    screens.process(
+        "cursor",
+        format!("\x1b[2J\x1b[H{text}\x1b[?25h").as_bytes(),
+    );
+    let rows = screens.get_screen_rows("cursor").expect("screen rows");
+    let composer_row = rows
+        .iter()
+        .position(|line| line.trim_start().starts_with('→'))
+        .expect("captured cursor composer") as u16;
+    screens.process("cursor", format!("\x1b[{};1H", composer_row + 1).as_bytes());
+    let input = screens
+        .composer_input_state("cursor")
+        .expect("cursor input state");
+    let rows = screens.get_screen_rows("cursor").expect("screen rows");
+    assert!(launch_composer_input_ready(
+        &input,
+        crate::agent::provider::ComposerCursorPosition::BottomRegion,
+        Some(&rows),
+        1,
+    ));
+}
+
 fn launch_classification(state: TabState) -> Option<TabStateClassification> {
     Some(TabStateClassification {
         state,
