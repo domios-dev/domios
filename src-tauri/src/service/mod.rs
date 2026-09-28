@@ -219,7 +219,7 @@ pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub(crate) use team::TeamCartographerAttachLocks;
+pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
@@ -242,6 +242,7 @@ pub struct ServiceContext {
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
     pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
+    pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,
     /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
