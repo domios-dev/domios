@@ -231,7 +231,68 @@ pub(crate) fn provision_isolated_lane(
     provision_lane(canonical_cwd, lane_label)
 }
 
+pub(crate) fn provision_isolated_lane_at_base(
+    canonical_cwd: &str,
+    lane_label: &str,
+    base: &str,
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane_at_base(canonical_cwd, lane_label, base)
+}
+
+pub(crate) fn repository_identity(cwd: &str) -> Result<String, String> {
+    let remotes = git_value(cwd, ["remote"])?;
+    let mut identities = Vec::new();
+    for remote in remotes.lines().map(str::trim).filter(|name| !name.is_empty()) {
+        let urls = git_value(cwd, ["remote", "get-url", "--all", remote])?;
+        identities.extend(urls.lines().filter_map(sanitized_remote_identity));
+    }
+    identities.sort();
+    identities.dedup();
+    if identities.is_empty() {
+        return Err("checkout has no configured repository remote identity".into());
+    }
+    use sha2::{Digest, Sha256};
+    Ok(format!("sha256:{:x}", Sha256::digest(identities.join("\n").as_bytes())))
+}
+
+pub(crate) fn contains_commit(cwd: &str, commit: &str) -> bool {
+    !commit.trim().is_empty()
+        && git_value(cwd, ["cat-file", "-e", &format!("{}^{{commit}}", commit.trim())])
+            .is_ok()
+}
+
+fn sanitized_remote_identity(remote: &str) -> Option<String> {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        return None;
+    }
+    if let Some((scheme, rest)) = remote.split_once("://") {
+        let authority_end = rest.find('/').unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        let path = &rest[authority_end..];
+        let path = path.split(['?', '#']).next().unwrap_or(path);
+        return Some(format!(
+            "{}://{}{}",
+            scheme.to_lowercase(),
+            host.to_lowercase(),
+            path.trim_end_matches('/')
+        ));
+    }
+    Some(remote.to_string())
+}
+
 fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {
+    let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
+    let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
+    provision_lane_at_base(&project_cwd, lane_label, &base)
+}
+
+fn provision_lane_at_base(
+    project_cwd: &str,
+    lane_label: &str,
+    requested_base: &str,
+) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let project = Path::new(&project_cwd);
     let repo = project
@@ -261,8 +322,14 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     })?;
     let lane_path = container.join(&slug);
     let lane_cwd = lane_path.display().to_string();
-    let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
-    if let Err(error) = run_git(&project_cwd, ["worktree", "add", "-b", &branch, &lane_cwd]) {
+    let base = git_value(
+        &project_cwd,
+        ["rev-parse", "--verify", &format!("{}^{{commit}}", requested_base)],
+    )?;
+    if let Err(error) = run_git(
+        &project_cwd,
+        ["worktree", "add", "-b", &branch, &lane_cwd, &base],
+    ) {
         let _ = std::fs::remove_dir_all(&lane_path);
         let _ = run_git(&project_cwd, ["worktree", "prune"]);
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);

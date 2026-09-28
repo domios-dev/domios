@@ -128,6 +128,8 @@ pub struct TaskExecutionAttempt {
     pub orchestrator_tab_id: Option<String>,
     #[serde(default)]
     pub mesh_peer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_dispatch_state: Option<RemoteDispatchState>,
     #[serde(default)]
     pub branch: Option<String>,
     #[serde(default)]
@@ -181,6 +183,20 @@ pub struct TaskExecutionAttempt {
     pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
     #[serde(default)]
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
+}
+
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteDispatchState {
+    PeerPreflight,
+    PeerMissingRepo,
+    PeerMissingBase,
+    PeerOffline,
+    RelayLost,
+    AwaitingWorkerAck,
+    Acknowledged,
+    Reported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

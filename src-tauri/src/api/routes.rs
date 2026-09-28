@@ -690,6 +690,7 @@ pub fn create_router(state: AppState) -> Router {
             )),
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
+        .route("/api/mesh/worker-dispatch", post(mesh_routes::mesh_worker_dispatch))
         .route(
             "/api/mesh/relay-stream",
             get(mesh_routes::mesh_relay_stream),

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use axum::{extract::State as AxumState, Json};
+use axum::{extract::State as AxumState, http::HeaderMap, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::api::routes::AppState;
@@ -111,6 +111,7 @@ fn method_allowed(method: &str) -> bool {
 
 pub async fn mesh_rpc(
     AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(request): Json<MeshRpcRequest>,
 ) -> Json<MeshRpcResponse> {
     if request.request_id.is_empty() || request.request_id.len() > 128 {
@@ -141,10 +142,50 @@ pub async fn mesh_rpc(
         return Json(entry.wait().await);
     }
 
+    let authenticated_peer = if matches!(
+        request.method.as_str(),
+        "plan.task.remote_ack" | "plan.task.remote_report"
+    ) {
+        match super::relay::check_mesh_relay_auth(&state, &headers) {
+            Ok(peer_id) if peer_has_full_access(&state, &peer_id) => Some(peer_id),
+            Ok(_) => {
+                entry.complete(MeshRpcResponse {
+                    result: None,
+                    error: Some(crate::socket::server::JsonRpcError {
+                        code: -32003,
+                        message: "remote task lifecycle mutation requires Full mesh access".into(),
+                        data: None,
+                    }),
+                });
+                return Json(entry.wait().await);
+            }
+            Err((_, message)) => {
+                entry.complete(MeshRpcResponse {
+                    result: None,
+                    error: Some(crate::socket::server::JsonRpcError {
+                        code: -32003,
+                        message,
+                        data: None,
+                    }),
+                });
+                return Json(entry.wait().await);
+            }
+        }
+    } else {
+        None
+    };
     let response = if method_allowed(&request.method) {
         let method = request.method.clone();
         let mut params = request.params;
         sanitize_remote_context(&mut params);
+        if let Some(peer_id) = authenticated_peer {
+            if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
+                object.insert(
+                    "authenticated_mesh_peer_id".into(),
+                    serde_json::Value::String(peer_id),
+                );
+            }
+        }
         let svc = state.svc.clone();
         match tokio::task::spawn_blocking(move || {
             crate::socket::server::dispatch_service_rpc(&method, params, &svc)
@@ -181,6 +222,15 @@ pub async fn mesh_rpc(
 
     entry.complete(response.clone());
     Json(response)
+}
+
+fn peer_has_full_access(state: &AppState, peer_id: &str) -> bool {
+    state
+        .mesh
+        .lock()
+        .paired_peers
+        .get(peer_id)
+        .is_some_and(|peer| peer.access_level == codeterm_mesh::types::AccessLevel::Full)
 }
 
 fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {
