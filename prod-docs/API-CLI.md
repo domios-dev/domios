@@ -18,11 +18,12 @@ entity id, and `data` contains the raw daemon payload with typed fields such as
 `plan create --json` returns `kind == "plan"` and `id == plan_id`, and
 `plan task add --json` returns `kind == "task"` and `id == task_id`.
 
-`plan task dispatch <plan> <task> --mesh <peer> --execution-intent mutating`
+`plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating`
 starts origin-owned remote work. The Worker ACKs and reports to that attempt;
 after the Orchestrator accepts the report, run
 `plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the
-authenticated peer lane bundle and create a real merge commit. The generated
+authenticated peer lane at the accepted report SHA and create a real merge
+commit into the clean dispatch-time branch. The generated
 CLI reference and machine-readable command tree are refreshed by `build.sh cli`.
 
 ### CLI JSON Errors

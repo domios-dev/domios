@@ -50,9 +50,9 @@ Without the flag every rule above is unchanged.
 For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
 and integration. After accepting the attempt, run
 `codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
-The command fetches the authenticated peer bundle into a CodeTerm-owned ref,
-uses `git merge --no-ff`, and records the merge only after the peer lane tip is
-an ancestor of the target. It never accepts cherry-pick or squash as integration.
+The command requires the peer tip to equal the accepted report SHA and the clean
+origin checkout to remain on its dispatch-time branch. It uses `git merge
+--no-ff` and records only after ancestry passes; cherry-pick and squash are invalid.
 
 Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,

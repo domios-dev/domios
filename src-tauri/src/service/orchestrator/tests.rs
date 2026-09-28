@@ -329,7 +329,9 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         manager_bootstrap: None,
         structured_prompt_server: None,
     }
-}
+
+            remote_task_binding: None,
+    }
 
 fn test_registry() -> AgentRegistry {
     let reg = AgentRegistry::new();

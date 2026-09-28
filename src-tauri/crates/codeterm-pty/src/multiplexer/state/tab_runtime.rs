@@ -481,6 +481,7 @@ mod display_label_tests {
         let binding = TaskBinding {
             plan_id: Some("pl_1".into()),
             task_id: Some("task_9".into()),
+attempt_id: None,
             spawn_handle: Some("M3 IV-gate".into()),
             bound_at: 100,
         };
@@ -508,11 +509,13 @@ mod display_label_tests {
         let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
         let first = TaskBinding {
             task_id: Some("task_1".into()),
+attempt_id: None,
             bound_at: 1,
             ..Default::default()
         };
         let second = TaskBinding {
             task_id: Some("task_hijack".into()),
+attempt_id: None,
             bound_at: 2,
             ..Default::default()
         };

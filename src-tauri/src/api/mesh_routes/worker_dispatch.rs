@@ -4,6 +4,10 @@ use serde::Serialize;
 
 use crate::api::routes::AppState;
 
+fn peer_has_full_access(access: Option<&crate::mesh::types::AccessLevel>) -> bool {
+    access == Some(&crate::mesh::types::AccessLevel::Full)
+}
+
 #[derive(Deserialize)]
 pub struct MeshWorkerDispatchRequest {
     repository_identity: String,
@@ -23,6 +27,10 @@ pub struct MeshWorkerLaneBundleRequest {
     repository_identity: String,
     branch: String,
     base_commit: String,
+    plan_id: String,
+    task_id: String,
+    attempt_id: String,
+    report_sha: String,
 }
 
 pub async fn mesh_worker_lane_bundle(
@@ -44,23 +52,28 @@ fn create_lane_bundle(
     let allowed = {
         let mesh = state.mesh.lock();
         mesh.paired_peers.get(&peer_id)
-            .is_some_and(|peer| peer.access_level == crate::mesh::types::AccessLevel::Full)
+            .is_some_and(|peer| peer_has_full_access(Some(&peer.access_level)))
     };
     if !allowed {
         return Err((StatusCode::FORBIDDEN, "lane bundle requires Full mesh access".into()));
     }
-    let workspaces = {
+    let lane_cwd = {
         let mux = state.svc.mux.read();
-        mux.list_workspaces()
-            .into_iter()
-            .filter_map(|workspace| workspace.cwd.map(|cwd| (workspace.id, cwd)))
-            .collect::<Vec<_>>()
+        mux.all_tabs().find_map(|tab| {
+            let binding = tab.task_binding.as_ref()?;
+            (binding.plan_id.as_deref() == Some(&request.plan_id)
+                && binding.task_id.as_deref() == Some(&request.task_id)
+                && binding.attempt_id.as_deref() == Some(&request.attempt_id)
+                && tab.report_target_mesh_peer.as_deref() == Some(peer_id.as_str()))
+                .then(|| tab.provisioned_cwd.clone().or_else(|| tab.cwd.clone()))?
+        })
     };
-    let checkout = workspaces.into_iter().map(|(_, cwd)| cwd).find(|cwd| {
-        !crate::service::worker_lane::is_linked_worktree(std::path::Path::new(cwd))
-            && crate::service::worker_lane::repository_identity(cwd)
-                .is_ok_and(|identity| identity == request.repository_identity)
-    }).ok_or_else(|| (StatusCode::CONFLICT, "peer_missing_repo: repository identity not found".into()))?;
+    let checkout = lane_cwd.ok_or_else(|| (StatusCode::NOT_FOUND, "remote attempt lane not found for authenticated origin".into()))?;
+    if !crate::service::worker_lane::repository_identity(&checkout)
+        .is_ok_and(|identity| identity == request.repository_identity.as_str())
+    {
+        return Err((StatusCode::CONFLICT, "remote attempt repository identity mismatch".into()));
+    }
     if !crate::service::worker_lane::contains_commit(&checkout, &request.base_commit) {
         return Err((StatusCode::CONFLICT, "peer_missing_base: base commit is absent".into()));
     }
@@ -72,8 +85,20 @@ fn create_lane_bundle(
     if !output.status.success() || !request.branch.starts_with("lane/") {
         return Err((StatusCode::BAD_REQUEST, "invalid peer lane branch".into()));
     }
+    if !crate::service::worker_lane::current_branch(&checkout)
+        .is_ok_and(|branch| branch == request.branch.as_str())
+    {
+        return Err((StatusCode::CONFLICT, "attempt checkout is not on the requested lane branch".into()));
+    }
     let lane_tip = crate::service::worker_lane::git_value(&checkout, ["rev-parse", &reference])
         .map_err(|error| (StatusCode::CONFLICT, error))?;
+    if lane_tip != request.report_sha {
+        return Err((StatusCode::CONFLICT, "peer lane tip differs from accepted report SHA".into()));
+    }
+    if !crate::service::worker_lane::git_value(&checkout, ["rev-parse", "HEAD"])
+        .is_ok_and(|head| head == request.report_sha.as_str()) {
+        return Err((StatusCode::CONFLICT, "attempt checkout HEAD differs from accepted report SHA".into()));
+    }
     if !crate::service::worker_lane::is_ancestor(&checkout, &request.base_commit, &lane_tip) {
         return Err((StatusCode::CONFLICT, "peer lane does not descend from requested base".into()));
     }
@@ -88,6 +113,11 @@ fn create_lane_bundle(
     if !output.status.success() {
         return Err((StatusCode::CONFLICT, String::from_utf8_lossy(&output.stderr).trim().to_string()));
     }
+    const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+    let size = std::fs::metadata(&bundle_path).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?.len();
+    if size > MAX_BUNDLE_BYTES {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "worker lane bundle exceeds 32 MiB".into()));
+    }
     let bytes = std::fs::read(&bundle_path).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     use base64::Engine;
     #[derive(Serialize)]
@@ -98,6 +128,19 @@ fn create_lane_bundle(
         lane_tip,
         bundle: base64::engine::general_purpose::STANDARD.encode(bytes),
     }).unwrap()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::peer_has_full_access;
+    use crate::mesh::types::AccessLevel;
+
+    #[test]
+    fn worker_dispatch_rejects_unpaired_and_non_full_peers() {
+        assert!(!peer_has_full_access(None));
+        assert!(!peer_has_full_access(Some(&AccessLevel::ReadOnly)));
+        assert!(peer_has_full_access(Some(&AccessLevel::Full)));
+    }
 }
 
 pub async fn mesh_worker_dispatch(
@@ -116,7 +159,7 @@ fn dispatch_authenticated_worker(
     origin_peer_id: String,
     request: MeshWorkerDispatchRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let origin_peer_name = {
+    let (origin_peer_name, origin_peer_id) = {
         let mesh = state.mesh.lock();
         let Some(peer) = mesh.paired_peers.get(&origin_peer_id) else {
             return Err((StatusCode::UNAUTHORIZED, "origin peer is not paired".into()));
@@ -127,7 +170,7 @@ fn dispatch_authenticated_worker(
                 "remote worker dispatch requires Full mesh access".into(),
             ));
         }
-        peer.instance_name.clone()
+        (peer.instance_name.clone(), origin_peer_id)
     };
     let workspaces = {
         let mux = state.svc.mux.read();
@@ -139,7 +182,7 @@ fn dispatch_authenticated_worker(
     let matched = workspaces.into_iter().find(|(_, cwd)| {
         !crate::service::worker_lane::is_linked_worktree(std::path::Path::new(cwd))
             && crate::service::worker_lane::repository_identity(cwd)
-                .is_ok_and(|identity| identity == request.repository_identity)
+                .is_ok_and(|identity| identity == request.repository_identity.as_str())
     });
     let Some((workspace_id, canonical_cwd)) = matched else {
         return Err((
@@ -186,14 +229,20 @@ fn dispatch_authenticated_worker(
         task_launch_authority: Some(crate::service::TaskLaunchAuthority {
             plan_id: request.plan_id.clone(),
             task_id: request.task_id.clone(),
-            attempt_id: request.attempt_id,
+            attempt_id: request.attempt_id.clone(),
             lane_base: Some(request.base_commit.clone()),
         }),
         execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
         workspace_id: Some(workspace_id),
         task: Some(request.brief),
         report_target_tab_id: Some(request.origin_tab_id),
-        report_target_mesh_peer: Some(origin_peer_name),
+        report_target_mesh_peer: Some(origin_peer_id.clone()),
+        remote_task_binding: Some(crate::service::RemoteTaskBinding {
+            plan_id: request.plan_id.clone(),
+            task_id: request.task_id.clone(),
+            attempt_id: request.attempt_id.clone(),
+            origin_peer_id,
+        }),
         model: request.model,
         reasoning_effort: request.reasoning_effort,
         ..Default::default()

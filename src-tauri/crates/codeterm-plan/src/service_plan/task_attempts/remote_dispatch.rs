@@ -14,6 +14,7 @@ impl PlanStore {
         peer_name: &str,
         provider: &str,
         base: &str,
+        destination: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let peer_id = peer_id.trim().to_string();
@@ -41,6 +42,7 @@ impl PlanStore {
                 mesh_peer: Some(peer_id.clone()),
                 remote_dispatch_state: Some(RemoteDispatchState::PeerPreflight),
                 base: Some(base.to_string()),
+                destination: Some(destination.to_string()),
                 assigned_at: Some(now_ms),
                 ..Default::default()
             });
@@ -66,21 +68,32 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if attempt.mesh_peer.as_deref().is_some_and(|recorded| recorded != peer_id) {
-                return Err(PlanError::Io(
-                    "remote dispatch peer identity does not match the attempt".into(),
-                ));
-            }
-            attempt.mesh_peer = Some(peer_id.to_string());
-            attempt.remote_dispatch_state = Some(state);
-            if matches!(state, RemoteDispatchState::PeerMissingRepo | RemoteDispatchState::PeerMissingBase) {
-                attempt.closed_at.get_or_insert(now_ms);
-                attempt.closure_reason = Some(format!("remote_dispatch_{state:?}".to_ascii_lowercase()));
+            let worker_id = format!("mesh-worker:{attempt_id}");
+            let clear_assignment = {
+                let attempt = task.execution_attempts.iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if attempt.mesh_peer.as_deref().is_some_and(|recorded| recorded != peer_id) {
+                    return Err(PlanError::Io(
+                        "remote dispatch peer identity does not match the attempt".into(),
+                    ));
+                }
+                attempt.mesh_peer = Some(peer_id.to_string());
+                attempt.remote_dispatch_state = Some(state);
+                let terminal = matches!(state, RemoteDispatchState::PeerMissingRepo | RemoteDispatchState::PeerMissingBase | RemoteDispatchState::PeerOffline | RemoteDispatchState::RelayLost);
+                if terminal {
+                    attempt.closed_at.get_or_insert(now_ms);
+                    attempt.closure_reason = Some(format!("remote_dispatch_{state:?}".to_ascii_lowercase()));
+                }
+                if terminal && attempt.executor_tab_id == worker_id {
+                    attempt.executor_tab_id.clear();
+                    true
+                } else {
+                    false
+                }
+            };
+            if clear_assignment && task.assigned_tab_id.as_deref() == Some(worker_id.as_str()) {
+                task.assigned_tab_id = None;
             }
             Ok(())
         })
@@ -428,6 +441,26 @@ mod tests {
             detail.task.execution_attempts[0].remote_dispatch_state,
             Some(RemoteDispatchState::PeerOffline)
         );
+    }
+
+    #[test]
+    fn mesh_worker_peer_offline_attempt_can_be_retried() {
+        let (_root, store, plan_id, task_id, first_attempt) = remote_attempt();
+        store.set_remote_dispatch_state(
+            &plan_id, &task_id, &first_attempt, "peer-origin", RemoteDispatchState::PeerOffline, 9,
+        ).unwrap();
+        let closed = store.show_task(&plan_id, &task_id).unwrap();
+        assert!(closed.task.execution_attempts[0].closed_at.is_some());
+        assert!(closed.task.assigned_tab_id.is_none());
+        assert!(closed.task.execution_attempts[0].executor_tab_id.is_empty());
+
+        store.begin_remote_dispatch_attempt(
+            &plan_id, &task_id, "attempt_retry", "peer-origin", "peer", "codex",
+            "base-sha", "main", 10,
+        ).unwrap();
+        let retried = store.show_task(&plan_id, &task_id).unwrap();
+        assert_eq!(retried.task.execution_attempts.len(), 2);
+        assert_eq!(retried.task.assigned_tab_id.as_deref(), Some("mesh-worker:attempt_retry"));
     }
 
     #[test]

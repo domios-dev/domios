@@ -132,40 +132,25 @@ forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
 
 ### Plan-bound mesh dispatch
 
-`plan task dispatch --mesh PEER` creates an origin-owned attempt before calling
-the peer's signed worker-dispatch endpoint. Generic mesh plan RPC is not a
-substitute because it runs against the peer's plan store.
+`plan task dispatch <plan> <task> --mesh PEER_ID --execution-intent mutating`
+creates an origin attempt before the signed peer request; generic mesh plan RPC
+runs against the peer's plan store.
 
-1. The origin validates plan, task, caller authority, provider, and intent, then
-   durably creates an attempt before contacting the peer. It records peer
-   identity and a state for every outcome.
-2. The peer verifies the same repository and exact origin base commit in its
-   checkout, provisions a lane there, records its branch/worktree, and launches
-   the Worker. It refuses without the repository or base; it never substitutes
-   another checkout or commit.
-3. The remote tab receives origin plan/task/attempt identifiers as a bound
-   assignment. ACK and report relay are authenticated by the paired mesh
-   request and match the identifiers and peer tab. The origin persists ACK and
-   report on its attempt. Idempotency keys make relay retry safe.
-4. The origin Orchestrator reviews and accepts the report before integration.
-   After the origin accepts its review, run `codeterm plan task merge-remote-lane
-   <plan> <task> <attempt>`. The origin fetches a signed peer bundle for the
-   recorded lane, performs a real merge commit, and persists the lane tip and
-   merge commit only after verifying ancestry. Cherry-pick and squash are not
-   valid integration.
+The peer requires the same repository identity and base commit, provisions its
+lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base,
+offline peers, and lost relays are explicit attempt states; failed attempts
+close so dispatch can retry. ACK/report relays authenticate the origin peer
+and persist idempotently on its attempt.
 
-Attempt states distinguish `peer_preflight`, `peer_missing_repo`,
-`peer_missing_base`, `peer_offline`, `relay_lost`, `awaiting_worker_ack`,
-`acknowledged`, `reported`, and `integrated`. The origin attempt retains the
-authenticated peer identity, peer lane refs, reported lane tip, and merge
-commit. Offline and uncertain relay outcomes are persisted explicitly and never
-imply Worker failure or report persistence. Recovery must resume the same
-attempt and never create a duplicate Worker.
+After origin review accepts the report, run
+`codeterm plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks
+that authenticated peer for the bound lane bundle and refuses unless its tip
+equals the accepted report SHA. Integration requires a clean checkout on the
+dispatch-time destination branch, verifies the bundle, and creates a real merge
+commit with ancestry. Cherry-pick and squash are invalid.
 
-Both machines enforce their local mesh access policy and the owner's rules.
-Mesh authentication supplies transport identity; no API token, provider
-credential, secret, or secret-bearing environment enters the task payload.
-The Worker receives only its brief and opaque origin binding identifiers.
+Both peers enforce Full access and owner rules. No token, provider credential,
+secret, or secret-bearing environment enters the task payload.
 
 The general `agent spawn --mesh PEER --role Worker` path remains task-less and
 does not create an origin attempt. Use plan-bound dispatch for accountable work;
@@ -237,4 +222,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->

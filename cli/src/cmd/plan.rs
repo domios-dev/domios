@@ -13,6 +13,7 @@ use crate::cmd::print::CliError;
 mod adopt_search;
 pub(crate) mod caller_context;
 mod gate_cmd;
+mod mesh_dispatch;
 mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
@@ -26,6 +27,7 @@ use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
 use serde_json::{json, Value};
 pub(crate) use task_cmd::render_empty_reason;
+pub(crate) use mesh_dispatch::handle_mesh_dispatch;
 
 pub(crate) fn resolve_text(
     value: Option<String>,
@@ -264,23 +266,6 @@ pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
         Ok(Some(val)) => print_plan_result(json, &val),
         Err(e) => {
             crate::cmd::plan_output::print_plan_error(json, &e);
-            std::process::exit(1);
-        }
-    }
-}
-
-pub(crate) fn handle_mesh_dispatch(
-    client: &mut dyn RpcClient,
-    json: bool,
-    task: PlanTaskAction,
-    peer: &str,
-) {
-    match task_cmd::run_dispatch(client, json, task, Some(peer)) {
-        Ok(None) => {}
-        Ok(Some(value)) => print_plan_result(json, &value),
-        Err(error) if json => crate::cmd::print::exit_with_cli_error(true, &error.message),
-        Err(error) => {
-            crate::cmd::plan_output::print_plan_error(false, &error.message);
             std::process::exit(1);
         }
     }

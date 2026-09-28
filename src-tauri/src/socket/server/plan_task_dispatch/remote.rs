@@ -17,7 +17,7 @@ pub(super) fn dispatch(
     let p = params.as_ref();
     let peer_target = owned_str(p, "mesh_peer")
         .filter(|peer| !peer.trim().is_empty())
-        .ok_or_else(|| invalid_dispatch("mesh dispatch requires a peer name or id"))?;
+        .ok_or_else(|| invalid_dispatch("mesh dispatch requires a paired peer instance ID"))?;
     let (plan_id, task_id) = plan_refs::resolve_task(&svc.plan_store, params)?;
     let detail = svc
         .plan_store
@@ -56,10 +56,20 @@ pub(super) fn dispatch(
         &canonical_cwd,
         None,
         None,
-        crate::service::LaneProtection::Waived,
+        crate::service::LaneProtection::Enforced,
     )
     .map_err(|error| invalid_dispatch(&error))?;
     let base = git_head(&canonical_cwd).map_err(|error| invalid_dispatch(&error))?;
+    let destination = crate::service::worker_lane::current_branch(&canonical_cwd)
+        .map_err(|error| invalid_dispatch(&error))?;
+    if destination.is_empty() {
+        return Err(invalid_dispatch("mesh dispatch requires an attached destination branch"));
+    }
+    if detail.task.lane.destination.as_deref()
+        .is_some_and(|requested| !requested.trim().is_empty() && requested != destination.as_str())
+    {
+        return Err(invalid_dispatch("canonical checkout is not on the task's requested destination branch"));
+    }
     let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let authorized_gates = dispatch_authorized_gates(p)?;
@@ -97,6 +107,7 @@ pub(super) fn dispatch(
             &peer_name,
             &model.provider_id,
             &base,
+            &destination,
             now,
         )
         .map_err(super::super::plan::plan_rpc_err)?;
@@ -129,11 +140,11 @@ pub(super) fn dispatch(
     );
     brief.push_str(&format!(
         "\n\nRemote assignment ACK:\ncodeterm plan task remote-ack {} {} {} --mesh {}\n",
-        plan_id, task_id, attempt_id, peer_name
+        plan_id, task_id, attempt_id, peer_id
     ));
     brief.push_str(&format!(
         "Remote final report: run `codeterm plan task remote-report {} {} {} --message-file <report-path> --sha <lane-head> --mesh {}`. It persists your report on the origin attempt and moves the task to in_review.\n",
-        plan_id, task_id, attempt_id, peer_name
+        plan_id, task_id, attempt_id, peer_id
     ));
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(plan.owner.tab_id.clone())
@@ -277,6 +288,10 @@ pub(crate) fn merge_lane(
     if attempt.judge_verdict.as_deref() != Some("accepted") {
         return Err(invalid_dispatch("remote lane can merge only after origin acceptance"));
     }
+    let report_sha = attempt.report.as_ref().and_then(|report| report.sha.clone())
+        .ok_or_else(|| invalid_dispatch("accepted remote report has no reviewed lane SHA"))?;
+    let destination = attempt.destination.clone()
+        .ok_or_else(|| invalid_dispatch("remote attempt has no recorded destination branch"))?;
     if attempt.remote_dispatch_state == Some(RemoteDispatchState::Integrated) {
         return Ok(json!({
             "integrated": true,
@@ -302,9 +317,9 @@ pub(crate) fn merge_lane(
     crate::service::worker_lane::verify_worker_lane(
         &canonical_cwd,
         &canonical_cwd,
+        Some(&destination),
         None,
-        None,
-        crate::service::LaneProtection::Waived,
+        crate::service::LaneProtection::Enforced,
     ).map_err(|error| invalid_dispatch(&error))?;
     let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
@@ -331,6 +346,10 @@ pub(crate) fn merge_lane(
         "repository_identity": repository_identity,
         "branch": branch,
         "base_commit": base,
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "report_sha": report_sha,
     });
     let response = tauri::async_runtime::block_on(
         peer_client.auth_post_json("/api/mesh/worker-lane-bundle", &request),
@@ -350,7 +369,7 @@ pub(crate) fn merge_lane(
     let response_base = response.get("base_commit").and_then(Value::as_str).unwrap_or_default();
     let lane_tip = response.get("lane_tip").and_then(Value::as_str).unwrap_or_default();
     let bundle = response.get("bundle").and_then(Value::as_str).unwrap_or_default();
-    if response_branch != branch || response_base != base || lane_tip.is_empty() || bundle.is_empty() {
+    if response_branch != branch || response_base != base || lane_tip != report_sha || bundle.is_empty() {
         return Err(invalid_dispatch("authenticated peer returned inconsistent lane provenance"));
     }
     use base64::Engine;
@@ -369,6 +388,7 @@ pub(crate) fn merge_lane(
             &attempt_ref,
             &base_ref,
             &expected_tip,
+            &destination,
         )
     })).map_err(|error| invalid_dispatch(&format!("remote lane merge task failed: {error}")))?
         .map_err(|error| invalid_dispatch(&error))?;
@@ -407,7 +427,7 @@ fn select_peer(
     let mut candidates: Vec<_> = mesh
         .paired_peers
         .values()
-        .filter(|peer| peer.instance_id == target || peer.instance_name.eq_ignore_ascii_case(target))
+        .filter(|peer| peer_matches_id(&peer.instance_id, target))
         .collect();
     candidates.sort_by(|a, b| b.online.cmp(&a.online).then_with(|| a.instance_id.cmp(&b.instance_id)));
     let peer = candidates.first().ok_or_else(|| invalid_dispatch("mesh peer is not paired"))?;
@@ -422,6 +442,10 @@ fn select_peer(
         client,
         state,
     ))
+}
+
+fn peer_matches_id(instance_id: &str, target: &str) -> bool {
+    instance_id == target
 }
 
 fn remote_error_state(error: &str) -> (RemoteDispatchState, &'static str) {
@@ -472,5 +496,11 @@ mod tests {
             remote_error_state("HTTP error: peer_missing_base: commit absent").0,
             RemoteDispatchState::PeerMissingBase,
         );
+    }
+
+    #[test]
+    fn mesh_peer_selection_requires_stable_instance_id() {
+        assert!(peer_matches_id("peer-instance-1", "peer-instance-1"));
+        assert!(!peer_matches_id("peer-instance-1", "Display Name"));
     }
 }
