@@ -172,6 +172,7 @@ fn start_attempt(service: ServiceContext, tab_id: String) {
             None => false,
         };
         if success {
+            super::directory_trust::invalidate_shared_trust_cache();
             service.respond_to_pending_directory_trust_prompts();
         }
         if SCHEDULE.lock().finish(&tab_id, success) {

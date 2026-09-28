@@ -322,6 +322,7 @@ fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
         "fixture",
         Some(&screen),
         false,
+        false,
         true,
         Some("cwd differs from provenance"),
     );

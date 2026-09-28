@@ -2,8 +2,9 @@ use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
     decide, directory_trust_check_applies, directory_trust_provenance, directory_trust_skip_reason,
-    inherited_workspace_provenance, legacy_auto_approve_permitted, DirectoryTrustRefusal,
-    TrustDecision, TrustLedger,
+    inherited_workspace_provenance, legacy_auto_approve_permitted,
+    shared_directory_trust_check_applies, DirectoryTrustRefusal, SharedTrustCache, TrustDecision,
+    TrustLedger, SHARED_TRUST,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -199,47 +200,32 @@ fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
 }
 
 #[test]
-fn user_directory_is_eligible_before_session_authentication() {
+fn user_directory_never_invokes_the_provisioned_recognizer() {
     let (state, tab_id) = agent_tab(None, false);
-    let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
-    assert!(applies);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert!(!directory_trust_check_applies(tab));
+    assert!(shared_directory_trust_check_applies(tab));
 }
 
 #[test]
-fn shared_trust_gate_requires_the_exact_owner_trusted_path() {
-    let (mut mux, tab_id) = agent_tab(None, false);
-    let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.cwd = Some(r"C:\Users\owner\Trusted".into());
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let response = DirectoryTrustPromptResponse::Answer {
-        step: b"\r".to_vec(),
-    };
-    fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_directory_trust_response(
-            "codex",
-            response.clone(),
-        )
-        .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
-    ));
+fn mismatched_provisioned_cwd_never_uses_shared_trust() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/original"), false);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert!(!directory_trust_check_applies(tab));
+    assert!(!shared_directory_trust_check_applies(tab));
+}
 
-    assert_eq!(
-        fixture.service.directory_trust_response(
-            "codex",
-            r"C:\Users\owner\Trusted",
-            "recognized trust prompt",
-        ),
-        Some(response.clone()),
-        "the owner-trusted exact folder may use the existing affirmative responder",
-    );
-    assert_eq!(
-        fixture.service.directory_trust_response(
-            "codex",
-            r"C:\Users\owner\Neighbor",
-            "recognized trust prompt",
-        ),
-        None,
-        "a neighbor folder cannot borrow the trust entry",
-    );
+#[test]
+fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
+    let mut cache = SharedTrustCache::default();
+    cache.trusted.insert(r"C:\Users\owner\Trusted".into(), true);
+    cache.checking.insert(r"C:\Users\owner\Pending".into(), 0);
+    assert_eq!(cache.trusted.get(r"C:\Users\owner\Trusted"), Some(&true));
+    assert_eq!(cache.trusted.get(r"C:\Users\owner\Neighbor"), None);
+    cache.invalidate();
+    assert!(cache.trusted.is_empty());
+    assert!(cache.checking.is_empty());
+    assert_eq!(cache.generation, 1);
 }
 
 #[test]
@@ -260,16 +246,14 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
         .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
     ));
 
-    let decision = fixture
+    super::invalidate_shared_trust_cache();
+    SHARED_TRUST
+        .lock()
+        .trusted
+        .insert(r"C:\Users\owner\Trusted".into(), true);
+    fixture
         .service
-        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
-
-    assert_eq!(
-        decision,
-        TrustDecision::Answer {
-            step: b"\r".to_vec()
-        }
-    );
+        .respond_to_shared_trust_prompt(&tab_id, r"C:\Users\owner\Trusted");
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-shared-trust"),
         1,
@@ -340,6 +324,34 @@ fn provisioned_directory_answers_one_key_per_observed_frame() {
     assert_eq!(held, TrustDecision::Held);
     let gone = decide(applies, &tab_id, "composer", &ledger, |_| None);
     assert_eq!(gone, TrustDecision::NoDialog);
+}
+
+#[test]
+fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-provisioned-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        ),
+    ));
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
+    assert_eq!(
+        decision,
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        }
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-provisioned-trust"),
+        1
+    );
 }
 
 #[test]
