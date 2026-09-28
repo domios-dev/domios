@@ -36,7 +36,7 @@ For "on another machine", "remote", "mesh", "send to X", or "run on X" (in any l
 codeterm mesh peers                                        # find peers (paired = can send)
 codeterm tab list --mesh "home-laptop"                     # list tabs on remote
 codeterm send "git pull && npm run dev" --tab ID --mesh PEER  # send command
-codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
+codeterm agent spawn claude --cwd <peer-workspace> --task "..." --mesh PEER # spawn remotely
 codeterm tab get-text --tab ID --mesh PEER                 # read remote visible terminal text
 ```
 

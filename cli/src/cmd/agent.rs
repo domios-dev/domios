@@ -37,6 +37,14 @@ pub fn resolve_spawn_task<R: Read>(
     resolve_spawn_task_from(task, task_file, spawn_cwd, &caller_cwd, stdin)
 }
 
+pub(crate) fn resolve_mesh_spawn_task<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    resolve_spawn_task(task, task_file, None, stdin)
+}
+
 fn resolve_spawn_task_from<R: Read>(
     task: Option<String>,
     task_file: Option<String>,

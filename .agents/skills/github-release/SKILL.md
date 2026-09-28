@@ -479,9 +479,12 @@ mirror.
 ```bash
 WORKSPACE_ID=$(codeterm --mesh BLACKSTAR --json workspace list \
   | python3 -c "import json,sys; print(next(w['id'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
+WORKSPACE_CWD=$(codeterm --mesh BLACKSTAR --json workspace list \
+  | python3 -c "import json,sys; print(next(w['cwd'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
 
 codeterm --mesh BLACKSTAR agent spawn claude \
   --workspace "$WORKSPACE_ID" \
+  --cwd "$WORKSPACE_CWD" \
   --title "v$VER windows release" \
   --role Orchestrator \
   --model haiku \
