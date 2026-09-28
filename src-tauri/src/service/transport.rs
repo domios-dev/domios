@@ -162,6 +162,7 @@ impl AgentTransport for PtyTransport {
                 &svc.agent_registry,
                 ctx.provider_id,
                 ctx.tab_id,
+                Some(&cwd),
                 &mut params,
             )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;

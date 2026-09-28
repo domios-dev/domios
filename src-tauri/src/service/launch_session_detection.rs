@@ -145,12 +145,84 @@ pub(crate) fn marked_provider_launch_command(
     registry: &crate::agent::registry::AgentRegistry,
     provider_id: &str,
     tab_id: &str,
+    cwd: Option<&str>,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
     mark_fresh_launch(tab_id, params);
+    let mut args = params.args.clone().unwrap_or_default();
+    append_sandbox_git_metadata_args(
+        registry,
+        provider_id,
+        params.skip_permissions,
+        cwd,
+        &mut args,
+    );
+    params.args = (!args.is_empty()).then_some(args);
     registry.with_provider(provider_id, |provider| {
         crate::agent::stub_launch::apply(provider_id, provider.build_launch_command(params))
     })
+}
+
+pub(crate) fn append_sandbox_git_metadata_args(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    cwd: Option<&str>,
+    args: &mut Vec<String>,
+) {
+    if skip_permissions {
+        return;
+    }
+    let Some(flag) = registry
+        .with_provider(provider_id, |provider| {
+            provider.additional_writable_dir_flag()
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let Some(cwd) = cwd else { return };
+    let Some(paths) = git_worktree_metadata_dirs(cwd) else {
+        return;
+    };
+    for path in paths {
+        args.push(flag.clone());
+        args.push(path.to_string_lossy().into_owned());
+    }
+}
+
+fn git_worktree_metadata_dirs(cwd: &str) -> Option<[std::path::PathBuf; 2]> {
+    let output = std::process::Command::new("git")
+        .args(["-C", cwd, "rev-parse", "--git-dir", "--git-common-dir"])
+        .output();
+    let Ok(output) = output else { return None };
+    if !output.status.success() {
+        return None;
+    }
+    let Ok(stdout) = String::from_utf8(output.stdout) else {
+        return None;
+    };
+    let mut lines = stdout.lines();
+    let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
+        return None;
+    };
+    let cwd = std::path::Path::new(cwd);
+    let resolve = |path: &str| {
+        let path = std::path::Path::new(path);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            cwd.join(path)
+        };
+        path.canonicalize().ok()
+    };
+    let (Some(git_dir), Some(common_dir)) = (resolve(git_dir), resolve(common_dir)) else {
+        return None;
+    };
+    if git_dir == common_dir || !git_dir.join("commondir").is_file() {
+        return None;
+    }
+    Some([git_dir, common_dir])
 }
 
 #[cfg(test)]
@@ -282,6 +354,160 @@ impl ServiceContext {
 mod tests {
     use super::*;
 
+    fn git(cwd: &std::path::Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn lane_git_writable_roots_derived_from_real_worktree() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let repo = temp.path().join("repo");
+        let lane = temp.path().join("lane");
+        std::fs::create_dir(&repo).expect("repository directory");
+        git(&repo, &["init"]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=CodeTerm",
+                "-c",
+                "user.email=codeterm@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        );
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "lane/worker",
+                lane.to_str().unwrap(),
+            ],
+        );
+
+        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap()).expect("linked worktree");
+        let output = std::process::Command::new("git")
+            .current_dir(&lane)
+            .args(["rev-parse", "--git-dir"])
+            .output()
+            .expect("git reports lane gitdir");
+        let lane_gitdir = String::from_utf8(output.stdout).expect("path is UTF-8");
+        let lane_gitdir = std::path::Path::new(lane_gitdir.trim());
+        let lane_gitdir = if lane_gitdir.is_absolute() {
+            lane_gitdir.to_path_buf()
+        } else {
+            lane.join(lane_gitdir)
+        };
+        let expected_lane_gitdir = lane_gitdir.canonicalize().expect("lane gitdir resolves");
+        assert_eq!(roots[0], expected_lane_gitdir);
+        assert!(roots[0].join("commondir").is_file());
+        assert_ne!(roots[0], repo);
+        assert_ne!(roots[1], repo);
+        assert!(roots[1].ends_with(".git"));
+        assert!(roots[0].starts_with(&roots[1]));
+    }
+
+    #[test]
+    fn ordinary_repository_has_no_additional_git_metadata_roots() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        git(temp.path(), &["init"]);
+        assert!(git_worktree_metadata_dirs(temp.path().to_str().unwrap()).is_none());
+    }
+
+    #[test]
+    fn sandboxed_lane_launch_includes_git_roots_only_for_lanes() {
+        let temp = tempfile::tempdir().expect("temporary repository");
+        let repo = temp.path().join("repo");
+        let lane = temp.path().join("lane");
+        std::fs::create_dir(&repo).expect("repository directory");
+        git(&repo, &["init"]);
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=CodeTerm",
+                "-c",
+                "user.email=codeterm@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "initial",
+            ],
+        );
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "lane/worker",
+                lane.to_str().unwrap(),
+            ],
+        );
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture")
+                .with_additional_writable_dir_flag("--add-dir"),
+        ));
+
+        let roots = git_worktree_metadata_dirs(lane.to_str().unwrap()).expect("linked worktree");
+        let mut args = Vec::new();
+        append_sandbox_git_metadata_args(
+            &registry,
+            "fixture",
+            false,
+            Some(lane.to_str().unwrap()),
+            &mut args,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "--add-dir".to_string(),
+                roots[0].to_string_lossy().into_owned(),
+                "--add-dir".to_string(),
+                roots[1].to_string_lossy().into_owned(),
+            ]
+        );
+        assert!(args.iter().all(|arg| arg != repo.to_str().unwrap()));
+        assert!(args.iter().all(|arg| arg != lane.to_str().unwrap()));
+
+        let mut full_access_args = vec!["--existing".to_string()];
+        append_sandbox_git_metadata_args(
+            &registry,
+            "fixture",
+            true,
+            Some(lane.to_str().unwrap()),
+            &mut full_access_args,
+        );
+        assert_eq!(full_access_args, vec!["--existing".to_string()]);
+
+        let ordinary = temp.path().join("ordinary");
+        std::fs::create_dir(&ordinary).expect("ordinary repository directory");
+        git(&ordinary, &["init"]);
+        let mut ordinary_args = vec!["--existing".to_string()];
+        append_sandbox_git_metadata_args(
+            &registry,
+            "fixture",
+            false,
+            Some(ordinary.to_str().unwrap()),
+            &mut ordinary_args,
+        );
+        assert_eq!(ordinary_args, vec!["--existing".to_string()]);
+    }
+
     #[test]
     fn detection_sources_journal_as_their_own_binding_source() {
         assert_eq!(
@@ -350,8 +576,9 @@ mod tests {
         ];
 
         for (tab_id, mut params) in cases {
-            let command = marked_provider_launch_command(&registry, "direct", tab_id, &mut params)
-                .expect("registered provider builds a command");
+            let command =
+                marked_provider_launch_command(&registry, "direct", tab_id, None, &mut params)
+                    .expect("registered provider builds a command");
             let marker = registered_launch_marker(tab_id).expect("tab registers its marker");
             assert_eq!(params.launch_marker.as_deref(), Some(marker.as_str()));
             assert_eq!(command, format!("direct-cli --launch-marker {marker}"));

@@ -179,7 +179,8 @@
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
-    ]
+    ],
+    "additionalWritableDirFlag": "--add-dir"
   },
   "permissions": {
     "network": {

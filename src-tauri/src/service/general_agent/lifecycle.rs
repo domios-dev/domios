@@ -592,6 +592,7 @@ pub fn start_general_agent(
             &svc.agent_registry,
             provider_name,
             &tab_id,
+            Some(&ga_cwd),
             &mut params,
         ) {
             Some(cmd) => cmd,
