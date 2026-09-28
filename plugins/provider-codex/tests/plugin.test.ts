@@ -16,6 +16,7 @@ let failed = 0;
 
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
 eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
+eq(manifest.commands.additionalWritableDirFlag, "--add-dir", "sandbox metadata roots use the declared CLI flag");
 
 function assert(condition: boolean, name: string, detail?: string) {
   if (condition) { passed++; console.log(`  ✓ ${name}`); }
@@ -213,6 +214,22 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
   assert(!cmd.includes("ConvertTo-Json") && !cmd.includes("Set-Content") && !cmd.includes("$ctProfile"), "non-Windows launch has no PowerShell profile machinery");
   assert(!cmd.includes("Remove-Item"), "non-Windows launch never deleted the task file, before or after this fix");
+
+  const metadataArgs = [
+    "--add-dir", "D:/repo/.git/worktrees/lane",
+    "--add-dir", "D:/repo/.git/objects",
+    "--add-dir", "D:/repo/.git/refs",
+    "--add-dir", "D:/repo/.git/logs",
+  ];
+  const launchWithMetadata = p.buildLaunchCommand({ args: metadataArgs });
+  eq((launchWithMetadata.match(/--add-dir/g) || []).length, 4, "sandboxed launch accepts the four derived metadata roots");
+  assert(metadataArgs.filter((_, index) => index % 2 === 1).every((root) => launchWithMetadata.includes(root)),
+    "launch carries only the supplied lane and common metadata subpaths");
+  const resumeWithMetadata = p.buildResumeCommandWithContext({
+    sessionId: "11111111-1111-1111-1111-111111111111",
+    args: metadataArgs,
+  });
+  eq((resumeWithMetadata.match(/--add-dir/g) || []).length, 4, "resume accepts the four derived metadata roots");
 }
 
 console.log("\n--- meta ---\n");
