@@ -1,4 +1,4 @@
-import { carryCodexProjectTrust } from "./trust-carryover";
+import { carryCodexProjectTrust, hasTrustedProjectEntries } from "./trust-carryover";
 
 export interface ProfileSweepHost {
   platform(): string;
@@ -35,16 +35,16 @@ export function codexProfileInstanceId(contents: string): string | null {
 }
 
 function profilePath(host: ProfileSweepHost, name: string): string | null {
-  if (host.platform() !== "windows") return null;
   const home = host.homeDir();
-  return home ? `${home}\\.codex\\${name}` : null;
+  const separator = host.platform() === "windows" ? "\\" : "/";
+  return home ? `${home}${separator}.codex${separator}${name}` : null;
 }
 
 function profiles(host: ProfileSweepHost): string[] | null {
-  if (host.platform() !== "windows") return null;
   const home = host.homeDir();
   if (!home) return null;
-  const dir = `${home}\\.codex`;
+  const separator = host.platform() === "windows" ? "\\" : "/";
+  const dir = `${home}${separator}.codex`;
   try {
     const entries = host.fs.readDir(dir);
     if (!Array.isArray(entries)) return null;
@@ -98,11 +98,15 @@ export function carryCodexProjectTrustForTab(
     .filter((path): path is string => path !== null)
     .filter((path) => codexProfileInstanceId(readProfile(host, path) || "") === instanceId);
   if (owned.length === 0) return false;
-  let carried = true;
+  let foundTrustedEntry = false;
   for (const path of owned) {
-    if (!carryCodexProjectTrust(host, path, configPath)) carried = false;
+    const profile = readProfile(host, path);
+    if (profile === null) return false;
+    if (!hasTrustedProjectEntries(profile)) continue;
+    foundTrustedEntry = true;
+    if (!carryCodexProjectTrust(host, path, configPath)) return false;
   }
-  return carried;
+  return foundTrustedEntry;
 }
 
 export function inspectCodexProfiles(

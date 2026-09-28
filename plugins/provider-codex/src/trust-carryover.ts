@@ -187,6 +187,11 @@ function collectProfileEntries(profile: string): TrustEntry[] | null {
   return flush() ? [...entries.values()] : null;
 }
 
+export function hasTrustedProjectEntries(profile: string): boolean {
+  const entries = collectProfileEntries(profile);
+  return entries !== null && entries.length > 0;
+}
+
 function inlineTableKeys(value: string): string[] | null {
   const trimmed = value.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
