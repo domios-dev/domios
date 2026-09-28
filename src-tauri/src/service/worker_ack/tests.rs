@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 mod startup_binding;
 mod startup_supervision_honesty;
+mod remote_task_startup;
 
 fn lifecycle_fixture(
     parent_agent: bool,

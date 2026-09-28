@@ -232,7 +232,7 @@ impl ServiceContext {
         binding_nonce: &str,
         expected_task_identity: Option<&StartupTaskIdentity>,
     ) -> Result<(), String> {
-        let (session_id, task_binding) = {
+        let (session_id, task_binding, remote_task_bound) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(agent_tab_id) else {
                 return Err(format!("task-bound startup tab {agent_tab_id} disappeared"));
@@ -244,8 +244,20 @@ impl ServiceContext {
                     "startup waiter binding for Tab {agent_tab_id} does not own PTY {attempt_id}"
                 ));
             }
-            (tab.agent_session_id.clone(), tab.task_binding.clone())
+            let task_binding = tab.task_binding.clone();
+            let remote_task_bound = expected_task_identity.is_some_and(|identity| {
+                tab.report_target_mesh_peer.as_ref().is_some_and(|peer| !peer.is_empty())
+                    && task_binding.as_ref().is_some_and(|binding| {
+                        binding.plan_id.as_deref() == Some(identity.plan_id.as_str())
+                            && binding.task_id.as_deref() == Some(identity.task_id.as_str())
+                            && binding.attempt_id.as_deref() == Some(identity.attempt_id.as_str())
+                    })
+            });
+            (tab.agent_session_id.clone(), task_binding, remote_task_bound)
         };
+        if remote_task_bound {
+            return Ok(());
+        }
         let task_bound = expected_task_identity.is_some()
             || task_binding
                 .as_ref()
