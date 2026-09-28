@@ -129,6 +129,7 @@ impl ServiceContext {
         self.prompt_detector.lock().remove_tab(tab_id);
         self.forget_permission_auto_confirm(tab_id);
         self.forget_directory_trust(tab_id);
+        crate::service::folder_trust_carryover::forget_tab(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
@@ -775,6 +776,22 @@ impl ServiceContext {
         }
         if let Some(identity) = self.clear_pending_prompt(tab_id) {
             self.resolve_prompt_notifications(tab_id, &identity);
+            if crate::service::folder_trust_carryover::should_schedule_owner_clear(Some(
+                identity.kind,
+            )) {
+                let agent_type = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.agent_type.clone());
+                if let Some(agent_type) = agent_type {
+                    crate::service::folder_trust_carryover::owner_trust_prompt_cleared(
+                        self.clone(),
+                        tab_id,
+                        &agent_type,
+                    );
+                }
+            }
         }
         self.prompt_detector.lock().mark_responded(tab_id);
     }
