@@ -923,3 +923,36 @@ fn auto_approve_output_handles_permission_prompt_after_reactor_classification() 
         "the handled prompt leaves active detection after output approval"
     );
 }
+
+#[test]
+fn transcript_numbered_lines_with_composer_below_are_not_a_dialog() {
+    let prompt = PendingPrompt {
+        options: vec![
+            PromptOption {
+                label: "opaque step one".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "opaque step two".into(),
+                value: "2".into(),
+            },
+        ],
+        ..reactor_test_prompt()
+    };
+    let transcript = "› opaque request, answer briefly:
+  1) opaque step one
+  2) opaque step two
+
+• 1. 0
+  2. 0
+
+› opaque composer placeholder";
+    assert!(composer_follows_options(transcript, &prompt));
+    let dialog = "opaque question token?
+
+› 1) opaque step one
+  2) opaque step two
+
+Press enter to confirm";
+    assert!(!composer_follows_options(dialog, &prompt));
+}

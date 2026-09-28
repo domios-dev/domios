@@ -329,6 +329,38 @@ fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
         .all(|(_, line)| line.trim().is_empty())
 }
 
+/// A live composer row (a marker line that is not an option) below the options means the
+/// "options" are transcript text, not an active dialog.
+pub(crate) fn composer_follows_options(
+    screen: &str,
+    prompt: &crate::multiplexer::types::PendingPrompt,
+) -> bool {
+    let lines = screen
+        .lines()
+        .map(|line| line.trim().trim_start_matches(['│', '┃']).trim())
+        .collect::<Vec<_>>();
+    let Some(last_option_row) = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            prompt
+                .options
+                .iter()
+                .any(|option| line_has_option(line, option))
+        })
+        .map(|(index, _)| index)
+        .max()
+    else {
+        return false;
+    };
+    lines[last_option_row + 1..].iter().any(|line| {
+        line.starts_with(['❯', '›', '▶', '➤'])
+            && !prompt.options.iter().any(|option| {
+                line_has_option(line.trim_start_matches(['❯', '›', '▶', '➤']), option)
+            })
+    })
+}
+
 fn line_has_option(line: &str, option: &crate::multiplexer::types::PromptOption) -> bool {
     let indexed = line
         .trim_start()
