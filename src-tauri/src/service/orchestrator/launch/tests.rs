@@ -327,6 +327,82 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 }
 
 #[test]
+fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_first_turn() {
+    use crate::agent::provider::ProviderReadinessStrategy;
+    use crate::agent::test_provider::MockProvider;
+    use crate::service::launch_readiness::{
+        arm, observe, owner_prompt_cleared, owner_prompt_pending, register_input_wake,
+        LaunchAttempt, LaunchObservation,
+    };
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "lazy-owner-prompt-stage-pty";
+    let binding_nonce = "lazy-owner-prompt-stage-nonce";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("lazy-owner-prompt-stage".into());
+        tab.session_binding_nonce = Some(binding_nonce.into());
+        tab.pty_id = Some(pty_id.into());
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("lazy-owner-prompt-stage")
+            .with_session_starts_on_first_user_turn()
+            .with_provider_readiness_strategy(ProviderReadinessStrategy::StructuralComposer {
+                timeout: std::time::Duration::from_secs(30),
+            }),
+    ));
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.into(),
+        binding_nonce: binding_nonce.into(),
+    };
+    arm(attempt.clone());
+    owner_prompt_pending(&tab_id, "opaque-owner-trust-question");
+    let signal = harness
+        .service
+        .screen_state
+        .lock()
+        .arm_screen_change_signal(pty_id);
+    let _wake = register_input_wake(&attempt, signal.clone());
+    let generation = signal.generation();
+    let waiter_signal = signal.clone();
+    let resumed = std::thread::spawn(move || {
+        waiter_signal.wait_after(generation, std::time::Duration::from_secs(5))
+    });
+
+    owner_prompt_cleared(&tab_id);
+
+    assert!(
+        resumed.join().unwrap(),
+        "prompt clear resumes lazy readiness"
+    );
+    assert!(harness
+        .service
+        .agent_registry
+        .with_provider("lazy-owner-prompt-stage", |provider| {
+            provider.provider_readiness_strategy().requires_composer()
+        })
+        .unwrap());
+    drop(_wake);
+    assert_eq!(
+        observe(&attempt, std::time::Instant::now()),
+        LaunchObservation::Deadline
+    );
+
+    let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
+    assert!(launch.emit_first_turn_input_ready(&harness.service));
+    let mux = harness.service.mux.read();
+    let tab = mux
+        .get_tab(&tab_id)
+        .expect("lazy launch tab remains present");
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.agent_session_id.is_none());
+    drop(mux);
+    LAUNCH_REGISTRY.lock().finish(&launch);
+}
+
+#[test]
 fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
     use crate::agent::provider::StarterPrompt;
     use crate::agent::test_provider::MockProvider;

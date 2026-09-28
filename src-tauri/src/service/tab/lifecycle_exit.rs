@@ -138,6 +138,7 @@ impl ServiceContext {
                 clear_agent_identity_with_prompt(tab_id, tab)
             })
         };
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
@@ -160,6 +161,7 @@ impl ServiceContext {
                 clear_agent_identity_with_prompt(tab_id, tab)
             })
         };
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
@@ -191,6 +193,7 @@ impl ServiceContext {
                     clear_agent_identity_with_prompt(tab_id, tab)
                 })
             };
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             return self.finish_agent_identity_clear(
                 tab_id,
                 cause,
@@ -256,6 +259,7 @@ impl ServiceContext {
                 clear_agent_identity_with_prompt(tab_id, tab)
             })
         };
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
@@ -333,6 +337,7 @@ impl ServiceContext {
                     clear_agent_identity_with_prompt(tab_id, tab)
                 })
         };
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
@@ -370,6 +375,7 @@ impl ServiceContext {
                     clear_agent_identity_with_prompt(tab_id, tab)
                 })
         };
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
