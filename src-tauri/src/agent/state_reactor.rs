@@ -331,7 +331,25 @@ fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
 
 /// A live composer row (a marker line that is not an option) below the options means the
 /// "options" are transcript text, not an active dialog.
-pub(crate) fn composer_follows_options(
+const COMPOSER_MARKERS: [char; 4] = ['❯', '›', '▶', '➤'];
+
+pub(crate) fn prompt_is_composer_text(
+    screen: &str,
+    prompt: &crate::multiplexer::types::PendingPrompt,
+) -> bool {
+    question_is_composer_line(prompt) || composer_follows_options(screen, prompt)
+}
+
+fn question_is_composer_line(prompt: &crate::multiplexer::types::PendingPrompt) -> bool {
+    let question = prompt.question.trim();
+    question.starts_with(COMPOSER_MARKERS)
+        && !prompt
+            .options
+            .iter()
+            .any(|option| line_has_option(question.trim_start_matches(COMPOSER_MARKERS), option))
+}
+
+fn composer_follows_options(
     screen: &str,
     prompt: &crate::multiplexer::types::PendingPrompt,
 ) -> bool {
@@ -354,9 +372,9 @@ pub(crate) fn composer_follows_options(
         return false;
     };
     lines[last_option_row + 1..].iter().any(|line| {
-        line.starts_with(['❯', '›', '▶', '➤'])
+        line.starts_with(COMPOSER_MARKERS)
             && !prompt.options.iter().any(|option| {
-                line_has_option(line.trim_start_matches(['❯', '›', '▶', '➤']), option)
+                line_has_option(line.trim_start_matches(COMPOSER_MARKERS), option)
             })
     })
 }

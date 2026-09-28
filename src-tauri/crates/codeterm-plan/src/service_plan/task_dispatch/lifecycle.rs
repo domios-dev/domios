@@ -54,7 +54,7 @@ impl PlanStore {
             lane.tab_id = Some(tab_id.to_string());
             // Destination and cleanup are integration-owned metadata. They may be
             // recorded after dispatch acceptance, so readiness must not roll them back.
-            lane.destination = task.lane.destination.clone();
+            lane.destination = task.lane.destination.clone().or(lane.destination);
             lane.cleanup_status = task.lane.cleanup_status.clone();
             lane.cleanup_hints = task.lane.cleanup_hints.clone();
             task.lane = normalize_lane_metadata(lane);

@@ -555,7 +555,7 @@ impl PlanStore {
                     tab_id: owner.tab_id,
                 });
             }
-            lane.destination = task.lane.destination.clone();
+            lane.destination = task.lane.destination.clone().or(lane.destination);
             lane.cleanup_status = task.lane.cleanup_status.clone();
             lane.cleanup_hints = task.lane.cleanup_hints.clone();
             task.lane = normalize_lane_metadata(lane);

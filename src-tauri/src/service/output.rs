@@ -317,7 +317,7 @@ impl ServiceContext {
                                 })
                                 .filter(|(prompt, kind)| {
                                     *kind == codeterm_types::pty::PromptKind::DirectoryTrust
-                                        || !crate::agent::state_reactor::composer_follows_options(
+                                        || !crate::agent::state_reactor::prompt_is_composer_text(
                                             screen, prompt,
                                         )
                                 })

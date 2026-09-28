@@ -264,6 +264,51 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
     );
 }
 
+#[test]
+fn dispatch_records_computed_destination_when_none_is_stored() {
+    let (_dir, store, plan, task) = setup();
+    let computed = TaskLaneMetadata {
+        destination: Some("release/computed".into()),
+        ..Default::default()
+    };
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan,
+            &task,
+            "worker-tab",
+            "Worker",
+            computed.clone(),
+            ExecutionIntent::ReadOnly,
+            None,
+            Some("codex"),
+            3,
+        )
+        .unwrap();
+    let starting = store.show_task(&task).unwrap().task;
+    assert_eq!(starting.lane.destination.as_deref(), Some("release/computed"));
+    store
+        .finish_task_dispatch(
+            &plan,
+            &task,
+            "worker-tab",
+            &attempt_id,
+            "session",
+            "nonce",
+            TaskLaneMetadata {
+                destination: Some("release/other".into()),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    let ready = store.show_task(&task).unwrap().task;
+    assert_eq!(ready.lane.destination.as_deref(), Some("release/computed"));
+    assert_eq!(
+        ready.execution_attempts[0].destination.as_deref(),
+        Some("release/computed")
+    );
+}
+
 fn update_task_with_lane(
     store: &PlanStore,
     plan: &str,
