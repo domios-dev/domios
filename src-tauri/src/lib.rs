@@ -1028,6 +1028,7 @@ pub fn run() {
                 &states.config,
                 service_state.clone(),
             );
+            service::provider_update::check_available(service_state.clone());
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),

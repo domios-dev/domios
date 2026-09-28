@@ -19,6 +19,7 @@ import {
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
+import { checkCodexUpdate } from "./update";
 import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
@@ -252,6 +253,10 @@ const plugin: PluginModule = {
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] | null {
     return discoverCodexModels();
+  },
+
+  checkForUpdate() {
+    return checkCodexUpdate(host);
   },
 
   releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {

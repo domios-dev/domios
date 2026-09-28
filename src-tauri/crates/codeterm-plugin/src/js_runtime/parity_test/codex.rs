@@ -40,6 +40,18 @@ fn codex() -> JsProvider {
 }
 
 #[test]
+fn codex_declares_update_check_and_installer_as_provider_capabilities() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    assert!(provider.supports_update_check());
+    for platform in ["macos", "linux", "windows"] {
+        assert!(provider.update_command(platform).is_some());
+    }
+}
+
+#[test]
 fn busy_turn_steers_after_the_next_tool_call() {
     if require_plugins().is_none() {
         return;
