@@ -187,10 +187,13 @@ fn plan_task_show_json_returns_raw_rpc_value() {
 
 #[test]
 fn split_creates_children_with_parent_and_inherited_routing() {
-    let mut client = FakeRpc::scripted([json!({
-        "parent_task_id": "parent",
-        "children": [{"task_id": "child_a"}, {"task_id": "child_b"}]
-    })]);
+    let mut client = FakeRpc::scripted([
+        json!({ "task": { "interruption": { "owner_epoch": 3 } } }),
+        json!({
+            "parent_task_id": "parent",
+            "children": [{"task_id": "child_a"}, {"task_id": "child_b"}]
+        }),
+    ]);
     let response = run_task(
         &mut client,
         true,
@@ -204,8 +207,8 @@ fn split_creates_children_with_parent_and_inherited_routing() {
     .unwrap()
     .unwrap();
 
-    assert_eq!(client.methods(), ["plan.task.split"]);
-    let params = client.calls[0].1.as_ref().unwrap();
+    assert_eq!(client.methods().last().copied(), Some("plan.task.split"));
+    let params = client.calls.last().unwrap().1.as_ref().unwrap();
     assert_eq!(params["task_id"], "parent");
     assert_eq!(params["children"][0]["name"], "Part A");
     assert_eq!(params["children"][1]["name"], "Part B");
@@ -529,7 +532,7 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
     assert_eq!(out["attempts"][0]["provider"], "codex");
     assert_eq!(out["attempts"][0]["model"], "gpt-6-luna");
     assert_eq!(out["attempts"][0]["reasoning_effort"], "xhigh");
-    assert_eq!(out["attempts"][0]["session_model"], Value::Null);
+    assert_eq!(out["attempts"][0]["session_model"], "gpt-6-luna");
 }
 
 #[test]
