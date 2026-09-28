@@ -82,6 +82,21 @@ fn prompt_glyph_in_declared_status_row_is_not_composer_evidence() {
 }
 
 #[test]
+fn selected_dialog_option_is_not_composer_evidence() {
+    let rows = vec![
+        "Do you trust the contents of this directory?".to_string(),
+        "› 1. Yes, continue".to_string(),
+        "  2. No, quit".to_string(),
+        String::new(),
+    ];
+    assert!(!prompt_glyph_cursor_ready(&rows, true, 1, 1));
+    let alternate = vec!["❯ 2) Not now".to_string(), String::new()];
+    assert!(!prompt_glyph_cursor_ready(&alternate, true, 0, 1));
+    let composer = vec!["› 2026 plans for the release".to_string(), String::new()];
+    assert!(prompt_glyph_cursor_ready(&composer, true, 0, 1));
+}
+
+#[test]
 fn wrapped_warning_row_does_not_shift_composer_cursor_match() {
     let (lines, cursor_row) = render_terminal_fixture(
         include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/wrapped-warning.txt"),

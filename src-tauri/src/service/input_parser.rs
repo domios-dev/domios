@@ -3,7 +3,7 @@
 //! Hooks into the PTY write path. When a user types `claude ...<Enter>` or
 //! `codex ...<Enter>` (or any registered provider's `binary_name()`) directly
 //! in a shell tab, the line buffer captures bytes between newlines and on
-//! Enter resolves the first token to a provider id. Treated as explicit user
+//! Enter resolves the command token to a provider id. Treated as explicit user
 //! intent — locks `agent_type` so output-based detection can't override it.
 //!
 //! Locked tabs are skipped entirely. Already-typed lines aren't re-processed
@@ -22,6 +22,14 @@ const MAX_BUFFERED_LINE: usize = 4096;
 struct LineState {
     text: String,
     poisoned: bool,
+    continuation: Option<Continuation>,
+}
+
+/// Lines typed inside a heredoc body or an unclosed quote are data, not commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Continuation {
+    Heredoc(String),
+    Quote(char),
 }
 
 #[derive(Default)]
@@ -40,7 +48,7 @@ impl InputParser {
 
     /// Process raw bytes about to be written to the PTY behind `tab_id`. Returns
     /// the provider id when a launch command was just recognised (Enter pressed,
-    /// first token matched a registered `binary_name()`); `None` otherwise.
+    /// command matched a registered `binary_name()`); `None` otherwise.
     pub fn process(&self, tab_id: &str, bytes: &[u8]) -> Option<String> {
         if tab_id.is_empty() || bytes.is_empty() {
             return None;
@@ -51,7 +59,10 @@ impl InputParser {
         for &b in bytes {
             match b {
                 b'\r' | b'\n' => {
-                    if matched.is_none() && !state.poisoned {
+                    let continuation = state.continuation.take();
+                    let is_command = continuation.is_none();
+                    state.continuation = next_continuation(continuation, &state.text);
+                    if is_command && matched.is_none() && !state.poisoned {
                         matched = self.resolve_line(&state.text);
                     }
                     state.text.clear();
@@ -63,6 +74,9 @@ impl InputParser {
                 0x03 | 0x04 | 0x15 => {
                     state.text.clear();
                     state.poisoned = false;
+                    if b == 0x03 {
+                        state.continuation = None;
+                    }
                 }
                 _ => {
                     if state.text.len() < MAX_BUFFERED_LINE {
@@ -81,17 +95,18 @@ impl InputParser {
     }
 
     fn resolve_line(&self, line: &str) -> Option<String> {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        let first = trimmed.split_whitespace().next()?;
-        let token = first.trim_matches(|c: char| c == '"' || c == '\'');
+        let tokens = shell_tokens(line);
+        let token = command_token(&tokens)?;
         let basename = token
             .rsplit_once(|c| c == '/' || c == '\\')
             .map(|(_, name)| name)
-            .unwrap_or(token);
-        let basename = basename.to_ascii_lowercase();
+            .unwrap_or(&token);
+        let basename = basename
+            .rsplit_once('.')
+            .filter(|(_, extension)| extension.eq_ignore_ascii_case("exe"))
+            .map(|(stem, _)| stem)
+            .unwrap_or(basename)
+            .to_ascii_lowercase();
         if basename.is_empty() {
             return None;
         }
@@ -99,8 +114,168 @@ impl InputParser {
     }
 }
 
+fn next_continuation(current: Option<Continuation>, line: &str) -> Option<Continuation> {
+    match current {
+        Some(Continuation::Heredoc(delimiter)) => (line.trim_start_matches('\t').trim_end()
+            != delimiter)
+            .then_some(Continuation::Heredoc(delimiter)),
+        Some(Continuation::Quote(quote)) => {
+            let still_open = line.chars().filter(|&c| c == quote).count() % 2 == 0;
+            still_open.then_some(Continuation::Quote(quote))
+        }
+        None => unclosed_quote(line)
+            .map(Continuation::Quote)
+            .or_else(|| heredoc_delimiter(line).map(Continuation::Heredoc)),
+    }
+}
+
+fn unclosed_quote(line: &str) -> Option<char> {
+    let mut quote = None;
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            escaped = false;
+        } else if character == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if quote == Some(character) {
+            quote = None;
+        } else if quote.is_none() && matches!(character, '\'' | '"') {
+            quote = Some(character);
+        }
+    }
+    quote
+}
+
+fn heredoc_delimiter(line: &str) -> Option<String> {
+    let start = line.find("<<")?;
+    let rest = &line[start + 2..];
+    if rest.starts_with('<') {
+        return None;
+    }
+    let rest = rest.strip_prefix('-').unwrap_or(rest).trim_start();
+    let word: String = rest
+        .chars()
+        .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '|' | '&' | '>' | '<' | ')'))
+        .filter(|c| !matches!(c, '\'' | '"' | '\\'))
+        .collect();
+    (!word.is_empty()).then_some(word)
+}
+
+fn shell_tokens(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut token = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut characters = line.chars().peekable();
+    while let Some(character) = characters.next() {
+        if escaped {
+            token.push(character);
+            escaped = false;
+        } else if character == '\\' && quote != Some('\'') {
+            if characters
+                .peek()
+                .is_some_and(|next| matches!(next, ' ' | '\t' | '\\' | '"' | '\''))
+            {
+                escaped = true;
+            } else {
+                token.push(character);
+            }
+        } else if quote == Some(character) {
+            quote = None;
+        } else if quote.is_none() && matches!(character, '\'' | '"') {
+            quote = Some(character);
+        } else if quote.is_none() && character.is_whitespace() {
+            if !token.is_empty() {
+                tokens.push(std::mem::take(&mut token));
+            }
+        } else {
+            token.push(character);
+        }
+    }
+    if escaped {
+        token.push('\\');
+    }
+    if !token.is_empty() {
+        tokens.push(token);
+    }
+    tokens
+}
+
+fn command_token(tokens: &[String]) -> Option<String> {
+    let mut index = 0;
+    while let Some(token) = tokens.get(index) {
+        if is_environment_assignment(token) {
+            index += 1;
+        } else if token == "sudo" || token == "env" {
+            index = skip_wrapper_options(tokens, index + 1, token == "sudo");
+        } else if matches!(token.as_str(), "npx" | "pnpm" | "yarn") {
+            return launcher_target(tokens, index + 1, token);
+        } else if token == "npm" && tokens.get(index + 1).is_some_and(|next| next == "exec") {
+            return launcher_target(tokens, index + 2, token);
+        } else {
+            return Some(token.clone());
+        }
+    }
+    None
+}
+
+fn skip_wrapper_options(tokens: &[String], mut index: usize, sudo: bool) -> usize {
+    while let Some(token) = tokens.get(index) {
+        if is_environment_assignment(token) || (!sudo && token.starts_with('-')) {
+            index += 1;
+        } else if sudo && matches!(token.as_str(), "-u" | "-g" | "-h" | "-p" | "-C" | "-T") {
+            index += 2;
+        } else if sudo && token.starts_with('-') {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    index
+}
+
+fn launcher_target(tokens: &[String], mut index: usize, launcher: &str) -> Option<String> {
+    if matches!(launcher, "pnpm" | "yarn") {
+        if !matches!(tokens.get(index).map(String::as_str), Some("dlx" | "exec")) {
+            return None;
+        }
+        index += 1;
+    }
+    while let Some(token) = tokens.get(index) {
+        if token == "--" {
+            index += 1;
+            break;
+        }
+        if !token.starts_with('-') {
+            return Some(token.clone());
+        }
+        index += 1;
+    }
+    tokens.get(index).cloned()
+}
+
+fn is_environment_assignment(token: &str) -> bool {
+    token.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heredoc_and_quote_continuation_lines_are_never_commands() {
+        use super::{next_continuation, Continuation};
+        let open = next_continuation(None, "cat <<'EOF' > notes.txt");
+        assert_eq!(open, Some(Continuation::Heredoc("EOF".into())));
+        let body = next_continuation(open.clone(), "codex exec -s workspace-write");
+        assert_eq!(body, open);
+        assert_eq!(next_continuation(body, "EOF"), None);
+        assert_eq!(next_continuation(None, "cat <<< \"codex\""), None);
+        let quoted = next_continuation(None, "echo \"first line");
+        assert_eq!(quoted, Some(Continuation::Quote('"')));
+        assert_eq!(next_continuation(quoted, "codex exec\""), None);
+    }
+
     use super::*;
     use crate::agent::provider::{
         AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
@@ -198,6 +373,45 @@ mod tests {
     fn does_not_match_arg_position() {
         let p = InputParser::new(registry());
         assert!(p.process("tab1", b"echo codex\r").is_none());
+    }
+
+    #[test]
+    fn provider_names_only_in_arguments_do_not_assign_identity() {
+        let p = InputParser::new(registry());
+        for command in [
+            "cat codex-notes.txt",
+            "cat /tmp/codex-retry-screen.txt",
+            "grep claude file",
+            "vim opencode.md",
+            "echo codex",
+            "printf '%s' 'claude'",
+        ] {
+            let line = format!("{command}\r");
+            assert!(p.process("tab1", line.as_bytes()).is_none(), "{command}");
+        }
+    }
+
+    #[test]
+    fn provider_launchers_are_detected_in_program_position() {
+        let p = InputParser::new(registry());
+        for (command, provider) in [
+            ("codex", "codex"),
+            ("claude --resume session", "claude"),
+            ("opencode", "opencode"),
+            ("/usr/bin/codex", "codex"),
+            (r#""C:\tools\claude.exe" --resume session"#, "claude"),
+            ("CODEX_HOME=/tmp/codex codex", "codex"),
+            ("sudo -u agent /usr/bin/claude", "claude"),
+            ("npx @openai/codex", "codex"),
+            ("npm exec -- @openai/codex", "codex"),
+            ("pnpm dlx @openai/codex", "codex"),
+        ] {
+            let line = format!("{command}\r");
+            assert_eq!(
+                p.process("tab1", line.as_bytes()).as_deref(),
+                Some(provider)
+            );
+        }
     }
 
     #[test]

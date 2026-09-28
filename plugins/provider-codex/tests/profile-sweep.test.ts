@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   codexProfileInstanceId,
   codexProfileTabId,
+  carryCodexProjectTrustForTab,
   manageCodexProfiles,
   releaseCodexProfile,
   sweepCodexProfiles,
@@ -143,6 +144,41 @@ console.log("\n--- profile release carries project trust before removal ---\n");
   assert.equal(files["codeterm-tab.config.toml"], undefined, "profile is removed after trust carry-over");
   assert.ok(files["config.toml"].includes("[projects.'d:\\developer\\trust-probe']"));
   assert.ok(files["config.toml"].includes('trusted_hash = "sha256:unchanged"'));
+}
+
+console.log("\n--- answered trust carries only this tab and instance before release ---\n");
+{
+  const config = "[hooks.state]\r\ntrusted_hash = \"sha256:unchanged\"\r\n";
+  const { host, files } = makeHost({
+    "codeterm-live-tab.config.toml": [
+      "# codeterm-instance: instance-dev",
+      "",
+      "[projects.'C:\\Users\\test\\TeamProject']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\r\n"),
+    "codeterm-foreign-tab.config.toml": [
+      "# codeterm-instance: instance-prod",
+      "[projects.'C:\\Foreign']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\n"),
+    "codeterm-legacy-tab.config.toml": [
+      "[projects.'C:\\Legacy']",
+      'trust_level = "trusted"',
+      "",
+    ].join("\n"),
+    "config.toml": config,
+  });
+  assert.equal(carryCodexProjectTrustForTab(host, "live-tab", "instance-dev"), true,
+    "the answered tab can persist trust while its profile remains live");
+  assert.ok(files["config.toml"].includes("[projects.'C:\\Users\\test\\TeamProject']"),
+    "the live tab trust is immediately available to sibling and later Codex launches");
+  assert.ok(!files["config.toml"].includes("C:\\Foreign"), "does not collect another instance's profile trust");
+  assert.ok(!files["config.toml"].includes("C:\\Legacy"), "does not collect unmarked profile trust");
+  assert.ok(files["config.toml"].startsWith(config), "hooks and trusted_hash bytes remain unchanged");
+  assert.equal(carryCodexProjectTrustForTab(host, "foreign-tab", "instance-dev"), false,
+    "does not carry a sibling instance's profile even when given its tab id");
 }
 
 console.log("\n--- dead tab profile carries trust before startup sweep removes it ---\n");

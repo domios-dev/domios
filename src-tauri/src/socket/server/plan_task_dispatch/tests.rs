@@ -291,6 +291,7 @@ fn provenance() -> WorkerLaneProvenance {
         worktree_path: "/project-worktrees/lane".into(),
         branch: "lane/test".into(),
         base: "master".into(),
+        destination: None,
     }
 }
 

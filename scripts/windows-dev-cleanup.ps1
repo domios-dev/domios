@@ -14,6 +14,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+function Remove-VerbatimPrefix([string] $path) {
+  # Win32_Process can report image paths with the \\?\ prefix, which breaks prefix matching.
+  if ($path.StartsWith('\\?\')) { return $path.Substring(4) }
+  return $path
+}
+
 $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
 $dataDirPath = [IO.Path]::GetFullPath($DataDir)
@@ -76,7 +82,7 @@ if (-not $OwnedOnly) {
       continue
     }
     $cmd = [string]$proc.CommandLine
-    $exe = [string]$proc.ExecutablePath
+    $exe = Remove-VerbatimPrefix ([string]$proc.ExecutablePath)
     $name = [string]$proc.Name
     $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
     $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
@@ -133,7 +139,7 @@ if (-not $OwnedOnly) {
       continue
     }
     $parentId = [int]$proc.ParentProcessId
-    $imagePath = [string]$proc.ExecutablePath
+    $imagePath = Remove-VerbatimPrefix ([string]$proc.ExecutablePath)
     $underThisTarget = $imagePath.StartsWith($conptyPrefix, [StringComparison]::OrdinalIgnoreCase)
     $parentGone = -not $parentByPid.ContainsKey($parentId)
     $parentIsThisDaemon = $daemonPids.Contains($parentId)

@@ -119,6 +119,7 @@ fn canonical_writer_placement_is_never_inferred_without_opt_in() {
             worktree_path: canonical.clone(),
             branch: "main".into(),
             base: "base".into(),
+            destination: None,
         },
     )
     .unwrap();

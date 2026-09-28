@@ -210,6 +210,9 @@ fn route_classified_prompt(
         surface_to_user(svc, tab_id, surface);
         return true;
     };
+    if !has_structural_prompt_evidence(screen, &prompt) {
+        return true;
+    }
     if auto_approve || permission_auto_confirm {
         let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust
             || svc
@@ -234,6 +237,107 @@ fn route_classified_prompt(
     );
     svc.apply_prompt_decision_with_kind(&decision, Some(screen), prompt_kind, true);
     true
+}
+
+fn has_structural_prompt_evidence(
+    screen: &str,
+    prompt: &crate::multiplexer::types::PendingPrompt,
+) -> bool {
+    let lines = screen.lines().collect::<Vec<_>>();
+    let last_option_row = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let line = line
+                .trim()
+                .trim_start_matches(|ch| ch == '│' || ch == '┃')
+                .trim();
+            prompt
+                .options
+                .iter()
+                .any(|option| line_has_option(line, option))
+                .then_some(index)
+        })
+        .max();
+    let Some(last_option_row) = last_option_row else {
+        return false;
+    };
+    if !has_terminal_prompt_footer(&lines, last_option_row) {
+        return false;
+    }
+    if lines[last_option_row + 1..].iter().any(|line| {
+        matches!(
+            line.trim()
+                .trim_start_matches(|ch| ch == '│' || ch == '┃')
+                .trim(),
+            "❯" | "›" | "▶" | "➤" | ">"
+        )
+    }) {
+        return false;
+    }
+    if prompt
+        .selected_values
+        .as_ref()
+        .is_some_and(|selected| !selected.is_empty())
+    {
+        return true;
+    }
+    lines.iter().any(|line| {
+        let line = line
+            .trim()
+            .trim_start_matches(|ch| ch == '│' || ch == '┃')
+            .trim_start();
+        let Some((marker, rest)) = line
+            .char_indices()
+            .next()
+            .map(|(i, ch)| (ch, &line[i + ch.len_utf8()..]))
+        else {
+            return false;
+        };
+        if !matches!(marker, '❯' | '›' | '▶' | '➤' | '>') {
+            return false;
+        }
+        let rest = rest.trim_start();
+        prompt
+            .options
+            .iter()
+            .any(|option| line_has_option(rest, option))
+    })
+}
+
+fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
+    let footer_row = lines
+        .iter()
+        .enumerate()
+        .skip(last_option_row + 1)
+        .filter(|(_, line)| {
+            let line = line.to_ascii_lowercase();
+            line.contains("enter")
+                && ["confirm", "continue", "select", "cancel", "go back"]
+                    .iter()
+                    .any(|action| line.contains(action))
+        })
+        .map(|(index, _)| index)
+        .last();
+    let Some(footer_row) = footer_row else {
+        return false;
+    };
+    lines
+        .iter()
+        .enumerate()
+        .skip(footer_row + 1)
+        .all(|(_, line)| line.trim().is_empty())
+}
+
+fn line_has_option(line: &str, option: &crate::multiplexer::types::PromptOption) -> bool {
+    let indexed = line
+        .trim_start()
+        .strip_prefix(option.value.as_str())
+        .is_some_and(|tail| {
+            let tail = tail.trim_start();
+            tail.starts_with('.') || tail.starts_with(')')
+        });
+    indexed || line.trim_start().starts_with(option.label.trim())
 }
 
 fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {

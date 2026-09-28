@@ -8,9 +8,9 @@ use serde_json::{json, Value};
 use crate::provider::{
     self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
     LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
-    ProviderTrust, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage,
-    SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
-    VerifySubmitStrategy,
+    ProviderTrust, ProviderUpdateAvailability, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
+    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 use codeterm_types::pty::PendingPrompt;
 
@@ -73,6 +73,19 @@ impl AgentProvider for JsProvider {
         instance_id: &str,
     ) -> Result<bool, String> {
         launch_artifacts::release(self, tab_id, instance_id)
+    }
+
+    fn folder_trust_answered(&self, tab_id: &str, instance_id: &str) -> Result<bool, String> {
+        const METHOD: &str = "folderTrustAnswered";
+        if self.has_js(METHOD) {
+            return super::call_json_strict(&self.vm, METHOD, &[json!(tab_id), json!(instance_id)])
+                .map_err(|error| {
+                    format!("[plugin {}] {METHOD} failed: {error}", self.manifest.id)
+                });
+        }
+        self.native()
+            .map(|native| native.folder_trust_answered(tab_id, instance_id))
+            .unwrap_or(Ok(false))
     }
 
     fn sweep_launch_artifacts(
@@ -911,6 +924,14 @@ impl AgentProvider for JsProvider {
 
     fn update_command(&self, platform: &str) -> Option<String> {
         self.manifest.updater.get(platform).cloned()
+    }
+
+    fn supports_update_check(&self) -> bool {
+        self.has_js("checkForUpdate")
+    }
+
+    fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
+        self.try_call("checkForUpdate", &[])
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {

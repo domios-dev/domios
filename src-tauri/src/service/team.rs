@@ -8,6 +8,7 @@ use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
 mod close;
+pub use close::TeamCloseResult;
 #[cfg(test)]
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
@@ -319,7 +320,7 @@ impl ServiceContext {
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
-    ) -> Result<Team, String> {
+    ) -> Result<TeamCloseResult, String> {
         let caller_kind = caller.kind();
         let result = self.close_team_inner(team_id, caller).await;
         if let Err(error) = &result {
@@ -332,7 +333,7 @@ impl ServiceContext {
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
-    ) -> Result<Team, String> {
+    ) -> Result<TeamCloseResult, String> {
         let close_at = now_ms();
         let prepared = {
             let mux = self.mux.read();
@@ -427,8 +428,8 @@ impl ServiceContext {
             log::error!("Failed to delete Team delayed series {team_id}: {error}");
         }
         self.emit_state_changed_after_bus_publish();
-        lane_cleanup?;
-        Ok(team)
+        let inventory = lane_cleanup?;
+        Ok(TeamCloseResult { team, inventory })
     }
 
     fn delete_team_crons(&self, team_id: &str) {
