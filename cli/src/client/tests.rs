@@ -403,6 +403,36 @@ fn dead_socket_uses_loopback_http_when_credentials_are_present() {
 }
 
 #[test]
+fn current_pad_dead_socket_with_http_env_uses_shared_transport_selection() {
+    struct PadClient(std::path::PathBuf);
+
+    impl RpcClient for PadClient {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<serde_json::Value>,
+        ) -> Result<serde_json::Value, SocketCallError> {
+            assert_eq!(method, "tab.agent_pad");
+            Ok(serde_json::json!({ "path": self.0 }))
+        }
+    }
+
+    let config = http_fallback_config_from(None, Some("7687"), Some("opaque-token")).unwrap();
+    let choice = select_transport::<()>(Err("pipe denied".into()), || Ok(config)).unwrap();
+    assert!(matches!(choice, TransportChoice::Http(_)));
+
+    let temp = tempfile::tempdir().unwrap();
+    let tab_id = "full-worker-tab-id";
+    let pad = temp.path().join(tab_id);
+    std::fs::create_dir(&pad).unwrap();
+    let mut client = PadClient(pad.clone());
+    assert_eq!(
+        crate::cmd::payload_source::resolve_current_pad(tab_id, &mut client).unwrap(),
+        pad.canonicalize().unwrap()
+    );
+}
+
+#[test]
 fn dead_socket_without_credentials_reports_both_transport_attempts() {
     let error = match select_transport::<()>(Err("pipe denied".into()), || {
         Err("CODETERM_API_TOKEN is not set".into())
