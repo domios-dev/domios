@@ -16,7 +16,11 @@ struct PendingCarry {
     agent_type: String,
     in_flight: bool,
     idle_requested: bool,
+    idle_retries: u8,
 }
+
+/// A declined trust never yields a trusted entry, so idle retries stop after a few turns.
+const MAX_IDLE_RETRIES: u8 = 3;
 
 impl CarrySchedule {
     fn arm(&mut self, tab_id: &str, agent_type: &str) {
@@ -26,6 +30,7 @@ impl CarrySchedule {
                 agent_type: agent_type.to_string(),
                 in_flight: false,
                 idle_requested: false,
+                idle_retries: 0,
             });
     }
 
@@ -39,6 +44,14 @@ impl CarrySchedule {
     }
 
     fn request_idle_retry(&mut self, tab_id: &str) -> bool {
+        let Some(pending) = self.pending.get_mut(tab_id) else {
+            return false;
+        };
+        if pending.idle_retries >= MAX_IDLE_RETRIES {
+            self.pending.remove(tab_id);
+            return false;
+        }
+        pending.idle_retries += 1;
         let Some(pending) = self.pending.get_mut(tab_id) else {
             return false;
         };

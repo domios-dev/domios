@@ -25,6 +25,11 @@ export interface ProfileSweepReport {
 const CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 const INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 
+function codexConfigPath(host: ProfileSweepHost, home: string): string {
+  const separator = host.platform() === "windows" ? "\\" : "/";
+  return `${home}${separator}.codex${separator}config.toml`;
+}
+
 export function codexProfileTabId(fileName: string): string | null {
   return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
 }
@@ -77,7 +82,7 @@ function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string): boo
   if (!home) return false;
   const original = readProfile(host, path);
   if (original === null) return false;
-  const configPath = `${home}\\.codex\\config.toml`;
+  const configPath = codexConfigPath(host, home);
   if (!carryCodexProjectTrust(host, path, configPath)) return false;
   return readProfile(host, path) === original && removeProfile(host, path);
 }
@@ -90,7 +95,7 @@ export function carryCodexProjectTrustForTab(
   const listing = profiles(host);
   const home = host.homeDir();
   if (!listing || !home) return false;
-  const configPath = `${home}\\.codex\\config.toml`;
+  const configPath = codexConfigPath(host, home);
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
   const owned = listing
     .filter((name) => codexProfileTabId(name) === suffix)
