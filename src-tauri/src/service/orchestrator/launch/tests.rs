@@ -144,7 +144,7 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
 }
 
 #[test]
-fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
+fn has_startup_task_turn_reflects_the_actual_launch_command() {
     use crate::agent::provider::{AgentProvider, SystemPromptDelivery};
     use crate::agent::test_provider::MockProvider;
 
@@ -157,15 +157,10 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
     );
     assert!(lazy.session_starts_on_first_user_turn());
 
-    let taskless_params = crate::service::orchestrator::SpawnAgentParams {
-        system_prompt: Some("opaque-identity-instructions-c440".into()),
-        ..Default::default()
-    };
     let no_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-        taskless_params.task.as_deref(),
+        None,
         None,
     );
-    assert!(taskless_params.system_prompt.is_some());
     assert!(!no_task_turn);
 
     assert!(first_turn_binding_required(
@@ -174,13 +169,8 @@ fn startup_task_turn_uses_assignment_delivery_not_system_prompt_instructions() {
         false,
     ));
 
-    let assigned_params = crate::service::orchestrator::SpawnAgentParams {
-        task: Some("opaque-assigned-task-9ef1".into()),
-        system_prompt: taskless_params.system_prompt.clone(),
-        ..Default::default()
-    };
     let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-        assigned_params.task.as_deref(),
+        Some("opaque-resolved-first-turn-9ef1"),
         None,
     );
     assert!(assigned_task_turn);
@@ -255,8 +245,10 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
         no_task_turn,
         crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
     ));
-    let assigned_task_turn =
-        crate::service::launch_delivery::has_startup_task_turn(Some("opaque-task-4209"), None);
+    let assigned_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        Some("opaque-resolved-first-turn-4209"),
+        None,
+    );
     assert!(!launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
@@ -296,6 +288,44 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
     assert!(tab.pending_delivery.is_none());
     drop(mux);
     LAUNCH_REGISTRY.lock().finish(&launch);
+}
+
+#[test]
+fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
+    use crate::agent::provider::StarterPrompt;
+    use crate::agent::test_provider::MockProvider;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("pair-lazy-session".into());
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("pair-lazy-session")
+            .with_session_config_delivery()
+            .with_session_starts_on_first_user_turn(),
+    ));
+    let startup_turn = crate::service::startup_turn::resolve(
+        &harness.service.agent_registry,
+        "pair-lazy-session",
+        StarterPrompt::NoStarter,
+        None,
+        Some("opaque-team-bootstrap-instructions-f7a1"),
+        true,
+        None,
+    );
+    let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
+        startup_turn.as_deref(),
+        None,
+    );
+
+    assert!(startup_turn.is_none());
+    assert!(!has_startup_task_turn);
+    assert!(launch_waits_for_first_turn_binding(
+        &harness.service,
+        &tab_id,
+        "pair-lazy-session",
+        has_startup_task_turn,
+        crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
+    ));
 }
 
 #[test]

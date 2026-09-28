@@ -251,6 +251,17 @@ fn live_orchestrator_count_ignores_a_removed_or_dead_anchor() {
 }
 
 #[test]
+fn spawn_failed_orchestrator_does_not_block_recovery_spawn() {
+    let (mut mux, team_id, orchestrator, _, _) = live_team();
+    mux.get_tab_mut(&orchestrator).unwrap().boot_stage =
+        Some(crate::service::boot_stage::BootStage::SpawnFailed);
+
+    assert!(live_team_orchestrators(&mux, &team_id).is_empty());
+    prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params())
+        .expect("a failed Orchestrator can be replaced");
+}
+
+#[test]
 fn a_headless_team_accepts_a_new_orchestrator_with_no_caller() {
     let (mut mux, team_id, orchestrator, planner, _worker) = live_team();
     mux.close_tab(&orchestrator).unwrap();
