@@ -51,6 +51,37 @@ fn busy_turn_steers_after_the_next_tool_call() {
 }
 
 #[test]
+fn codex_sandbox_writable_roots_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    assert_eq!(
+        provider.additional_writable_dir_flag().as_deref(),
+        Some("--add-dir")
+    );
+    let args = vec![
+        "--add-dir".to_string(),
+        "D:/repo/.git/worktrees/lane".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git".to_string(),
+    ];
+    let launch = provider.build_launch_command(&AgentLaunchParams {
+        args: Some(args.clone()),
+        ..Default::default()
+    });
+    assert_eq!(launch.matches("--add-dir").count(), 2);
+    let resume = provider
+        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            session_id: CODEX_UUID.to_string(),
+            args,
+            ..Default::default()
+        })
+        .expect("context resume command");
+    assert_eq!(resume.matches("--add-dir").count(), 2);
+}
+
+#[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;

@@ -45,6 +45,7 @@ pub struct MockProvider {
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     paste_limit_bytes: Option<usize>,
+    additional_writable_dir_flag: Option<String>,
 }
 
 impl MockProvider {
@@ -79,6 +80,7 @@ impl MockProvider {
             launch_artifact_release_log: None,
             resume_context_log: None,
             paste_limit_bytes: None,
+            additional_writable_dir_flag: None,
         }
     }
 
@@ -99,6 +101,11 @@ impl MockProvider {
 
     pub fn with_paste_limit_bytes(mut self, limit: usize) -> Self {
         self.paste_limit_bytes = Some(limit);
+        self
+    }
+
+    pub fn with_additional_writable_dir_flag(mut self, flag: &str) -> Self {
+        self.additional_writable_dir_flag = Some(flag.to_string());
         self
     }
 
@@ -308,6 +315,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn additional_writable_dir_flag(&self) -> Option<String> {
+        self.additional_writable_dir_flag.clone()
+    }
+
     fn paste_limit_bytes(&self) -> Option<usize> {
         self.paste_limit_bytes
     }

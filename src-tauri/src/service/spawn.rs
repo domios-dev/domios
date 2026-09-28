@@ -1075,6 +1075,7 @@ impl ServiceContext {
                 &svc_outer.agent_registry,
                 &provider,
                 &tab_id_outer,
+                Some(&hidden_cwd),
                 &mut launch_params,
             )
             .unwrap_or_else(|| provider.clone());

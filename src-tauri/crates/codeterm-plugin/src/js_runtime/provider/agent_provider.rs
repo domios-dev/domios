@@ -53,6 +53,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.paste_limit_bytes
     }
 
+    fn additional_writable_dir_flag(&self) -> Option<String> {
+        self.manifest.commands.additional_writable_dir_flag.clone()
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if !self.has_js("buildLaunchCommand") {
             if let Some(command) = launch_command_from_template(&self.manifest, params) {

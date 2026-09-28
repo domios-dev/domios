@@ -24,6 +24,11 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// CLI flag accepting one extra writable directory in sandboxed worktree launches.
+    fn additional_writable_dir_flag(&self) -> Option<String> {
+        None
+    }
+
     /// What THIS machine says about the launch binary, through the shared
     /// resolver. Core reads this instead of asking a provider to self-report.
     fn observe_launch_binary(&self) -> LaunchBinaryObservation {

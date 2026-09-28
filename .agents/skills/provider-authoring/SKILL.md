@@ -172,6 +172,7 @@ All fields optional.
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`. Absent ⇒ provider has no scriptable effort flag even if it lists effort levels. |
+| `additionalWritableDirFlag` | string? | CLI flag accepting one extra writable directory. Core supplies only Git metadata roots for sandboxed launches in linked worktrees, on spawn, dispatch, restore, and resume. |
 
 ### `integration`
 
