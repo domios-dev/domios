@@ -696,18 +696,14 @@ impl ServiceContext {
                 tab_created_by_spawn,
             ));
         }
-        let startup_turn_text = crate::service::startup_turn::resolve(
+        let startup_turn = crate::service::startup_turn::resolve(
             &self.agent_registry,
             &agent_cmd,
             legacy_params.starter_prompt,
             fallback_spec.as_ref(),
-            agent.task.as_deref(),
+            role_suffixed_task.as_deref(),
             false,
             confirmed_first_turn.as_deref(),
-        );
-        let has_startup_task_turn = crate::service::launch_delivery::has_startup_task_turn(
-            startup_turn_text.as_deref(),
-            fallback_spec.as_ref(),
         );
         launch_agent_in_background_with_env(
             self.clone(),
@@ -715,8 +711,8 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
-            has_startup_task_turn,
-            startup_turn_text,
+            startup_turn.first_turn_will_be_delivered,
+            startup_turn.expected_turn,
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
