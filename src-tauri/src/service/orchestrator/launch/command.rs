@@ -162,11 +162,27 @@ fn build_agent_command_inner(
     let command_task = registry.with_provider(agent_cmd, |provider| {
         crate::service::launch_delivery::command_task(provider, task)
     });
+    let skip_permissions = params.permission_bypass_requested(agent_cmd);
+    let canonical_project = notice_context.and_then(|(service, tab_id)| {
+        params.cwd.as_deref().and_then(|cwd| {
+            crate::service::launch_session_detection::canonical_project_for_launch(
+                service, tab_id, params, cwd,
+            )
+        })
+    });
+    crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+        registry,
+        agent_cmd,
+        skip_permissions,
+        params.cwd.as_deref(),
+        canonical_project.as_deref(),
+        &mut args,
+    );
 
     if let Some(session_id) = &params.resume_session_id {
         let resume = crate::agent::provider::AgentResumeParams {
             session_id: session_id.clone(),
-            skip_permissions: params.permission_bypass_requested(agent_cmd),
+            skip_permissions,
             agent_name: params.agent_name.clone(),
             system_prompt: command_task
                 .as_ref()
@@ -194,7 +210,7 @@ fn build_agent_command_inner(
         } else {
             Some(args.clone())
         },
-        skip_permissions: params.permission_bypass_requested(agent_cmd),
+        skip_permissions,
         session_id: injected_session_id.map(str::to_string),
         structured_prompt_server: params.structured_prompt_server.clone(),
         launch_marker: launch_marker.map(str::to_string),

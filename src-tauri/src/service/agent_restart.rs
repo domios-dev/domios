@@ -712,6 +712,13 @@ fn build_relaunch_command(
     };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
+    let canonical_project = snap.cwd.as_deref().and_then(|cwd| {
+        crate::service::launch_session_detection::canonical_project_for_tab(
+            &svc.plan_store,
+            &snap.tab_id,
+            cwd,
+        )
+    });
     let structured_prompt_server = svc
         .agent_registry
         .with_provider(provider, |p| p.needs_structured_prompt_server())
@@ -729,6 +736,8 @@ fn build_relaunch_command(
         structured_prompt_server,
         launch_task,
         &snap.tab_id,
+        snap.cwd.as_deref(),
+        canonical_project.as_deref(),
     )
 }
 
@@ -741,16 +750,27 @@ fn build_relaunch_command_with_registry(
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
     tab_id: &str,
+    cwd: Option<&str>,
+    canonical_project: Option<&str>,
 ) -> Option<String> {
     let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
         if let Some(sid) = session_id {
+            let mut args = Vec::new();
+            crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                canonical_project,
+                &mut args,
+            );
             return registry.with_provider(provider, |p| {
                 p.build_launch_command(&AgentLaunchParams {
                     agent_name: None,
                     task: None,
                     starter_prompt,
-                    args: None,
+                    args: (!args.is_empty()).then_some(args),
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
                     structured_prompt_server: structured_prompt_server.clone(),
@@ -771,13 +791,22 @@ fn build_relaunch_command_with_registry(
                     .system_prompt
                 })
                 .flatten();
+            let mut args = Vec::new();
+            crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                canonical_project,
+                &mut args,
+            );
             let resume = crate::agent::provider::AgentResumeParams {
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
                 agent_name: None,
                 system_prompt,
                 instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
-                args: Vec::new(),
+                args,
             };
             if let Some(cmd) = registry
                 .with_provider(provider, |p| p.build_resume_command_with_context(&resume))
@@ -798,6 +827,18 @@ fn build_relaunch_command_with_registry(
         launch_marker: None,
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
+    if let Some(cwd) = cwd {
+        let mut args = Vec::new();
+        crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+            registry,
+            provider,
+            auto_approve,
+            Some(cwd),
+            canonical_project,
+            &mut args,
+        );
+        params.args = (!args.is_empty()).then_some(args);
+    }
     crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
     registry.with_provider(provider, |p| p.build_launch_command(&params))
 }

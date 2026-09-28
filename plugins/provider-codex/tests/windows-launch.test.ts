@@ -26,8 +26,31 @@ if (process.platform !== "win32") {
       },
     };
     vm.runInNewContext(fs.readFileSync("plugins/provider-codex/plugin.js", "utf8"), context);
-    const command = context.module.exports.default.buildLaunchCommand({ task: token, silent: true, instanceId: "instance-launch-test" });
+    const provider = context.module.exports.default;
+    const command = provider.buildLaunchCommand({ task: token, silent: true, instanceId: "instance-launch-test" });
     assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+    const metadataPaths = [
+      path.join(root, ".git", "worktrees", "lane"),
+      path.join(root, ".git", "objects"),
+      path.join(root, ".git", "refs"),
+      path.join(root, ".git", "logs"),
+    ];
+    const metadataArgs = metadataPaths.flatMap((metadataPath) => ["--add-dir", metadataPath]);
+    const launchWithMetadata = provider.buildLaunchCommand({
+      task: token,
+      silent: true,
+      instanceId: "instance-launch-test",
+      args: metadataArgs,
+    });
+    assert.equal((launchWithMetadata.match(/--add-dir/g) || []).length, 4);
+    for (const metadataPath of metadataPaths) assert.ok(launchWithMetadata.includes(quote(metadataPath)));
+    const resumeWithMetadata = provider.buildResumeCommandWithContext({
+      sessionId: "11111111-1111-1111-1111-111111111111",
+      instanceId: "instance-launch-test",
+      args: metadataArgs,
+    });
+    assert.equal((resumeWithMetadata.match(/--add-dir/g) || []).length, 4);
+    for (const metadataPath of metadataPaths) assert.ok(resumeWithMetadata.includes(quote(metadataPath)));
     const script = `$ErrorActionPreference = 'Stop'
 $env:USERPROFILE = ${quote(root)}
 $env:CODETERM_TAB_ID = 'owned-launch-fixture'

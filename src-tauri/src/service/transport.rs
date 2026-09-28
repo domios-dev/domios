@@ -162,6 +162,13 @@ impl AgentTransport for PtyTransport {
                 &svc.agent_registry,
                 ctx.provider_id,
                 ctx.tab_id,
+                Some(&cwd),
+                crate::service::launch_session_detection::canonical_project_for_tab(
+                    &svc.plan_store,
+                    ctx.tab_id,
+                    &cwd,
+                )
+                .as_deref(),
                 &mut params,
             )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;

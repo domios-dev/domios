@@ -444,6 +444,9 @@ pub struct CommandsConfig {
     /// scriptable reasoning-effort launch flag even if it lists effort levels.
     #[serde(default)]
     pub reasoning_effort_launch_args_format: Vec<String>,
+    /// CLI flag accepting one extra writable directory for a sandboxed lane.
+    #[serde(default)]
+    pub additional_writable_dir_flag: Option<String>,
     /// `launchArgsFormat`: full launch command template, used only when the
     /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]
