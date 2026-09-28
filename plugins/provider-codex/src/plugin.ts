@@ -29,6 +29,7 @@ import { actionTitle } from "./actionTitle";
 import {
   codexProfileInstanceId,
   codexProfileTabId,
+  carryLiveCodexProjectTrust,
   inspectCodexProfiles,
   manageCodexProfiles,
   releaseCodexProfile,
@@ -239,6 +240,7 @@ const plugin: PluginModule = {
   },
 
   directoryTrustPromptResponse(screen: string): string[] | null {
+    carryLiveCodexProjectTrust(profileSweepHost());
     const view = String(screen || "");
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
