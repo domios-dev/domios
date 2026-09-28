@@ -568,4 +568,33 @@ mod tests {
         );
         assert_eq!(update_consent(LATER), UpdateConsent::Declined);
     }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn generic_notification_answers_cannot_claim_update_offers() {
+        use super::{Offer, OFFERS, UPDATE_NOW};
+        use crate::plugin::agent_claude::ClaudeProvider;
+        use crate::service::test_fixture::ServiceFixture;
+        use codeterm_plugin::provider::ProviderUpdateAvailability;
+        use std::sync::Arc;
+
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let id = "provider-update-owner-only-test";
+        OFFERS.lock().insert(
+            id.into(),
+            Offer {
+                provider: Arc::new(ClaudeProvider::new()),
+                version: ProviderUpdateAvailability {
+                    current_version: "1.0.0".into(),
+                    latest_version: "2.0.0".into(),
+                },
+                command: "codex update".into(),
+            },
+        );
+
+        assert!(fixture.service.answer_notification(id, UPDATE_NOW).is_err());
+        assert!(OFFERS.lock().contains_key(id));
+        OFFERS.lock().remove(id);
+    }
 }
