@@ -219,7 +219,6 @@ impl ServiceContext {
             && composer_cursor_position
                 == crate::agent::provider::ComposerCursorPosition::BottomRegion;
         let mut observed_tui_without_composer = false;
-        let mut onboarding_notice_emitted = false;
         let mut onboarding_choice_submitted = false;
 
         loop {
@@ -282,24 +281,9 @@ impl ServiceContext {
                     }
                     crate::service::directory_trust::TrustDecision::Waiting => true,
                     crate::service::directory_trust::TrustDecision::NoDialog
-                        if onboarding_choice_submitted && !onboarding_notice_emitted =>
+                        if onboarding_choice_submitted =>
                     {
-                        self.create_notification_ext(
-                            "Provider onboarding choice applied".into(),
-                            Some(format!(
-                                "Tab {} completed its provider-declared safe onboarding choice.",
-                                attempt.tab_id
-                            )),
-                            Some("info"),
-                            None,
-                            None,
-                            crate::service::notification::NotificationOrigin::local_tab(
-                                attempt.tab_id.clone(),
-                            ),
-                            crate::service::notification::PushIntent::default(),
-                            None,
-                        );
-                        onboarding_notice_emitted = true;
+                        self.notify_launch_onboarding_applied_once(&attempt.tab_id);
                         false
                     }
                     _ => false,

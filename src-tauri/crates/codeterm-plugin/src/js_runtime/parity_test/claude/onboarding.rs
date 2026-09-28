@@ -37,6 +37,16 @@ fn claude_onboarding_prompt_native_js_parity() {
         assert_eq!(response.step.as_slice(), expected_step, "safe next step for {file}");
     }
 
+    for file in [
+        "auto-environment-no-space.txt",
+        "auto-environment-empty-label.txt",
+    ] {
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("onboarding fixture");
+        assert_eq!(native.parse_prompt(&screen), js.parse_prompt(&screen), "fallback parse parity for {file}");
+        assert_eq!(native.launch_onboarding_response(&screen), None, "unsafe option syntax refused for {file}");
+        assert_eq!(js.launch_onboarding_response(&screen), None, "unsafe option syntax refused for {file}");
+    }
+
     let capture = std::fs::read_to_string(fixtures.join("auto-environment-captured.txt"))
         .expect("captured onboarding frame");
     let first_option = capture.find("1. Yes").expect("first choice");

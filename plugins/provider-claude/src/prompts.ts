@@ -87,7 +87,7 @@ export function parseWizardOptions(body: string): ParsedOptionState[] {
 
 export function parseNumberedOptions(text: string): ParsedOptionState[] {
   const options: ParsedOptionState[] = [];
-  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
+  const re = /^\s*[❯>]?\s*(\d+)\.[ ]+([^\r\n]*)/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -298,7 +298,7 @@ export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt |
     .split(/\r?\n/)
     .map(onboardingRow);
   const candidates = lines.flatMap((line, index) => {
-    const match = /^\s*([❯>])?\s*(\d+)\.\s*(.*?)\s*$/.exec(line);
+    const match = /^\s*([❯>])?\s*(\d+)\.[ ]+(.*?)\s*$/.exec(line);
     return match ? [{ focused: Boolean(match[1]), number: match[2], label: match[3].trim(), line: index }] : [];
   });
   const options = candidates.slice(-3);
