@@ -34,7 +34,7 @@ The declared core root is the project's own root: every core part is `part_of` i
 
 `codeterm essence-map record --summary "<what changed>" --reason "<why>"` appends the next decision for the map as it stands. A map whose digest already matches the last decision records nothing, so regenerating an unchanged map is silent and the log stays a record of changes rather than of runs.
 
-Generation keeps the bytes it replaces under `.codeterm/map-history/<digest>.jsonl`, content-addressed, so a recorded decision can still be restored later. `codeterm essence-map revert --to decision-N` puts that map back and appends a further decision for the revert; the log is never rewritten. That directory is a local safety net and is not committed — a revert is taken in the checkout that generated the map, and a map is always regenerable from its essences.
+Generation keeps the bytes it replaces under the CodeTerm data directory's `map-history/<project-key>/<digest>.jsonl`, content-addressed, so a recorded decision can still be restored later without adding files to the repository. `codeterm essence-map revert --to decision-N` puts that map back and appends a further decision for the revert; the log is never rewritten. The project key is derived from the canonical project root, and a map is always regenerable from its essences.
 
 ## One summary at a release
 
