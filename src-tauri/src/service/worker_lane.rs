@@ -340,9 +340,15 @@ pub(crate) fn verify_worker_lane(
         }
         None => git_value(canonical_cwd, ["merge-base", "HEAD", &head_ref])?,
     };
-    let destination = git_value(canonical_cwd, ["symbolic-ref", "--short", "-q", "HEAD"])
-        .ok()
-        .filter(|name| !name.is_empty());
+    let git_cwd = codeterm_paths::strip_verbatim_prefix(canonical_cwd);
+    let destination = match git_value(&git_cwd, ["symbolic-ref", "--short", "-q", "HEAD"]) {
+        Ok(name) if !name.is_empty() => Some(name),
+        Ok(_) => None,
+        Err(error) => {
+            log::warn!("[worker-lane] no destination branch recorded for {git_cwd}: {error}");
+            None
+        }
+    };
     Ok(WorkerLaneProvenance {
         canonical_cwd: canonical.display().to_string(),
         worktree_path: worktree.display().to_string(),

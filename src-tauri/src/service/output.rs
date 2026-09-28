@@ -302,6 +302,12 @@ impl ServiceContext {
                                 crate::agent::prompt::parse_prompt_safely(|| {
                                     self.agent_registry.parse_interactive_prompt(at, screen)
                                 })
+                                .filter(|(prompt, kind)| {
+                                    *kind == codeterm_types::pty::PromptKind::DirectoryTrust
+                                        || !crate::agent::state_reactor::composer_follows_options(
+                                            screen, prompt,
+                                        )
+                                })
                             })
                             .map(|(prompt, kind)| {
                                 let is_directory_trust =
