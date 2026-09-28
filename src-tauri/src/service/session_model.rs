@@ -124,12 +124,25 @@ impl ServiceContext {
         let (recorded, agent_id, cwd, session_id) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
-            let binding = super::task_assignment::authenticated_tab_binding(tab)?;
+            let session_id = tab.agent_session_id.as_ref()?;
+            let nonce = tab.session_binding_nonce.as_ref();
+            let recorded = nonce
+                .zip(tab.reported_session_binding_nonce.as_ref())
+                .filter(|(nonce, reported)| nonce == reported)
+                .and_then(|(nonce, _)| {
+                    tab.agent_session_model_identity
+                        .as_ref()
+                        .filter(|identity| {
+                            identity.session_id == *session_id
+                                && identity.session_binding_nonce == *nonce
+                        })
+                })
+                .and_then(|_| tab.agent_session_model.clone());
             (
-                binding.session_model,
-                binding.provider?,
+                recorded,
+                tab.agent_type.clone()?,
                 tab.cwd.clone()?,
-                binding.session_id,
+                session_id.clone(),
             )
         };
         if recorded.is_some() {

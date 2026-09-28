@@ -198,4 +198,15 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 7 -->
+## Team-bound resources
+
+Every created agent, utility shell, and schedule belongs to its Team. Bind
+utility tabs and crons with `--team <team-id>`; helpers join with
+`codeterm agent spawn <provider> --team <team-id>` or
+`codeterm team adopt-agent <team-id> <tab-id>`. Create a standalone shell or
+cron only at the user's request. Team close finalizes members, attempts, lanes,
+and crons; workspace close applies this to every Team it contains. A Planner
+without spawn authority routes requests, including role, reason, and owned work,
+to its Orchestrator.
+
+<!-- revision: 9 -->
