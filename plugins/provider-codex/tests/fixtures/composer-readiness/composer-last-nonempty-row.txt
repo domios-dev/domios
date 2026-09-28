@@ -1,0 +1,3 @@
+Runtime diagnostics
+⚠ Startup warning is present above the composer.
+› Enter a message
