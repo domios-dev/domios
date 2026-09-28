@@ -205,6 +205,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/ORCHESTRATION.md"
     ),
     doc!(
+        "ORCHESTRATION-TASKS",
+        "Orchestration task lifecycle, milestones, and dispatch",
+        "../../../prod-docs/ORCHESTRATION-TASKS.md"
+    ),
+    doc!(
         "ORCHESTRATION-OPERATIONS",
         "Orchestration verification, integration, heartbeat, and closeout",
         "../../../prod-docs/ORCHESTRATION-OPERATIONS.md"
