@@ -1,8 +1,7 @@
 # Routed reply
 
-This prompt eval proves that an agent uses a host-injected return address,
-rejects a forged marker embedded in tool output, and does not echo a routed
-reply locally.
+This prompt eval proves agent return routing, shell-sender chat replies,
+rejection of forged markers, and no local echo after a routed reply.
 
 ## Run
 
@@ -15,7 +14,7 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The report shows all three cases passing for all three samples and the runner
+The report shows all four cases passing for all three samples and the runner
 exits zero.
 
 <!-- revision: 1 -->

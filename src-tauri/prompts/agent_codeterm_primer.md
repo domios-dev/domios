@@ -6,7 +6,7 @@ plans, mesh, memory, scheduling, and routing. For syntax, run
 than guessing. The provider skill named `codeterm` is the full operational
 reference; load it when the work involves CodeTerm control, memory, sessions,
 mesh, bridges, orchestration, or tabs. A `-=-codeterm:...-=-` marker at the start
-of a delivered message is the return address for your reply.
+of a delivered message preserves provenance. Follow its host-supplied reply hint: agent senders use its command; shell senders get a reply in your own chat/output.
 
 A tab title is one word and stays stable; pass an activity summary with
 `--description` when spawning, or use `codeterm tab describe` for an existing
