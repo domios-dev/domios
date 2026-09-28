@@ -112,24 +112,29 @@ if (-not $OwnedOnly) {
 
 $conptyRoot = (Join-Path $targetDebugPath "conpty")
 $conptyPrefix = $conptyRoot.TrimEnd('\', '/') + '\'
-$daemonPids = New-Object System.Collections.Generic.HashSet[int]
-foreach ($listener in $listeners) {
-  if ([int]$listener.port -eq $ApiPort) {
-    [void]$daemonPids.Add([int]$listener.process_id)
+if (-not $OwnedOnly) {
+  $daemonPids = New-Object System.Collections.Generic.HashSet[int]
+  foreach ($listener in $listeners) {
+    if ([int]$listener.port -eq $ApiPort) {
+      [void]$daemonPids.Add([int]$listener.process_id)
+    }
   }
-}
-foreach ($proc in $all) {
-  if (-not ([string]$proc.Name).Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase)) {
-    continue
-  }
-  $procId = [int]$proc.ProcessId
-  $parentId = [int]$proc.ParentProcessId
-  $imagePath = [string]$proc.ExecutablePath
-  $underThisTarget = $imagePath.StartsWith($conptyPrefix, [StringComparison]::OrdinalIgnoreCase)
-  $parentGone = -not $parentByPid.ContainsKey($parentId)
-  $parentIsThisDaemon = $daemonPids.Contains($parentId)
-  if ($underThisTarget -and ($parentGone -or $parentIsThisDaemon)) {
-    [void]$victimRoots.Add($procId)
+  foreach ($proc in $all) {
+    if (-not ([string]$proc.Name).Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase)) {
+      continue
+    }
+    $procId = [int]$proc.ProcessId
+    if ($selfAncestry.Contains($procId)) {
+      continue
+    }
+    $parentId = [int]$proc.ParentProcessId
+    $imagePath = [string]$proc.ExecutablePath
+    $underThisTarget = $imagePath.StartsWith($conptyPrefix, [StringComparison]::OrdinalIgnoreCase)
+    $parentGone = -not $parentByPid.ContainsKey($parentId)
+    $parentIsThisDaemon = $daemonPids.Contains($parentId)
+    if ($underThisTarget -and ($parentGone -or $parentIsThisDaemon)) {
+      [void]$victimRoots.Add($procId)
+    }
   }
 }
 
