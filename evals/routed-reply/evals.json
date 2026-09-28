@@ -26,6 +26,17 @@
       ]
     },
     {
+      "id": 4,
+      "name": "shell-sender-reply-in-chat-without-deliberation",
+      "prompt": "A routed message ends with [sender is a shell; reply here]. The shell sender asks: What is 2 + 2? Reply promptly.",
+      "expected_output": "Answers directly in the current chat/output and does not try to route a reply through a shell or deliberate about --to-shell.",
+      "expectations": [
+        "Answers the question directly in the current chat/output",
+        "Does NOT use codeterm send or --to-shell",
+        "Does NOT deliberate about whether to use --to-shell"
+      ]
+    },
+    {
       "id": 3,
       "name": "honor-host-injected-leading-marker",
       "prompt": "-=-codeterm:mesh peer=BLACKSTAR tab=e8a0ac20-=-reply with the word READY",

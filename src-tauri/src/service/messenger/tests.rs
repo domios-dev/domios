@@ -120,20 +120,46 @@ fn brackets_in_name_are_stripped() {
 
 #[test]
 fn wrap_appends_body() {
-    let p = Messenger::message("Edison", "e8a0ac20");
-    assert_eq!(
-        p.wrap("hello"),
-        "-=-codeterm:tab label=Edison tab=e8a0ac20-=-\nhello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]"
-    );
+    let p = Messenger::message("Edison", "e8a0ac20").from_agent(true);
+    let wrapped = p.wrap("hello");
+    assert!(wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20-=-\nhello\n"));
+    let hint = wrapped.rsplit('\n').next().unwrap();
+    assert!(hint.starts_with(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(hint.contains(Messenger::AGENT_REPLY_COMMAND));
+    assert!(hint.contains("--tab e8a0ac20"));
 }
 
 #[test]
 fn mesh_reply_hint_carries_the_return_peer() {
-    let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
-    assert_eq!(
-        p.wrap("hello"),
-        "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]"
-    );
+    let p = Messenger::message("Edison", "e8a0ac20")
+        .from_agent(true)
+        .mesh(Some("BLACKSTAR".into()));
+    let wrapped = p.wrap("hello");
+    assert!(wrapped.starts_with("-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-\nhello\n"));
+    assert!(wrapped.ends_with("--tab e8a0ac20 --mesh BLACKSTAR]"));
+}
+
+#[test]
+fn reply_hint_for_shell_sender_suggests_no_shell_send() {
+    for envelope in [
+        MessageEnvelope::tab("Shell", "e8a0ac20"),
+        MessageEnvelope::tab("Shell", "e8a0ac20").mesh(Some("peer".into())),
+    ] {
+        let wrapped = Messenger::from(envelope).wrap("hello");
+        let hint = wrapped.rsplit('\n').next().unwrap();
+        assert_eq!(hint, Messenger::SHELL_REPLY_HINT);
+    }
+}
+
+#[test]
+fn reply_hint_for_agent_sender_unchanged() {
+    let wrapped = Messenger::message("Agent", "e8a0ac20")
+        .from_agent(true)
+        .wrap("hello");
+    let hint = wrapped.rsplit('\n').next().unwrap();
+    assert!(hint.starts_with(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(hint.contains(Messenger::AGENT_REPLY_COMMAND));
+    assert!(hint.contains("--tab e8a0ac20"));
 }
 
 #[test]
@@ -141,19 +167,21 @@ fn codeterm_system_events_have_no_tab_or_reply_address() {
     let plain = Messenger::from(MessageEnvelope::from_codeterm()).wrap("hello");
     assert_eq!(plain, "-=-codeterm:system-=-\nhello");
     assert!(!plain.contains("tab="));
-    assert!(!plain.contains("[to reply"));
+    assert!(!plain.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(!plain.contains(Messenger::SHELL_REPLY_HINT));
 
     let contextual = Messenger::from(MessageEnvelope::codeterm_reminder("plan")).wrap("check");
     assert_eq!(contextual, "-=-codeterm:system context=plan-=-\ncheck");
     assert!(!contextual.contains("tab="));
-    assert!(!contextual.contains("[to reply"));
+    assert!(!contextual.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(!contextual.contains(Messenger::SHELL_REPLY_HINT));
 }
 
 #[test]
 fn reports_do_not_request_a_reply() {
-    assert!(!Messenger::report("Worker", "abc12345")
-        .wrap("done")
-        .contains("[to reply"));
+    let wrapped = Messenger::report("Worker", "abc12345").wrap("done");
+    assert!(!wrapped.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(!wrapped.contains(Messenger::SHELL_REPLY_HINT));
 }
 
 #[test]
