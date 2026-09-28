@@ -46,7 +46,7 @@ impl ScreenChangeSignal {
         self.state.lock().generation
     }
 
-    fn mark_changed(&self) {
+    pub fn mark_changed(&self) {
         let mut state = self.state.lock();
         state.generation = state.generation.wrapping_add(1);
         self.cv.notify_all();

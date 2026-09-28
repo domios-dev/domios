@@ -309,6 +309,44 @@ fn lazy_session_start_requires_composer_live_process_and_no_prompt() {
 }
 
 #[test]
+fn owner_prompt_cleared_on_binding_provider_keeps_binding_path() {
+    use crate::service::launch_readiness::{
+        arm, observe, owner_prompt_cleared, owner_prompt_pending, LaunchAttempt, LaunchObservation,
+    };
+
+    let tab_id = "binding-owner-prompt-wake";
+    let attempt = LaunchAttempt {
+        tab_id: tab_id.into(),
+        pty_id: "binding-owner-prompt-wake-pty".into(),
+        binding_nonce: "binding-owner-prompt-wake-nonce".into(),
+    };
+    arm(attempt.clone());
+    owner_prompt_pending(tab_id, "opaque-binding-question");
+    let mut screens = codeterm_pty::pty::screen_state::ScreenState::new();
+    let signal = screens.arm_screen_change_signal(&attempt.pty_id);
+    let generation = signal.generation();
+
+    owner_prompt_cleared(tab_id);
+
+    assert!(!signal.wait_after(generation, std::time::Duration::ZERO));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                session_bound: true,
+                composer_ready: false,
+                ..input_observation()
+            },
+            LaunchInputMode::Standard,
+        ),
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+    assert_eq!(
+        observe(&attempt, Instant::now()),
+        LaunchObservation::Deadline,
+    );
+}
+
+#[test]
 fn lazy_composer_readiness_requires_declared_structural_capability() {
     assert!(!provider_composer_is_ready(
         LaunchInputMode::LazySessionStart,
