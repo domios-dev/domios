@@ -128,3 +128,34 @@ fn unanswered_owner_prompt_fails_at_owner_deadline_with_named_reason() {
     assert!(owner_prompt_deadline_reason(&failed_question).contains(question));
     owner_prompt_cleared(&attempt.tab_id);
 }
+
+#[test]
+fn owner_prompt_over_a_ready_launch_restores_agent_ready_when_answered() {
+    let mut ready = false;
+    assert_eq!(
+        owner_prompt_stage(true, Some(BootStage::AgentReady), &mut ready),
+        Some(BootStage::AwaitingOwnerPrompt)
+    );
+    assert_eq!(
+        owner_prompt_stage(false, Some(BootStage::AwaitingOwnerPrompt), &mut ready),
+        Some(BootStage::AgentReady)
+    );
+}
+
+#[test]
+fn owner_prompt_before_readiness_does_not_claim_agent_ready_when_answered() {
+    let mut ready = false;
+    assert_eq!(
+        owner_prompt_stage(true, None, &mut ready),
+        Some(BootStage::AwaitingOwnerPrompt)
+    );
+    assert_eq!(
+        owner_prompt_stage(false, Some(BootStage::AwaitingOwnerPrompt), &mut ready),
+        None
+    );
+    let mut ready = true;
+    assert_eq!(
+        owner_prompt_stage(false, Some(BootStage::SpawnFailed), &mut ready),
+        None
+    );
+}

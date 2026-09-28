@@ -159,10 +159,48 @@ pub(crate) fn marked_provider_launch_command(
         canonical_project,
         &mut args,
     );
+    append_sandbox_agent_pad_arg(
+        registry,
+        provider_id,
+        params.skip_permissions,
+        &crate::paths::data_dir(),
+        tab_id,
+        &mut args,
+    );
     params.args = (!args.is_empty()).then_some(args);
     registry.with_provider(provider_id, |provider| {
         crate::agent::stub_launch::apply(provider_id, provider.build_launch_command(params))
     })
+}
+
+/// A sandboxed agent still writes its report through its own AgentPad.
+pub(crate) fn append_sandbox_agent_pad_arg(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    data_dir: &std::path::Path,
+    tab_id: &str,
+    args: &mut Vec<String>,
+) {
+    if skip_permissions {
+        return;
+    }
+    let Some(flag) = registry
+        .with_provider(provider_id, |provider| {
+            provider.additional_writable_dir_flag()
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let Ok(pad) = crate::service::agent_pad::AgentPad::open(data_dir, tab_id) else {
+        return;
+    };
+    let Some(path) = canonical_path_from_path(pad.path()) else {
+        return;
+    };
+    args.push(flag);
+    args.push(path.to_string_lossy().into_owned());
 }
 
 pub(crate) fn append_sandbox_git_metadata_args(
@@ -699,6 +737,74 @@ mod tests {
         )
         .expect("valid ordinary repository")
         .is_none());
+    }
+
+    #[test]
+    fn sandboxed_launch_grants_only_its_own_agent_pad() {
+        let data = tempfile::tempdir().expect("data directory");
+        let pad = crate::service::agent_pad::AgentPad::create(
+            data.path(),
+            "tab-pad-1",
+            crate::service::agent_pad::AgentPadRole::Worker,
+        )
+        .expect("pad");
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture")
+                .with_additional_writable_dir_flag("--add-dir"),
+        ));
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "no-flag",
+        )));
+
+        let mut sandboxed = Vec::new();
+        append_sandbox_agent_pad_arg(
+            &registry,
+            "fixture",
+            false,
+            data.path(),
+            "tab-pad-1",
+            &mut sandboxed,
+        );
+        let expected = canonical_path_from_path(pad.path()).expect("pad resolves");
+        assert_eq!(
+            sandboxed,
+            vec![
+                "--add-dir".to_string(),
+                expected.to_string_lossy().into_owned()
+            ]
+        );
+
+        let mut full_access = Vec::new();
+        append_sandbox_agent_pad_arg(
+            &registry,
+            "fixture",
+            true,
+            data.path(),
+            "tab-pad-1",
+            &mut full_access,
+        );
+        assert!(full_access.is_empty());
+        let mut undeclared = Vec::new();
+        append_sandbox_agent_pad_arg(
+            &registry,
+            "no-flag",
+            false,
+            data.path(),
+            "tab-pad-1",
+            &mut undeclared,
+        );
+        assert!(undeclared.is_empty());
+        let mut missing = Vec::new();
+        append_sandbox_agent_pad_arg(
+            &registry,
+            "fixture",
+            false,
+            data.path(),
+            "tab-without-pad",
+            &mut missing,
+        );
+        assert!(missing.is_empty());
     }
 
     #[test]

@@ -662,6 +662,20 @@ pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObser
     }
 }
 
+/// A launch already accepting its first turn resumes that stage once the owner answers.
+fn owner_prompt_stage(
+    prompt_active: bool,
+    current: Option<BootStage>,
+    ready_before_prompt: &mut bool,
+) -> Option<BootStage> {
+    if prompt_active {
+        *ready_before_prompt |= current == Some(BootStage::AgentReady);
+        return Some(BootStage::AwaitingOwnerPrompt);
+    }
+    (*ready_before_prompt && current == Some(BootStage::AwaitingOwnerPrompt))
+        .then_some(BootStage::AgentReady)
+}
+
 fn observe_with_owner_prompt(
     attempt: &LaunchAttempt,
     mut normal_deadline: Instant,
@@ -1022,9 +1036,17 @@ impl ServiceContext {
         let svc = self.clone();
         std::thread::spawn(move || {
             let normal_deadline = Instant::now() + deadline;
+            let mut ready_before_prompt = false;
             let evidence = match observe_with_owner_prompt(&attempt, normal_deadline, |question| {
-                if question.is_some() {
-                    svc.emit_boot_stage(&attempt.tab_id, BootStage::AwaitingOwnerPrompt, None)
+                let stage = svc
+                    .mux
+                    .read()
+                    .get_tab(&attempt.tab_id)
+                    .and_then(|tab| tab.boot_stage);
+                if let Some(next) =
+                    owner_prompt_stage(question.is_some(), stage, &mut ready_before_prompt)
+                {
+                    svc.emit_boot_stage(&attempt.tab_id, next, None)
                 }
             }) {
                 LaunchObservation::Evidence(evidence) => evidence,
