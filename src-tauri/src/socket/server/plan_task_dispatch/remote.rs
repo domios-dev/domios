@@ -8,6 +8,10 @@ use crate::service::ServiceState;
 use super::{dispatch_authorized_gates, invalid_dispatch, owned_str};
 use crate::socket::server::{plan_refs, JsonRpcError};
 
+fn encoded_bundle_size_allowed(encoded_size: usize, max_bundle_bytes: usize) -> bool {
+    encoded_size <= max_bundle_bytes.div_ceil(3) * 4
+}
+
 pub(super) fn dispatch(
     params: &Option<Value>,
     app: &tauri::AppHandle,
@@ -372,7 +376,7 @@ pub(crate) fn merge_lane(
     let lane_tip = response.get("lane_tip").and_then(Value::as_str).unwrap_or_default();
     let bundle = response.get("bundle").and_then(Value::as_str).unwrap_or_default();
     const MAX_BUNDLE_BYTES: usize = 32 * 1024 * 1024;
-    if bundle.len() > MAX_BUNDLE_BYTES.div_ceil(3) * 4 {
+    if !encoded_bundle_size_allowed(bundle.len(), MAX_BUNDLE_BYTES) {
         return Err(invalid_dispatch("peer lane bundle exceeds 32 MiB"));
     }
     if response_branch != branch || response_base != base || lane_tip != report_sha || bundle.is_empty() {
@@ -511,5 +515,12 @@ mod tests {
     fn mesh_peer_selection_requires_stable_instance_id() {
         assert!(peer_matches_id("peer-instance-1", "peer-instance-1"));
         assert!(!peer_matches_id("peer-instance-1", "Display Name"));
+    }
+
+    #[test]
+    fn origin_remote_bundle_response_size_cap_rejects_oversize() {
+        let max_encoded = (32 * 1024 * 1024_usize).div_ceil(3) * 4;
+        assert!(encoded_bundle_size_allowed(max_encoded, 32 * 1024 * 1024));
+        assert!(!encoded_bundle_size_allowed(max_encoded + 1, 32 * 1024 * 1024));
     }
 }

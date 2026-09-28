@@ -272,3 +272,6 @@ pub async fn mesh_set_access(
     );
     Ok(Json(serde_json::json!({"ok": true})))
 }
+pub(super) fn peer_has_full_access(access: Option<&crate::mesh::types::AccessLevel>) -> bool {
+    access == Some(&crate::mesh::types::AccessLevel::Full)
+}
