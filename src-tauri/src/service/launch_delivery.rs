@@ -25,6 +25,13 @@ pub(crate) struct LaunchContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchCommandTask {
+    pub text: Option<String>,
+    pub system_prompt: Option<String>,
+    pub task_is_first_turn: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingDelivery {
     pub digest: String,
 }
@@ -33,13 +40,6 @@ pub(crate) struct PendingDelivery {
 pub(crate) struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
     pub payload: String,
-}
-
-pub(crate) fn has_startup_task_turn(
-    startup_turn: Option<&str>,
-    fallback_spec: Option<&FallbackDeliverySpec>,
-) -> bool {
-    startup_turn.is_some_and(|turn| !turn.trim().is_empty()) || fallback_spec.is_some()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +293,27 @@ pub(crate) fn content_for_descriptor(
             system_prompt: None,
             fallback: content,
         },
+    }
+}
+
+pub(crate) fn command_task(
+    provider: &dyn crate::agent::provider::AgentProvider,
+    task: Option<&str>,
+) -> LaunchCommandTask {
+    let system_prompt =
+        content_for_descriptor(&provider.system_prompt_delivery(), task).system_prompt;
+    let inline_task = system_prompt.is_none()
+        && matches!(
+            provider.task_delivery(),
+            crate::agent::provider::TaskDelivery::InlineFlag
+        );
+    let inline_task_text = inline_task
+        .then(|| task.filter(|text| !text.trim().is_empty()).map(str::to_string))
+        .flatten();
+    LaunchCommandTask {
+        text: system_prompt.clone().or(inline_task_text),
+        system_prompt,
+        task_is_first_turn: inline_task,
     }
 }
 

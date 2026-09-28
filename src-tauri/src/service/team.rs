@@ -99,6 +99,7 @@ impl ServiceContext {
         )
         .map_err(|error| error.to_string())?;
         let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+        let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
         let _cartographer_guard = if is_cartographer {
             Some(
                 self.cartographer_attach_locks
@@ -109,8 +110,18 @@ impl ServiceContext {
         } else {
             None
         };
-        let prepared = {
-            let mux = self.mux.read();
+        let _orchestrator_guard = if is_orchestrator {
+            Some(
+                self.orchestrator_attach_locks
+                    .for_team(team_id)
+                    .lock_owned()
+                    .await,
+            )
+        } else {
+            None
+        };
+        let (prepared, detached_failed_anchor) = {
+            let mut mux = self.mux.write();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
             if is_cartographer {
                 if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
@@ -121,8 +132,21 @@ impl ServiceContext {
                 prepared.spawn_params.agent.as_deref().unwrap_or_default(),
                 &prepared.spawn_params,
             )?;
-            prepared
+            let anchors = staffing::role_anchors_team(
+                &prepared.expected_role,
+                prepared.expected_profile.as_deref(),
+            );
+            let detached = anchors
+                && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
+            if detached {
+                crate::service::publish_mux_state_changed(&self.events);
+            }
+            (prepared, detached)
         };
+        if detached_failed_anchor {
+            crate::service::session_persist::persist_session_after_close(self);
+            self.emit_state_changed_after_bus_publish();
+        }
         let mut spawn_params = prepared.spawn_params;
         self.attach_manager_bootstrap(team_id, caller_tab_id, &mut spawn_params)?;
         let lane_label = format!("team-{team_id}");
@@ -961,8 +985,9 @@ mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
-    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
-    AddTeamMemberResult, TeamCartographerAttachLocks,
+    commit_team_member_spawn, detach_spawn_failed_team_orchestrators, prepare_team_member_spawn,
+    take_over_team_plan, AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
+    TeamOrchestratorAttachLocks,
 };
 
 #[cfg(test)]

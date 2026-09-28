@@ -257,8 +257,30 @@ fn spawn_failed_orchestrator_does_not_block_recovery_spawn() {
         Some(crate::service::boot_stage::BootStage::SpawnFailed);
 
     assert!(live_team_orchestrators(&mux, &team_id).is_empty());
-    prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params())
+    assert!(detach_spawn_failed_team_orchestrators(&mut mux, &team_id));
+    let failed_tab = mux.get_tab_mut(&orchestrator).unwrap();
+    failed_tab.boot_stage = Some(crate::service::boot_stage::BootStage::AgentReady);
+    assert_eq!(failed_tab.team_id, None);
+    assert!(live_team_orchestrators(&mux, &team_id).is_empty());
+    let prepared = prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params())
         .expect("a failed Orchestrator can be replaced");
+    let replacement = commit_replacement_anchor(&mut mux, &team_id, &prepared);
+    assert_eq!(
+        live_team_orchestrators(&mux, &team_id),
+        vec![replacement.tab_id],
+        "late binding on the detached tab cannot create a second Team anchor"
+    );
+}
+
+#[test]
+fn orchestrator_attach_lock_is_shared_per_team_only() {
+    let locks = TeamOrchestratorAttachLocks::default();
+    let first = locks.for_team("team_a");
+    let repeated = locks.for_team("team_a");
+    let other = locks.for_team("team_b");
+
+    assert!(Arc::ptr_eq(&first, &repeated));
+    assert!(!Arc::ptr_eq(&first, &other));
 }
 
 #[test]

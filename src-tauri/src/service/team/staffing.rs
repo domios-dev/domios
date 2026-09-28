@@ -33,6 +33,8 @@ impl TeamCartographerAttachLocks {
     }
 }
 
+pub(crate) type TeamOrchestratorAttachLocks = TeamCartographerAttachLocks;
+
 /// Every refusal leaves the same trace: the Team, the role that was asked for,
 /// the code, and the cause behind it.
 fn refuse(team_id: &str, role: &str, code: &'static str, cause: impl Into<String>) -> String {
@@ -95,6 +97,29 @@ pub(crate) fn live_team_orchestrators(mux: &MultiplexerState, team_id: &str) -> 
         .collect();
     anchors.sort();
     anchors
+}
+
+pub(crate) fn detach_spawn_failed_team_orchestrators(
+    mux: &mut MultiplexerState,
+    team_id: &str,
+) -> bool {
+    let failed: Vec<String> = mux
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| {
+            tab.team_id.as_deref() == Some(team_id)
+                && tab.anchors_team()
+                && tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
+        })
+        .map(|tab| tab.id.clone())
+        .collect();
+    for tab_id in &failed {
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            tab.team_id = None;
+        }
+    }
+    !failed.is_empty()
 }
 
 pub(crate) fn existing_cartographer_attachment(
