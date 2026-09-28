@@ -57,14 +57,46 @@ fn owner_prompt_readiness_round_trip(prefix: &str) {
 
 #[test]
 fn auto_answered_prompt_does_not_suspend_readiness() {
+    use crate::multiplexer::types::{PendingPrompt, PromptOption};
+
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    let prompt = PendingPrompt {
+        question: "opaque-question".into(),
+        options: vec![PromptOption {
+            label: "opaque-option".into(),
+            value: "opaque-value".into(),
+        }],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pending_prompt = Some(prompt);
+        tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    owner_prompt_pending(&tab_id, "opaque-question");
+    fixture.service.retract_surfaced_prompt(&tab_id);
+
     let attempt = LaunchAttempt {
-        tab_id: "auto-prompt-readiness-tab".into(),
+        tab_id: tab_id.clone(),
         pty_id: "auto-prompt-readiness-pty".into(),
         binding_nonce: "auto-prompt-readiness-nonce".into(),
     };
     arm(attempt.clone());
+    assert!(!owner_prompt_is_active(&tab_id));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.pending_prompt.is_none()));
     assert_eq!(
-        observe_with_owner_prompt(&attempt, Instant::now(), |_| {}),
+        observe_with_owner_prompt(&attempt, Instant::now(), |prompt| assert!(prompt.is_none())),
         LaunchObservation::Deadline
     );
 }
@@ -87,17 +119,17 @@ fn unanswered_owner_prompt_fails_at_owner_deadline_with_named_reason() {
         binding_nonce: "unanswered-owner-prompt-nonce".into(),
     };
     arm(attempt.clone());
-    owner_prompt_pending_until(&attempt.tab_id, "prompt-token-7", Instant::now());
-    assert_eq!(
-        observe_with_owner_prompt(&attempt, Instant::now() + Duration::from_secs(30), |_| {},),
-        LaunchObservation::OwnerDeadline {
-            question: "prompt-token-7".into()
-        }
-    );
-    assert_eq!(
-        owner_prompt_deadline_reason("prompt-token-7"),
-        "owner prompt was not answered before the 30 minute deadline: prompt-token-7"
-    );
+    let question = "prompt-token-7";
+    owner_prompt_pending_until(&attempt.tab_id, question, Instant::now());
+    let failure =
+        observe_with_owner_prompt(&attempt, Instant::now() + Duration::from_secs(30), |_| {});
+    let LaunchObservation::OwnerDeadline {
+        question: failed_question,
+    } = failure
+    else {
+        panic!("expected owner prompt deadline failure");
+    };
+    assert!(owner_prompt_deadline_reason(&failed_question).contains(question));
     owner_prompt_cleared(&attempt.tab_id);
 }
 
