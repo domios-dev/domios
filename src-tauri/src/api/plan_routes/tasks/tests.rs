@@ -286,6 +286,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
     let source_draft = crate::service::plan::task_attempts::TaskRespawnDraft {
         plan_id: plan.id.clone(),
         task_id: task_id.clone(),
+        attempt_id: "attempt-source".into(),
         source_attempt: Default::default(),
         provider: "claude".into(),
         planned_model: None,

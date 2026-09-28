@@ -130,6 +130,53 @@ fn startup_ack_with_an_armed_attempt_still_acknowledges() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn task_file_team_spawn_handshake_is_injected_only_for_an_armed_attempt() {
+    let (fixture, parent_tab_id, tab_id) = prompt_fixture();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&parent_tab_id)
+        .unwrap()
+        .agent_type = Some("startup-prompt-test".into());
+    {
+        let mut mux = fixture.service.mux.write();
+        let child = mux.get_tab_mut(&tab_id).unwrap();
+        child.parent_tab_id = Some(parent_tab_id.clone());
+        child.team_id = Some("team-a".into());
+    }
+
+    let supervised = fixture
+        .service
+        .prepare_agent_startup_supervision(&tab_id, Some(&parent_tab_id), None);
+    assert!(supervised);
+    let handshake = crate::service::launch_delivery::startup_starter_prompt(supervised, false);
+    assert_eq!(
+        handshake,
+        Some(crate::agent::provider::StarterPrompt::StartupHandshake)
+    );
+
+    fixture
+        .service
+        .activate_agent_startup_supervision(&tab_id, "launch-a", "nonce-a", None)
+        .unwrap();
+    assert_eq!(fixture.service.worker_ack.startup_waiters.lock().len(), 1);
+    assert_eq!(
+        fixture
+            .service
+            .acknowledge_agent_startup(&tab_id, "launch-a", "nonce-a")
+            .unwrap(),
+        AgentStartupAcknowledgement::Acknowledged
+    );
+
+    assert_eq!(
+        crate::service::launch_delivery::startup_starter_prompt(false, false),
+        None
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn startup_ack_after_binding_auto_ack_reports_already_acknowledged() {
     let (fixture, parent_tab_id, tab_id) = prompt_fixture();
     let authority =
