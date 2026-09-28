@@ -30,7 +30,7 @@ pub(super) fn await_input_readiness(
             continue;
         }
         let readiness = if session_starts_on_first_turn {
-            if !resumed_after_owner_prompt {
+            if should_wait_for_provider_frame(&provider_readiness, resumed_after_owner_prompt) {
                 let provider_frame_wait =
                     if composer_cursor_position == ComposerCursorPosition::VisibleAnywhere {
                         ProviderReadinessStrategy::TuiFrame {
@@ -68,4 +68,11 @@ pub(super) fn await_input_readiness(
         }
         return readiness;
     }
+}
+
+pub(super) fn should_wait_for_provider_frame(
+    provider_readiness: &ProviderReadinessStrategy,
+    resumed_after_owner_prompt: bool,
+) -> bool {
+    !resumed_after_owner_prompt && !provider_readiness.requires_composer()
 }

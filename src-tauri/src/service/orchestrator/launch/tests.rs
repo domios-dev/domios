@@ -145,6 +145,29 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
 }
 
 #[test]
+fn structural_composer_launch_waits_on_launch_gate_without_provider_frame_wait() {
+    use crate::agent::provider::ProviderReadinessStrategy;
+
+    let structural = ProviderReadinessStrategy::StructuralComposer {
+        timeout: std::time::Duration::from_secs(30),
+    };
+    let frame = ProviderReadinessStrategy::TuiFrame {
+        timeout: std::time::Duration::from_secs(30),
+    };
+
+    assert!(!super::owner_prompt_wait::should_wait_for_provider_frame(
+        &structural,
+        false,
+    ));
+    assert!(super::owner_prompt_wait::should_wait_for_provider_frame(
+        &frame, false,
+    ));
+    assert!(!super::owner_prompt_wait::should_wait_for_provider_frame(
+        &frame, true,
+    ));
+}
+
+#[test]
 fn has_startup_task_turn_reflects_the_actual_launch_command() {
     use crate::agent::provider::{
         AgentProvider, StarterPrompt, SystemPromptDelivery, TaskDelivery,
