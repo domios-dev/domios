@@ -1071,17 +1071,11 @@ impl ServiceContext {
                 launch_marker: None,
                 instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             };
-            let launch_cmd = super::launch_session_detection::marked_provider_launch_command(
-                &svc_outer.agent_registry,
+            let launch_cmd = super::launch_session_detection::marked_launch_command_for_tab(
+                &svc_outer,
                 &provider,
                 &tab_id_outer,
-                Some(&hidden_cwd),
-                super::launch_session_detection::canonical_project_for_tab(
-                    &svc_outer.plan_store,
-                    &tab_id_outer,
-                    &hidden_cwd,
-                )
-                .as_deref(),
+                &hidden_cwd,
                 &mut launch_params,
             )
             .unwrap_or_else(|| provider.clone());

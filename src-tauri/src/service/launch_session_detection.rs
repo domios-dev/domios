@@ -244,6 +244,24 @@ pub(crate) fn canonical_project_for_launch(
     canonical_project_for_task_lane(&service.plan_store, &plan_id, &task_id, cwd)
 }
 
+pub(crate) fn marked_launch_command_for_tab(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    tab_id: &str,
+    cwd: &str,
+    params: &mut crate::agent::provider::AgentLaunchParams,
+) -> Option<String> {
+    let canonical_project = canonical_project_for_tab(&svc.plan_store, tab_id, cwd);
+    marked_provider_launch_command(
+        &svc.agent_registry,
+        provider_id,
+        tab_id,
+        Some(cwd),
+        canonical_project.as_deref(),
+        params,
+    )
+}
+
 pub(crate) fn canonical_project_for_tab(
     plan_store: &crate::service::plan::PlanStore,
     tab_id: &str,
