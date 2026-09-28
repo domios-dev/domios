@@ -211,6 +211,8 @@ export interface AgentProvider {
   directoryTrustPromptResponse?(screen: string): string[] | null;
   /** Whether the provider's own config already trusts this exact folder. */
   isDirectoryTrusted?(path: string): boolean;
+  /** Effective launch-folder trust, including the provider's trust-root precedence. */
+  directoryTrustState?(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown";
   /** One next base64 key plus its stable choice/focus identity, or null. */
   launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */

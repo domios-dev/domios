@@ -297,6 +297,25 @@ impl AgentProvider for JsProvider {
             .unwrap_or(Ok(false))
     }
 
+    fn directory_trust_state(
+        &self,
+        path: &str,
+        skip_permissions: bool,
+    ) -> Option<crate::provider::DirectoryTrustState> {
+        if !self.has_js("directoryTrustState") {
+            return self
+                .native()
+                .and_then(|native| native.directory_trust_state(path, skip_permissions));
+        }
+        Some(self.try_call::<crate::provider::DirectoryTrustState>(
+            "directoryTrustState",
+            &[json!(path), json!(skip_permissions)],
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(crate::provider::DirectoryTrustState::Unknown))
+    }
+
     fn launch_onboarding_response(
         &self,
         screen: &str,
