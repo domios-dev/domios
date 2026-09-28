@@ -24,6 +24,8 @@ pub(crate) enum StartupNudge {
     AnsweredTrustDialog,
     /// A modal prompt CodeTerm may not answer. It stays with the user.
     BlockedOnPrompt,
+    /// The launch has an owner-facing prompt waiting for its answer.
+    WaitingForOwnerPrompt,
     /// No agent process to read it.
     NoAgent,
 }
@@ -39,6 +41,7 @@ impl StartupNudge {
             Self::UnboundSession => "the provider session has not authenticated its launch",
             Self::AnsweredTrustDialog => "answered its directory-trust dialog instead",
             Self::BlockedOnPrompt => "a provider prompt owns the terminal",
+            Self::WaitingForOwnerPrompt => "the owner has an unanswered launch prompt",
             Self::NoAgent => "no agent process would receive it",
         }
     }
@@ -92,6 +95,11 @@ impl ServiceContext {
         respond_to_trust: bool,
         log_withheld: bool,
     ) -> StartupNudge {
+        if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.boot_stage == Some(crate::service::boot_stage::BootStage::AwaitingOwnerPrompt)
+        }) {
+            return StartupNudge::WaitingForOwnerPrompt;
+        }
         let attached = self.mux.read().get_tab(tab_id).map(|tab| {
             let pty_backed = matches!(tab.backing, TabBacking::Pty);
             let attached = tab.agent_type.is_some()

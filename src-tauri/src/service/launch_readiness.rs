@@ -24,6 +24,8 @@ pub(crate) const EXITED_BEFORE_READINESS: &str = "provider process exited before
 pub(crate) const GENERAL_AGENT_OUTPUT_DEADLINE: &str = "agent output deadline elapsed";
 /// An ordinary spawn's readiness deadline: this observer gave up, nothing more.
 pub(crate) const SPAWN_READINESS_DEADLINE: &str = "launch readiness deadline elapsed";
+pub(crate) const OWNER_PROMPT_DEADLINE: std::time::Duration =
+    std::time::Duration::from_secs(30 * 60);
 
 /// The one launch an observation speaks for: the tab, the PTY it launched on,
 /// and that launch's binding nonce. A prior PTY or a rotated nonce is a
@@ -67,6 +69,9 @@ pub(crate) enum LaunchEvidence {
 pub(crate) enum LaunchSettlement {
     Ready,
     AwaitingFirstTurn,
+    OwnerPromptDeadline {
+        reason: String,
+    },
     Failed {
         reason: String,
         exit_code: Option<i32>,
@@ -215,6 +220,9 @@ pub(crate) enum LaunchObservation {
     Evidence(LaunchEvidence),
     /// The bounded deadline elapsed with nothing observed.
     Deadline,
+    OwnerDeadline {
+        question: String,
+    },
     /// Somebody else already consumed this observation.
     Retired,
 }
@@ -294,15 +302,19 @@ struct Armed {
     /// A verdict already published for this attempt. Kept so the launch thread
     /// can see it and never claims ready over a launch known to be gone.
     failure: Option<String>,
+    owner_prompt: Option<String>,
+    prompt_revision: u64,
 }
 
 struct Observations {
     armed: Mutex<HashMap<String, Armed>>,
+    owner_prompts: Mutex<HashMap<String, String>>,
     changed: Condvar,
 }
 
 static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
     armed: Mutex::new(HashMap::new()),
+    owner_prompts: Mutex::new(HashMap::new()),
     changed: Condvar::new(),
 });
 
@@ -358,6 +370,11 @@ fn arm_inner(
     attempt: LaunchAttempt,
     origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
 ) {
+    let owner_prompt = OBSERVATIONS
+        .owner_prompts
+        .lock()
+        .get(&attempt.tab_id)
+        .cloned();
     OBSERVATIONS.armed.lock().insert(
         attempt.tab_id.clone(),
         Armed {
@@ -366,6 +383,8 @@ fn arm_inner(
             evidence: None,
             exit_claimed: false,
             failure: None,
+            owner_prompt,
+            prompt_revision: 0,
         },
     );
     // Releases any observer still waiting on the launch this one supersedes.
@@ -402,6 +421,33 @@ pub(crate) fn note_acknowledged(tab_id: &str, pty_id: &str, binding_nonce: &str)
     note(tab_id, pty_id, LaunchEvidence::Acknowledged, |attempt| {
         attempt.binding_nonce == binding_nonce
     })
+}
+
+pub(crate) fn owner_prompt_pending(tab_id: &str, question: &str) {
+    update_owner_prompt(tab_id, Some(question.to_string()));
+}
+
+pub(crate) fn owner_prompt_cleared(tab_id: &str) {
+    update_owner_prompt(tab_id, None);
+}
+
+fn update_owner_prompt(tab_id: &str, prompt: Option<String>) {
+    {
+        let mut prompts = OBSERVATIONS.owner_prompts.lock();
+        if let Some(prompt) = prompt.as_ref() {
+            prompts.insert(tab_id.to_string(), prompt.clone());
+        } else {
+            prompts.remove(tab_id);
+        }
+    }
+    let mut armed = OBSERVATIONS.armed.lock();
+    if let Some(observed) = armed.get_mut(tab_id) {
+        if observed.owner_prompt != prompt {
+            observed.owner_prompt = prompt;
+            observed.prompt_revision = observed.prompt_revision.wrapping_add(1);
+            OBSERVATIONS.changed.notify_all();
+        }
+    }
 }
 
 /// Take this tab's launch for an exit observed right now. One lock does the
@@ -492,6 +538,73 @@ pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObser
     }
 }
 
+fn observe_with_owner_prompt(
+    attempt: &LaunchAttempt,
+    mut normal_deadline: Instant,
+    owner_prompt_deadline: std::time::Duration,
+    mut owner_prompt_changed: impl FnMut(Option<&str>),
+) -> LaunchObservation {
+    let mut armed = OBSERVATIONS.armed.lock();
+    let mut last_revision = None;
+    let mut owner_deadline = None;
+    let readiness_window = normal_deadline.saturating_duration_since(Instant::now());
+    loop {
+        let Some(observed) = armed.get_mut(&attempt.tab_id) else {
+            return LaunchObservation::Retired;
+        };
+        if &observed.attempt != attempt || observed.failure.is_some() {
+            return LaunchObservation::Retired;
+        }
+        if let Some(evidence) = observed.evidence.take() {
+            armed.remove(&attempt.tab_id);
+            return LaunchObservation::Evidence(evidence);
+        }
+        if last_revision != Some(observed.prompt_revision) {
+            last_revision = Some(observed.prompt_revision);
+            let prompt = observed.owner_prompt.clone();
+            if prompt.is_some() {
+                owner_deadline = Some(Instant::now() + owner_prompt_deadline);
+            } else {
+                if owner_deadline.is_some() {
+                    normal_deadline = Instant::now() + readiness_window;
+                }
+                owner_deadline = None;
+            }
+            drop(armed);
+            owner_prompt_changed(prompt.as_deref());
+            armed = OBSERVATIONS.armed.lock();
+        }
+        let deadline = owner_deadline.unwrap_or(normal_deadline);
+        if OBSERVATIONS
+            .changed
+            .wait_until(&mut armed, deadline)
+            .timed_out()
+        {
+            if armed
+                .get(&attempt.tab_id)
+                .filter(|observed| &observed.attempt == attempt)
+                .is_some_and(|observed| Some(observed.prompt_revision) != last_revision)
+            {
+                continue;
+            }
+            let question = armed
+                .get(&attempt.tab_id)
+                .filter(|observed| &observed.attempt == attempt)
+                .and_then(|observed| observed.owner_prompt.clone());
+            if let Some(question) = question {
+                armed.remove(&attempt.tab_id);
+                return LaunchObservation::OwnerDeadline { question };
+            }
+            armed.remove(&attempt.tab_id);
+            return LaunchObservation::Deadline;
+        }
+    }
+}
+
+fn owner_prompt_deadline_reason(question: &str) -> String {
+    format!("owner prompt was not answered before the 30 minute deadline: {question}")
+}
+
 impl ServiceContext {
     /// Record one piece of launch-readiness evidence for both launch paths.
     pub(crate) fn settle_launch_readiness(
@@ -521,6 +634,10 @@ impl ServiceContext {
                 "[launch-readiness] Tab {} awaiting first turn on PTY {}",
                 attempt.tab_id,
                 attempt.pty_id
+            ),
+            LaunchSettlement::OwnerPromptDeadline { reason } => log::error!(
+                "[launch-readiness] Tab {} owner prompt expired: {reason}",
+                attempt.tab_id
             ),
             LaunchSettlement::Provisional { stage, reason } => match stage {
                 BootStage::LaunchDeadlineElapsed => {
@@ -767,8 +884,33 @@ impl ServiceContext {
         let (settled, receiver) = std::sync::mpsc::sync_channel(1);
         let svc = self.clone();
         std::thread::spawn(move || {
-            let evidence = match observe(&attempt, Instant::now() + deadline) {
+            let normal_deadline = Instant::now() + deadline;
+            let prior_stage = svc
+                .mux
+                .read()
+                .get_tab(&attempt.tab_id)
+                .and_then(|tab| tab.boot_stage);
+            let evidence = match observe_with_owner_prompt(
+                &attempt,
+                normal_deadline,
+                OWNER_PROMPT_DEADLINE,
+                |question| match question {
+                    Some(_) => {
+                        svc.emit_boot_stage(&attempt.tab_id, BootStage::AwaitingOwnerPrompt, None)
+                    }
+                    None => {
+                        if let Some(stage) = prior_stage {
+                            svc.emit_boot_stage(&attempt.tab_id, stage, None);
+                        }
+                    }
+                },
+            ) {
                 LaunchObservation::Evidence(evidence) => evidence,
+                LaunchObservation::OwnerDeadline { question } => {
+                    let reason = owner_prompt_deadline_reason(&question);
+                    let _ = settled.send(LaunchSettlement::OwnerPromptDeadline { reason });
+                    return;
+                }
                 LaunchObservation::Deadline
                     if session_starts_on_first_user_turn
                         && svc.launch_attempt_is_waiting_for_first_turn(&attempt) =>

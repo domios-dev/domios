@@ -66,5 +66,11 @@ impl ServiceContext {
                 event_key: Some(format!("pending-prompt:{tab_id}:{}", uuid::Uuid::new_v4())),
             },
         );
+        let prompt_is_current = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pending_prompt.as_ref() == Some(prompt) && tab.pending_prompt_kind == Some(kind)
+        });
+        if prompt_is_current {
+            crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
+        }
     }
 }

@@ -60,6 +60,7 @@ async function main() {
     assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Session attached…", "shell_ready");
     assert(chatSetupStageLabel("preparing_role_instructions", "Claude Code") === "Preparing claude code instructions…", "preparing_role_instructions");
     assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Launching provider…", "agent_launching");
+    assert(chatSetupStageLabel("awaiting_owner_prompt", "Claude Code") === "Waiting for you", "awaiting_owner_prompt");
     assert(chatSetupStageLabel("delivering_instructions", "Claude Code") === "Delivering instructions…", "delivering_instructions");
   });
 
@@ -74,6 +75,7 @@ async function main() {
     assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");
     assert(chatSetupView(tab("agent_launching")).kind === "starting", "launching is starting");
+    assert(chatSetupView(tab("awaiting_owner_prompt")).kind === "starting", "owner prompt keeps launch waiting");
     assert(chatSetupView(tab("delivering_instructions")).kind === "starting", "fallback delivery is starting");
     assert(chatSetupView(tab("spawn_failed", "boom")).kind === "starting", "spawn_failed keeps loading");
     assert(chatSetupView(tab("pty_reattached")).kind === "none", "a reattached live PTY is not booting");

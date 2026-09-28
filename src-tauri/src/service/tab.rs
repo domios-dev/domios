@@ -755,6 +755,8 @@ impl ServiceContext {
         let identity = tab.prompt_identity();
         tab.pending_prompt = None;
         tab.pending_prompt_kind = None;
+        drop(mux);
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         identity
     }
 

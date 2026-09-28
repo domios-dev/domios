@@ -504,13 +504,36 @@ impl ServiceContext {
                 return;
             }
             service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
+            let mut notice = agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id);
+            if service
+                .mux
+                .read()
+                .get_tab(&agent_tab_id)
+                .is_some_and(|tab| {
+                    tab.boot_stage
+                        == Some(crate::service::boot_stage::BootStage::AwaitingOwnerPrompt)
+                })
+            {
+                notice["waiting_for_owner_prompt"] = serde_json::Value::Bool(true);
+            }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
                 &agent_title,
-                agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
+                notice,
             );
             if !service.startup_attempt_is_current(&authority) {
+                return;
+            }
+            if service
+                .mux
+                .read()
+                .get_tab(&agent_tab_id)
+                .is_some_and(|tab| {
+                    tab.boot_stage
+                        == Some(crate::service::boot_stage::BootStage::AwaitingOwnerPrompt)
+                })
+            {
                 return;
             }
             loop {
