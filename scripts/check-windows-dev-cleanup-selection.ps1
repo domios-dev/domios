@@ -22,7 +22,7 @@ $processes = @(
   @{ ProcessId = 250; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node scripts/dev-static-server.mjs" },
   @{ ProcessId = 251; ParentProcessId = 250; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "static server child" },
   @{ ProcessId = 230; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9363" },
-  @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --orphan-no-port" },
+  @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$defaultTargetDebug\codeterm.exe"; CommandLine = "$defaultTargetDebug\codeterm.exe --orphan-no-port" },
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
   @{ ProcessId = 320; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1555" }
   @{ ProcessId = 330; ParentProcessId = 9998; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
@@ -61,12 +61,12 @@ try {
   }
   $plan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @cleanupArgs | ConvertFrom-Json
 
-  $expected = @(200, 201, 210, 220, 230, 330, 331)
+  $expected = @(200, 201, 210, 220, 230, 330, 331, 333)
   $actual = @($plan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
   }
-  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300, 332, 333, 334)) {
+  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300, 332, 334)) {
     if ($actual -contains $defaultPid) {
       throw "named cleanup selected default/unowned pid $defaultPid"
     }

@@ -395,7 +395,7 @@ fn socket_transport_remains_primary_when_available() {
 fn dead_socket_uses_loopback_http_when_credentials_are_present() {
     let config = http_fallback_config_from(None, Some("7687"), Some("opaque-token"))
         .expect("port and API token configure HTTP fallback");
-    let choice = select_transport(Err("pipe denied".into()), || Ok(config));
+    let choice = select_transport::<()>(Err("pipe denied".into()), || Ok(config));
     let TransportChoice::Http(config) = choice.unwrap() else {
         panic!("HTTP fallback expected");
     };
