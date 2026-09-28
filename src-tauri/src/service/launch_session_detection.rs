@@ -289,6 +289,9 @@ pub(crate) fn marked_launch_command_for_tab(
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
+    if let Err(error) = svc.ensure_agent_pad(tab_id) {
+        log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
+    }
     let canonical_project = canonical_project_for_tab(&svc.plan_store, tab_id, cwd);
     marked_provider_launch_command(
         &svc.agent_registry,
