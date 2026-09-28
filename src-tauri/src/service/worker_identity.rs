@@ -107,6 +107,7 @@ mod tests {
         let draft = crate::service::plan::task_attempts::TaskRespawnDraft {
             plan_id: plan.id.clone(),
             task_id: task_id.clone(),
+            attempt_id: "attempt-respawn".into(),
             source_attempt: Default::default(),
             provider: "claude".into(),
             planned_model: None,

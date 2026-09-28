@@ -51,6 +51,7 @@ pub struct TaskAttemptView {
 pub struct TaskRespawnDraft {
     pub plan_id: String,
     pub task_id: String,
+    pub attempt_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
     pub planned_model: Option<String>,
@@ -978,6 +979,7 @@ impl PlanStore {
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
             task_id: task.id.clone(),
+            attempt_id: gen_attempt_id(),
             source_attempt: source.clone(),
             provider,
             planned_model: task.model.clone(),
@@ -1021,7 +1023,7 @@ impl PlanStore {
                     &plan.tasks[task_index],
                 )?;
             }
-            let attempt_id = gen_attempt_id();
+            let attempt_id = draft.attempt_id.clone();
             super::task_dispatch::record_blocked_task_unblock(
                 plan,
                 task_index,

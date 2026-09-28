@@ -436,6 +436,42 @@ fn quality_does_not_flag_a_complete_unplanned_task_quality_gap() {
 }
 
 #[test]
+fn quality_gap_errors_skip_terminal_tasks() {
+    let plan = json!({
+        "id": "pl_terminal_gaps",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "section"}],
+        "tasks": [
+            {"id": "done", "status": "done"},
+            {"id": "cancelled", "status": "cancelled"},
+            {"id": "pending", "status": "pending"},
+            {"id": "in_progress", "status": "in_progress"}
+        ]
+    });
+
+    let findings = inspect_plan(Path::new("pl_terminal_gaps.json"), &plan, "quality");
+    for (task_id, severity) in [
+        ("done", "warning"),
+        ("cancelled", "warning"),
+        ("pending", "error"),
+        ("in_progress", "error"),
+    ] {
+        let gap = findings
+            .iter()
+            .find(|finding| {
+                finding.kind == "task_quality_gap"
+                    && finding.task_id.as_deref() == Some(task_id)
+            })
+            .unwrap_or_else(|| panic!("missing task_quality_gap for {task_id}: {findings:?}"));
+        assert_eq!(gap.severity, severity, "{task_id}: {gap:?}");
+    }
+}
+
+#[test]
 fn quality_warns_for_stalled_running_loop() {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
