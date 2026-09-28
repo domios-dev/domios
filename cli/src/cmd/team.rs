@@ -284,6 +284,9 @@ fn print_human(value: &Value) {
     }
     if let Some(team) = value.get("team") {
         print_team(team);
+        if let Some(inventory) = value.get("inventory") {
+            print_close_inventory(inventory);
+        }
         print_members(
             value
                 .get("members")
@@ -299,6 +302,29 @@ fn print_human(value: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("?");
     println!("Adopted plan {plan_id} into Team {team_id}.");
+}
+
+fn print_close_inventory(inventory: &Value) {
+    for record in inventory.get("removed").and_then(Value::as_array).into_iter().flatten() {
+        println!(
+            "Removed lane path={} branch={}",
+            record.get("path").and_then(Value::as_str).unwrap_or("<none>"),
+            record.get("branch").and_then(Value::as_str).unwrap_or("<none>")
+        );
+    }
+    for record in inventory.get("kept").and_then(Value::as_array).into_iter().flatten() {
+        println!(
+            "Kept lane path={} branch={} reason={}",
+            record.get("path").and_then(Value::as_str).unwrap_or("<none>"),
+            record.get("branch").and_then(Value::as_str).unwrap_or("<none>"),
+            record.get("reason").and_then(Value::as_str).unwrap_or("unknown")
+        );
+    }
+    for branch in inventory.get("orphan_branches").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(branch) = branch.as_str() {
+            println!("Orphan lane branch={branch}");
+        }
+    }
 }
 
 fn print_members(members: Option<&[Value]>) {

@@ -102,15 +102,15 @@ pub async fn rename_team(
     Ok(Json(team))
 }
 
-async fn close_team_adapter(
+async fn close_team_adapter<T>(
     headers: &HeaderMap,
     team_id: String,
     body: CloseTeamBody,
     close: impl AsyncFnOnce(
         String,
         crate::service::TeamMutationCaller,
-    ) -> Result<codeterm_types::team::Team, String>,
-) -> Result<codeterm_types::team::Team, (StatusCode, String)> {
+    ) -> Result<T, String>,
+) -> Result<T, (StatusCode, String)> {
     let caller = close_team_caller(headers, &team_id, &body);
     close(team_id, caller).await.map_err(map_close_team_error)
 }
@@ -139,7 +139,7 @@ pub async fn close_team(
     crate::api::optional_json::OptionalJson(body): crate::api::optional_json::OptionalJson<
         CloseTeamBody,
     >,
-) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
+) -> Result<Json<crate::service::TeamCloseResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
     let team = close_team_adapter(

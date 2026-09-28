@@ -7,7 +7,19 @@ export interface TeamActions {
     managerTabId: string | null,
     model?: string,
   ) => Promise<void>;
-  onCloseTeam: (teamId: string) => Promise<void>;
+  onCloseTeam: (teamId: string) => Promise<TeamCloseInventory>;
+}
+
+export interface TeamCloseLaneRecord {
+  path: string | null;
+  branch: string | null;
+  reason: string | null;
+}
+
+export interface TeamCloseInventory {
+  removed: TeamCloseLaneRecord[];
+  kept: TeamCloseLaneRecord[];
+  orphan_branches: string[];
 }
 
 export type TeamMemberRole = "orchestrator" | "planner" | "cartographer" | "worker";
@@ -33,7 +45,11 @@ export function buildTeamActions({
       });
     },
     async onCloseTeam(teamId) {
-      await invoke("mux_close_team", { teamId });
+      const result = await invoke("mux_close_team", { teamId });
+      if (typeof result !== "object" || result === null || !("inventory" in result)) {
+        throw new Error("Team close response did not include its lane inventory");
+      }
+      return (result as { inventory: TeamCloseInventory }).inventory;
     },
   };
 }

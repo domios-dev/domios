@@ -131,6 +131,7 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
+pub use team::TeamCloseResult;
 #[cfg(test)]
 pub(crate) use team::close_team_with_state_change;
 #[cfg(test)]
