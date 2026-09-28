@@ -38,10 +38,7 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         if changed {
-            crate::service::folder_trust_carryover::tab_became_idle(
-                self.agent_registry.clone(),
-                tab_id,
-            );
+            crate::service::folder_trust_carryover::tab_became_idle(self.clone(), tab_id);
             self.emit_state_changed();
             self.schedule_planner_replay(tab_id);
             self.heal_recovery_state_if_ready();

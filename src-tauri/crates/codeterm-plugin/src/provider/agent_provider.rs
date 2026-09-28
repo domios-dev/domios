@@ -335,12 +335,16 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Recognize this provider's directory-trust dialog on the live screen.
-    /// Core asks only for a tab in the directory CodeTerm created.
+    /// Core sends a key only when `is_directory_trusted` authorizes the exact cwd.
     fn directory_trust_prompt_response(
         &self,
         _screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
         None
+    }
+
+    fn is_directory_trusted(&self, _path: &str) -> Result<bool, String> {
+        Ok(false)
     }
 
     fn parse_directory_trust_prompt(

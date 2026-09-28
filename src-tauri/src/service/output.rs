@@ -373,6 +373,11 @@ impl ServiceContext {
             self.recompute_agent_state(pty_id);
             self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
+        if screen_changed {
+            if let Some(tab_id) = tab_id.as_deref() {
+                super::folder_trust_carryover::tab_output_changed(self.clone(), tab_id);
+            }
+        }
 
         let current_reconciled_status = tab_id
             .as_deref()
@@ -927,7 +932,7 @@ impl ServiceContext {
                             .and_then(|tab| tab.agent_type.clone());
                         if let Some(agent_type) = agent_type {
                             super::folder_trust_carryover::owner_trust_prompt_cleared(
-                                self.agent_registry.clone(),
+                                self.clone(),
                                 tab_id,
                                 &agent_type,
                             );

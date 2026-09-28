@@ -30,6 +30,7 @@ import {
   codexProfileInstanceId,
   codexProfileTabId,
   carryCodexProjectTrustForTab,
+  isCodexDirectoryTrusted,
   inspectCodexProfiles,
   manageCodexProfiles,
   releaseCodexProfile,
@@ -261,6 +262,10 @@ const plugin: PluginModule = {
 
   folderTrustAnswered(tabId: string, instanceId: string): boolean {
     return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  },
+
+  isDirectoryTrusted(path: string): boolean {
+    return isCodexDirectoryTrusted(profileSweepHost(), path);
   },
 
   sweepLaunchArtifacts(request: {

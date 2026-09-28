@@ -57,6 +57,7 @@ impl ServiceContext {
         }
         if session_bound {
             crate::service::general_agent::binding_wait::notify_binding_state_changed();
+            crate::service::folder_trust_carryover::tab_session_bound(self.clone(), tab_id);
         }
         if let Some(session_id) = bound_session_id.as_deref() {
             match self

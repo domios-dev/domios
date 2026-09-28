@@ -53,12 +53,11 @@ pub(crate) fn inherited_workspace_provenance(
     crate::service::ServiceContext::paths_equal(cwd, provisioned).then(|| provisioned.to_string())
 }
 
-/// The recognizer runs only for an agent in the directory CodeTerm created whose
-/// launch session is not yet authenticated; the trust dialog precedes that binding.
+/// Trust prompts are recognized only before this tab's launch session is authenticated.
 pub(crate) fn directory_trust_check_applies(tab: &Tab) -> bool {
     tab.agent_type.is_some()
         && !tab.launch_session_authenticated()
-        && directory_trust_provenance(tab).is_ok()
+        && tab.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
 }
 
 /// Why a provisioned agent tab skips the trust responder; `None` when it
@@ -206,16 +205,45 @@ fn key_name(step: &[u8]) -> &'static str {
 }
 
 impl ServiceContext {
+    pub(crate) fn respond_to_pending_directory_trust_prompts(&self) {
+        let tabs = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter_map(|tab| {
+                    (tab.pending_prompt_kind
+                        == Some(codeterm_types::pty::PromptKind::DirectoryTrust))
+                    .then(|| tab.id.clone())
+                })
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tabs {
+            self.respond_to_directory_trust(&tab_id, None);
+        }
+    }
+
     fn directory_trust_response(
         &self,
         agent_type: &str,
+        path: &str,
         screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
-        self.agent_registry
+        let response = self
+            .agent_registry
             .with_provider(agent_type, |provider| {
                 provider.directory_trust_prompt_response(screen)
             })
-            .flatten()
+            .flatten()?;
+        match self
+            .agent_registry
+            .with_provider(agent_type, |provider| provider.is_directory_trusted(path))
+        {
+            Some(Ok(true)) => Some(response),
+            Some(Err(error)) => {
+                log::warn!("[directory-trust] Trust lookup failed for Tab path: {error}");
+                None
+            }
+            _ => None,
+        }
     }
 
     pub(crate) fn respond_to_directory_trust(
@@ -227,9 +255,15 @@ impl ServiceContext {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
                 .filter(|tab| directory_trust_check_applies(tab))
-                .and_then(|tab| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+                .and_then(|tab| {
+                    Some((
+                        tab.pty_id.clone()?,
+                        tab.agent_type.clone()?,
+                        tab.cwd.clone()?,
+                    ))
+                })
         };
-        let Some((pty_id, agent_type)) = target else {
+        let Some((pty_id, agent_type, cwd)) = target else {
             return TrustDecision::NotApplicable;
         };
         let screen = match screen_text {
@@ -241,7 +275,7 @@ impl ServiceContext {
                 .unwrap_or_default(),
         };
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
-            self.directory_trust_response(&agent_type, screen)
+            self.directory_trust_response(&agent_type, &cwd, screen)
         });
         match &decision {
             TrustDecision::NoDialog
@@ -288,20 +322,22 @@ impl ServiceContext {
         agent_type: &str,
         expected: &[u8],
     ) -> bool {
-        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            tab.pty_id.as_deref() == Some(pty_id) && directory_trust_check_applies(tab)
+        let cwd = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            (tab.pty_id.as_deref() == Some(pty_id) && directory_trust_check_applies(tab))
+                .then(|| tab.cwd.clone())
+                .flatten()
         });
-        let owed = applies && {
+        let owed = cwd.is_some_and(|cwd| {
             let screen = self
                 .screen_state
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             matches!(
-                self.directory_trust_response(agent_type, &screen),
+                self.directory_trust_response(agent_type, &cwd, &screen),
                 Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
             )
-        };
+        });
         LEDGER.lock().settle(tab_id);
         if !owed {
             log::info!(
@@ -324,7 +360,7 @@ impl ServiceContext {
             return;
         }
         log::info!(
-            "[directory-trust] Not answering provisioned Tab {}: {}; screen tail: {}",
+            "[directory-trust] Not answering Tab {}: {}; screen tail: {}",
             tab_id,
             outcome,
             tail.as_deref().unwrap_or("-")
