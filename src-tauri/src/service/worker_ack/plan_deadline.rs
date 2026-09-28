@@ -534,7 +534,15 @@ impl ServiceContext {
                         == Some(crate::service::boot_stage::BootStage::AwaitingOwnerPrompt)
                 })
             {
-                return;
+                if !crate::service::launch_readiness::await_owner_prompt_resolution(
+                    &agent_tab_id,
+                    crate::service::launch_readiness::OWNER_PROMPT_DEADLINE,
+                ) {
+                    return;
+                }
+                if !service.startup_attempt_is_current(&authority) {
+                    return;
+                }
             }
             loop {
                 match await_agent_startup_notice_with_generation(

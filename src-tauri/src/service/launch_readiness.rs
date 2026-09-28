@@ -310,12 +310,14 @@ struct Observations {
     armed: Mutex<HashMap<String, Armed>>,
     owner_prompts: Mutex<HashMap<String, String>>,
     changed: Condvar,
+    prompt_changed: Condvar,
 }
 
 static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
     armed: Mutex::new(HashMap::new()),
     owner_prompts: Mutex::new(HashMap::new()),
     changed: Condvar::new(),
+    prompt_changed: Condvar::new(),
 });
 
 /// Arm the bounded observation for one launch attempt. Replaces any earlier
@@ -445,9 +447,25 @@ fn update_owner_prompt(tab_id: &str, prompt: Option<String>) {
         if observed.owner_prompt != prompt {
             observed.owner_prompt = prompt;
             observed.prompt_revision = observed.prompt_revision.wrapping_add(1);
-            OBSERVATIONS.changed.notify_all();
         }
     }
+    OBSERVATIONS.changed.notify_all();
+    OBSERVATIONS.prompt_changed.notify_all();
+}
+
+pub(crate) fn await_owner_prompt_resolution(tab_id: &str, deadline: std::time::Duration) -> bool {
+    let end = Instant::now() + deadline;
+    let mut prompts = OBSERVATIONS.owner_prompts.lock();
+    while prompts.contains_key(tab_id) {
+        if OBSERVATIONS
+            .prompt_changed
+            .wait_until(&mut prompts, end)
+            .timed_out()
+        {
+            return !prompts.contains_key(tab_id);
+        }
+    }
+    true
 }
 
 /// Take this tab's launch for an exit observed right now. One lock does the
