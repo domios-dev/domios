@@ -267,6 +267,10 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     hostPlugin.launchOnboardingResponse(captured)?.frameKey,
     "incidental status redraw retains the same choice/focus identity",
   );
+  for (const file of ["auto-environment-no-space.txt", "auto-environment-empty-label.txt"]) {
+    const malformed = fs.readFileSync(path.join(dir, file), "utf8");
+    eq(hostPlugin.launchOnboardingResponse(malformed), null, `unsafe option syntax is refused in ${file}`);
+  }
   eq(hostPlugin.launchOnboardingResponse(captured.replace(capturedQuestion!, "A different startup question?")), null, "unclassified startup dialog is left alone");
 }
 

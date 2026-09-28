@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
@@ -8,6 +8,10 @@ use super::ServiceContext;
 use crate::multiplexer::types::Tab;
 
 static LEDGER: LazyLock<parking_lot::Mutex<TrustLedger>> = LazyLock::new(Default::default);
+static LAUNCH_ONBOARDING_WORKERS: LazyLock<parking_lot::Mutex<HashMap<String, bool>>> =
+    LazyLock::new(Default::default);
+static LAUNCH_ONBOARDING_NOTICES: LazyLock<parking_lot::Mutex<HashSet<String>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectoryTrustRefusal {
@@ -220,6 +224,43 @@ fn key_name(step: &[u8]) -> &'static str {
 }
 
 impl ServiceContext {
+    pub(crate) fn enqueue_launch_onboarding_screen_check(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return;
+        }
+        {
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if let Some(pending) = workers.get_mut(tab_id) {
+                *pending = true;
+                return;
+            }
+            workers.insert(tab_id.to_string(), false);
+        }
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let pty_id = pty_id.to_string();
+        let agent_type = agent_type.to_string();
+        std::thread::spawn(move || loop {
+            service.respond_to_launch_onboarding_until_clear(&tab_id, &pty_id, &agent_type);
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if workers.get(&tab_id).copied().unwrap_or(false) {
+                workers.insert(tab_id.clone(), false);
+            } else {
+                workers.remove(&tab_id);
+                break;
+            }
+        });
+    }
+
     fn directory_trust_response(
         &self,
         agent_type: &str,
@@ -358,6 +399,95 @@ impl ServiceContext {
         decision
     }
 
+    pub(crate) fn respond_to_launch_onboarding_until_clear(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) -> bool {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return false;
+        }
+        let signal = self
+            .screen_state
+            .lock()
+            .subscribe_screen_changes(pty_id);
+        let mut recognized = false;
+        let mut enter_submitted = false;
+        loop {
+            let generation = signal.generation();
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let has_dialog = self
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.launch_onboarding_response(&screen).is_some()
+                })
+                .unwrap_or(false);
+            if has_dialog {
+                recognized = true;
+                match self.respond_to_launch_onboarding(
+                    tab_id,
+                    agent_type,
+                    &screen,
+                    signal.clone(),
+                ) {
+                    TrustDecision::Answer { step } => {
+                        enter_submitted |= step.as_slice() == b"\r";
+                    }
+                    TrustDecision::Waiting => {}
+                    TrustDecision::NotApplicable => {
+                        recognized = false;
+                        break;
+                    }
+                    TrustDecision::NoDialog | TrustDecision::Held => {
+                        break;
+                    }
+                }
+            } else if recognized {
+                if enter_submitted {
+                    self.notify_launch_onboarding_applied_once(tab_id);
+                }
+                break;
+            } else {
+                break;
+            }
+            if !signal.wait_until_changed(generation) {
+                break;
+            }
+        }
+        self.screen_state
+            .lock()
+            .unsubscribe_screen_changes(pty_id, &signal);
+        recognized
+    }
+
+    pub(crate) fn notify_launch_onboarding_applied_once(&self, tab_id: &str) {
+        if !LAUNCH_ONBOARDING_NOTICES.lock().insert(tab_id.to_string()) {
+            return;
+        }
+        self.create_notification_ext(
+            "Provider onboarding choice applied".into(),
+            Some(format!(
+                "Tab {} completed its provider-declared safe onboarding choice.",
+                tab_id
+            )),
+            Some("info"),
+            None,
+            None,
+            crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+            crate::service::notification::PushIntent::default(),
+            None,
+        );
+    }
+
     fn launch_onboarding_key_still_owed(
         &self,
         tab_id: &str,
@@ -448,9 +578,8 @@ impl ServiceContext {
     }
 }
 
-fn launch_onboarding_check_applies(tab: &Tab, agent_type: &str) -> bool {
+pub(crate) fn launch_onboarding_check_applies(tab: &Tab, agent_type: &str) -> bool {
     tab.agent_type.as_deref() == Some(agent_type)
-        && !tab.launch_session_authenticated()
         && (tab.role == Some(codeterm_types::agent::roles::AgentRole::Worker)
             || (tab.role == Some(codeterm_types::agent::roles::AgentRole::Manager)
                 && tab.role_profile.as_deref() == Some("planner")))
