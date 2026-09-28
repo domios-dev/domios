@@ -178,6 +178,16 @@ fn build_agent_command_inner(
         canonical_project.as_deref(),
         &mut args,
     );
+    if let Some((service, tab_id)) = notice_context {
+        crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+            registry,
+            agent_cmd,
+            skip_permissions,
+            &service.agent_pad_data_dir,
+            tab_id,
+            &mut args,
+        );
+    }
 
     if let Some(session_id) = &params.resume_session_id {
         let resume = crate::agent::provider::AgentResumeParams {

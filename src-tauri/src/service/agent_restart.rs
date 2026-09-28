@@ -765,6 +765,14 @@ fn build_relaunch_command_with_registry(
                 canonical_project,
                 &mut args,
             );
+            crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+                registry,
+                provider,
+                auto_approve,
+                &crate::paths::data_dir(),
+                tab_id,
+                &mut args,
+            );
             return registry.with_provider(provider, |p| {
                 p.build_launch_command(&AgentLaunchParams {
                     agent_name: None,
@@ -798,6 +806,14 @@ fn build_relaunch_command_with_registry(
                 auto_approve,
                 cwd,
                 canonical_project,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+                registry,
+                provider,
+                auto_approve,
+                &crate::paths::data_dir(),
+                tab_id,
                 &mut args,
             );
             let resume = crate::agent::provider::AgentResumeParams {
@@ -835,6 +851,14 @@ fn build_relaunch_command_with_registry(
             auto_approve,
             Some(cwd),
             canonical_project,
+            &mut args,
+        );
+        crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+            registry,
+            provider,
+            auto_approve,
+            &crate::paths::data_dir(),
+            tab_id,
             &mut args,
         );
         params.args = (!args.is_empty()).then_some(args);
