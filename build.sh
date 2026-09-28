@@ -780,6 +780,22 @@ tauri_debug_dir() {
   fi
 }
 
+dev_target_record() {
+  printf '%s\n' "$CT_DATA_DIR/dev-target-debug"
+}
+
+record_dev_target() {
+  local target="$1" target_win
+  mkdir -p "$(dirname "$(dev_target_record)")"
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    target_win="$(cd "$target" 2>/dev/null && pwd -W 2>/dev/null || true)"
+    [ -n "$target_win" ] || target_win="$(pwd -W 2>/dev/null || pwd)/$target"
+    printf '%s\n' "$target_win" > "$(dev_target_record)"
+  else
+    (cd "$target" 2>/dev/null && pwd -P) > "$(dev_target_record)"
+  fi
+}
+
 dev_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/codeterm"
@@ -1230,7 +1246,10 @@ windows_dev_leftover_cleanup() {
     fi
   done
   root_win="$(pwd -W 2>/dev/null || pwd)"
-  target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
+  target_debug_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
+  if [ -z "$target_debug_win" ]; then
+    target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
+  fi
   data_dir_win="$(cd "$CT_DATA_DIR" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$CT_DATA_DIR" 2>/dev/null || echo "$CT_DATA_DIR")"
   cleanup_script="$root_win/scripts/windows-dev-cleanup.ps1"
   if command -v powershell.exe >/dev/null 2>&1; then
@@ -1877,6 +1896,7 @@ EOF
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
     ensure_real_embed_bundle
+    record_dev_target "$(tauri_debug_dir)"
     echo "Starting dev..."
     # Mark the daemon as dev: bundle hashes are bypassed (live edits
     # to <repo>/plugins/<id>/ don't trip the verifier) and the
