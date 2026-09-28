@@ -1,5 +1,6 @@
 use axum::{extract::State as AxumState, http::StatusCode, Json};
 use serde::Deserialize;
+use serde::Serialize;
 
 use crate::api::routes::AppState;
 
@@ -15,6 +16,88 @@ pub struct MeshWorkerDispatchRequest {
     model: Option<String>,
     reasoning_effort: Option<String>,
     brief: String,
+}
+
+#[derive(Deserialize)]
+pub struct MeshWorkerLaneBundleRequest {
+    repository_identity: String,
+    branch: String,
+    base_commit: String,
+}
+
+pub async fn mesh_worker_lane_bundle(
+    AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<MeshWorkerLaneBundleRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let peer_id = super::relay::check_mesh_relay_auth(&state, &headers)?;
+    tokio::task::spawn_blocking(move || create_lane_bundle(state, peer_id, request))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+fn create_lane_bundle(
+    state: AppState,
+    peer_id: String,
+    request: MeshWorkerLaneBundleRequest,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let allowed = {
+        let mesh = state.mesh.lock();
+        mesh.paired_peers.get(&peer_id)
+            .is_some_and(|peer| peer.access_level == crate::mesh::types::AccessLevel::Full)
+    };
+    if !allowed {
+        return Err((StatusCode::FORBIDDEN, "lane bundle requires Full mesh access".into()));
+    }
+    let workspaces = {
+        let mux = state.svc.mux.read();
+        mux.list_workspaces()
+            .into_iter()
+            .filter_map(|workspace| workspace.cwd.map(|cwd| (workspace.id, cwd)))
+            .collect::<Vec<_>>()
+    };
+    let checkout = workspaces.into_iter().map(|(_, cwd)| cwd).find(|cwd| {
+        !crate::service::worker_lane::is_linked_worktree(std::path::Path::new(cwd))
+            && crate::service::worker_lane::repository_identity(cwd)
+                .is_ok_and(|identity| identity == request.repository_identity)
+    }).ok_or_else(|| (StatusCode::CONFLICT, "peer_missing_repo: repository identity not found".into()))?;
+    if !crate::service::worker_lane::contains_commit(&checkout, &request.base_commit) {
+        return Err((StatusCode::CONFLICT, "peer_missing_base: base commit is absent".into()));
+    }
+    let reference = format!("refs/heads/{}", request.branch);
+    let mut command = std::process::Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    let output = command.current_dir(&checkout).args(["check-ref-format", &reference]).output()
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if !output.status.success() || !request.branch.starts_with("lane/") {
+        return Err((StatusCode::BAD_REQUEST, "invalid peer lane branch".into()));
+    }
+    let lane_tip = crate::service::worker_lane::git_value(&checkout, ["rev-parse", &reference])
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
+    if !crate::service::worker_lane::is_ancestor(&checkout, &request.base_commit, &lane_tip) {
+        return Err((StatusCode::CONFLICT, "peer lane does not descend from requested base".into()));
+    }
+    let temp = tempfile::tempdir()
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let bundle_path = temp.path().join("worker-lane.bundle");
+    let mut command = std::process::Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    let output = command.current_dir(&checkout).args(["bundle", "create"])
+        .arg(&bundle_path).arg(&reference).output()
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if !output.status.success() {
+        return Err((StatusCode::CONFLICT, String::from_utf8_lossy(&output.stderr).trim().to_string()));
+    }
+    let bytes = std::fs::read(&bundle_path).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    use base64::Engine;
+    #[derive(Serialize)]
+    struct BundleResponse { branch: String, base_commit: String, lane_tip: String, bundle: String }
+    Ok(Json(serde_json::to_value(BundleResponse {
+        branch: request.branch,
+        base_commit: request.base_commit,
+        lane_tip,
+        bundle: base64::engine::general_purpose::STANDARD.encode(bytes),
+    }).unwrap()))
 }
 
 pub async fn mesh_worker_dispatch(
@@ -98,6 +181,15 @@ fn dispatch_authenticated_worker(
         title: Some(format!("Remote{suffix}")),
         description: Some(format!("Plan task {} on origin peer {}", request.task_id, origin_peer_name)),
         role: Some("Worker".into()),
+        plan_id: Some(request.plan_id.clone()),
+        task_id: Some(request.task_id.clone()),
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: request.plan_id.clone(),
+            task_id: request.task_id.clone(),
+            attempt_id: request.attempt_id,
+            lane_base: Some(request.base_commit.clone()),
+        }),
+        execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
         workspace_id: Some(workspace_id),
         task: Some(request.brief),
         report_target_tab_id: Some(request.origin_tab_id),

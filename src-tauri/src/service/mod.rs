@@ -156,7 +156,7 @@ pub mod web_access;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
-mod worker_lane;
+pub(crate) mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{

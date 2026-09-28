@@ -130,6 +130,10 @@ pub struct TaskExecutionAttempt {
     pub mesh_peer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_dispatch_state: Option<RemoteDispatchState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_lane_tip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_merge_commit: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
     #[serde(default)]
@@ -197,6 +201,7 @@ pub enum RemoteDispatchState {
     AwaitingWorkerAck,
     Acknowledged,
     Reported,
+    Integrated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

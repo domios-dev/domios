@@ -796,6 +796,7 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
+        "plan.task.merge_remote_lane" => super::plan_task_dispatch::remote::merge_lane(params, app, svc, now),
         "plan.task.remote_ack" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
             let attempt_id = get_string_param(params, "attempt_id")?;

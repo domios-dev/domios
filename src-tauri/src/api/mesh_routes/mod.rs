@@ -29,7 +29,7 @@ pub use pairing::{
 };
 pub use relay::{mesh_relay, mesh_relay_asset, mesh_relay_stream, mesh_relay_to_peer, mesh_sync};
 pub use rpc::mesh_rpc;
-pub use worker_dispatch::mesh_worker_dispatch;
+pub use worker_dispatch::{mesh_worker_dispatch, mesh_worker_lane_bundle};
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))

@@ -414,6 +414,12 @@ pub enum PlanTaskAction {
         #[arg(long)]
         skipped: Option<String>,
     },
+    /// Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout
+    MergeRemoteLane {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+    },
     /// List execution attempts for a plan task
     Attempts { plan_id: String, task_id: String },
     /// Show one execution attempt for a plan task
@@ -598,5 +604,28 @@ mod tests {
                 "{subcommand}: {help}"
             );
         }
+    }
+
+    #[test]
+    fn plan_task_merge_remote_lane_parses_origin_review_attempt() {
+        use clap::Parser;
+        assert!(matches!(
+            Cli::try_parse_from([
+                "codeterm",
+                "plan",
+                "task",
+                "merge-remote-lane",
+                "plan_1",
+                "task_1",
+                "attempt_1",
+            ])
+            .expect("remote lane merge parses")
+            .command,
+            crate::Commands::Plan {
+                action: crate::PlanAction::Task {
+                    action: super::PlanTaskAction::MergeRemoteLane { .. }
+                }
+            }
+        ));
     }
 }

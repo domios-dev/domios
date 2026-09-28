@@ -205,6 +205,16 @@ the deadline — is not a dispatch failure: the dispatch stays spawned-and-await
 and the provider's own launch detection or the worker-ack deadline settles it.
 Only a confirmed-gone tab fails the dispatch.
 
+### Reviewed remote lane integration
+
+`plan.task.merge_remote_lane` requires the authenticated origin Orchestrator,
+an origin-accepted remote attempt, and a persisted Worker report. The origin
+requests a Git bundle from the recorded paired peer over signed mesh transport,
+fetches the recorded branch into a CodeTerm-owned ref, then runs a real
+`git merge --no-ff`. It persists the lane tip and merge commit after
+`git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an
+already-recorded integration is idempotent.
+
 ### Splitting an in-progress task
 
 The Plan Orchestrator can create child tasks beneath an in-progress task with
@@ -218,4 +228,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
