@@ -498,6 +498,9 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if super::provider_update::is_offer(id) {
+            return Err("Provider update choices must be answered from the owner interface".into());
+        }
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
