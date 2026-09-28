@@ -1,13 +1,13 @@
-# Message Routing — the prefix is the return address
+# Message Routing — follow the return hint
 
-Every routed inbound message starts with a CodeTerm marker naming the channel
-that must receive the reply. Check it before every response.
+Every routed inbound message starts with a CodeTerm marker preserving sender
+provenance. Follow the host-supplied reply hint before responding.
 
 | Incoming prefix | Immediate tip | Reply with | Tab output? |
 |-----------------|---------------|------------|--------------|
 | `-=-codeterm:telegram user=USER_ID msg=N-=-text` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
-| `-=-codeterm:tab label=NAME tab=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
-| `-=-codeterm:mesh peer=PEER tab=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
+| Agent sender (`[to reply, run: ...]`) | USE THE HINTED COMMAND | `codeterm send` with the hinted target | No |
+| Shell sender (`[sender is a shell; reply here]`) | ANSWER IN YOUR CHAT | Normal local tab chat | Yes |
 | `-=-codeterm:report from=NAME tab=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
 | `-=-codeterm:system context=KIND-=-text` | CODETERM SYSTEM EVENT | Act on it or ignore; never reply | No |
 | *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
@@ -33,18 +33,16 @@ is in the [core essence](../essences/core.md#message-gateway-and-bridges).
 
 ## Don't double-answer, don't echo
 
-For Telegram/mesh/tab prefixes, the CLI command IS the reply — the recipient
-sees it once. After running it, do not repeat the content in your own tab
-output ("Replied with X", "Reported: Y"). More work queued → continue
-silently; nothing queued → stop. The only write-in-tab case is the
-no-prefix local chat.
+For routed messages with a command hint, the CLI command IS the reply. Do not
+repeat it in your own tab output. Shell sender hints and no-prefix messages use
+the current tab chat.
 
 ## Examples
 
 - `-=-codeterm:telegram user=123456789-=-are you working right now?` →
   `codeterm bridge send --to 123456789 --service telegram "yep, online"`.
   Nothing in the tab.
-- `-=-codeterm:mesh peer=workstation tab=a3f1b2c7-=-run the tests?` →
+- `-=-codeterm:mesh peer=workstation tab=a3f1b2c7-=-run the tests?` with an agent reply hint →
   `codeterm send "running" --tab a3f1b2c7 --mesh workstation`, do the work,
   then send the result the same way.
 - `run the tests` (no prefix) → reply in the tab.
@@ -74,4 +72,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

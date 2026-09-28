@@ -811,7 +811,12 @@ impl ServiceContext {
             now_ms,
             cooldowns,
             |target, message| {
-                let envelope = MessageEnvelope::tab("Watcher", tab_id);
+                let from_agent = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                let envelope = MessageEnvelope::tab("Watcher", tab_id).from_agent(from_agent);
                 self.gateway_deliver(
                     target,
                     envelope,

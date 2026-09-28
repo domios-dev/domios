@@ -246,16 +246,19 @@ pub(super) fn dispatch(
                 }
             }
             let response = if let Some(src) = source_tab.as_deref() {
-                let (from_label, model) = {
+                let (from_label, model, from_agent) = {
                     let m = mux.write();
+                    let source = m.get_tab(src);
                     (
                         m.display_label_for_tab(src),
-                        m.get_tab(src).and_then(|p| p.agent_session_model.clone()),
+                        source.and_then(|tab| tab.agent_session_model.clone()),
+                        source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
                     )
                 };
                 let envelope =
                     crate::service::messenger::MessageEnvelope::tab(from_label, src.to_string())
-                        .model(model);
+                        .model(model)
+                        .from_agent(from_agent);
                 let (delivery, pad_file) = svc
                     .as_ref()
                     .gateway_deliver_with_pad_file(
