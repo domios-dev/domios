@@ -131,6 +131,7 @@ function Invoke-CdpReload {
 Push-Location $repo
 try {
   git config core.hooksPath .githooks 2>$null
+  # Keep kill selection in build.sh so both launchers use the same instance scope.
   & $bash "./build.sh" @BuildArgs
   $exitCode = $LASTEXITCODE
   if ($exitCode -eq 0 -and $BuildArgs.Count -gt 0 -and $BuildArgs[0] -eq "dev") {
