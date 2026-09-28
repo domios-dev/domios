@@ -29,7 +29,7 @@ import { actionTitle } from "./actionTitle";
 import {
   codexProfileInstanceId,
   codexProfileTabId,
-  carryLiveCodexProjectTrust,
+  carryCodexProjectTrustForTab,
   inspectCodexProfiles,
   manageCodexProfiles,
   releaseCodexProfile,
@@ -240,7 +240,6 @@ const plugin: PluginModule = {
   },
 
   directoryTrustPromptResponse(screen: string): string[] | null {
-    carryLiveCodexProjectTrust(profileSweepHost());
     const view = String(screen || "");
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
@@ -258,6 +257,10 @@ const plugin: PluginModule = {
 
   releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {
     return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+
+  folderTrustAnswered(tabId: string, instanceId: string): boolean {
+    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
   },
 
   sweepLaunchArtifacts(request: {

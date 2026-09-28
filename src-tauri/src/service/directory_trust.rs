@@ -291,17 +291,33 @@ impl ServiceContext {
         let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.pty_id.as_deref() == Some(pty_id) && directory_trust_check_applies(tab)
         });
-        let owed = applies && {
+        let response = applies.then(|| {
             let screen = self
                 .screen_state
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            matches!(
-                self.directory_trust_response(agent_type, &screen),
-                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
-            )
-        };
+            self.directory_trust_response(agent_type, &screen)
+        });
+        let owed = matches!(
+            response.as_ref(),
+            Some(Some(DirectoryTrustPromptResponse::Answer { step })) if step.as_slice() == expected
+        );
+        let answered = response.as_ref().is_some_and(Option::is_none);
+        if answered {
+            let tab = tab_id.to_string();
+            let instance = crate::paths::codeterm_instance_id().to_string();
+            let result = self.agent_registry.with_provider(agent_type, |provider| {
+                provider.folder_trust_answered(&tab, &instance)
+            });
+            if let Some(Err(error)) = result {
+                log::warn!(
+                    "[directory-trust] Could not persist accepted folder trust for Tab {}: {}",
+                    tab_id,
+                    error
+                );
+            }
+        }
         LEDGER.lock().settle(tab_id);
         if !owed {
             log::info!(
