@@ -472,7 +472,7 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
         .prompt_detector
         .lock()
         .evaluate_pty_output_parsed(
-            Some(owner_tab_id.clone()),
+            &owner_tab_id,
             true,
             true,
             Some(crate::agent::prompt::ResolvedPrompt {

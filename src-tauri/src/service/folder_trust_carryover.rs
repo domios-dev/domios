@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use super::ServiceContext;
 
