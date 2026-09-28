@@ -130,6 +130,44 @@ forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
 
 ## Cross-mesh worker reports (spawn + explicit bind)
 
+### Future contract: plan-bound mesh dispatch
+
+The current spawn-then-bind workflow below is task-less and does not satisfy
+origin-owned accountability. A future `plan task dispatch --mesh PEER` must use
+an origin-owned protocol; generic mesh plan RPC is not a substitute because it
+runs against the peer's plan store.
+
+1. The origin validates plan, task, caller authority, provider, and intent, then
+   durably creates an attempt before contacting the peer. It records peer
+   identity and a state for every outcome.
+2. The peer verifies the same repository and exact origin base commit in its
+   checkout, provisions a lane there, records its branch/worktree, and launches
+   the Worker. It refuses without the repository or base; it never substitutes
+   another checkout or commit.
+3. The remote tab receives origin plan/task/attempt identifiers as a bound
+   assignment. ACK and report relay are authenticated by the paired mesh
+   request and match the identifiers and peer tab. The origin persists ACK and
+   report on its attempt. Idempotency keys make relay retry safe.
+4. The origin Orchestrator reviews and accepts the report. Integration fetches
+   the recorded peer lane branch and performs a real merge commit; acceptance
+   requires the lane tip to be an ancestor of the resulting target tip.
+
+Attempt states distinguish `peer_preflight`, `peer_missing_repo`,
+`peer_missing_base`, `peer_offline`, `relay_lost`, `awaiting_worker_ack`,
+`acknowledged`, and `reported`. Offline and uncertain relay outcomes are
+persisted explicitly and never imply Worker failure or report persistence.
+Recovery resumes the same attempt and never creates a duplicate Worker.
+
+Both machines enforce their local mesh access policy and the owner's rules.
+Mesh authentication supplies transport identity; no API token, provider
+credential, secret, or secret-bearing environment enters the task payload.
+The Worker receives only its brief and opaque origin binding identifiers.
+
+This contract is not implemented. Do not describe `plan task dispatch --mesh`
+as supported until origin attempt persistence, peer lane provisioning, and
+authenticated ACK/report persistence exist. Running `plan.task.dispatch` over
+generic `--mesh` would put attempt ownership on the peer, not the origin.
+
 `plan task dispatch` is **local-only**: it has no `--mesh`/`--peer` flag. It spawns
 the Worker on the same daemon, binds the execution attempt, and exports
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID` into the Worker's tab. A Worker spawned on a
