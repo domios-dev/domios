@@ -470,6 +470,8 @@ pub struct TaskBinding {
     pub plan_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
     /// Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_handle: Option<String>,

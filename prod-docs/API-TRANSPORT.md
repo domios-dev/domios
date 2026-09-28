@@ -215,6 +215,11 @@ carries the exact command).
 | `activity.list` | `{source?, since?, limit?}` | Recent activity events (push / health / peer / cron). Default `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to an external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute media path. `append`: concatenate to the previous message. |
 
+Plan-bound Workers use signed peer routes, never arbitrary Git remotes.
+`POST /api/mesh/worker-dispatch` provisions after repo/base preflight;
+`worker-lane-bundle` requires the bound attempt, accepted SHA, and Full access.
+Origin `plan.task.merge_remote_lane` verifies the bundle after review.
+
 A `team pair` mints its Team with the two launch attempts it reserves and holds a lease on that exact reservation. When a leased attempt starts, is held, or the pair rolls back, the lease retires and the Team becomes ordinary. When a leased attempt reaches its terminal startup deadline, the closing tab sweeps the lease and removes that exact Team, only while it is still forming, empty, and free of any member the reservation never claimed. Normal, active, adopted, manually created, nonempty, and mismatched Teams are never touched, and `team.close` is unchanged.
 
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, carry that `team_id`, and sit in the Team's workspace, and the Team must have a live anchoring Orchestrator; any failure refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
@@ -230,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 33 -->
+<!-- revision: 36 -->

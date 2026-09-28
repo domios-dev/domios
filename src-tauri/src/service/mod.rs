@@ -159,7 +159,7 @@ pub mod web_access;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
-mod worker_lane;
+pub(crate) mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
@@ -207,7 +207,7 @@ pub(crate) use orchestrator::{
 };
 pub(crate) use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
-    TaskLaunchAuthority,
+    RemoteTaskBinding, TaskLaunchAuthority,
 };
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,

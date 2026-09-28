@@ -7,6 +7,58 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
+fn team_close_skips_remote_lane_without_touching_peer_worktree() {
+    let (mut mux, team_id, _, _, _) = team_members();
+    let dir = tempfile::tempdir().unwrap();
+    let peer_path = dir.path().join("peer-worktree");
+    fs::create_dir_all(&peer_path).unwrap();
+    let marker = peer_path.join("keep.txt");
+    fs::write(&marker, "peer-owned").unwrap();
+    let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let mut plan = crate::plan::Plan::new(
+        "Remote lane close".into(),
+        dir.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_tab("origin"),
+    );
+    plan.team_id = Some(team_id.clone());
+    let plan_id = plan.id.clone();
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store.add_task(
+        &plan_id,
+        NewTask { name: "Remote task".into(), kind: "implement".into(), ..Default::default() },
+        2,
+    ).unwrap();
+    store.with_plan(&plan_id, 3, |plan| {
+        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        task.execution_attempts.push(crate::plan::TaskExecutionAttempt {
+            id: "attempt_remote".into(),
+            executor_tab_id: "mesh-worker:attempt_remote".into(),
+            mesh_peer: Some("peer-1".into()),
+            branch: Some("lane/remote".into()),
+            base: Some("base-sha".into()),
+            remote_worktree_path: Some(peer_path.display().to_string()),
+            ..Default::default()
+        });
+        task.status = crate::plan::TaskStatus::InProgress;
+        Ok(())
+    }).unwrap();
+
+    let plan_snapshot = store.get(&plan_id).unwrap();
+    assert!(super::super::close::team_close_lanes(&[plan_snapshot], &team_id, &[]).is_empty());
+
+    let events = crate::api::events::EventBroadcaster::new();
+    close_team_with_state_change(
+        &mut mux,
+        &events,
+        &store,
+        &team_id,
+        &TeamMutationCaller::Human,
+        4,
+    ).unwrap();
+    assert_eq!(fs::read_to_string(marker).unwrap(), "peer-owned");
+}
+
+#[test]
 fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
     let (mut mux, team_id, orchestrator, planner, worker) = team_members();
     let (_plan_dir, plan_store) = isolated_plan_store();

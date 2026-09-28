@@ -109,8 +109,14 @@ fn render_attempts(value: &Value) -> String {
         let acknowledged_at = render_attempt_timestamp(&attempt, "acknowledged_at");
         let reported_at = render_attempt_timestamp(&attempt, "reported_at");
         let closed_at = render_attempt_timestamp(&attempt, "closed_at");
+        let remote_state = attempt
+            .get("remote_dispatch_state")
+            .and_then(|value| value.as_str())
+            .unwrap_or("-");
+        let remote_lane_tip = attempt.get("remote_lane_tip").and_then(|v| v.as_str()).unwrap_or("-");
+        let remote_merge_commit = attempt.get("remote_merge_commit").and_then(|v| v.as_str()).unwrap_or("-");
         out.push_str(&format!(
-            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
+            "attempt_id={id} executor_tab_id={tab} status={status} remote_dispatch_state={remote_state} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} remote_lane_tip={remote_lane_tip} remote_merge_commit={remote_merge_commit} closed_at={closed_at}\n"
         ));
     }
     out
@@ -130,6 +136,9 @@ fn render_attempt(value: &Value) -> String {
         "parent_tab_id",
         "orchestrator_tab_id",
         "mesh_peer",
+        "remote_dispatch_state",
+        "remote_lane_tip",
+        "remote_merge_commit",
         "branch",
         "worktree_path",
         "base",
@@ -317,6 +326,7 @@ pub(super) fn run_dispatch(
     client: &mut dyn RpcClient,
     json: bool,
     action: PlanTaskAction,
+    mesh_peer: Option<&str>,
 ) -> Result<Option<Value>, CliError> {
     let PlanTaskAction::Dispatch {
         plan_id,
@@ -365,6 +375,9 @@ pub(super) fn run_dispatch(
     }
     if let Some(cwd) = cwd {
         params["cwd"] = json!(cwd);
+    }
+    if let Some(peer) = mesh_peer {
+        params["mesh_peer"] = json!(peer);
     }
     inject_trusted_session(&mut params);
     let val = call_plan_rpc_detailed(client, "plan.task.dispatch", params)?;
@@ -841,8 +854,81 @@ pub(super) fn run_task(
             call(client, "plan.task.assign", params).map(Some)
         }
         dispatch @ PlanTaskAction::Dispatch { .. } => {
-            run_dispatch(client, json, dispatch).map_err(|error| error.message)
+            run_dispatch(client, json, dispatch, None).map_err(|error| error.message)
         }
+        PlanTaskAction::RemoteAck {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => {
+            let worker_tab_id = std::env::var("CODETERM_TAB_ID")
+                .map_err(|_| "remote ACK requires CODETERM_TAB_ID".to_string())?;
+            call(
+                client,
+                "plan.task.remote_ack",
+                json!({
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "worker_tab_id": worker_tab_id,
+                }),
+            )
+            .map(Some)
+        }
+        PlanTaskAction::RemoteReport {
+            plan_id,
+            task_id,
+            attempt_id,
+            message,
+            message_file,
+            sha,
+            changed_files,
+            test_cmd,
+            test_result,
+            skipped,
+        } => {
+            let message = crate::cmd::plan::resolve_text(message, message_file)
+                .map_err(|error| error.to_string())?
+                .filter(|message| !message.trim().is_empty())
+                .ok_or_else(|| "remote report message is required".to_string())?;
+            let report_id = format!("remote-report:{attempt_id}");
+            let reporter_tab_id = std::env::var("CODETERM_TAB_ID")
+                .map_err(|_| "remote report requires CODETERM_TAB_ID".to_string())?;
+            call(
+                client,
+                "plan.task.remote_report",
+                json!({
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "report": {
+                        "id": report_id,
+                        "message": message,
+                        "status": "in_review",
+                        "reporter_tab_id": reporter_tab_id,
+                        "sha": sha,
+                        "changed_files": changed_files,
+                        "test_cmd": test_cmd,
+                        "test_result": test_result,
+                        "skipped": skipped,
+                    }
+                }),
+            )
+            .map(Some)
+        }
+        PlanTaskAction::MergeRemoteLane {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => call(
+            client,
+            "plan.task.merge_remote_lane",
+            json!({
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+            }),
+        ).map(Some),
         PlanTaskAction::Attempts { plan_id, task_id } => {
             let val = call(
                 client,

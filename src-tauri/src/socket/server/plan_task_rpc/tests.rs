@@ -96,6 +96,22 @@ fn update_fixture() -> (ServiceFixture, String, String, String, String, String) 
     )
 }
 
+#[test]
+fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
+    let (fixture, plan_id, task_id, _, _, _) = update_fixture();
+    let params = Some(json!({
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "attempt_id": "attempt_forged",
+        "worker_tab_id": "forged-worker",
+        "authenticated_mesh_peer_id": "peer-origin"
+    }));
+    let error = crate::socket::server::dispatch_service_rpc(
+        "plan.task.remote_ack", params, &fixture.service,
+    ).expect_err("local RPC must not impersonate signed mesh transport");
+    assert!(error.message.contains("authenticated mesh transport"), "{}", error.message);
+}
+
 fn full_task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> String {
     let plan = fixture.service.plan_store.get(plan_id).unwrap();
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
@@ -474,6 +490,7 @@ fn starting_worker_with_live_pty(
         worker.task_binding = Some(crate::multiplexer::types::TaskBinding {
             plan_id: Some(plan_id.to_string()),
             task_id: Some(task_id.to_string()),
+attempt_id: None,
             spawn_handle: None,
             bound_at: 5,
         });
@@ -763,6 +780,7 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
                         tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
                             plan_id: Some(plan_id),
                             task_id: Some(task_id),
+attempt_id: None,
                             spawn_handle: None,
                             bound_at: 7,
                         });

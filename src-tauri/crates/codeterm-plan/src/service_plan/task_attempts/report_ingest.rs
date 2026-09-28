@@ -46,6 +46,9 @@ impl PlanStore {
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);
+                if attempt.remote_dispatch_state.is_some() {
+                    attempt.remote_dispatch_state = Some(crate::plan::RemoteDispatchState::Reported);
+                }
             }
             Ok(())
         })
@@ -194,6 +197,9 @@ impl PlanStore {
                     loaded_plan_skills: attempt.loaded_plan_skills.clone(),
                 });
                 attempt.reported_at = Some(now_ms);
+                if attempt.remote_dispatch_state.is_some() {
+                    attempt.remote_dispatch_state = Some(crate::plan::RemoteDispatchState::Reported);
+                }
             }
             let entering_review = committed_review && task.status != TaskStatus::InReview;
             if let Some(next) = accepted_transition.as_ref() {

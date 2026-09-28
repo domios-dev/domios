@@ -233,7 +233,168 @@ pub(crate) fn provision_isolated_lane(
     provision_lane(canonical_cwd, lane_label)
 }
 
+pub(crate) fn provision_isolated_lane_at_base(
+    canonical_cwd: &str,
+    lane_label: &str,
+    base: &str,
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane_at_base(canonical_cwd, lane_label, base)
+}
+
+pub(crate) fn repository_identity(cwd: &str) -> Result<String, String> {
+    let remotes = git_value(cwd, ["remote"])?;
+    let mut identities = Vec::new();
+    for remote in remotes.lines().map(str::trim).filter(|name| !name.is_empty()) {
+        let urls = git_value(cwd, ["remote", "get-url", "--all", remote])?;
+        identities.extend(urls.lines().filter_map(sanitized_remote_identity));
+    }
+    identities.sort();
+    identities.dedup();
+    if identities.is_empty() {
+        return Err("checkout has no configured repository remote identity".into());
+    }
+    use sha2::{Digest, Sha256};
+    Ok(format!("sha256:{:x}", Sha256::digest(identities.join("\n").as_bytes())))
+}
+
+pub(crate) fn contains_commit(cwd: &str, commit: &str) -> bool {
+    !commit.trim().is_empty()
+        && git_value(cwd, ["cat-file", "-e", &format!("{}^{{commit}}", commit.trim())])
+            .is_ok()
+}
+
+pub(crate) fn is_ancestor(cwd: &str, ancestor: &str, descendant: &str) -> bool {
+    git_success(cwd, &["merge-base", "--is-ancestor", ancestor, descendant])
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RemoteLaneMerge {
+    pub(crate) lane_tip: String,
+    pub(crate) target_tip: String,
+}
+
+pub(crate) fn integrate_remote_lane_bundle(
+    canonical_cwd: &str,
+    bundle: &[u8],
+    branch: &str,
+    attempt_id: &str,
+    base: &str,
+    expected_lane_tip: &str,
+    destination_branch: &str,
+) -> Result<RemoteLaneMerge, String> {
+    let source_ref = format!("refs/heads/{branch}");
+    let target_ref = format!("refs/codeterm/mesh/{attempt_id}");
+    for reference in [&source_ref, &target_ref] {
+        git_value(canonical_cwd, ["check-ref-format", reference])?;
+    }
+    if !branch.starts_with("lane/") || attempt_id.is_empty() {
+        return Err("remote lane identity is invalid".into());
+    }
+    let _target_ref_cleanup = RemoteLaneRefCleanup {
+        cwd: canonical_cwd.to_string(),
+        reference: target_ref.clone(),
+    };
+    if current_branch(canonical_cwd)? != destination_branch {
+        return Err("origin checkout is not on the recorded destination branch".into());
+    }
+    let dirty = run_git(canonical_cwd, ["status", "--porcelain", "--untracked-files=all"])?;
+    if !dirty.trim().is_empty() {
+        return Err("origin checkout must be clean before remote lane integration".into());
+    }
+    let temp_dir = tempfile::tempdir()
+        .map_err(|error| format!("cannot allocate remote lane bundle: {error}"))?;
+    let bundle_path = temp_dir.path().join("remote-lane.bundle");
+    std::fs::write(&bundle_path, bundle)
+        .map_err(|error| format!("cannot write remote lane bundle: {error}"))?;
+    run_git(canonical_cwd, ["bundle", "verify", bundle_path.to_string_lossy().as_ref()])?;
+    run_git(
+        canonical_cwd,
+        [
+            "fetch",
+            "--no-tags",
+            bundle_path.to_string_lossy().as_ref(),
+            &format!("{source_ref}:{target_ref}"),
+        ],
+    )?;
+    let lane_tip = git_value(canonical_cwd, ["rev-parse", &target_ref])?;
+    if lane_tip != expected_lane_tip {
+        return Err("peer bundle lane tip differs from the authenticated response".into());
+    }
+    if run_git(canonical_cwd, ["merge-base", "--is-ancestor", base, &lane_tip]).is_err() {
+        return Err("peer lane does not descend from the recorded base".to_string());
+    }
+    let current_tip = git_value(canonical_cwd, ["rev-parse", "HEAD"])?;
+    if is_ancestor(canonical_cwd, &lane_tip, &current_tip) {
+        return Ok(RemoteLaneMerge {
+            lane_tip,
+            target_tip: current_tip,
+        });
+    }
+    if !is_ancestor(canonical_cwd, base, &current_tip) {
+        return Err("origin target no longer descends from the dispatched base".into());
+    }
+    if current_branch(canonical_cwd)? != destination_branch
+        || !run_git(canonical_cwd, ["status", "--porcelain", "--untracked-files=all"])?.trim().is_empty()
+    {
+        return Err("origin checkout changed before remote lane merge".into());
+    }
+    if let Err(error) = run_git(canonical_cwd, ["merge", "--no-ff", "--no-edit", &target_ref]) {
+        let _ = run_git(canonical_cwd, ["merge", "--abort"]);
+        return Err(format!("real merge of peer lane failed: {error}"));
+    }
+    let target_tip = git_value(canonical_cwd, ["rev-parse", "HEAD"])?;
+    if !is_ancestor(canonical_cwd, &lane_tip, &target_tip) {
+        return Err("merged target does not contain the peer lane tip".to_string());
+    }
+    Ok(RemoteLaneMerge {
+        lane_tip,
+        target_tip,
+    })
+}
+
+struct RemoteLaneRefCleanup {
+    cwd: String,
+    reference: String,
+}
+
+impl Drop for RemoteLaneRefCleanup {
+    fn drop(&mut self) {
+        let _ = run_git(&self.cwd, ["update-ref", "-d", &self.reference]);
+    }
+}
+
+fn sanitized_remote_identity(remote: &str) -> Option<String> {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        return None;
+    }
+    if let Some((scheme, rest)) = remote.split_once("://") {
+        let authority_end = rest.find('/').unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        let path = &rest[authority_end..];
+        let path = path.split(['?', '#']).next().unwrap_or(path);
+        return Some(format!(
+            "{}://{}{}",
+            scheme.to_lowercase(),
+            host.to_lowercase(),
+            path.trim_end_matches('/')
+        ));
+    }
+    Some(remote.to_string())
+}
+
 fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {
+    let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
+    let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
+    provision_lane_at_base(&project_cwd, lane_label, &base)
+}
+
+fn provision_lane_at_base(
+    project_cwd: &str,
+    lane_label: &str,
+    requested_base: &str,
+) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let project = Path::new(&project_cwd);
     let repo = project
@@ -263,8 +424,14 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     })?;
     let lane_path = container.join(&slug);
     let lane_cwd = lane_path.display().to_string();
-    let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
-    if let Err(error) = run_git(&project_cwd, ["worktree", "add", "-b", &branch, &lane_cwd]) {
+    let base = git_value(
+        &project_cwd,
+        ["rev-parse", "--verify", &format!("{}^{{commit}}", requested_base)],
+    )?;
+    if let Err(error) = run_git(
+        &project_cwd,
+        ["worktree", "add", "-b", &branch, &lane_cwd, &base],
+    ) {
         let _ = std::fs::remove_dir_all(&lane_path);
         let _ = run_git(&project_cwd, ["worktree", "prune"]);
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
@@ -403,9 +570,15 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
     ))
 }
 
+fn git_success(project_cwd: &str, args: &[&str]) -> bool {
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    command.current_dir(project_cwd).args(args).status().is_ok_and(|status| status.success())
+}
+
 // `git branch --show-current` needs git 2.22, and a GUI-launched daemon inherits
 // the launchd PATH, where Apple's bundled git can still be 2.21.
-fn current_branch(worktree_path: &str) -> Result<String, String> {
+pub(crate) fn current_branch(worktree_path: &str) -> Result<String, String> {
     let output = git_output(
         worktree_path,
         ["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -442,7 +615,7 @@ fn inspect_failure(stderr: &[u8]) -> String {
     )
 }
 
-fn git_value<'a>(
+pub(crate) fn git_value<'a>(
     project_cwd: &str,
     args: impl IntoIterator<Item = &'a str>,
 ) -> Result<String, String> {
@@ -494,6 +667,104 @@ mod tests {
         std::fs::create_dir(project.join("node_modules")).unwrap();
         std::fs::write(project.join("node_modules/marker.txt"), "canonical").unwrap();
         (root, project)
+    }
+
+    fn remote_bundle_fixture() -> (tempfile::TempDir, PathBuf, String, String, Vec<u8>) {
+        let (_root, origin) = source_only_fixture();
+        std::fs::remove_dir_all(origin.join("node_modules")).unwrap();
+        let base = git_value(origin.to_str().unwrap(), ["rev-parse", "HEAD"]).unwrap();
+        let peer_root = tempfile::tempdir().unwrap();
+        let peer = peer_root.path().join("peer");
+        let peer_str = peer.to_str().unwrap();
+        let mut clone = Command::new("git");
+        process_util::no_window_std(&mut clone);
+        let output = clone.args(["clone", "-q", "--shared"])
+            .arg(&origin).arg(&peer).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        git(&peer, &["config", "user.email", "peer@example.com"]);
+        git(&peer, &["config", "user.name", "Peer"]);
+        git(&peer, &["switch", "-c", "lane/remote-test"]);
+        std::fs::write(peer.join("remote.txt"), "peer work").unwrap();
+        git(&peer, &["add", "remote.txt"]);
+        git(&peer, &["commit", "-qm", "peer work"]);
+        let lane_tip = git_value(peer_str, ["rev-parse", "HEAD"]).unwrap();
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let bundle_file = bundle_dir.path().join("lane.bundle");
+        let mut bundle = Command::new("git");
+        process_util::no_window_std(&mut bundle);
+        let output = bundle.current_dir(&peer).args(["bundle", "create"])
+            .arg(&bundle_file).arg("refs/heads/lane/remote-test").output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let bundle_bytes = std::fs::read(&bundle_file).unwrap();
+        (_root, origin, base, lane_tip, bundle_bytes)
+    }
+
+    #[test]
+    fn mesh_remote_lane_merge_records_ancestry_after_real_merge() {
+        let (_root, origin, base, lane_tip, bundle_bytes) = remote_bundle_fixture();
+
+        let result = integrate_remote_lane_bundle(
+            origin.to_str().unwrap(),
+            &bundle_bytes,
+            "lane/remote-test",
+            "attempt_remote_test",
+            &base,
+            &lane_tip,
+            &current_branch(origin.to_str().unwrap()).unwrap(),
+        ).unwrap();
+        assert_eq!(result.lane_tip, lane_tip);
+        assert!(is_ancestor(origin.to_str().unwrap(), &result.lane_tip, &result.target_tip));
+        let parents = git_value(origin.to_str().unwrap(), ["rev-list", "--parents", "-n", "1", "HEAD"]).unwrap();
+        assert_eq!(parents.split_whitespace().count(), 3, "integration must create a merge commit");
+        assert!(!git_success(origin.to_str().unwrap(), &["show-ref", "--verify", "refs/codeterm/mesh/attempt_remote_test"]));
+    }
+
+    #[test]
+    fn mesh_remote_lane_refuses_tip_different_from_reviewed_sha() {
+        let (_root, origin, base, _lane_tip, bundle) = remote_bundle_fixture();
+        let error = integrate_remote_lane_bundle(
+            origin.to_str().unwrap(), &bundle, "lane/remote-test", "attempt_tip_mismatch",
+            &base, "reviewed-sha-does-not-match", &current_branch(origin.to_str().unwrap()).unwrap(),
+        ).unwrap_err();
+        assert!(error.contains("lane tip differs"), "{error}");
+    }
+
+    #[test]
+    fn mesh_remote_lane_refuses_dirty_origin_checkout() {
+        let (_root, origin, base, lane_tip, bundle) = remote_bundle_fixture();
+        std::fs::write(origin.join("untracked.txt"), "local data").unwrap();
+        let error = integrate_remote_lane_bundle(
+            origin.to_str().unwrap(), &bundle, "lane/remote-test", "attempt_dirty",
+            &base, &lane_tip, &current_branch(origin.to_str().unwrap()).unwrap(),
+        ).unwrap_err();
+        assert!(error.contains("must be clean"), "{error}");
+    }
+
+    #[test]
+    fn mesh_remote_lane_refuses_wrong_destination_branch() {
+        let (_root, origin, base, lane_tip, bundle) = remote_bundle_fixture();
+        let error = integrate_remote_lane_bundle(
+            origin.to_str().unwrap(), &bundle, "lane/remote-test", "attempt_wrong_destination",
+            &base, &lane_tip, "unrelated-branch",
+        ).unwrap_err();
+        assert!(error.contains("recorded destination branch"), "{error}");
+    }
+
+    #[test]
+    fn mesh_remote_lane_conflict_aborts_merge_and_keeps_checkout_clean() {
+        let (_root, origin, base, lane_tip, bundle) = remote_bundle_fixture();
+        std::fs::write(origin.join("remote.txt"), "origin edit").unwrap();
+        git(&origin, &["add", "remote.txt"]);
+        git(&origin, &["commit", "-qm", "origin edit"]);
+        let destination = current_branch(origin.to_str().unwrap()).unwrap();
+        let error = integrate_remote_lane_bundle(
+            origin.to_str().unwrap(), &bundle, "lane/remote-test", "attempt_conflict",
+            &base, &lane_tip, &destination,
+        ).unwrap_err();
+        assert!(error.contains("real merge of peer lane failed"), "{error}");
+        assert!(git_value(origin.to_str().unwrap(), ["status", "--porcelain"]).unwrap().is_empty());
+        assert!(!git_success(origin.to_str().unwrap(), &["rev-parse", "--verify", "MERGE_HEAD"]));
+        assert!(!git_success(origin.to_str().unwrap(), &["show-ref", "--verify", "refs/codeterm/mesh/attempt_conflict"]));
     }
 
     /// The provenance is persisted and later replayed as a git working directory,

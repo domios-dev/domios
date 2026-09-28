@@ -165,6 +165,17 @@ fn main_impl() {
     }
 
     if let Some(mesh_target) = cli.mesh.clone() {
+        if matches!(
+            &cli.command,
+            Commands::Plan {
+                action: PlanAction::Task {
+                    action: args::plan::PlanTaskAction::Dispatch { .. }
+                }
+            }
+        ) {
+            mesh_cli::run_plan_task_dispatch_origin(cli, &mesh_target);
+            return;
+        }
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
             cli.command,

@@ -101,6 +101,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             execution_intent: "read_only".into(),
             provider_reserve_pct: 0.0,
         },
+        None,
     )
     .expect_err("unknown authoritative model is a structured dispatch error");
     let mut out = Vec::new();

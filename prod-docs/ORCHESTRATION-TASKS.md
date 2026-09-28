@@ -62,11 +62,12 @@ Every Worker has a clear Orchestrator title and description,
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
 brief with exact acceptance and test commands; it ACKs first and reports last.
 
-`plan task dispatch` is local-only. A Worker spawned with
-`agent spawn --mesh PEER` has no origin-plan attempt or plan/task env; report with
-`--plan <origin-plan> --task <task>`, or the Orchestrator attaches the arriving
-message by hand. Cross-mesh dispatch: out of scope; see the spawn-then-bind
-pattern in `codeterm docs MESH`.
+For work on a paired peer, dispatch with `plan task dispatch <plan> <task>
+--mesh <peer-instance-id> --execution-intent mutating`. The origin owns the attempt and
+review trail; the peer provisions the lane and binds the Worker to the origin
+plan/task/attempt identifiers. Accept the report on the origin before running
+`plan task merge-remote-lane <plan> <task> <attempt>` to fetch the signed peer
+bundle at the accepted report SHA and merge into the clean dispatch-time branch.
 
 ## Owner decision holds
 
@@ -76,4 +77,4 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
