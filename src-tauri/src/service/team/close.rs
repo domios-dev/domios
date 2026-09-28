@@ -151,6 +151,9 @@ pub(super) fn team_close_lanes(
             plan.canonical_project_path.clone()
         };
         for task in &plan.tasks {
+            if task.execution_attempts.iter().any(|attempt| attempt.remote_worktree_path.is_some()) {
+                continue;
+            }
             if task.status.is_terminal() || task.status == TaskStatus::InReview {
                 continue;
             }

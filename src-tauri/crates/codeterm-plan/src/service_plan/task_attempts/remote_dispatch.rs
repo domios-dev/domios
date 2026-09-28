@@ -46,6 +46,7 @@ impl PlanStore {
                 assigned_at: Some(now_ms),
                 ..Default::default()
             });
+            task.lane.destination = Some(destination.to_string());
             task.assigned_tab_id = Some(executor_tab_id);
             task.updated_at = now_ms;
             Ok(())
@@ -169,11 +170,11 @@ impl PlanStore {
             attempt.executor_tab_id = worker_tab_id.to_string();
             attempt.provider = Some(provider.to_string());
             attempt.branch = Some(branch.to_string());
-            attempt.worktree_path = Some(worktree_path.to_string());
+            attempt.remote_worktree_path = Some(worktree_path.to_string());
             attempt.base = Some(base.to_string());
             attempt.remote_dispatch_state = Some(RemoteDispatchState::AwaitingWorkerAck);
             task.lane.branch = Some(branch.to_string());
-            task.lane.worktree_path = Some(worktree_path.to_string());
+            task.lane.worktree_path = None;
             task.lane.base = Some(base.to_string());
             task.assigned_tab_id = Some(worker_tab_id.to_string());
             task.updated_at = now_ms;
@@ -418,6 +419,10 @@ mod tests {
         assert_eq!(detail.task.status, TaskStatus::InReview);
         let attempt = &detail.task.execution_attempts[0];
         assert_eq!(attempt.mesh_peer.as_deref(), Some("peer-origin"));
+        assert_eq!(attempt.remote_worktree_path.as_deref(), Some("D:/peer/repo-worktrees/lane"));
+        assert_eq!(attempt.worktree_path, None);
+        assert_eq!(detail.task.lane.worktree_path, None);
+        assert_eq!(detail.task.lane.destination, attempt.destination);
         assert_eq!(attempt.remote_dispatch_state, Some(RemoteDispatchState::Reported));
         assert_eq!(attempt.reported_at, Some(6));
         assert_eq!(attempt.report.as_ref().unwrap().sha.as_deref(), Some("lane-sha"));

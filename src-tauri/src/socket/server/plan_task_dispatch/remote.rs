@@ -223,6 +223,7 @@ pub(super) fn dispatch(
                 now,
             )
             .map_err(super::super::plan::plan_rpc_err)?;
+        super::emit_plan_changed(app, &plan_id);
         return Err(remote_failure(
             "relay_lost",
             &attempt_id,
@@ -290,8 +291,9 @@ pub(crate) fn merge_lane(
     }
     let report_sha = attempt.report.as_ref().and_then(|report| report.sha.clone())
         .ok_or_else(|| invalid_dispatch("accepted remote report has no reviewed lane SHA"))?;
-    let destination = attempt.destination.clone()
-        .ok_or_else(|| invalid_dispatch("remote attempt has no recorded destination branch"))?;
+    let destination = detail.task.lane.destination.clone()
+        .filter(|destination| attempt.destination.as_ref() == Some(destination))
+        .ok_or_else(|| invalid_dispatch("remote attempt destination differs from its task lane"))?;
     if attempt.remote_dispatch_state == Some(RemoteDispatchState::Integrated) {
         return Ok(json!({
             "integrated": true,
@@ -369,12 +371,19 @@ pub(crate) fn merge_lane(
     let response_base = response.get("base_commit").and_then(Value::as_str).unwrap_or_default();
     let lane_tip = response.get("lane_tip").and_then(Value::as_str).unwrap_or_default();
     let bundle = response.get("bundle").and_then(Value::as_str).unwrap_or_default();
+    const MAX_BUNDLE_BYTES: usize = 32 * 1024 * 1024;
+    if bundle.len() > MAX_BUNDLE_BYTES.div_ceil(3) * 4 {
+        return Err(invalid_dispatch("peer lane bundle exceeds 32 MiB"));
+    }
     if response_branch != branch || response_base != base || lane_tip != report_sha || bundle.is_empty() {
         return Err(invalid_dispatch("authenticated peer returned inconsistent lane provenance"));
     }
     use base64::Engine;
     let bundle = base64::engine::general_purpose::STANDARD.decode(bundle)
         .map_err(|_| invalid_dispatch("peer lane bundle is not valid base64"))?;
+    if bundle.len() > MAX_BUNDLE_BYTES {
+        return Err(invalid_dispatch("peer lane bundle exceeds 32 MiB"));
+    }
     let cwd = canonical_cwd.clone();
     let branch_name = branch.clone();
     let attempt_ref = attempt_id.clone();

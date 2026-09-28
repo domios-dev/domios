@@ -288,6 +288,10 @@ pub(crate) fn integrate_remote_lane_bundle(
     if !branch.starts_with("lane/") || attempt_id.is_empty() {
         return Err("remote lane identity is invalid".into());
     }
+    let _target_ref_cleanup = RemoteLaneRefCleanup {
+        cwd: canonical_cwd.to_string(),
+        reference: target_ref.clone(),
+    };
     if current_branch(canonical_cwd)? != destination_branch {
         return Err("origin checkout is not on the recorded destination branch".into());
     }
@@ -312,16 +316,13 @@ pub(crate) fn integrate_remote_lane_bundle(
     )?;
     let lane_tip = git_value(canonical_cwd, ["rev-parse", &target_ref])?;
     if lane_tip != expected_lane_tip {
-        let _ = run_git(canonical_cwd, ["update-ref", "-d", &target_ref]);
         return Err("peer bundle lane tip differs from the authenticated response".into());
     }
     if run_git(canonical_cwd, ["merge-base", "--is-ancestor", base, &lane_tip]).is_err() {
-        let _ = run_git(canonical_cwd, ["update-ref", "-d", &target_ref]);
         return Err("peer lane does not descend from the recorded base".to_string());
     }
     let current_tip = git_value(canonical_cwd, ["rev-parse", "HEAD"])?;
     if is_ancestor(canonical_cwd, &lane_tip, &current_tip) {
-        run_git(canonical_cwd, ["update-ref", "-d", &target_ref])?;
         return Ok(RemoteLaneMerge {
             lane_tip,
             target_tip: current_tip,
@@ -343,11 +344,21 @@ pub(crate) fn integrate_remote_lane_bundle(
     if !is_ancestor(canonical_cwd, &lane_tip, &target_tip) {
         return Err("merged target does not contain the peer lane tip".to_string());
     }
-    run_git(canonical_cwd, ["update-ref", "-d", &target_ref])?;
     Ok(RemoteLaneMerge {
         lane_tip,
         target_tip,
     })
+}
+
+struct RemoteLaneRefCleanup {
+    cwd: String,
+    reference: String,
+}
+
+impl Drop for RemoteLaneRefCleanup {
+    fn drop(&mut self) {
+        let _ = run_git(&self.cwd, ["update-ref", "-d", &self.reference]);
+    }
 }
 
 fn sanitized_remote_identity(remote: &str) -> Option<String> {
@@ -741,6 +752,7 @@ mod tests {
         assert!(error.contains("real merge of peer lane failed"), "{error}");
         assert!(git_value(origin.to_str().unwrap(), ["status", "--porcelain"]).unwrap().is_empty());
         assert!(!git_success(origin.to_str().unwrap(), &["rev-parse", "--verify", "MERGE_HEAD"]));
+        assert!(!git_success(origin.to_str().unwrap(), &["show-ref", "--verify", "refs/codeterm/mesh/attempt_conflict"]));
     }
 
     /// The provenance is persisted and later replayed as a git working directory,
