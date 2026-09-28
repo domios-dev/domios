@@ -463,8 +463,7 @@ fn quality_gap_errors_skip_terminal_tasks() {
         let gap = findings
             .iter()
             .find(|finding| {
-                finding.kind == "task_quality_gap"
-                    && finding.task_id.as_deref() == Some(task_id)
+                finding.kind == "task_quality_gap" && finding.task_id.as_deref() == Some(task_id)
             })
             .unwrap_or_else(|| panic!("missing task_quality_gap for {task_id}: {findings:?}"));
         assert_eq!(gap.severity, severity, "{task_id}: {gap:?}");

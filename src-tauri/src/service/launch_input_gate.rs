@@ -189,27 +189,22 @@ impl ServiceContext {
         });
         let deadline = Instant::now() + timeout;
         let mut generation = signal.generation();
-        let (
-            provider_readiness,
-            composer_cursor_position,
-            provider_binary_name,
-            status_bar_rows,
-        ) = self
-            .agent_registry
-            .with_provider(agent_id, |provider| {
-                (
-                    provider.provider_readiness_strategy(),
-                    provider.composer_cursor_position(),
-                    provider.binary_name().to_string(),
-                    provider.status_bar_rows(),
-                )
-            })
-            .unwrap_or((
-                crate::agent::provider::ProviderReadinessStrategy::default(),
-                crate::agent::provider::ComposerCursorPosition::default(),
-                String::new(),
-                0,
-            ));
+        let (provider_readiness, composer_cursor_position, provider_binary_name, status_bar_rows) =
+            self.agent_registry
+                .with_provider(agent_id, |provider| {
+                    (
+                        provider.provider_readiness_strategy(),
+                        provider.composer_cursor_position(),
+                        provider.binary_name().to_string(),
+                        provider.status_bar_rows(),
+                    )
+                })
+                .unwrap_or((
+                    crate::agent::provider::ProviderReadinessStrategy::default(),
+                    crate::agent::provider::ComposerCursorPosition::default(),
+                    String::new(),
+                    0,
+                ));
         let declares_structural_composer = provider_readiness.requires_composer();
         let uses_prompt_glyph_fingerprint = declares_structural_composer
             && composer_cursor_position
@@ -267,16 +262,14 @@ impl ServiceContext {
                 } else {
                     crate::agent::provider::ComposerCursorPosition::BottomRegion
                 };
-                let terminal_input_ready = input
-                    .as_ref()
-                    .is_some_and(|state| {
-                        launch_composer_input_ready(
-                            state,
-                            input_position,
-                            uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
-                            status_bar_rows,
-                        )
-                    });
+                let terminal_input_ready = input.as_ref().is_some_and(|state| {
+                    launch_composer_input_ready(
+                        state,
+                        input_position,
+                        uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
+                        status_bar_rows,
+                    )
+                });
                 let provider_tui = provider.screen_has_tui(&screen);
                 let tui_evidence = if mode == LaunchInputMode::LazySessionStart
                     && composer_cursor_position

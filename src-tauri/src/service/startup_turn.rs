@@ -54,7 +54,11 @@ pub(crate) fn resolve(
                     .then(|| confirmed_first_turn.map(str::to_string))
                     .flatten()
             });
-        (expected_turn, first_turn_will_be_delivered, provider.has_hooks())
+        (
+            expected_turn,
+            first_turn_will_be_delivered,
+            provider.has_hooks(),
+        )
     });
     let (expected_turn, first_turn_will_be_delivered, has_hooks) =
         provider_plan.unwrap_or((None, fallback_spec.is_some(), false));

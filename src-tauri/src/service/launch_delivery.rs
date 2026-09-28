@@ -308,7 +308,10 @@ pub(crate) fn command_task(
             crate::agent::provider::TaskDelivery::InlineFlag
         );
     let inline_task_text = inline_task
-        .then(|| task.filter(|text| !text.trim().is_empty()).map(str::to_string))
+        .then(|| {
+            task.filter(|text| !text.trim().is_empty())
+                .map(str::to_string)
+        })
         .flatten();
     LaunchCommandTask {
         text: system_prompt.clone().or(inline_task_text),

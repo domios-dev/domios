@@ -265,7 +265,12 @@ impl ScreenState {
         let (rows, cols) = screen.size();
         Some(
             (0..rows)
-                .map(|row| screen.contents_between(row, 0, row, cols).trim_end().to_string())
+                .map(|row| {
+                    screen
+                        .contents_between(row, 0, row, cols)
+                        .trim_end()
+                        .to_string()
+                })
                 .collect(),
         )
     }
