@@ -480,7 +480,7 @@ fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
         .task_binding = Some(crate::multiplexer::types::TaskBinding {
         plan_id: Some("plan-a".into()),
         task_id: Some("task-a".into()),
-attempt_id: None,
+        attempt_id: None,
         spawn_handle: None,
         bound_at: 1,
     });

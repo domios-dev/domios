@@ -132,13 +132,13 @@ pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
-pub use team::TeamCloseResult;
 #[cfg(test)]
 pub(crate) use team::close_team_with_state_change;
 #[cfg(test)]
 pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
+pub use team::TeamCloseResult;
 mod task_lane_guard;
 pub(crate) use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,

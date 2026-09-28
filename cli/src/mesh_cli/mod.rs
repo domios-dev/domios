@@ -339,13 +339,14 @@ fn enrich_send_body_with_local_source(
     {
         v["source_model"] = serde_json::json!(model);
     }
-    v["source_is_agent"] = serde_json::json!(tab
-        .get("agent_type")
-        .and_then(|value| value.as_str())
-        .is_some()
-        || tab
-            .get("agent_booting")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false));
+    v["source_is_agent"] = serde_json::json!(
+        tab.get("agent_type")
+            .and_then(|value| value.as_str())
+            .is_some()
+            || tab
+                .get("agent_booting")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+    );
     v.to_string()
 }

@@ -305,22 +305,52 @@ fn print_human(value: &Value) {
 }
 
 fn print_close_inventory(inventory: &Value) {
-    for record in inventory.get("removed").and_then(Value::as_array).into_iter().flatten() {
+    for record in inventory
+        .get("removed")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         println!(
             "Removed lane path={} branch={}",
-            record.get("path").and_then(Value::as_str).unwrap_or("<none>"),
-            record.get("branch").and_then(Value::as_str).unwrap_or("<none>")
+            record
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("branch")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>")
         );
     }
-    for record in inventory.get("kept").and_then(Value::as_array).into_iter().flatten() {
+    for record in inventory
+        .get("kept")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         println!(
             "Kept lane path={} branch={} reason={}",
-            record.get("path").and_then(Value::as_str).unwrap_or("<none>"),
-            record.get("branch").and_then(Value::as_str).unwrap_or("<none>"),
-            record.get("reason").and_then(Value::as_str).unwrap_or("unknown")
+            record
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("branch")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
         );
     }
-    for branch in inventory.get("orphan_branches").and_then(Value::as_array).into_iter().flatten() {
+    for branch in inventory
+        .get("orphan_branches")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         if let Some(branch) = branch.as_str() {
             println!("Orphan lane branch={branch}");
         }

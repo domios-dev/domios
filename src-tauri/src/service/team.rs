@@ -8,11 +8,11 @@ use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
 mod close;
-pub use close::TeamCloseResult;
 #[cfg(test)]
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
+pub use close::TeamCloseResult;
 use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };

@@ -25,9 +25,9 @@ use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_lanes::render_lane_removed;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
+pub(crate) use mesh_dispatch::handle_mesh_dispatch;
 use serde_json::{json, Value};
 pub(crate) use task_cmd::render_empty_reason;
-pub(crate) use mesh_dispatch::handle_mesh_dispatch;
 
 pub(crate) fn resolve_text(
     value: Option<String>,

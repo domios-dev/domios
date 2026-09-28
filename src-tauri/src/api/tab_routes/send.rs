@@ -455,8 +455,8 @@ pub async fn send_text(
                     let resolved = mux.resolve_tab_id(src)?;
                     let from_label = mux.display_label_for_tab(&resolved);
                     let source_tab = mux.get_tab(&resolved);
-                    let from_agent = source_tab
-                        .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+                    let from_agent =
+                        source_tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
                     let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
                     Some(
                         crate::service::messenger::MessageEnvelope::tab(from_label, resolved)
