@@ -92,7 +92,7 @@ async function main() {
     const stop = host.querySelector<HTMLSelectElement>('[data-testid="delayed-send-stop-mode"]');
     if (stop) {
       stop.value = "count";
-      await act(async () => stop.dispatchEvent(new windowAny.Event("change", { bubbles: true })));
+      await act(async () => stop.dispatchEvent(new (windowAny as any).Event("change", { bubbles: true })));
     }
     await click(host, '[data-testid="delayed-send-schedule-submit"]');
     assert(scheduledAt >= Date.now() + 5 * 60_000 - 1_000, "repeat preset schedules its first fire");
@@ -135,8 +135,8 @@ async function main() {
       const setter = Object.getOwnPropertyDescriptor(windowAny.HTMLInputElement.prototype, "value")?.set;
       await act(async () => {
         setter?.call(interval, "15");
-        interval.dispatchEvent(new windowAny.Event("input", { bubbles: true }));
-        interval.dispatchEvent(new windowAny.Event("change", { bubbles: true }));
+        interval.dispatchEvent(new (windowAny as any).Event("input", { bubbles: true }));
+        interval.dispatchEvent(new (windowAny as any).Event("change", { bubbles: true }));
       });
     }
     await click(host, 'button[aria-label="Save"]');
