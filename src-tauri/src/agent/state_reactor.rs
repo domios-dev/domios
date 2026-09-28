@@ -259,15 +259,19 @@ fn has_structural_prompt_evidence(
                 .then_some(index)
         })
         .max();
-    if last_option_row.is_some_and(|last| {
-        lines[last + 1..].iter().any(|line| {
-            matches!(
-                line.trim()
-                    .trim_start_matches(|ch| ch == '│' || ch == '┃')
-                    .trim(),
-                "❯" | "›" | "▶" | "➤" | ">"
-            )
-        })
+    let Some(last_option_row) = last_option_row else {
+        return false;
+    };
+    if !has_terminal_prompt_footer(&lines, last_option_row) {
+        return false;
+    }
+    if lines[last_option_row + 1..].iter().any(|line| {
+        matches!(
+            line.trim()
+                .trim_start_matches(|ch| ch == '│' || ch == '┃')
+                .trim(),
+            "❯" | "›" | "▶" | "➤" | ">"
+        )
     }) {
         return false;
     }
@@ -299,6 +303,30 @@ fn has_structural_prompt_evidence(
             .iter()
             .any(|option| line_has_option(rest, option))
     })
+}
+
+fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
+    let footer_row = lines
+        .iter()
+        .enumerate()
+        .skip(last_option_row + 1)
+        .filter(|(_, line)| {
+            let line = line.to_ascii_lowercase();
+            line.contains("enter")
+                && ["confirm", "continue", "select", "cancel", "go back"]
+                    .iter()
+                    .any(|action| line.contains(action))
+        })
+        .map(|(index, _)| index)
+        .last();
+    let Some(footer_row) = footer_row else {
+        return false;
+    };
+    lines
+        .iter()
+        .enumerate()
+        .skip(footer_row + 1)
+        .all(|(_, line)| line.trim().is_empty())
 }
 
 fn line_has_option(line: &str, option: &crate::multiplexer::types::PromptOption) -> bool {

@@ -84,8 +84,9 @@ fn reactor_test_prompt() -> PendingPrompt {
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn delivered_goal_text_never_raises_needs_response_notification() {
-    let prompt = reactor_test_prompt();
-    let screen = "goal question token?\n1) opaque option alpha\n2) opaque option beta\n›";
+    let mut prompt = reactor_test_prompt();
+    prompt.selected_values = Some(vec!["1".into()]);
+    let screen = include_str!("fixtures/codex_transcript_with_composer.txt");
     let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt);
 
     react(&service, &pty_id, TabStatus::Waiting);
@@ -127,6 +128,33 @@ fn needs_response_notification_requires_a_real_pending_prompt() {
             .collect::<Vec<_>>(),
         vec!["opaque option alpha", "opaque option beta"]
     );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn classified_terminal_dialogs_keep_their_single_pending_notification() {
+    let dialogs = [
+        (
+            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+            ["Trust and continue", "Quit"],
+        ),
+        (
+            include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/approval-paragraph.txt"),
+            ["Yes, apply", "No, cancel"],
+        ),
+    ];
+
+    for (screen, labels) in dialogs {
+        let mut prompt = reactor_test_prompt();
+        for (option, label) in prompt.options.iter_mut().zip(labels) {
+            option.label = label.into();
+        }
+        let (fixture, service, _tab_id, pty_id) = classified_prompt_fixture(screen, prompt);
+
+        react(&service, &pty_id, TabStatus::Waiting);
+
+        assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    }
 }
 
 #[test]
