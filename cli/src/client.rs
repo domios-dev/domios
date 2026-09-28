@@ -532,10 +532,6 @@ impl RpcClient for SocketClient {
 ///    new daemon listens on a fresh pid-suffixed pipe, so any subprocess
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
-pub fn discover_socket() -> Result<String, String> {
-    discover_socket_resolution().map(|resolved| resolved.path)
-}
-
 pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
     let deterministic = deterministic_socket_resolution();
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
@@ -582,7 +578,7 @@ pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
 }
 
 /// Return true when the named socket exists and is reachable. Used by
-/// `discover_socket` to decide whether to trust `CODETERM_SOCKET_PATH`.
+/// `discover_socket_resolution` to decide whether to trust `CODETERM_SOCKET_PATH`.
 fn socket_is_live(name: &str) -> bool {
     normalize_socket_path(name)
         .to_ns_name::<GenericNamespaced>()

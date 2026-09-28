@@ -638,6 +638,7 @@ pub(crate) fn take_published_failure(attempt: &LaunchAttempt) -> Option<String> 
 /// Wait for this launch's own readiness evidence until the bounded deadline.
 /// Event-driven on the evidence notes; the deadline only bounds the failure to
 /// observe anything and is never itself treated as readiness.
+#[cfg(test)]
 pub(crate) fn observe(attempt: &LaunchAttempt, deadline: Instant) -> LaunchObservation {
     let mut state = OBSERVATIONS.state.lock();
     loop {

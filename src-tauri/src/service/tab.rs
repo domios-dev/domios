@@ -13,6 +13,7 @@ mod lifecycle_exit;
 #[path = "tab/tests.rs"]
 mod tests;
 #[cfg(test)]
+#[cfg(test)]
 pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
@@ -233,7 +234,7 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
-        crate::service::prompt_resolution::clear_tab_prompt(&canonical_tab_id, None);
+        crate::service::prompt_resolution::clear_tab_prompt(None);
         crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
         if let (Some(provider_id), Some(session_id)) =
             (provider_id.as_deref(), session_id.as_deref())
@@ -754,7 +755,7 @@ impl ServiceContext {
     ) -> Option<codeterm_types::pty::PromptIdentity> {
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id)?;
-        let identity = crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+        let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         identity

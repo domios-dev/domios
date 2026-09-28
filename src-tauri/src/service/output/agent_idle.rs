@@ -24,7 +24,7 @@ impl ServiceContext {
                         || tab.pending_prompt.is_some();
                     let cleared_prompt = tab.pending_prompt.is_some();
                     let previous_identity =
-                        crate::service::prompt_resolution::clear_tab_prompt(tab_id, Some(tab));
+                        crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
                     tab.agent_state = Some(idle_state);
                     (changed, previous_identity, cleared_prompt)
                 }

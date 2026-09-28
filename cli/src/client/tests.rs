@@ -474,13 +474,6 @@ fn http_rpc_result_preserves_payloads_with_an_inner_error_field() {
     assert_eq!(result["accepted"], false);
 }
 
-fn http_config(base_url: &str) -> HttpFallbackConfig {
-    HttpFallbackConfig {
-        base_url: base_url.to_owned(),
-        token: "opaque-token".into(),
-    }
-}
-
 fn restore_env(key: &str, value: Option<String>) {
     match value {
         Some(value) => std::env::set_var(key, value),

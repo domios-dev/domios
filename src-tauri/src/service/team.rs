@@ -390,7 +390,7 @@ impl ServiceContext {
         }
         for tab_id in &cleanup.member_tab_ids {
             self.flag_bound_tasks_for_gone_tab(tab_id, 0);
-            crate::service::prompt_resolution::clear_tab_prompt(tab_id, None);
+            crate::service::prompt_resolution::clear_tab_prompt(None);
             crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             self.prompt_detector.lock().remove_tab(tab_id);
             crate::service::structured_prompt::clear_tab(tab_id);
@@ -995,9 +995,8 @@ mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
-    commit_team_member_spawn, detach_spawn_failed_team_orchestrators, prepare_team_member_spawn,
-    take_over_team_plan, AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
-    TeamOrchestratorAttachLocks,
+    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
+    AddTeamMemberResult, TeamCartographerAttachLocks, TeamOrchestratorAttachLocks,
 };
 
 #[cfg(test)]
