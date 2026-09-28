@@ -10,6 +10,7 @@ mod commands;
 mod core;
 mod folder_trust;
 mod launch_session;
+mod onboarding;
 mod permission_prompt;
 mod permission_request;
 mod sessions;

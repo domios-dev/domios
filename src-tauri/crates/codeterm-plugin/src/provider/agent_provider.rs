@@ -339,6 +339,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// One next key for a provider-declared, safe launch onboarding choice.
+    /// The host re-observes the screen before requesting another key.
+    fn launch_onboarding_response(&self, _screen: &str) -> Option<Vec<u8>> {
+        None
+    }
+
     fn parse_directory_trust_prompt(
         &self,
         _screen: &str,

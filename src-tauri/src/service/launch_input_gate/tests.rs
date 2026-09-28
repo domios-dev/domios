@@ -3,6 +3,15 @@ use crate::agent::provider::AgentProvider;
 use crate::agent::test_provider::MockProvider;
 
 #[test]
+fn claude_onboarding_prompt_follows_declared_policy() {
+    use codeterm_types::agent::roles::AgentRole;
+    assert!(delegated_role(Some(AgentRole::Worker), None));
+    assert!(delegated_role(Some(AgentRole::Manager), Some("planner")));
+    assert!(!delegated_role(Some(AgentRole::Manager), Some("orchestrator")));
+    assert!(!delegated_role(None, None));
+}
+
+#[test]
 fn unsupported_codex_layout_fails_with_named_reason() {
     let refusal = launch_readiness_deadline_refusal(true, true);
     assert_eq!(refusal, LaunchInputRefusal::ComposerNotRecognised);

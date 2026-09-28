@@ -63,6 +63,15 @@ struct LaunchInputObservation {
     classification: Option<TabStateClassification>,
 }
 
+fn delegated_role(
+    role: Option<crate::multiplexer::types::AgentRole>,
+    role_profile: Option<&str>,
+) -> bool {
+    role == Some(codeterm_types::agent::roles::AgentRole::Worker)
+        || (role == Some(codeterm_types::agent::roles::AgentRole::Manager)
+            && role_profile == Some("planner"))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LaunchInputMode {
     Standard,
@@ -210,6 +219,7 @@ impl ServiceContext {
             && composer_cursor_position
                 == crate::agent::provider::ComposerCursorPosition::BottomRegion;
         let mut observed_tui_without_composer = false;
+        let mut onboarding_notice_emitted = false;
 
         loop {
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
@@ -220,7 +230,7 @@ impl ServiceContext {
                 return Err(LaunchInputRefusal::AttemptSuperseded);
             }
 
-            let (session_bound, pending_prompt, session_id, cwd) = {
+            let (session_bound, pending_prompt, session_id, cwd, delegated_role) = {
                 let mux = self.mux.read();
                 let Some(tab) = mux.get_tab(&attempt.tab_id) else {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
@@ -233,6 +243,7 @@ impl ServiceContext {
                     tab.pending_prompt.is_some(),
                     tab.agent_session_id.clone(),
                     tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                    delegated_role(tab.role, tab.role_profile.as_deref()),
                 )
             };
             let provider_process_alive = mode == LaunchInputMode::Standard
@@ -256,6 +267,56 @@ impl ServiceContext {
                 cwd,
                 screen_text: screen.clone(),
             };
+            if delegated_role {
+                let onboarding_step = self
+                    .agent_registry
+                    .with_provider(agent_id, |provider| {
+                        provider.launch_onboarding_response(&screen)
+                    })
+                    .flatten();
+                if let Some(step) = onboarding_step {
+                    let selects_safe_choice = step.as_slice() == b"\r";
+                    let response_queued = self
+                        .inject_raw_keys_async(&attempt.tab_id, vec![step])
+                        .is_ok();
+                    if response_queued {
+                        if selects_safe_choice && !onboarding_notice_emitted {
+                            self.create_notification_ext(
+                                "Provider onboarding choice applied".into(),
+                                Some(format!(
+                                    "Tab {} received its provider-declared safe onboarding choice.",
+                                    attempt.tab_id
+                                )),
+                                Some("info"),
+                                None,
+                                None,
+                                crate::service::notification::NotificationOrigin::local_tab(
+                                    attempt.tab_id.clone(),
+                                ),
+                                crate::service::notification::PushIntent::default(),
+                                None,
+                            );
+                            onboarding_notice_emitted = true;
+                        }
+                        let remaining = deadline
+                            .checked_duration_since(Instant::now())
+                            .ok_or_else(|| {
+                                launch_readiness_deadline_refusal(
+                                    declares_structural_composer,
+                                    observed_tui_without_composer,
+                                )
+                            })?;
+                        if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                            return Err(launch_readiness_deadline_refusal(
+                                declares_structural_composer,
+                                observed_tui_without_composer,
+                            ));
+                        }
+                        generation = signal.generation();
+                        continue;
+                    }
+                }
+            }
             let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
                 let input_position = if mode == LaunchInputMode::LazySessionStart {
                     composer_cursor_position

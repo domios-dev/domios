@@ -13,6 +13,7 @@ mod interactive;
 mod launch;
 pub(crate) mod launch_session;
 mod permission_prompt;
+mod onboarding;
 mod schemas;
 mod sessions;
 mod subagents;
@@ -297,6 +298,10 @@ impl AgentProvider for ClaudeProvider {
         screen: &str,
     ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
         folder_trust::response(screen)
+    }
+
+    fn launch_onboarding_response(&self, screen: &str) -> Option<Vec<u8>> {
+        onboarding::not_now_step(screen)
     }
 
     fn permission_prompt_response(

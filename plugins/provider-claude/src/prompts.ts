@@ -278,6 +278,22 @@ export function buildClaudePromptResponse(optionIndex: number, screen: string): 
   return steps;
 }
 
+export function claudeOnboardingNotNowStep(screen: string): string | null {
+  const prompt = parseClaudeNumberedPrompt(screen);
+  if (!prompt || !/\bauto\b/i.test(prompt.question) || !/\benvironment\b/i.test(prompt.question)) return null;
+  const labels = prompt.options.map(([, label]) => label.trim().toLowerCase());
+  if (labels.length !== 3) return null;
+  const target = labels.findIndex((label) => /^not\s+now(?:\b|$)/.test(label));
+  const yes = labels.filter((label) => /^yes(?:\b|$)/.test(label)).length;
+  const persistent = labels.filter((label) => /\bdon't\s+show\s+again\b/.test(label)).length;
+  if (target < 0 || yes !== 1 || persistent !== 1) return null;
+  const focused = parseNumberedOptions(screen).findIndex((option) => option.highlighted);
+  if (focused < 0 || parseNumberedOptions(screen).filter((option) => option.highlighted).length !== 1) return null;
+  const current = focused;
+  if (current === target) return "DQ==";
+  return target > current ? "ag==" : "aw==";
+}
+
 export function moveToOption(targetIndex: number, screen: string): string[] {
   const current = currentHighlightedOptionIndex(screen);
   const delta = targetIndex - current;

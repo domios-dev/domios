@@ -224,6 +224,21 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 }
 
 {
+  const onboarding = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "onboarding", "auto-environment.txt"),
+    "utf8",
+  );
+  eq(hostPlugin.launchOnboardingResponse(onboarding), "DQ==", "onboarding responder confirms only the focused Not now option");
+  const rows = onboarding.split("\n");
+  const yes = rows.findIndex((row) => /^\s*1\./.test(row));
+  const notNow = rows.findIndex((row) => /^❯\s*2\./.test(row));
+  rows[yes] = rows[yes].replace(/^\s*/, "❯ ");
+  rows[notNow] = rows[notNow].replace(/^❯\s*/, "  ");
+  eq(hostPlugin.launchOnboardingResponse(rows.join("\n")), "ag==", "onboarding responder advances one observed key toward the safe option");
+  eq(hostPlugin.launchOnboardingResponse(onboarding.replace(/^[^\r\n]+\?$/m, "A different startup question?")), null, "unclassified startup dialog is left alone");
+}
+
+{
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "folder-trust");
   const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
   const keys: Record<string, string[] | null> = {
