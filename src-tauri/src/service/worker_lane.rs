@@ -137,6 +137,8 @@ pub(crate) struct WorkerLaneProvenance {
     pub(crate) worktree_path: String,
     pub(crate) branch: String,
     pub(crate) base: String,
+    /// The canonical branch the lane integrates into; None for a detached canonical HEAD.
+    pub(crate) destination: Option<String>,
 }
 
 impl ServiceContext {
@@ -338,11 +340,15 @@ pub(crate) fn verify_worker_lane(
         }
         None => git_value(canonical_cwd, ["merge-base", "HEAD", &head_ref])?,
     };
+    let destination = git_value(canonical_cwd, ["symbolic-ref", "--short", "-q", "HEAD"])
+        .ok()
+        .filter(|name| !name.is_empty());
     Ok(WorkerLaneProvenance {
         canonical_cwd: canonical.display().to_string(),
         worktree_path: worktree.display().to_string(),
         branch,
         base,
+        destination,
     })
 }
 

@@ -42,6 +42,9 @@ pub(super) fn lane_metadata_for_dispatch(
     // nudge fires instead of persisting an empty branch name.
     lane.branch = (!provenance.branch.is_empty()).then(|| provenance.branch.clone());
     lane.base = Some(provenance.base.clone());
+    if lane.destination.is_none() {
+        lane.destination = provenance.destination.clone();
+    }
     lane.cleanup_status = None;
     lane
 }

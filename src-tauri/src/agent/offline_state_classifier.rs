@@ -127,9 +127,18 @@ pub fn prompt_glyph_cursor_ready(
             .skip(status_bar_rows as usize)
             .any(|(row, line)| {
                 let line = line.trim_start();
-                row as u16 == cursor_row
-                    && (line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
+                let Some(rest) = line.strip_prefix(['❯', '›', '→']) else {
+                    return false;
+                };
+                row as u16 == cursor_row && !is_selected_option_row(rest)
             })
+}
+
+/// A selection marker in front of a numbered choice is a dialog option, not the composer.
+fn is_selected_option_row(rest: &str) -> bool {
+    let rest = rest.trim_start();
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && matches!(rest[digits..].chars().next(), Some('.' | ')'))
 }
 
 /// The 3-state classification core — the ONE place the verdict is decided.
