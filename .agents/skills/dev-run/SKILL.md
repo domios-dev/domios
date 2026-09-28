@@ -214,6 +214,14 @@ well as the immediate environment before declaring recovery complete.
 - **2026-07-25: process starts but 7686 never binds** — a temporary config guard
   in the `ServiceContext` literal was reacquired by a later field. Snapshot config
   once before constructing the context; do not erase dev state to mask the deadlock.
+- **2026-09-28: next dev start fails with `os error 32`** — an orphaned
+  `src-tauri/target/debug/conpty/x64/OpenConsole.exe` still has the build
+  resource open after its daemon exits. `build.sh kill` and `build.ps1 kill`
+  now select the host by its image path under this checkout's target directory
+  and only reap it when its parent is gone or is this instance's daemon. Run
+  the matching kill command, then start dev again; the daemon also closes hosts
+  for PTYs it owns during shutdown. If the lock remains, inspect the selected
+  instance's `OpenConsole.exe` parent and image path before taking further action.
 
 ### Linux
 
