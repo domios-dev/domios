@@ -378,6 +378,11 @@ impl ServiceContext {
             .as_deref()
             .map(|pid| self.reconciled_tab_status_for_id(pid, current_status))
             .unwrap_or(current_status);
+        if previous_reconciled_status != TabStatus::Idle
+            && current_reconciled_status == TabStatus::Idle
+        {
+            super::provider_update::on_state_change(self);
+        }
         (previous_reconciled_status, current_reconciled_status)
     }
 

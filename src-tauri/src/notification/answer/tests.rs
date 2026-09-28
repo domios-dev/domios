@@ -65,6 +65,23 @@ fn notify_answer_kind_cannot_express_a_command_or_arguments() {
     );
 }
 
+#[test]
+fn detached_system_choice_requires_the_internal_answer_path() {
+    let (mut store, id) = asked_from(None);
+    assert_eq!(
+        store.record_answer(&id, "Merge"),
+        AnswerAdmission::Undeliverable
+    );
+    assert_eq!(
+        store.record_detached_answer(&id, "Merge"),
+        AnswerAdmission::Recorded("Merge".into())
+    );
+    assert_eq!(
+        store.record_detached_answer(&id, "Rebase"),
+        AnswerAdmission::AlreadyAnswered("Merge".into())
+    );
+}
+
 /// An invented kind is refused where it is parsed, so it can never travel as a
 /// string that some later click handler interprets.
 #[test]
