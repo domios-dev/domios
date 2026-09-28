@@ -688,15 +688,16 @@ impl ServiceContext {
             params.remote_task_binding.as_ref(),
             task_identity.as_ref(),
         );
-        let startup_supervised = !remote_task_bound && self.prepare_agent_startup_supervision(
-            &tab_id,
-            params
-                .parent_tab_id
-                .as_deref()
-                .or(params.spawned_by_tab_id.as_deref())
-                .or(params.creator_tab_id.as_deref()),
-            task_identity.clone(),
-        );
+        let startup_supervised = !remote_task_bound
+            && self.prepare_agent_startup_supervision(
+                &tab_id,
+                params
+                    .parent_tab_id
+                    .as_deref()
+                    .or(params.spawned_by_tab_id.as_deref())
+                    .or(params.creator_tab_id.as_deref()),
+                task_identity.clone(),
+            );
         if params.task_launch_authority.is_some() && !startup_supervised && !remote_task_bound {
             if tab_created_by_spawn {
                 self.cancel_agent_startup_supervision(&tab_id);

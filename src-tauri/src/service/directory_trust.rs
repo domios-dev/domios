@@ -533,25 +533,21 @@ impl ServiceContext {
         };
         let response = self
             .agent_registry
-            .with_provider(&agent_type, |provider| provider.launch_onboarding_response(screen))
+            .with_provider(&agent_type, |provider| {
+                provider.launch_onboarding_response(screen)
+            })
             .flatten();
         let Some(response) = response else {
             return TrustDecision::NoDialog;
         };
         let frame_key = format!("launch-onboarding:{}", response.frame_key);
         let expected = response.clone();
-        let decision = decide_with_frame_identity(
-            true,
-            tab_id,
-            screen,
-            &frame_key,
-            &LEDGER,
-            |_| {
+        let decision =
+            decide_with_frame_identity(true, tab_id, screen, &frame_key, &LEDGER, |_| {
                 Some(DirectoryTrustPromptResponse::Answer {
                     step: response.step,
                 })
-            },
-        );
+            });
         if let TrustDecision::Answer { step } = &decision {
             self.prompt_detector.lock().mark_responded(tab_id);
             let service = self.clone();
@@ -591,10 +587,7 @@ impl ServiceContext {
         if !applies {
             return false;
         }
-        let signal = self
-            .screen_state
-            .lock()
-            .subscribe_screen_changes(pty_id);
+        let signal = self.screen_state.lock().subscribe_screen_changes(pty_id);
         let mut recognized = false;
         let mut enter_submitted = false;
         loop {
@@ -612,12 +605,8 @@ impl ServiceContext {
                 .unwrap_or(false);
             if has_dialog {
                 recognized = true;
-                match self.respond_to_launch_onboarding(
-                    tab_id,
-                    agent_type,
-                    &screen,
-                    signal.clone(),
-                ) {
+                match self.respond_to_launch_onboarding(tab_id, agent_type, &screen, signal.clone())
+                {
                     TrustDecision::Answer { step } => {
                         enter_submitted |= step.as_slice() == b"\r";
                     }
@@ -694,10 +683,7 @@ impl ServiceContext {
         };
         LEDGER.lock().settle(tab_id);
         if !owed {
-            log::info!(
-                "[launch-onboarding] Withheld stale key for Tab {}",
-                tab_id
-            );
+            log::info!("[launch-onboarding] Withheld stale key for Tab {}", tab_id);
         }
         owed
     }

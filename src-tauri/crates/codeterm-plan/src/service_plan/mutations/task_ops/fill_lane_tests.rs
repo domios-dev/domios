@@ -285,7 +285,10 @@ fn dispatch_records_computed_destination_when_none_is_stored() {
         )
         .unwrap();
     let starting = store.show_task(&task).unwrap().task;
-    assert_eq!(starting.lane.destination.as_deref(), Some("release/computed"));
+    assert_eq!(
+        starting.lane.destination.as_deref(),
+        Some("release/computed")
+    );
     store
         .finish_task_dispatch(
             &plan,

@@ -141,7 +141,7 @@ function normalizeAbsolutePath(path: string, windows: boolean): string | null {
     }
   }
   const joined = `${prefix}${parts.join(windows ? "\\" : "/")}`;
-  return windows ? joined.toLowerCase() : joined;
+  return joined;
 }
 
 function parentPath(path: string, windows: boolean): string | null {

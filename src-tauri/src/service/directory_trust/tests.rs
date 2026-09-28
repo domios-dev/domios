@@ -372,7 +372,12 @@ fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
         &ledger,
         |_| answer(&response.step),
     );
-    assert_eq!(first, TrustDecision::Answer { step: b"j".to_vec() });
+    assert_eq!(
+        first,
+        TrustDecision::Answer {
+            step: b"j".to_vec()
+        }
+    );
     ledger.lock().settle("onboarding-redraw");
 
     let redraw = format!("{capture}\nstatus refreshed");
@@ -413,9 +418,8 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
         codeterm_plugin::agent_claude::ClaudeProvider::new(),
     ));
 
-    let screen_signal = || {
-        std::sync::Arc::new(codeterm_pty::pty::screen_state::ScreenChangeSignal::default())
-    };
+    let screen_signal =
+        || std::sync::Arc::new(codeterm_pty::pty::screen_state::ScreenChangeSignal::default());
     assert_eq!(
         fixture.service.respond_to_launch_onboarding(
             &planner_tab_id,
@@ -423,7 +427,9 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
             yes_focused,
             screen_signal(),
         ),
-        TrustDecision::Answer { step: b"j".to_vec() },
+        TrustDecision::Answer {
+            step: b"j".to_vec()
+        },
         "an idle post-launch Planner moves once toward Not now"
     );
     super::LEDGER.lock().settle(&planner_tab_id);
@@ -434,13 +440,13 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
             not_now_focused,
             screen_signal(),
         ),
-        TrustDecision::Answer { step: b"\r".to_vec() },
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        },
         "Enter is submitted only after Not now has focus"
     );
     assert_eq!(
-        crate::service::output::prompt_step_dispatch_count_for_test(
-            "pty-late-onboarding-planner"
-        ),
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-late-onboarding-planner"),
         2,
         "post-launch handling dispatches exactly j followed by Enter"
     );
@@ -455,9 +461,7 @@ fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answ
         "owner-facing tabs are excluded from the safe auto-response"
     );
     assert_eq!(
-        crate::service::output::prompt_step_dispatch_count_for_test(
-            "pty-late-onboarding-owner"
-        ),
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-late-onboarding-owner"),
         0
     );
 

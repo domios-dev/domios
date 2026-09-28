@@ -373,9 +373,10 @@ fn composer_follows_options(
     };
     lines[last_option_row + 1..].iter().any(|line| {
         line.starts_with(COMPOSER_MARKERS)
-            && !prompt.options.iter().any(|option| {
-                line_has_option(line.trim_start_matches(COMPOSER_MARKERS), option)
-            })
+            && !prompt
+                .options
+                .iter()
+                .any(|option| line_has_option(line.trim_start_matches(COMPOSER_MARKERS), option))
     })
 }
 
