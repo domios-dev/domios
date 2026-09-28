@@ -354,6 +354,54 @@ fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
 }
 
 #[test]
+fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
+    use crate::agent::provider::{StarterPrompt, TaskDelivery};
+    use crate::agent::test_provider::MockProvider;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("trust-lazy-session".into());
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    harness.service.agent_registry.register_provider(Box::new(
+        MockProvider::new("trust-lazy-session")
+            .with_task_delivery(TaskDelivery::InlineFlag)
+            .with_system_prompt_flag("trust-lazy-session", "-c developer_instructions")
+            .with_hooks()
+            .with_session_starts_on_first_user_turn(),
+    ));
+    let turn_plan = crate::service::startup_turn::resolve(
+        &harness.service.agent_registry,
+        "trust-lazy-session",
+        StarterPrompt::NoStarter,
+        None,
+        Some("opaque-untrusted-team-bootstrap-bc10"),
+        true,
+        None,
+    );
+    assert!(!turn_plan.first_turn_will_be_delivered);
+
+    crate::service::launch_readiness::owner_prompt_pending(&tab_id, "trust-question-a813");
+    assert!(crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+    let service = harness.service.clone();
+    let observer_tab_id = tab_id.clone();
+    let observer = std::thread::spawn(move || {
+        assert_eq!(
+            crate::service::launch_readiness::await_owner_prompt_resolution(&observer_tab_id),
+            None
+        );
+        launch_waits_for_first_turn_binding(
+            &service,
+            &observer_tab_id,
+            "trust-lazy-session",
+            turn_plan.first_turn_will_be_delivered,
+            crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
+        )
+    });
+    crate::service::launch_readiness::owner_prompt_cleared(&tab_id);
+
+    assert!(observer.join().unwrap());
+}
+
+#[test]
 fn restored_lazy_session_first_turn_is_delivered_once_and_binds() {
     let mut driver = LaunchRegistry::default();
     let launch = driver.begin("lazy-first-turn", "lazy-first-turn-pty".into());
