@@ -1698,7 +1698,7 @@ function assignmentParts(line) {
 function parseTrustValue(value) {
   const parsed = parseString(value.trim());
   if (!parsed || parsed.next !== value.trim().length) return null;
-  return parsed.value === "trusted" || parsed.value === "untrusted" ? parsed.value : null;
+  return parsed.value === "trusted" ? parsed.value : null;
 }
 function projectTablePath(parts) {
   return parts?.length === 2 && parts[0] === "projects" ? parts[1] : null;
@@ -1754,6 +1754,10 @@ function collectProfileEntries(profile) {
     if (parsed) trust = { line: line.replace(/\r$/, "") };
   }
   return flush() ? [...entries.values()] : null;
+}
+function hasTrustedProjectEntries(profile) {
+  const entries = collectProfileEntries(profile);
+  return entries !== null && entries.length > 0;
 }
 function inlineTableKeys(value) {
   const trimmed = value.trim();
@@ -1937,6 +1941,10 @@ function carryCodexProjectTrust(host2, profilePath2, configPath) {
 // plugins/provider-codex/src/profile-sweep.ts
 var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+function codexConfigPath(host2, home) {
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  return `${home}${separator}.codex${separator}config.toml`;
+}
 function codexProfileTabId(fileName) {
   return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
 }
@@ -1945,15 +1953,15 @@ function codexProfileInstanceId(contents) {
   return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
 }
 function profilePath(host2, name) {
-  if (host2.platform() !== "windows") return null;
   const home = host2.homeDir();
-  return home ? `${home}\\.codex\\${name}` : null;
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  return home ? `${home}${separator}.codex${separator}${name}` : null;
 }
 function profiles(host2) {
-  if (host2.platform() !== "windows") return null;
   const home = host2.homeDir();
   if (!home) return null;
-  const dir = `${home}\\.codex`;
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  const dir = `${home}${separator}.codex`;
   try {
     const entries = host2.fs.readDir(dir);
     if (!Array.isArray(entries)) return null;
@@ -1983,9 +1991,27 @@ function removeProfileAfterTrustCarry(host2, path) {
   if (!home) return false;
   const original = readProfile(host2, path);
   if (original === null) return false;
-  const configPath = `${home}\\.codex\\config.toml`;
+  const configPath = codexConfigPath(host2, home);
   if (!carryCodexProjectTrust(host2, path, configPath)) return false;
   return readProfile(host2, path) === original && removeProfile(host2, path);
+}
+function carryCodexProjectTrustForTab(host2, tabId, instanceId) {
+  const listing = profiles(host2);
+  const home = host2.homeDir();
+  if (!listing || !home) return false;
+  const configPath = codexConfigPath(host2, home);
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const owned = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  if (owned.length === 0) return false;
+  let foundTrustedEntry = false;
+  for (const path of owned) {
+    const profile = readProfile(host2, path);
+    if (profile === null) return false;
+    if (!hasTrustedProjectEntries(profile)) continue;
+    foundTrustedEntry = true;
+    if (!carryCodexProjectTrust(host2, path, configPath)) return false;
+  }
+  return foundTrustedEntry;
 }
 function inspectCodexProfiles(host2, liveTabIds, instanceId) {
   const listing = profiles(host2);
@@ -2724,7 +2750,7 @@ function installIntegration(apiPort, options) {
   if (json.hooks?.Stop !== void 0 && !Array.isArray(json.hooks.Stop)) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
-  const configPath = codexConfigPath();
+  const configPath = codexConfigPath2();
   const configExisted = !!configPath && host.fs.fileExists(configPath);
   const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
   if (configExisted && typeof originalConfigValue !== "string") {
@@ -2845,7 +2871,7 @@ function grantIntegrationTrust(managedKeys, then = (result) => result) {
   invalidateCodexHookTrust(hooksPath);
   return grantCodexHookTrust({
     hooksPath,
-    configPath: codexConfigPath(),
+    configPath: codexConfigPath2(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || "."
   }, (result) => {
@@ -2899,7 +2925,7 @@ function restoreIntegration() {
   } else if (!writeFileIfChanged(path, hooks)) {
     return { ok: false, error: "restore failed for " + path };
   }
-  const config = codexConfigPath();
+  const config = codexConfigPath2();
   if (config && host.fs.fileExists(config + ".codeterm-backup")) {
     const original = host.fs.readFile(config + ".codeterm-backup");
     if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
@@ -2982,7 +3008,7 @@ function hookTimeoutsAdequate(sessionStart, stop) {
   const owned = [...sessionStart || [], ...stop || []].filter(isCodetermCodexHook);
   return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
 }
-function codexConfigPath() {
+function codexConfigPath2() {
   const home = host.homeDir();
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -2995,7 +3021,7 @@ function codexWindowsHookScriptPath() {
   return home + sep + ".codex" + sep + "codeterm-session-hook.cmd";
 }
 function codexHookTrustOwnershipPath() {
-  const config = codexConfigPath();
+  const config = codexConfigPath2();
   return config ? config + ".codeterm-hook-trust-owned" : null;
 }
 function captureIntegrationFile(path) {
@@ -3016,7 +3042,7 @@ function restoreIntegrationFiles(snapshots) {
   return restored;
 }
 function codexHookTrustContext(hooksPath) {
-  const cfg = codexConfigPath();
+  const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return null;
   const text5 = String(host.fs.readFile(cfg) || "");
   const block = findCodexHookTrustBlock(text5, hooksPath);
@@ -3121,7 +3147,7 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
   });
 }
 function enableExistingCodexHookTrust(hooksPath) {
-  const cfg = codexConfigPath();
+  const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text5 = String(host.fs.readFile(cfg) || "");
   if (!text5) return { state: "missing", changed: false, write_failed: false };
@@ -3138,7 +3164,7 @@ function enableExistingCodexHookTrust(hooksPath) {
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
-  const cfg = codexConfigPath();
+  const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
   const text5 = host.fs.readFile(cfg);
   if (typeof text5 !== "string") return false;
@@ -3340,6 +3366,9 @@ var plugin = {
   },
   releaseTabLaunchArtifacts(tabId, instanceId) {
     return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+  folderTrustAnswered(tabId, instanceId) {
+    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
   },
   sweepLaunchArtifacts(request) {
     return manageCodexProfiles(
