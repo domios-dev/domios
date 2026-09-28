@@ -4,8 +4,10 @@ use serde::Serialize;
 
 use crate::api::routes::AppState;
 
-fn peer_has_full_access(access: Option<&crate::mesh::types::AccessLevel>) -> bool {
-    access == Some(&crate::mesh::types::AccessLevel::Full)
+const MAX_LANE_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+
+fn lane_bundle_size_allowed(size: u64, limit: u64) -> bool {
+    size <= limit
 }
 
 #[derive(Deserialize)]
@@ -48,6 +50,15 @@ fn create_lane_bundle(
     state: AppState,
     peer_id: String,
     request: MeshWorkerLaneBundleRequest,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    create_lane_bundle_with_limit(state, peer_id, request, MAX_LANE_BUNDLE_BYTES)
+}
+
+fn create_lane_bundle_with_limit(
+    state: AppState,
+    peer_id: String,
+    request: MeshWorkerLaneBundleRequest,
+    bundle_limit: u64,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let allowed = {
         let mesh = state.mesh.lock();
@@ -113,9 +124,8 @@ fn create_lane_bundle(
     if !output.status.success() {
         return Err((StatusCode::CONFLICT, String::from_utf8_lossy(&output.stderr).trim().to_string()));
     }
-    const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
     let size = std::fs::metadata(&bundle_path).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?.len();
-    if size > MAX_BUNDLE_BYTES {
+    if !lane_bundle_size_allowed(size, bundle_limit) {
         return Err((StatusCode::PAYLOAD_TOO_LARGE, "worker lane bundle exceeds 32 MiB".into()));
     }
     let bytes = std::fs::read(&bundle_path).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -132,14 +142,131 @@ fn create_lane_bundle(
 
 #[cfg(test)]
 mod tests {
-    use super::peer_has_full_access;
+    use super::{
+        create_lane_bundle_with_limit, lane_bundle_size_allowed, MeshWorkerLaneBundleRequest,
+        MAX_LANE_BUNDLE_BYTES,
+    };
     use crate::mesh::types::AccessLevel;
+    use crate::service::test_fixture::ServiceFixture;
+
+    fn app_state(fixture: &ServiceFixture) -> crate::api::routes::AppState {
+        let config = crate::config::schema::AppConfig::default();
+        let mut mesh = crate::mesh::MeshManager::new("bundle-origin".into(), 0);
+        mesh.paired_peers.insert("peer-origin".into(), crate::mesh::types::PairedPeer {
+            instance_id: "peer-origin".into(), instance_name: "Origin".into(), addresses: vec![],
+            api_port: 0, public_key: String::new(), paired_at: "now".into(), last_seen: None,
+            online: true, is_primary: false, access_level: AccessLevel::Full, version: None,
+            web_ui: None, relay_protocol_version: 0, consecutive_misses: 0, last_active_ms: None,
+        });
+        crate::api::routes::AppState {
+            svc: std::sync::Arc::new(fixture.service.clone()),
+            cron: std::sync::Arc::new(parking_lot::Mutex::new(crate::cron::store::CronStore::new_with_path(
+                fixture.temp.path().join("worker-bundle-crons.json"),
+            ))),
+            cron_wake: std::sync::Arc::new(std::sync::Condvar::new()), api_port: 0,
+            update_state: std::sync::Arc::new(parking_lot::Mutex::new(crate::update::UpdateState {
+                install_method: crate::update::InstallMethod::Unknown, last_check: None,
+                last_check_time: None, channel: config.updater.channel,
+                phase: crate::update::UpdatePhase::Idle, last_error: None, phase_changed_at: None,
+                downloaded_bytes: 0, download_total_bytes: None,
+            })),
+            config: std::sync::Arc::new(parking_lot::Mutex::new(config)),
+            mesh: std::sync::Arc::new(parking_lot::Mutex::new(mesh)),
+            keepawake: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+            resize_owner: std::sync::Arc::new(parking_lot::Mutex::new(Default::default())),
+            rest_api: std::sync::Arc::new(crate::startup::RestApiControl::new()),
+            test_clock: None, events: fixture.service.events.clone(), web_dist: None,
+            snapshot_bound: crate::api::snapshot_bound::SnapshotBound::default(),
+        }
+    }
+
+    fn git(cwd: &std::path::Path, args: &[&str]) -> String {
+        let mut command = std::process::Command::new("git");
+        crate::process_util::no_window_std(&mut command);
+        let output = command.current_dir(cwd).args(args).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    fn bundle_fixture(
+        peer_target: &str,
+    ) -> (AppState, MeshWorkerLaneBundleRequest, String, tempfile::TempDir, ServiceFixture) {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "user.name", "Worker"]);
+        git(&repo, &["config", "user.email", "worker@example.test"]);
+        git(&repo, &["remote", "add", "origin", "https://example.test/repo.git"]);
+        std::fs::write(repo.join("base.txt"), "base").unwrap();
+        git(&repo, &["add", "base.txt"]);
+        git(&repo, &["commit", "-qm", "base"]);
+        let base = git(&repo, &["rev-parse", "HEAD"]);
+        git(&repo, &["switch", "-qc", "lane/remote-test"]);
+        std::fs::write(repo.join("lane.txt"), "lane").unwrap();
+        git(&repo, &["add", "lane.txt"]);
+        git(&repo, &["commit", "-qm", "lane"]);
+        let tip = git(&repo, &["rev-parse", "HEAD"]);
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        if let Some(cwd) = mux.get_tab_mut(&tab_id) {
+            cwd.cwd = Some(repo.display().to_string());
+            cwd.provisioned_cwd = Some(repo.display().to_string());
+            cwd.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                plan_id: Some("plan-1".into()), task_id: Some("task-1".into()),
+                attempt_id: Some("attempt-1".into()), spawn_handle: None, bound_at: 1,
+            });
+            cwd.report_target_mesh_peer = Some(peer_target.into());
+        }
+        let fixture = ServiceFixture::new(mux);
+        let state = app_state(&fixture);
+        let identity = crate::service::worker_lane::repository_identity(repo.to_str().unwrap()).unwrap();
+        let request = MeshWorkerLaneBundleRequest {
+            repository_identity: identity, branch: "lane/remote-test".into(), base_commit: base,
+            plan_id: "plan-1".into(), task_id: "task-1".into(), attempt_id: "attempt-1".into(),
+            report_sha: tip.clone(),
+        };
+        (state, request, tip, root, fixture)
+    }
 
     #[test]
-    fn worker_dispatch_rejects_unpaired_and_non_full_peers() {
-        assert!(!peer_has_full_access(None));
-        assert!(!peer_has_full_access(Some(&AccessLevel::ReadOnly)));
-        assert!(peer_has_full_access(Some(&AccessLevel::Full)));
+    fn worker_lane_bundle_size_cap_rejects_oversize_without_allocating_bundle() {
+        assert!(lane_bundle_size_allowed(MAX_LANE_BUNDLE_BYTES, MAX_LANE_BUNDLE_BYTES));
+        assert!(!lane_bundle_size_allowed(MAX_LANE_BUNDLE_BYTES + 1, MAX_LANE_BUNDLE_BYTES));
+    }
+
+    #[test]
+    fn create_lane_bundle_refuses_binding_to_foreign_origin() {
+        let (state, request, _, _, _fixture) = bundle_fixture("different-peer");
+        let error = create_lane_bundle_with_limit(state, "peer-origin".into(), request, MAX_LANE_BUNDLE_BYTES)
+            .unwrap_err();
+        assert_eq!(error.0, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn create_lane_bundle_refuses_bundle_over_size_limit() {
+        let (state, request, _, _, _fixture) = bundle_fixture("peer-origin");
+        let error = create_lane_bundle_with_limit(state, "peer-origin".into(), request, 1)
+            .unwrap_err();
+        assert_eq!(error.0, axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn create_lane_bundle_refuses_head_or_lane_tip_different_from_report_sha() {
+        let (state, mut request, _, _, _fixture) = bundle_fixture("peer-origin");
+        request.report_sha = "unreviewed-sha".into();
+        let error = create_lane_bundle_with_limit(state, "peer-origin".into(), request, MAX_LANE_BUNDLE_BYTES)
+            .unwrap_err();
+        assert_eq!(error.0, axum::http::StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn create_lane_bundle_returns_refs_for_owned_attempt() {
+        let (state, request, tip, _root, _fixture) = bundle_fixture("peer-origin");
+        let response = create_lane_bundle_with_limit(state, "peer-origin".into(), request, MAX_LANE_BUNDLE_BYTES)
+            .unwrap().0;
+        assert_eq!(response["branch"], "lane/remote-test");
+        assert_eq!(response["lane_tip"], tip);
+        assert!(response["bundle"].as_str().is_some_and(|bundle| !bundle.is_empty()));
     }
 }
 
