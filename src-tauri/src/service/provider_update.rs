@@ -230,6 +230,16 @@ struct RestartTarget {
     session_id: String,
 }
 
+fn newly_discovered_targets(
+    targets: Vec<RestartTarget>,
+    paused_ids: &HashSet<String>,
+) -> Vec<RestartTarget> {
+    targets
+        .into_iter()
+        .filter(|target| !paused_ids.contains(&target.tab_id))
+        .collect()
+}
+
 enum RestartReadiness {
     Busy,
     SnapshotBusy,
@@ -342,10 +352,7 @@ fn start_update(service: ServiceContext, id: String, offer: Offer) {
                             ));
                         }
                     };
-                    let targets = targets
-                        .into_iter()
-                        .filter(|target| !paused_ids.contains(&target.tab_id))
-                        .collect::<Vec<_>>();
+                    let targets = newly_discovered_targets(targets, &paused_ids);
                     if targets.is_empty() {
                         break;
                     }
@@ -392,7 +399,9 @@ fn start_update(service: ServiceContext, id: String, offer: Offer) {
                 let resume_errors = resume_paused(&service, paused);
                 match (update_result, resume_errors.is_empty()) {
                     (Ok(()), true) => Ok(()),
-                    (Err(error), _) => Err(format!("{}; {}", error.reason, resume_errors.join("; "))),
+                    (Err(error), _) => {
+                        Err(format!("{}; {}", error.reason, resume_errors.join("; ")))
+                    }
                     (Ok(()), false) => {
                         Err(format!("tab resume failed: {}", resume_errors.join("; ")))
                     }
@@ -594,7 +603,11 @@ fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
         Ok(result) => result,
         Err(error) => {
             let killed = child.kill().is_ok();
-            let stopped = if killed { child.wait().is_ok() } else { child.try_wait().ok().flatten().is_some() };
+            let stopped = if killed {
+                child.wait().is_ok()
+            } else {
+                child.try_wait().ok().flatten().is_some()
+            };
             return Err(UpdateCommandFailure {
                 reason: format!("waiting for provider update failed: {error}"),
                 child_stopped: stopped,
@@ -609,7 +622,11 @@ fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
         }),
         None => {
             let killed = child.kill().is_ok();
-            let stopped = if killed { child.wait().is_ok() } else { child.try_wait().ok().flatten().is_some() };
+            let stopped = if killed {
+                child.wait().is_ok()
+            } else {
+                child.try_wait().ok().flatten().is_some()
+            };
             Err(UpdateCommandFailure {
                 reason: "provider update exceeded the 300 second deadline".into(),
                 child_stopped: stopped,
@@ -710,10 +727,11 @@ fn platform_key() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        offer_instance_name, update_consent, update_gate, NotificationOrigin, PushIntent,
-        UpdateConsent, UpdateGate, LATER,
+        newly_discovered_targets, offer_instance_name, update_consent, update_gate,
+        NotificationOrigin, PushIntent, RestartTarget, UpdateConsent, UpdateGate, LATER,
     };
     use codeterm_types::pty::TabStatus;
+    use std::collections::HashSet;
     use std::path::Path;
 
     #[test]
@@ -750,6 +768,22 @@ mod tests {
             super::npm_shim_script(parent, shim),
             Some(parent.join("node_modules/@openai/codex/bin/codex.js"))
         );
+    }
+
+    #[test]
+    fn post_lock_snapshot_keeps_new_tabs_and_skips_already_paused_tabs() {
+        let target = |tab_id: &str| RestartTarget {
+            tab_id: tab_id.into(),
+            cwd: "cwd".into(),
+            session_id: format!("session-{tab_id}"),
+        };
+        let paused = HashSet::from(["already-paused".to_string()]);
+        let remaining = newly_discovered_targets(
+            vec![target("already-paused"), target("opened-after-consent")],
+            &paused,
+        );
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].tab_id, "opened-after-consent");
     }
 
     #[test]
