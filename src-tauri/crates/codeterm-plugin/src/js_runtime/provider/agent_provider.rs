@@ -593,6 +593,18 @@ impl AgentProvider for JsProvider {
         out
     }
 
+    fn session_content_source(&self) -> provider::SessionContentSource {
+        self.js_session_content_source()
+    }
+
+    fn read_session_content(
+        &self,
+        session_id: &str,
+        query: &provider::SessionContentQuery,
+    ) -> Option<provider::SessionContent> {
+        self.js_read_session_content(session_id, query)
+    }
+
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
         // Hook-reported evidence wins over any reconstruction; absence falls through.
         if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {

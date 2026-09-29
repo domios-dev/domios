@@ -260,7 +260,8 @@ instead.
 
 | Export | Called with | Returns | When missing |
 |---|---|---|---|
-| `parseSessionMessages(chunk)` | line-aligned JSONL chunk (≤4 MB per call; the host chunks the file) | `[{role, text, ts?, isMeta?}]` | native fallback; else `[]`. |
+| `parseSessionMessages(chunk)` | line-aligned JSONL chunk (≤4 MB per call; the host chunks the file) | `[{role, text, ts?, isMeta?}]` | native fallback; else `[]`. Exporting it declares the `session_file` content source for `sessions search`. |
+| `readSessionContent(sessionId, {maxBytes, hintTerms})` | id, the newest-bytes budget, ASCII-lowercased terms a returned message must hold | `{messages: [{role, text, ts?, isMeta?}], truncated}` or `null` when the store is unreadable | native fallback; else the provider has no shared-store content. For providers whose sessions share one store (`filePath` is the store): exporting it declares the `shared_store` source, so search reads each session through it and never opens the store as a file. Read only that session, scan at most `maxBytes` newest bytes, and set `truncated` when older content went unscanned. |
 | `sessionJsonlPath(cwd, sessionId)` | cwd (pre-canonicalized when `cwdEncoding` is `dash_encoded`), id | path or `null` | native fallback. Exporting this is one of the signals that flips `supports_chat_ui` on. |
 | `parseSessionDelta(chunk)` | line-aligned chunk read by the host tailer (host owns all offset math) | `{messages: RichMessage[]}`; each row sets `recordIndex`, the chunk line it came from, which the host maps to the record start byte that names uuid-less rows (`rec-{start}-{row}`) | the window is skipped with a warning and the offset still advances — the tailer never retry-loops. |
 | `usesStructuredChat()` | — | bool | native fallback; else `false`. |

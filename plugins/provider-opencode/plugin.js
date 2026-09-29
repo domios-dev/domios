@@ -687,6 +687,49 @@ function scanSessionDirectory(db, sessionId) {
   }
 }
 
+// plugins/provider-opencode/src/sessionContent.ts
+var CONTENT_SQL_HEAD = "WITH budget AS (SELECT id, SUM(octet_length(data)) OVER (ORDER BY time_created DESC, id DESC) AS running FROM part WHERE session_id = ?1) SELECT p.time_created AS ts, p.data AS part, m.data AS msg FROM budget b JOIN part p ON p.id = b.id JOIN message m ON m.id = p.message_id WHERE b.running <= ?2";
+var CONTENT_SQL_TAIL = " ORDER BY p.time_created ASC, p.id ASC";
+var TOTAL_SQL = "SELECT SUM(octet_length(data)) AS total FROM part WHERE session_id = ?1";
+function queryRows(db, sql, params) {
+  const raw = host.sqliteQueryAllJson(db, sql, JSON.stringify(params));
+  if (raw === null || raw === void 0) return null;
+  const rows = safeJson(raw);
+  return Array.isArray(rows) ? rows : null;
+}
+function likePattern(term) {
+  return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
+}
+function readOpencodeSessionContent(db, sessionId, query) {
+  const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
+  const hints = query && Array.isArray(query.hintTerms) ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0) : [];
+  const totals = queryRows(db, TOTAL_SQL, [sessionId]);
+  if (!totals) return null;
+  const total = Number(totals.length > 0 ? totals[0].total : 0) || 0;
+  const params = [sessionId, maxBytes];
+  let hintSql = "";
+  for (let i = 0; i < hints.length; i++) {
+    params.push(likePattern(hints[i]));
+    hintSql += " AND p.data LIKE ?" + String(params.length) + " ESCAPE '\\'";
+  }
+  const rows = queryRows(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params);
+  if (!rows) return null;
+  const messages = [];
+  for (let i = 0; i < rows.length; i++) {
+    const part = safeJson(rows[i].part);
+    if (!part || part.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;
+    const msg = safeJson(rows[i].msg);
+    const ts = rows[i].ts;
+    messages.push({
+      role: msg && typeof msg.role === "string" ? msg.role : "assistant",
+      text: part.text,
+      ts: typeof ts === "number" ? Math.floor(ts / 1e3) : null,
+      isMeta: part.synthetic === true || part.ignored === true
+    });
+  }
+  return { messages, truncated: total > maxBytes };
+}
+
 // plugins/provider-opencode/src/plugin.ts
 var TITLE_RE = /opencode/i;
 var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
@@ -912,6 +955,12 @@ var plugin = {
     if (!db || !host.fs.fileExists(db)) return null;
     const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
+  },
+  readSessionContent(sessionId, query) {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    return readOpencodeSessionContent(db, sessionId, query);
   },
   checkIntegration() {
     const cfg = opencodeConfigPath();

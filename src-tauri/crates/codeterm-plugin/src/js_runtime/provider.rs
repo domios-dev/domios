@@ -8,6 +8,7 @@ mod command_template;
 mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;
+mod session_content;
 mod wire;
 
 use wire::{result_from_js, SerdeSessionMessage, VmUsageParser};
