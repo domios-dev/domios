@@ -4,6 +4,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use super::push::scope_key;
 use super::store::{NotificationProvenance, NotificationSeverity};
 
@@ -148,6 +150,34 @@ impl ConditionLedger {
     /// cannot re-arm a live condition.
     pub fn close_scope(&mut self, scope: &str) {
         self.announced.retain(|(owner, _)| owner != scope);
+    }
+}
+
+/// A standing condition of one tab that needs its owner. A notice keyed to one
+/// stays open while the condition holds and resolves when it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabCondition {
+    /// The tab's agent process is gone and the tab needs a restart.
+    AgentExited,
+    /// The tab's agent is blocked on an interactive prompt.
+    PendingPrompt,
+}
+
+impl TabCondition {
+    pub const ALL: [TabCondition; 2] = [TabCondition::AgentExited, TabCondition::PendingPrompt];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AgentExited => "agent-exited",
+            Self::PendingPrompt => "pending-prompt",
+        }
+    }
+
+    /// The one dedupe key for this condition on this tab, shared by every
+    /// surface that announces it.
+    pub fn key(self, tab_id: &str) -> String {
+        format!("tab-condition:{}:{tab_id}", self.as_str())
     }
 }
 

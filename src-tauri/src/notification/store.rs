@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -13,9 +13,11 @@ use super::channel_ask;
 use super::channel_placement::{self, ChannelPlacement, SpentQuestion};
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
+    TabCondition,
 };
 use super::deep_link::NotificationTarget;
-use super::push::NotifyLevel;
+use super::persist::Persistence;
+use super::push::{self as push_keys, NotifyLevel};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Notification {
@@ -62,6 +64,9 @@ pub struct Notification {
     /// channel's own terms. Written by the channel, read by the same channel.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub placements: Vec<ChannelPlacement>,
+    /// The tab condition this record announces; it resolves when that ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<TabCondition>,
 }
 
 /// Daemon-owned origin of a notification. Every field is resolved against live
@@ -74,7 +79,7 @@ pub struct NotificationProvenance {
     pub peer_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum NotificationSeverity {
     Info,
     Warning,
@@ -121,6 +126,8 @@ impl PushAdmission {
 pub struct Ask {
     pub actions: Option<Vec<NotificationAction>>,
     pub offer: Option<SurfaceOffer>,
+    /// The standing tab condition this asks about, if any.
+    pub condition: Option<TabCondition>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -140,6 +147,15 @@ impl Ask {
         Self {
             actions,
             offer: None,
+            condition: None,
+        }
+    }
+
+    pub fn about(condition: TabCondition, actions: Option<Vec<NotificationAction>>) -> Self {
+        Self {
+            actions,
+            offer: None,
+            condition: Some(condition),
         }
     }
 }
@@ -177,6 +193,10 @@ pub struct NotificationStore {
     deliveries: DeliveryLedger,
     /// Standing conditions already announced, so re-observation stays quiet.
     conditions: ConditionLedger,
+    /// Condition records a newer notice of the same condition replaced; the
+    /// service drains these to tell every surface they resolved.
+    superseded: Vec<String>,
+    persistence: Option<Persistence>,
 }
 
 impl NotificationStore {
@@ -188,6 +208,27 @@ impl NotificationStore {
             push_counts: HashMap::new(),
             deliveries: DeliveryLedger::default(),
             conditions: ConditionLedger::default(),
+            superseded: Vec::new(),
+            persistence: None,
+        }
+    }
+
+    /// A store whose unread sticky records survive the daemon, loaded with
+    /// whatever the previous daemon left waiting on the user.
+    pub fn open_persisted(path: std::path::PathBuf, max: usize) -> Self {
+        let (persistence, mut restored) = Persistence::open(path);
+        if restored.len() > max {
+            restored.drain(..restored.len() - max);
+        }
+        let mut store = Self::new(max);
+        store.notifications = restored;
+        store.persistence = Some(persistence);
+        store
+    }
+
+    fn sync_persisted(&mut self) {
+        if let Some(persistence) = self.persistence.as_mut() {
+            persistence.sync(&self.notifications);
         }
     }
 
@@ -226,7 +267,11 @@ impl NotificationStore {
         sticky: Option<bool>,
         level: Option<NotifyLevel>,
     ) -> String {
-        let Ask { actions, offer } = ask;
+        let Ask {
+            actions,
+            offer,
+            condition,
+        } = ask;
         let id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -257,6 +302,7 @@ impl NotificationStore {
             sticky,
             push_failed: None,
             placements: Vec::new(),
+            condition,
         };
 
         self.notifications.push(notification);
@@ -267,7 +313,100 @@ impl NotificationStore {
             self.deliveries.release(&evicted.id);
         }
 
+        self.sync_persisted();
         id
+    }
+
+    /// One live record per tab and condition. The same notice again is that
+    /// record; a changed notice resolves the one it supersedes and opens anew.
+    fn admit_condition(
+        &mut self,
+        provenance: &NotificationProvenance,
+        condition: Option<TabCondition>,
+        title: &str,
+        body: Option<&str>,
+    ) -> Option<String> {
+        let (Some(condition), Some(tab_id)) = (condition, provenance.tab_id.clone()) else {
+            return None;
+        };
+        let standing = self.notifications.iter().find(|n| {
+            !n.resolved && n.condition == Some(condition) && n.tab_id.as_deref() == Some(&tab_id)
+        })?;
+        if standing.title.trim() == title.trim()
+            && standing.body.as_deref().unwrap_or_default().trim()
+                == body.unwrap_or_default().trim()
+        {
+            return Some(standing.id.clone());
+        }
+        let replaced = self.resolve_tab_condition(&tab_id, condition);
+        self.superseded.extend(replaced);
+        None
+    }
+
+    /// Records resolved because a newer notice of their condition replaced them.
+    pub fn take_superseded(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.superseded)
+    }
+
+    /// The condition ended: every open record announcing it on this tab is
+    /// resolved, and a later recurrence is news again.
+    pub fn resolve_tab_condition(&mut self, tab_id: &str, condition: TabCondition) -> Vec<String> {
+        let mut resolved = Vec::new();
+        for notification in &mut self.notifications {
+            if notification.resolved
+                || notification.condition != Some(condition)
+                || notification.tab_id.as_deref() != Some(tab_id)
+            {
+                continue;
+            }
+            notification.resolved = true;
+            notification.read = true;
+            notification.actions = None;
+            resolved.push(notification.id.clone());
+        }
+        for id in &resolved {
+            self.close_push_slot_for(id);
+            self.deliveries.release(id);
+        }
+        self.conditions
+            .observe_absent(&push_keys::tab_scope(tab_id), condition.as_str());
+        self.sync_persisted();
+        resolved
+    }
+
+    /// Every condition of a tab ends with the tab.
+    pub fn resolve_tab_conditions(&mut self, tab_id: &str) -> Vec<String> {
+        TabCondition::ALL
+            .into_iter()
+            .flat_map(|condition| self.resolve_tab_condition(tab_id, condition))
+            .collect()
+    }
+
+    /// Restored condition records whose tab did not come back describe
+    /// nothing live any more.
+    pub fn retire_tabless_conditions(&mut self, tab_is_live: impl Fn(&str) -> bool) -> Vec<String> {
+        let orphaned: Vec<(String, TabCondition)> = self
+            .notifications
+            .iter()
+            .filter(|n| !n.resolved)
+            .filter_map(|n| Some((n.tab_id.clone()?, n.condition?)))
+            .filter(|(tab_id, _)| !tab_is_live(tab_id))
+            .collect();
+        orphaned
+            .into_iter()
+            .flat_map(|(tab_id, condition)| self.resolve_tab_condition(&tab_id, condition))
+            .collect()
+    }
+
+    /// Latch for a condition routed away from the user: only the first
+    /// observation is announced until the condition resolves.
+    pub fn observe_tab_condition(
+        &mut self,
+        tab_id: &str,
+        condition: TabCondition,
+    ) -> ConditionTransition {
+        self.conditions
+            .observe_present(&push_keys::tab_scope(tab_id), condition.as_str())
     }
 
     /// Add a notification unless an identical one is already live. Identity is
@@ -283,6 +422,10 @@ impl NotificationStore {
         sticky: Option<bool>,
         level: Option<NotifyLevel>,
     ) -> DeliveryAdmission {
+        if let Some(id) = self.admit_condition(&provenance, ask.condition, &title, body.as_deref())
+        {
+            return DeliveryAdmission::Duplicate(id);
+        }
         let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
@@ -310,6 +453,14 @@ impl NotificationStore {
     /// Admit a push-eligible notification. Dedup and coalescing are decided
     /// here so no caller can opt out of them.
     pub fn add_push(&mut self, request: PushRequest) -> PushAdmission {
+        if let Some(id) = self.admit_condition(
+            &request.provenance,
+            request.ask.condition,
+            &request.title,
+            request.body.as_deref(),
+        ) {
+            return PushAdmission::Duplicate(id);
+        }
         let slot_key = (request.scope.clone(), request.level);
         let open = self.push_slots.get(&slot_key).map(|slot| {
             (
@@ -335,8 +486,13 @@ impl NotificationStore {
         } = request;
 
         // Questions cannot be coalesced because rewriting one under the user's finger could make a tap answer a different record.
+        // A condition record resolves on its own event, so it never absorbs or becomes another notice.
         let reused = open.and_then(|(_, id)| {
             (!self.offers_choice(&id)
+                && ask.condition.is_none()
+                && self
+                    .notification(&id)
+                    .is_some_and(|n| n.condition.is_none())
                 && self.rewrite_in_place(
                     &id,
                     title.clone(),
@@ -398,6 +554,7 @@ impl NotificationStore {
         target.peer_name = provenance.peer_name.clone();
         target.read = false;
         target.push_failed = None;
+        self.sync_persisted();
         true
     }
 
@@ -435,6 +592,7 @@ impl NotificationStore {
         };
         record.target_tab_id = target.tab_id;
         record.chat_message_id = target.chat_message_id;
+        self.sync_persisted();
         true
     }
 
@@ -457,6 +615,7 @@ impl NotificationStore {
             n.read = true;
             self.close_push_slot_for(id);
             self.deliveries.release(id);
+            self.sync_persisted();
             true
         } else {
             false
@@ -476,6 +635,7 @@ impl NotificationStore {
                 self.deliveries.clear();
             }
         }
+        self.sync_persisted();
     }
 
     pub fn resolve_prompt_notifications(
@@ -514,6 +674,7 @@ impl NotificationStore {
             self.close_push_slot_for(id);
             self.deliveries.release(id);
         }
+        self.sync_persisted();
         resolved
     }
 
@@ -566,6 +727,7 @@ impl NotificationStore {
             self.close_push_slot_for(id);
             self.deliveries.release(id);
         }
+        self.sync_persisted();
         answered
     }
 
@@ -657,11 +819,15 @@ impl NotificationStore {
     /// the same question renders in more than one place, and a per-surface
     /// guard would let it take two answers.
     pub fn record_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
-        answer::record(&mut self.notifications, id, label)
+        let admission = answer::record(&mut self.notifications, id, label);
+        self.sync_persisted();
+        admission
     }
 
     pub fn record_detached_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
-        answer::record_detached(&mut self.notifications, id, label)
+        let admission = answer::record_detached(&mut self.notifications, id, label);
+        self.sync_persisted();
+        admission
     }
 
     pub fn record_answer_via(
@@ -670,7 +836,9 @@ impl NotificationStore {
         label: &str,
         answered_via: &str,
     ) -> AnswerAdmission {
-        answer::record_via(&mut self.notifications, id, label, answered_via)
+        let admission = answer::record_via(&mut self.notifications, id, label, answered_via);
+        self.sync_persisted();
+        admission
     }
 
     /// What one record owes the tab that asked. Read-only: the send itself
@@ -681,13 +849,17 @@ impl NotificationStore {
 
     /// The standing answer reached the asking tab.
     pub fn mark_answer_delivered(&mut self, id: &str) -> bool {
-        answer_delivery::mark_delivered(&mut self.notifications, id)
+        let marked = answer_delivery::mark_delivered(&mut self.notifications, id);
+        self.sync_persisted();
+        marked
     }
 
     /// A channel reported where it put this record's message. Stored verbatim:
     /// a locator means whatever the channel that wrote it means by it.
     pub fn remember_channel_placement(&mut self, id: &str, service: &str, locator: &str) -> bool {
-        channel_placement::remember(&mut self.notifications, id, service, locator)
+        let remembered = channel_placement::remember(&mut self.notifications, id, service, locator);
+        self.sync_persisted();
+        remembered
     }
 
     /// Remember a receipt and return any closed question that must be rewritten.
@@ -718,6 +890,7 @@ impl NotificationStore {
     /// undeliverable; answers already recorded stay exactly as they were.
     pub fn forget_answer_tab(&mut self, tab_id: &str) {
         answer::forget_tab(&mut self.notifications, tab_id);
+        self.sync_persisted();
     }
 
     pub fn unread_count(&self) -> usize {
@@ -727,3 +900,6 @@ impl NotificationStore {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod condition_tests;
