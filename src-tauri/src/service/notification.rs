@@ -716,16 +716,26 @@ impl ServiceContext {
         let displaced = previous
             .as_ref()
             .is_some_and(|previous| Some(previous) != current);
+        let prompt_cleared = displaced
+            && current.is_none()
+            && !self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.pending_prompt.is_some());
         let resolved = {
             let mut store = self.notif.lock();
             let mut resolved = super::prompt_resolution::resolve_displaced_prompt(
                 &mut store, tab_id, previous, current,
             );
-            if displaced {
+            if prompt_cleared {
                 resolved.extend(store.resolve_tab_condition(tab_id, TabCondition::PendingPrompt));
             }
             resolved
         };
+        if prompt_cleared {
+            self.set_cron_owner_prompt_waiting(tab_id, false);
+        }
         self.announce_resolved(&resolved);
         resolved
     }

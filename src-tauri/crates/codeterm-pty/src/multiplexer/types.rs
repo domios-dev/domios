@@ -467,13 +467,14 @@ impl PendingDeliveryProvenance {
 }
 
 /// Who a tab's prompts are owed to; declared at spawn, never inferred from
-/// strings. `Automation` prompts have no human owner and must not notify.
+/// strings. `Automation` has no owner; user-owned automation does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TabAudience {
     #[default]
     User,
     Automation,
+    UserOwnedAutomation,
 }
 
 /// Rename-proof identity for a spawned agent tab. Captures the assignment a

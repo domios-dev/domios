@@ -69,6 +69,36 @@ fn set_run_session_persists_on_history_and_last_run() {
 }
 
 #[test]
+fn owner_prompt_wait_state_tracks_a_nonterminal_run() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Prompt", "ws", "0 * * * *")).unwrap();
+    store
+        .record_run(&job.id, run("prompt-run", 1, CronRunStatus::Running))
+        .unwrap();
+    store.register_tab("prompt-tab", &job.id, "prompt-run");
+
+    assert!(store
+        .set_tab_awaiting_owner_prompt("prompt-tab", true)
+        .unwrap());
+    let run = store.get_history(&job.id)[0];
+    assert_eq!(run.status, CronRunStatus::AwaitingOwnerPrompt);
+    assert_eq!(run.finished_at, None);
+    assert_eq!(
+        store.get(&job.id).unwrap().last_run.as_ref().unwrap().status,
+        CronRunStatus::AwaitingOwnerPrompt
+    );
+
+    assert!(store
+        .set_tab_awaiting_owner_prompt("prompt-tab", false)
+        .unwrap());
+    assert_eq!(store.get_history(&job.id)[0].status, CronRunStatus::Running);
+    assert_eq!(store.get_history(&job.id)[0].finished_at, None);
+    assert!(!store
+        .set_tab_awaiting_owner_prompt("prompt-tab", false)
+        .unwrap());
+}
+
+#[test]
 fn cron_report_result_is_recorded_in_history() {
     let mut store = temp_store();
     let mut params = make_params("Report", "ws", "in 1h");

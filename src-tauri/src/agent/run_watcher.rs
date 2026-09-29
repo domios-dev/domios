@@ -344,6 +344,18 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         if state.completed.load(Ordering::Acquire) {
             return;
         }
+        let observation = matches!(&state.kind, AgentRunKind::Cron { .. })
+            .then(|| svc.observe_provider_process_tree(&state.tab_id, &state.pty_id))
+            .flatten();
+        let provider_exit = cron_provider_exit_is_proven(&state.kind, observation.as_ref());
+        if provider_exit {
+            svc.run_watcher.fail_cron_on_process_exit(
+                &svc,
+                &state.pty_id,
+                "provider process exited from its tab process tree".into(),
+            );
+            return;
+        }
         let elapsed_total = state.started_at.elapsed().as_secs();
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
         let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
@@ -430,13 +442,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             let busy = provider_prompt_pending
                 || !ready_for_success
                 || agent_screen_busy(&svc, &state.pty_id);
-            if busy {
-                log::debug!(
-                    "[run-watcher] idle {}s but agent remains active — deferring reap: tab={}",
-                    idle_secs,
-                    state.tab_id
-                );
-            } else {
+            if !busy {
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;
                 }
@@ -475,6 +481,14 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             return;
         }
     }
+}
+
+fn cron_provider_exit_is_proven(
+    kind: &AgentRunKind,
+    observation: Option<&crate::service::process_tree::ProviderTreeObservation>,
+) -> bool {
+    matches!(kind, AgentRunKind::Cron { .. })
+        && observation.is_some_and(|observation| observation.proves_exit_from_lifecycle_clear())
 }
 
 fn surface_idle_provider_prompt(svc: &ServiceContext, tab_id: &str, pty_id: &str) -> bool {
