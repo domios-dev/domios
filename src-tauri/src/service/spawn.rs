@@ -117,7 +117,6 @@ pub enum TabCommand {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentSpawnSpec {
     pub provider: String,
-    /// Startup ACK of a remote-bound Worker is supervised by its origin peer.
     #[serde(skip)]
     pub remote_task_bound: bool,
     #[serde(default)]

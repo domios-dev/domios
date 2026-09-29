@@ -1,4 +1,3 @@
-use crate::api::access_policy::check_access;
 use crate::api::routes::{check_auth, AppState};
 use axum::{
     body::Body,
@@ -873,119 +872,6 @@ async fn perform_relay(
     })
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum PeerRelayAuthorization<'a> {
-    Rejected,
-    WorkspaceClose {
-        peer_id: &'a str,
-        workspace_id: &'a str,
-        force: bool,
-    },
-    MeshRpc {
-        peer_id: &'a str,
-    },
-    Forward,
-}
-
-fn authorize_peer_relay<'a>(
-    peer_id: &'a str,
-    access: &crate::mesh::types::AccessLevel,
-    method: &Method,
-    path: &'a str,
-    body: &serde_json::Value,
-) -> PeerRelayAuthorization<'a> {
-    if !check_access(access, method, path) {
-        return PeerRelayAuthorization::Rejected;
-    }
-    if *method == Method::POST && path == "/api/mesh/rpc" {
-        return PeerRelayAuthorization::MeshRpc { peer_id };
-    }
-    match workspace_close_target(method, path) {
-        Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
-            peer_id,
-            workspace_id,
-            force: relay_workspace_close_force(body),
-        },
-        None => PeerRelayAuthorization::Forward,
-    }
-}
-
-async fn mesh_rpc_from_mesh_peer(
-    state: &AppState,
-    peer_id: &str,
-    body: &serde_json::Value,
-) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
-    let request: super::rpc::MeshRpcRequest =
-        serde_json::from_value(body.clone()).map_err(|error| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("Invalid mesh RPC body: {error}"),
-            )
-        })?;
-    let peer_id = peer_id.to_string();
-    let response = super::rpc::handle_mesh_rpc(state, request, move || Ok(peer_id)).await;
-    Ok(crate::mesh::types::RelayResponse {
-        ok: true,
-        status: StatusCode::OK.as_u16(),
-        data: Some(serde_json::to_value(response).unwrap_or(serde_json::Value::Null)),
-        error: None,
-    })
-}
-
-fn relay_workspace_close_force(body: &serde_json::Value) -> bool {
-    body.get("force")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
-    if *method != Method::POST {
-        return None;
-    }
-    let workspace_id = path
-        .strip_prefix("/api/workspaces/")?
-        .strip_suffix("/close")?;
-    (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
-}
-
-async fn close_workspace_from_mesh_peer(
-    state: &AppState,
-    peer_id: &str,
-    workspace_id: &str,
-    force: bool,
-) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
-    let service = state.svc.clone();
-    let peer_id = peer_id.to_string();
-    let workspace_id = workspace_id.to_string();
-    let result = tokio::task::spawn_blocking(move || {
-        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
-    })
-    .await
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Workspace close task failed: {error}"),
-        )
-    })?;
-    match result {
-        Ok(()) => Ok(crate::mesh::types::RelayResponse {
-            ok: true,
-            status: StatusCode::OK.as_u16(),
-            data: Some(serde_json::json!({ "ok": true })),
-            error: None,
-        }),
-        Err(error) => {
-            let (status, message) = crate::api::tab_routes::map_close_error(error);
-            Ok(crate::mesh::types::RelayResponse {
-                ok: false,
-                status: status.as_u16(),
-                data: None,
-                error: Some(message),
-            })
-        }
-    }
-}
-
 /// Surface a structured delivery error (`tab_not_reachable_on_peer`,
 /// `tab_busy_refused`, `submit_unconfirmed`) across the relay boundary instead
 /// of a bare `HTTP <status>`. `bytes_written` is echoed so a caller can never
@@ -1219,6 +1105,12 @@ pub async fn mesh_relay_asset(
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
     Ok(out)
 }
+
+mod peer_authorization;
+use peer_authorization::{
+    authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
+    PeerRelayAuthorization,
+};
 
 #[cfg(test)]
 mod tests;
