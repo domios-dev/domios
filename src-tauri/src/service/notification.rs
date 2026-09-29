@@ -10,7 +10,7 @@ use crate::notification::{
     channel_ask::{self, ChannelChoice, PushMessage},
     channel_placement::SpentQuestion,
     channels,
-    dedupe::DeliveryAdmission,
+    dedupe::{DeliveryAdmission, TabCondition},
     deep_link::NotificationTarget,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
@@ -406,14 +406,18 @@ impl ServiceContext {
             title,
             body,
             severity,
-            actions.map(adopt_caller_actions),
+            Ask {
+                actions: actions.map(adopt_caller_actions),
+                offer,
+                condition: None,
+            },
             sticky,
             origin,
             intent,
-            offer,
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_prompt_notification_ext(
         &self,
@@ -426,9 +430,54 @@ impl ServiceContext {
         intent: PushIntent,
     ) -> String {
         self.create_notification_actions_reported(
-            title, body, severity, actions, sticky, origin, intent, None,
+            title,
+            body,
+            severity,
+            Ask::offering(actions),
+            sticky,
+            origin,
+            intent,
         )
         .0
+    }
+
+    /// A sticky action-needed notice keyed to one standing condition of one
+    /// tab: one live record per tab and condition, resolved when it ends.
+    pub(crate) fn create_condition_notification(
+        &self,
+        tab_id: &str,
+        condition: TabCondition,
+        title: String,
+        body: Option<String>,
+        actions: Option<Vec<NotificationAction>>,
+    ) -> String {
+        let (id, _) = self.create_notification_actions_reported(
+            title,
+            body,
+            Some("warning"),
+            Ask::about(condition, actions),
+            Some(true),
+            NotificationOrigin::local_tab(tab_id.to_string()),
+            PushIntent {
+                level: Some(NotifyLevel::ActionNeeded),
+                event_key: Some(condition.key(tab_id)),
+            },
+        );
+        let superseded = { self.notif.lock().take_superseded() };
+        self.announce_resolved(&superseded);
+        id
+    }
+
+    /// Tell every surface these records resolved: channels stop offering
+    /// their buttons and the panel drops them from the live set.
+    pub(crate) fn announce_resolved(&self, ids: &[String]) {
+        for id in ids {
+            let spent = { self.notif.lock().spent_question(id) };
+            if let Some(spent) = spent {
+                self.spend_on_channels(id, &spent);
+            }
+            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -437,13 +486,11 @@ impl ServiceContext {
         title: String,
         body: Option<String>,
         severity: Option<&str>,
-        actions: Option<Vec<NotificationAction>>,
+        ask: Ask,
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
-        offer: Option<SurfaceOffer>,
     ) -> (String, Option<Unseen>) {
-        let ask = Ask { actions, offer };
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
         let declared = intent.level;
@@ -665,19 +712,21 @@ impl ServiceContext {
         previous: Option<codeterm_types::pty::PromptIdentity>,
         current: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Vec<String> {
+        // A tab holds one prompt at a time, so a displaced or cleared prompt ends the whole condition.
+        let displaced = previous
+            .as_ref()
+            .is_some_and(|previous| Some(previous) != current);
         let resolved = {
             let mut store = self.notif.lock();
-            super::prompt_resolution::resolve_displaced_prompt(
+            let mut resolved = super::prompt_resolution::resolve_displaced_prompt(
                 &mut store, tab_id, previous, current,
-            )
-        };
-        for id in &resolved {
-            let spent = { self.notif.lock().spent_question(id) };
-            if let Some(spent) = spent {
-                self.spend_on_channels(id, &spent);
+            );
+            if displaced {
+                resolved.extend(store.resolve_tab_condition(tab_id, TabCondition::PendingPrompt));
             }
-            self.notify_event("notification-resolved", serde_json::json!({ "id": id }));
-        }
+            resolved
+        };
+        self.announce_resolved(&resolved);
         resolved
     }
 

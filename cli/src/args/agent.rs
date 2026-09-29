@@ -348,8 +348,8 @@ pub enum AgentAction {
         authorized_gates: Vec<String>,
         #[arg(long = "provider-reserve-pct", default_value_t = 0.0)]
         provider_reserve_pct: f32,
-        /// Declare the tab non-user-facing (bench/probe): its interactive
-        /// prompts never raise user-visible Input-needed notifications.
+        /// Declare the tab non-user-facing (bench/probe): its prompts and exits
+        /// never notify the user; they are reported to its parent instead.
         #[arg(long = "non-user-facing")]
         non_user_facing: bool,
     },

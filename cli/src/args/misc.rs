@@ -426,7 +426,7 @@ fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyL
 pub enum NotifyAction {
     /// Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it.
     Send {
-        /// Notification title
+        /// Notification title: not blank, at most 200 characters
         title: String,
 
         /// Read the notification body from a relative file in the calling tab's pad
@@ -474,7 +474,7 @@ pub enum NotifyAction {
         #[arg(long = "offer-accept", value_name = "LABEL", requires = "offer")]
         offer_accept: Option<String>,
 
-        /// The tab whose chat holds the message this notification is about
+        /// The open tab whose chat holds the message this notification is about
         #[arg(long = "target-tab", value_name = "TAB_ID")]
         target_tab: Option<String>,
 

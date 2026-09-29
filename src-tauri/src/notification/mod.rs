@@ -11,6 +11,7 @@ pub mod deep_link;
 #[cfg(test)]
 mod defaults_tests;
 pub mod desktop;
+pub mod persist;
 pub mod push;
 pub mod reach;
 pub mod store;
@@ -37,6 +38,7 @@ pub fn notify(
     level: Option<String>,
     event_key: Option<String>,
 ) -> Result<String, String> {
+    let title = crate::api::notification_routes::vet_title(&title)?;
     let intent = crate::api::notification_routes::parse_push_intent(level.as_deref(), event_key)?;
     Ok(svc.create_notification_ext(
         title,

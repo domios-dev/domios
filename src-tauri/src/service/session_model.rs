@@ -361,19 +361,22 @@ impl ServiceContext {
                     "model fallback: requested {}, actual {}",
                     mismatch.requested_model, mismatch.actual_model
                 );
-                self.create_notification_ext(
-                    title,
-                    Some(
-                        "Provider runtime session metadata reported a different model than the launch request."
-                            .to_string(),
-                    ),
-                    Some(severity),
-                    None,
-                    None,
-                    crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-                    crate::service::notification::PushIntent::default(),
-                    None,
-                );
+                // A tab nobody watches keeps the fallback in its log, off the user's inbox.
+                if self.tab_is_user_facing(tab_id) {
+                    self.create_notification_ext(
+                        title,
+                        Some(
+                            "Provider runtime session metadata reported a different model than the launch request."
+                                .to_string(),
+                        ),
+                        Some(severity),
+                        None,
+                        None,
+                        crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+                        crate::service::notification::PushIntent::default(),
+                        None,
+                    );
+                }
                 log::warn!(
                     "[session-model] tab={} requested_model={} actual_model={} severity={} fallback_reason=runtime_session_model_mismatch",
                     tab_id,

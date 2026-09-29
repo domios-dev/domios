@@ -92,13 +92,18 @@ impl ServiceContext {
         Some(format!("{provider}:{folder}"))
     }
 
-    pub(super) fn notify_pending_prompt(
+    /// Raise the tab's pending-prompt condition to whoever owns the tab. `None`
+    /// means a sibling tab's notice for the same folder trust already stands.
+    pub(crate) fn notify_pending_prompt(
         &self,
         tab_id: &str,
         prompt: &PendingPrompt,
         kind: codeterm_types::pty::PromptKind,
-    ) {
-        if kind == codeterm_types::pty::PromptKind::DirectoryTrust {
+    ) -> Option<crate::service::tab_conditions::ConditionRoute> {
+        // Only a user-facing tab may own the shared trust notice, or a hidden sibling would silence it.
+        if kind == codeterm_types::pty::PromptKind::DirectoryTrust
+            && self.tab_is_user_facing(tab_id)
+        {
             // Without a resolvable folder there is no sibling to share with, so the tab notifies alone.
             let key = self.trust_notification_key(tab_id);
             if let Some(key) = key {
@@ -112,7 +117,7 @@ impl ServiceContext {
                         tab_id,
                         &prompt.question,
                     );
-                    return;
+                    return None;
                 }
             }
         }
@@ -142,16 +147,16 @@ impl ServiceContext {
             .chain(labels.iter().map(String::as_str))
             .collect::<Vec<_>>()
             .join("\n");
-        self.create_prompt_notification_ext(
-            "Agent needs your response".to_string(),
-            Some(body),
-            Some("warning"),
-            actions,
-            Some(true),
-            super::super::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-            super::super::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("pending-prompt:{tab_id}:{}", uuid::Uuid::new_v4())),
+        let route = self.raise_tab_condition(
+            tab_id,
+            crate::notification::dedupe::TabCondition::PendingPrompt,
+            crate::service::tab_conditions::ConditionNotice {
+                title: "Agent needs your response".to_string(),
+                body,
+                actions,
+                hint: Some(format!(
+                    "Answer it with `codeterm tab respond <option> --tab {tab_id}`."
+                )),
             },
         );
         let prompt_is_current = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
@@ -160,6 +165,7 @@ impl ServiceContext {
         if prompt_is_current {
             crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
         }
+        Some(route)
     }
 }
 
