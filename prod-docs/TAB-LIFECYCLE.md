@@ -65,6 +65,12 @@ launch transition, a shell reporting its foreground command with a matching
 nonce and then finished (OSC 633 `E` → `D`), an open plugin session. Elapsed
 time is never an input.
 
+A launch that still owes its startup acknowledgement is not ready while its
+provider shows the owner a prompt: an `agent_ready` tab moves to
+`awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready`
+when it clears. The prompt raises one notification however many times the
+provider renders it.
+
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
 model label, and the existing guarded-input refusal arms with it.
@@ -236,4 +242,4 @@ transaction, so the intermediate state is never observable.
   checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
-<!-- revision: 26 -->
+<!-- revision: 27 -->

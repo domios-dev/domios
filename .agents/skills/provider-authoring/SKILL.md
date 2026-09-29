@@ -146,6 +146,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `supportsStructuredPrompts` | bool | false | Provider exposes a structured prompt source; host builds `pending_prompt` from it instead of scraping the PTY. **JS-only providers cannot serve this** — see caveats. |
 | `structuredPromptServer` | bool | false | The structured handle is a local server the provider must bind; host allocates `127.0.0.1:port` and passes it as `structuredPromptServer` at launch. Pull-handle providers leave this false. |
 | `usageProbeCommand` | string? | absent | TUI command that prints the usage screen (e.g. `/usage`, `/status`). Pairs with the `parseUsage` export; the usage poller skips providers without both. |
+| `launchPermissions` | object? | absent | Launch-scoped grants applied through launch args, never global settings files. `unattendedModeModels`: models whose default mode runs tools unattended without full access (empty ⇒ no claim). `commandRuleFormat` (`{command}`) + `allowRuleArgsFormat` (`{rule}`): how one CodeTerm command prefix is allowed. `denyToolArgsFormat` (`{tool}`) + `nativeSubagentTools`: how managing roles lose native subagent tools. Without full access, a model outside `unattendedModeModels` gets the role's CodeTerm command rules, and a managing role (Orchestrator, Planner) on such a model is refused before spawn. |
 
 ### `sessions`
 

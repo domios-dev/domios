@@ -64,6 +64,7 @@ pub(crate) fn build_cron_spawn_spec(
     spec.visibility = TabVisibility::Hidden;
     if let Some(agent) = spec.agent_launch_mut() {
         agent.spawned_by = Some(format!("cron:{}", inputs.job_id));
+        agent.launch_purpose = crate::service::unattended_launch::LaunchPurpose::CronRun;
     }
     spec
 }

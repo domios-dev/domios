@@ -163,6 +163,18 @@ fn build_agent_command_inner(
         crate::service::launch_delivery::command_task(provider, task)
     });
     let skip_permissions = params.permission_bypass_requested(agent_cmd);
+    args.extend(crate::service::unattended_launch::grant_args(
+        registry,
+        &crate::service::unattended_launch::UnattendedLaunch {
+            provider_id: agent_cmd,
+            model: resolved_model.as_deref(),
+            role: params.role.as_deref(),
+            role_profile: params.role_profile.as_deref(),
+            has_task: task.is_some(),
+            full_access: skip_permissions,
+            ..Default::default()
+        },
+    ));
     crate::service::launch_session_detection::append_sandbox_linux_network_args(
         registry,
         agent_cmd,

@@ -74,6 +74,18 @@ impl ShellSyntax {
         }
     }
 
+    /// One argv element: plain flag/value tokens pass through, anything a shell
+    /// could reinterpret is quoted.
+    pub fn quote_arg(s: &str) -> String {
+        let plain = !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.,:=@/+%".contains(c));
+        if plain {
+            s.to_string()
+        } else {
+            Self::quote(s)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +220,17 @@ mod tests {
         };
         assert_eq!(written, body);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn quote_arg_keeps_plain_tokens_and_quotes_shell_syntax() {
+        assert_eq!(ShellSyntax::quote_arg("--model"), "--model");
+        assert_eq!(
+            ShellSyntax::quote_arg("claude-haiku-4.5"),
+            "claude-haiku-4.5"
+        );
+        let rule = "Tool(a b:*)";
+        assert_eq!(ShellSyntax::quote_arg(rule), ShellSyntax::quote(rule));
+        assert_eq!(ShellSyntax::quote_arg(""), ShellSyntax::quote(""));
     }
 }

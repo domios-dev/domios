@@ -1860,7 +1860,7 @@ var plugin = {
     const p = params || {};
     const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
     if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -2507,6 +2507,9 @@ function commandOutcome(value) {
   const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
   if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
   return Object.keys(outcome).length > 0 ? outcome : void 0;
+}
+function quoteArg(arg) {
+  return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
 }
 function writeTaskTempFile(task) {
   const suffix = ".ct-task-" + randomShortHex(8);
