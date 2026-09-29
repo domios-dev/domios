@@ -297,7 +297,8 @@ impl ServiceContext {
             }
             WorkspaceCloseCaller::Human => false,
             WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
-            WorkspaceCloseCaller::Unattributed => true,
+            // An empty workspace holds nothing a confirmation would protect.
+            WorkspaceCloseCaller::Unattributed => !self.workspace_is_empty(workspace_id),
         };
         if refuse {
             let error = if matches!(caller, WorkspaceCloseCaller::Unattributed) {
@@ -329,7 +330,7 @@ impl ServiceContext {
         let mut partial_team_teardown = false;
         for team_id in self.workspace_team_ids(workspace_id) {
             let team_existed = { self.mux.read().get_team(&team_id).is_some() };
-            if let Err(error) = self.close_team(&team_id, caller.team_caller()).await {
+            if let Err(error) = self.close_team(&team_id, caller.team_caller(), force).await {
                 team_close_refusals_only &=
                     error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
                 let team_remains = { self.mux.read().get_team(&team_id).is_some() };
@@ -359,6 +360,17 @@ impl ServiceContext {
         tokio::task::spawn_blocking(move || service.close_workspace(&workspace_id))
             .await
             .map_err(|error| format!("workspace close teardown task failed: {error}"))?
+    }
+
+    fn workspace_is_empty(&self, workspace_id: &str) -> bool {
+        let has_tabs = {
+            let mux = self.mux.read();
+            match mux.get_workspace(workspace_id) {
+                Some(workspace) => !workspace.tabs.is_empty(),
+                None => return false,
+            }
+        };
+        !has_tabs && self.workspace_team_ids(workspace_id).is_empty()
     }
 
     fn workspace_team_ids(&self, workspace_id: &str) -> Vec<String> {

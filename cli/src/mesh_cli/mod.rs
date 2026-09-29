@@ -29,6 +29,7 @@ fn remote_close_tab_id(command: &Commands) -> Option<&str> {
                 super::TabAction::Close {
                     id: Some(id),
                     tab: None,
+                    ..
                 },
         } => Some(id),
         _ => None,

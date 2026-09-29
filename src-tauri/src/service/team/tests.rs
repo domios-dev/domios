@@ -1171,4 +1171,5 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     assert_eq!(mux.team_count(), before_teams);
 }
 
+mod close_busy;
 mod close_lifecycle;

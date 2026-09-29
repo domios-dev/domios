@@ -555,6 +555,7 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
         TabAction::Close {
             id: bad(),
             tab: None,
+            force: false,
         },
         TabAction::Rename {
             tab: bad(),
@@ -723,6 +724,18 @@ fn focus_failure_moves_the_rpc_code_out_of_the_message() {
     let error = focus_tab(&mut stub, "zzzzzzzz").expect_err("the stub answers with a failure");
 
     assert_converted(&stub, &error, "tab.focus", &json!({ "tab_id": "zzzzzzzz" }));
+}
+
+#[test]
+fn close_params_carry_force_only_when_requested() {
+    assert_eq!(
+        close_tab_params("tab-a", false),
+        json!({ "tab_id": "tab-a" })
+    );
+    assert_eq!(
+        close_tab_params("tab-a", true),
+        json!({ "tab_id": "tab-a", "force": true })
+    );
 }
 
 #[test]

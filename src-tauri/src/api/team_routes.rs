@@ -27,6 +27,10 @@ pub(crate) struct CloseTeamBody {
     force: bool,
     #[serde(default)]
     confirm: Option<String>,
+    /// Close even while Team work is in progress (distinct from `force`, which
+    /// only confirms a headerless human caller).
+    #[serde(default)]
+    force_busy: bool,
 }
 
 fn validate_name(name: &str) -> Result<(), (StatusCode, String)> {
@@ -54,7 +58,9 @@ fn map_rename_error(error: String) -> (StatusCode, String) {
 }
 
 fn map_close_team_error(error: String) -> (StatusCode, String) {
-    let status = if error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX) {
+    let status = if error.starts_with(crate::service::TEAM_CLOSE_BUSY_REFUSAL_PREFIX) {
+        StatusCode::CONFLICT
+    } else if error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX) {
         StatusCode::FORBIDDEN
     } else if error.starts_with("Team ") && error.contains(" not found") {
         StatusCode::NOT_FOUND
@@ -139,13 +145,18 @@ pub async fn close_team(
 ) -> Result<Json<crate::service::TeamCloseResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
-    let team = close_team_adapter(
-        &headers,
-        team_id,
-        body.unwrap_or_default(),
-        |team_id: String, caller| async move { service.close_team(&team_id, caller).await },
-    )
-    .await?;
+    let body = body.unwrap_or_default();
+    let force_busy = body.force_busy;
+    let team =
+        close_team_adapter(
+            &headers,
+            team_id,
+            body,
+            |team_id: String, caller| async move {
+                service.close_team(&team_id, caller, force_busy).await
+            },
+        )
+        .await?;
     Ok(Json(team))
 }
 
@@ -239,6 +250,14 @@ mod tests {
         assert_eq!(
             map_close_team_error("Team lane cleanup failed: disk unavailable".into()).0,
             StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            map_close_team_error(format!(
+                "{}: Team has unfinished work",
+                crate::service::TEAM_CLOSE_BUSY_REFUSAL_PREFIX
+            ))
+            .0,
+            StatusCode::CONFLICT
         );
     }
 
@@ -498,6 +517,7 @@ mod tests {
                 &CloseTeamBody {
                     force: false,
                     confirm: Some(team_id.into()),
+                    force_busy: false,
                 },
             ),
             TeamMutationCaller::Unattributed
@@ -509,6 +529,7 @@ mod tests {
                 &CloseTeamBody {
                     force: true,
                     confirm: Some("team-other".into()),
+                    force_busy: false,
                 },
             ),
             TeamMutationCaller::Unattributed
@@ -519,6 +540,7 @@ mod tests {
             &CloseTeamBody {
                 force: true,
                 confirm: Some(team_id.into()),
+                force_busy: false,
             },
         );
         assert_eq!(confirmed, TeamMutationCaller::HumanConfirmedHeaderless,);

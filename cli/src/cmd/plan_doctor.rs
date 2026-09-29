@@ -9,6 +9,7 @@ use crate::cmd::plan_local::{plan_id_from, project_root};
 mod authoritative_tests;
 mod cleanup;
 mod inspect;
+mod liveness;
 mod quality;
 
 use inspect::inspect_plan;
@@ -134,6 +135,9 @@ fn doctor_report_authoritative(
             continue;
         }
         findings.extend(inspect_plan(&path, &plan, kind));
+        if matches!(kind, "all" | "structure") {
+            findings.extend(liveness::liveness_findings(client, &id, &path));
+        }
         if matches!(kind, "all" | "storage") {
             findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
         }

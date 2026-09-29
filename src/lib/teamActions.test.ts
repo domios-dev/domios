@@ -83,7 +83,7 @@ async function run() {
   const closeCall = calls[calls.length - 1];
   assert(closeCall?.command === "mux_close_team", "close uses the bridge command");
   assert(
-    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1" }),
+    JSON.stringify(closeCall?.args) === JSON.stringify({ teamId: "team-1", forceBusy: true }),
     "close is a human UI action and sends no agent authority",
   );
 

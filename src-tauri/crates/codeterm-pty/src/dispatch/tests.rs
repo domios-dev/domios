@@ -123,7 +123,7 @@ impl CommandPort for StartupBlockedPort {
         unreachable!()
     }
 
-    fn close_tab_guarded(&self, _: Option<&str>, _: &str) -> Result<(), String> {
+    fn close_tab_guarded(&self, _: Option<&str>, _: &str, _: bool) -> Result<Vec<String>, String> {
         unreachable!()
     }
 
@@ -217,7 +217,10 @@ fn health_and_tabs_do_not_share_a_blocking_startup_wait() {
 #[test]
 fn tab_close_deserialize() {
     let cmd: Command = serde_json::from_str(r#"{"cmd": "tab_close", "tab_id": "abc"}"#).unwrap();
-    assert!(matches!(cmd, Command::TabClose { .. }));
+    assert!(matches!(cmd, Command::TabClose { force: false, .. }));
+    let forced: Command =
+        serde_json::from_str(r#"{"cmd": "tab_close", "tab_id": "abc", "force": true}"#).unwrap();
+    assert!(matches!(forced, Command::TabClose { force: true, .. }));
 }
 
 #[test]
@@ -289,6 +292,7 @@ fn command_round_trips_through_json() {
         Command::TabClose {
             tab_id: "p".into(),
             caller_tab_id: None,
+            force: false,
         },
         Command::TabFocus { tab_id: "p".into() },
         Command::TabRename {

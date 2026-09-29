@@ -77,6 +77,11 @@ Archiving a plan with no retrospective succeeds with the advisory
 
 Run this loop after every report, reminder, task close, tab death, or gate:
 
+A Worker that dies while its task is `in_progress` (tab closed, crashed, or its
+agent exited) is pushed to you at once as a `[worker lost: <task>]` notice naming
+the task, lane, dirty state, and recovery command. Treat it as an incident: tell
+the user, then recover with the named `codeterm plan task respawn` command.
+
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
    messages. Accept or bounce them without polling an inbox.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
@@ -158,4 +163,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 96 -->
+<!-- revision: 97 -->

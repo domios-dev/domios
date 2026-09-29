@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{AgentRef, Milestone, TaskStatus};
+use crate::plan::{AgentRef, Milestone, PlanOrphan, TaskStatus};
 use std::collections::HashSet;
 
 #[derive(Debug)]
@@ -99,7 +99,7 @@ impl PlanStore {
         let mut archive_ids = Vec::new();
         for plan in plans
             .iter()
-            .filter(|plan| plan.status == PlanStatus::Active)
+            .filter(|plan| plan.status == PlanStatus::Active && !plan.is_orphaned_active())
         {
             match plan.team_id.as_deref() {
                 Some(team_id) if live.contains(team_id) => {
@@ -273,7 +273,8 @@ fn close_team_tasks(
                 task.status = TaskStatus::Pending;
                 task.status_changed_at = now_ms;
             }
-            task.status_label = None;
+            task.status_label =
+                returned_to_pending.then(|| crate::plan::reconcile::TEAM_CLOSED_LABEL.to_string());
             task.pause_reason = None;
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
@@ -337,5 +338,25 @@ fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u64) {
     plan.owner = retired_owner;
     plan.planner = None;
     plan.team_id = None;
-    plan.status = PlanStatus::Archived;
+    let unfinished_task_ids: Vec<String> = plan
+        .tasks
+        .iter()
+        .filter(|task| !task.status.is_terminal())
+        .map(|task| task.id.clone())
+        .collect();
+    if unfinished_task_ids.is_empty() {
+        plan.status = PlanStatus::Archived;
+        return;
+    }
+    plan.status = PlanStatus::Active;
+    plan.orphaned = Some(PlanOrphan {
+        team_id: team_id.to_string(),
+        reason: format!(
+            "Team {team_id} closed with {} unfinished task(s): {}; adopt the plan into a live Team to continue",
+            unfinished_task_ids.len(),
+            unfinished_task_ids.join(", ")
+        ),
+        unfinished_task_ids,
+        at: now_ms,
+    });
 }
