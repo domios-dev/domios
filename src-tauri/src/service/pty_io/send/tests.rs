@@ -1,7 +1,7 @@
 use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
-    is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
+    is_pre_ready_launch_stage, modal_refusal_detail, optimistic_agent_pty_target, provider_frame_ready,
     provider_or_generic_tui, public_agent_input_readiness, require_submission_result,
     submit_authenticated_pty_input, wait_for_observed_readiness,
 };
@@ -19,6 +19,12 @@ const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now z
     To update your account to use zsh, please run `chsh -s /bin/zsh`.\r\n\
     For more details, please visit https://support.apple.com/kb/HT208050.\r\n\
     rollacode-bot:general dev$ ";
+
+#[test]
+fn send_actions_refusal_names_the_trust_answer_command() {
+    assert!(modal_refusal_detail("orch-1")
+        .contains("codeterm tab respond OPTION --tab orch-1"));
+}
 
 fn handle() -> crate::ScreenStateHandle {
     Arc::new(TimedMutex::new("screen_state", ScreenState::new()))

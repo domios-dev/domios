@@ -73,6 +73,47 @@ fn startup_notice_to_parent_on_trust_dialog_is_withheld() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn withheld_lifecycle_reports_replay_once_after_trust_dialog_clears() {
+    let (fixture, parent_tab_id) = bound_parent_fixture();
+    let prompt = "Select an option: Do you trust this folder?\r\n  > 1. Trust this folder\r\n    2. Exit\r\n";
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process("parent-pty", prompt.as_bytes());
+    let delivery = RecordingHierarchyReportDelivery::default();
+    fixture.service.publish_agent_startup_report_with_delivery(
+        &parent_tab_id,
+        "worker-tab",
+        "Worker",
+        serde_json::json!({"kind": "agent_startup_failed", "attempt_id": "trust-attempt"}),
+        &delivery,
+    );
+    assert!(delivery.writes.lock().is_empty());
+
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process("parent-pty", b"\x1b[2J\x1b[H$ ");
+    fixture
+        .service
+        .replay_pending_reports_with_delivery(&parent_tab_id, &delivery);
+    fixture
+        .service
+        .replay_pending_reports_with_delivery(&parent_tab_id, &delivery);
+
+    assert_eq!(delivery.writes.lock().len(), 1);
+    assert!(fixture
+        .service
+        .report_store
+        .lock()
+        .pending_for(&parent_tab_id)
+        .is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn failed_startup_notice_delivery_releases_claim_for_replay() {
     let (fixture, parent_tab_id) = bound_parent_fixture();
     let delivery = FailFirstHierarchyReportDelivery::default();

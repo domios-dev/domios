@@ -30,6 +30,7 @@
     "statusBarRows": 3,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": true,
+    "supportsDirectoryTrustPromptParsing": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"
   },
