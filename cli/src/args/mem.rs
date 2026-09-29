@@ -518,7 +518,7 @@ pub enum MemWorkerAction {
 
 #[derive(Subcommand)]
 pub enum MemSkillAction {
-    /// Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write
+    /// Scaffold a new skill folder under <skills-dir>/<name>/ (skills/ in the active instance data dir), write
     /// a SKILL.md template (with frontmatter + canonical sections) plus an
     /// empty scripts/ subdir, then register it in mem immediately. After
     /// this, edit the SKILL.md — Librarian will re-index on change.

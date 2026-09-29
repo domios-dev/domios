@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use super::store::MemItem;
 
+mod lexical;
+
 const STOP_WORDS: &[&str] = &[
     "what",
     "when",
@@ -382,8 +384,8 @@ pub fn run_with_config(
             } else {
                 0.0
             };
-        let abs_bm = bm25.abs();
-        let fused = abs_bm
+        let distance = 1.0 / (1.0 + bm25.abs());
+        let fused = distance
             * (1.0 - cfg.keyword_overlap_weight * overlap)
             * (1.0 - temporal_boost)
             * (1.0 - importance_boost)
@@ -619,7 +621,11 @@ pub fn hybrid_rrf_with_config(
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
 
     // 1. FTS5 candidates (may be empty on typos)
-    let fts_hits = run_with_config(conn, q, blobs_dir, cfg).unwrap_or_default();
+    let wide_query = SearchQuery {
+        limit: Some(limit * 5),
+        ..q.clone()
+    };
+    let mut fts_hits = run_with_config(conn, &wide_query, blobs_dir, cfg).unwrap_or_default();
 
     #[cfg(feature = "embeddings")]
     let vec_hits = {
@@ -655,6 +661,8 @@ pub fn hybrid_rrf_with_config(
         return Ok(Vec::new());
     }
     if vec_hits.is_empty() {
+        lexical::rerank_fts_hits(&q.query, &mut fts_hits);
+        fts_hits.truncate(limit);
         return Ok(fts_hits);
     }
     if fts_hits.is_empty() {
@@ -721,9 +729,15 @@ pub fn hybrid_rrf_with_config(
         }
     }
 
-    let mut merged: Vec<SearchHit> = rrf_scores
-        .into_values()
-        .map(|(rrf, item)| {
+    let entries: Vec<(f64, MemItem)> = rrf_scores.into_values().collect();
+    let lift = {
+        let items: Vec<&MemItem> = entries.iter().map(|(_, item)| item).collect();
+        lexical::lift_factors(&q.query, &items)
+    };
+    let mut merged: Vec<SearchHit> = entries
+        .into_iter()
+        .zip(lift)
+        .map(|((rrf, item), lift)| {
             let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
             let auto_mul = if is_auto {
                 cfg.auto_extracted_penalty
@@ -737,7 +751,7 @@ pub fn hybrid_rrf_with_config(
             } else {
                 1.0
             };
-            let adjusted = rrf * auto_mul * rec_mul * graph_mul;
+            let adjusted = rrf * auto_mul * rec_mul * graph_mul * lift;
             SearchHit {
                 item,
                 score: -adjusted,
