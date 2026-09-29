@@ -10,7 +10,7 @@ fn lane_bundle_size_allowed(size: u64, limit: u64) -> bool {
     size <= limit
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct MeshWorkerDispatchRequest {
     repository_identity: String,
     base_commit: String,
@@ -191,6 +191,50 @@ fn create_lane_bundle_with_limit(
         })
         .unwrap(),
     ))
+}
+
+/// The origin's brief carries the remote ACK/report commands, so the peer tab holds no
+/// local Worker role: that role's primer and placement assume a local Orchestrator.
+pub(crate) fn remote_worker_spawn_params(
+    request: MeshWorkerDispatchRequest,
+    workspace_id: String,
+    worktree_path: String,
+    origin_peer_id: String,
+    origin_peer_name: &str,
+) -> crate::service::SpawnAgentParams {
+    let suffix: String = request.attempt_id.chars().take(6).collect();
+    crate::service::SpawnAgentParams {
+        agent: Some(request.provider),
+        cwd: Some(worktree_path.clone()),
+        provisioned_cwd: Some(worktree_path),
+        title: Some(format!("Remote{suffix}")),
+        description: Some(format!(
+            "Plan task {} on origin peer {}",
+            request.task_id, origin_peer_name
+        )),
+        plan_id: Some(request.plan_id.clone()),
+        task_id: Some(request.task_id.clone()),
+        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+            plan_id: request.plan_id.clone(),
+            task_id: request.task_id.clone(),
+            attempt_id: request.attempt_id.clone(),
+            lane_base: Some(request.base_commit.clone()),
+        }),
+        execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+        workspace_id: Some(workspace_id),
+        task: Some(request.brief),
+        report_target_tab_id: Some(request.origin_tab_id),
+        report_target_mesh_peer: Some(origin_peer_id.clone()),
+        remote_task_binding: Some(crate::service::RemoteTaskBinding {
+            plan_id: request.plan_id,
+            task_id: request.task_id,
+            attempt_id: request.attempt_id,
+            origin_peer_id,
+        }),
+        model: request.model,
+        reasoning_effort: request.reasoning_effort,
+        ..Default::default()
+    }
 }
 
 #[cfg(test)]
@@ -398,6 +442,53 @@ mod tests {
             .as_str()
             .is_some_and(|bundle| !bundle.is_empty()));
     }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn remote_worker_spawn_succeeds_on_a_peer_without_a_local_orchestrator() {
+        let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+        let workspace_id = mux.create_workspace("remote worker peer".into(), None).id;
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("remote-mock")
+                .with_launch_binary("cmd.exe"),
+        ));
+        let worktree = fixture.temp.path().display().to_string();
+        let request = super::MeshWorkerDispatchRequest {
+            repository_identity: "sha256:fixture".into(),
+            base_commit: "base".into(),
+            plan_id: "plan-origin".into(),
+            task_id: "task-origin".into(),
+            attempt_id: "attempt-origin".into(),
+            origin_tab_id: "origin-orchestrator".into(),
+            provider: "remote-mock".into(),
+            model: None,
+            reasoning_effort: None,
+            brief: "remote brief".into(),
+        };
+        let mut params = super::remote_worker_spawn_params(
+            request,
+            workspace_id,
+            worktree,
+            "peer-origin".into(),
+            "origin",
+        );
+        // Brief delivery needs the desktop session store, which the fixture lacks.
+        params.task = None;
+        let result = fixture.service.spawn_agent_sync(params).unwrap();
+        {
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(&result.tab_id).unwrap();
+            assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("peer-origin"));
+            assert_eq!(
+                tab.report_target_tab_id.as_deref(),
+                Some("origin-orchestrator")
+            );
+            let binding = tab.task_binding.as_ref().expect("task binding");
+            assert_eq!(binding.attempt_id.as_deref(), Some("attempt-origin"));
+        }
+        fixture.service.close_tab(&result.tab_id).unwrap();
+    }
 }
 
 pub async fn mesh_worker_dispatch(
@@ -482,40 +573,13 @@ fn dispatch_authenticated_worker(
             ));
         }
     };
-    let suffix: String = request.attempt_id.chars().take(6).collect();
-    let spawn = crate::service::SpawnAgentParams {
-        agent: Some(request.provider),
-        cwd: Some(provenance.worktree_path.clone()),
-        provisioned_cwd: Some(provenance.worktree_path.clone()),
-        title: Some(format!("Remote{suffix}")),
-        description: Some(format!(
-            "Plan task {} on origin peer {}",
-            request.task_id, origin_peer_name
-        )),
-        role: Some("Worker".into()),
-        plan_id: Some(request.plan_id.clone()),
-        task_id: Some(request.task_id.clone()),
-        task_launch_authority: Some(crate::service::TaskLaunchAuthority {
-            plan_id: request.plan_id.clone(),
-            task_id: request.task_id.clone(),
-            attempt_id: request.attempt_id.clone(),
-            lane_base: Some(request.base_commit.clone()),
-        }),
-        execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
-        workspace_id: Some(workspace_id),
-        task: Some(request.brief),
-        report_target_tab_id: Some(request.origin_tab_id),
-        report_target_mesh_peer: Some(origin_peer_id.clone()),
-        remote_task_binding: Some(crate::service::RemoteTaskBinding {
-            plan_id: request.plan_id.clone(),
-            task_id: request.task_id.clone(),
-            attempt_id: request.attempt_id.clone(),
-            origin_peer_id,
-        }),
-        model: request.model,
-        reasoning_effort: request.reasoning_effort,
-        ..Default::default()
-    };
+    let spawn = remote_worker_spawn_params(
+        request.clone(),
+        workspace_id,
+        provenance.worktree_path.clone(),
+        origin_peer_id,
+        &origin_peer_name,
+    );
     let result = match state.svc.spawn_agent_sync(spawn) {
         Ok(result) => result,
         Err(error) => {
