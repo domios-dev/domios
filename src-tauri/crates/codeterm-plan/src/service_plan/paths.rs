@@ -20,7 +20,9 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     if let Some(root) = cache.read().get(cwd) {
         return root.clone();
     }
-    let root = if let Some(root) = main_worktree_root(cwd) {
+    let root = if !has_git_marker(cwd) {
+        cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+    } else if let Some(root) = main_worktree_root(cwd) {
         root
     } else if let Some(top) = worktree_top(cwd) {
         top
@@ -29,6 +31,25 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     };
     cache.write().insert(cwd.to_path_buf(), root.clone());
     root
+}
+
+/// Cheap filesystem probe that lets non-repository cwds skip the git spawns.
+fn has_git_marker(cwd: &Path) -> bool {
+    cwd.ancestors().any(|dir| dir.join(".git").exists())
+}
+
+/// Resolves many cwds with at most `parallelism` concurrent probes, warming the shared cache.
+pub fn warm_project_roots(cwds: &[PathBuf], parallelism: usize) {
+    let width = parallelism.max(1);
+    for batch in cwds.chunks(width) {
+        std::thread::scope(|scope| {
+            for cwd in batch {
+                scope.spawn(move || {
+                    project_root(cwd);
+                });
+            }
+        });
+    }
 }
 
 fn worktree_top(cwd: &Path) -> Option<PathBuf> {
@@ -235,6 +256,31 @@ pub fn specs_dir(project: &Path) -> std::io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn restore_plans_git_probe_cached_and_parallel() {
+        let base = tempfile::tempdir().unwrap();
+        let cwds: Vec<_> = (0..23)
+            .map(|i| {
+                let dir = base.path().join(format!("plain-{i}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                dir
+            })
+            .collect();
+        assert!(cwds.iter().all(|dir| !super::has_git_marker(dir)));
+
+        super::warm_project_roots(&cwds, 8);
+
+        for dir in &cwds {
+            let expected = dir.canonicalize().unwrap();
+            assert_eq!(super::project_root(dir), expected);
+        }
+
+        let repo = base.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        assert!(super::has_git_marker(&repo));
+        assert!(super::has_git_marker(&repo.join("nested")));
+    }
+
     use super::*;
 
     fn run_git(cwd: &Path, args: &[&str]) {

@@ -10,6 +10,7 @@ use crate::session::store::{
 };
 
 mod compaction_replay;
+mod journal_repair;
 mod permission_auto_confirm;
 
 fn new_journal() -> (TabLifecycleJournal, TempDir) {

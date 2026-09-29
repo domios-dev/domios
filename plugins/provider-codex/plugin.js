@@ -2256,11 +2256,13 @@ function inspectCodexProfiles(host2, liveTabIds, instanceId) {
 function sweepCodexProfiles(host2, liveTabIds, instanceId) {
   return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
 }
+var MAX_SWEEP_REMOVALS = 200;
 function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy) {
   const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId);
   const removed = [];
   if (!confirm) return { ...candidates, removed };
-  for (const name of [...candidates.dead, ...includeLegacy ? candidates.legacy : []]) {
+  const targets = [...candidates.dead, ...includeLegacy ? candidates.legacy : []];
+  for (const name of targets.slice(0, MAX_SWEEP_REMOVALS)) {
     const path = profilePath(host2, name);
     if (!path) continue;
     const contents = readProfile(host2, path);
