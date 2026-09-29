@@ -8,9 +8,10 @@ use serde_json::Value;
 
 /// `codeterm plugin get <id>` — the agent's discover handle.
 pub(super) fn get_command(id: &str) -> Result<Value, String> {
-    let dir = plugin_dir(id);
+    let id = PluginId::parse(id.to_string())?;
+    let dir = plugin_dir(&id);
     if !dir.exists() {
-        return Err(format!("plugin '{id}' is not installed"));
+        return Err(format!("plugin '{}' is not installed", id.as_str()));
     }
     let manifest = read_plugin_manifest_value(&dir)?;
     let (schema, secret_keys) = load_schema(&dir, &manifest);
@@ -21,7 +22,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let configured = yaml_has_content(&raw_yaml);
 
     Ok(serde_json::json!({
-        "id": id,
+        "id": id.as_str(),
         "display_name": manifest.get("displayName").and_then(|v| v.as_str()),
         "description": manifest.get("description").and_then(|v| v.as_str()),
         "installed": true,
@@ -49,7 +50,8 @@ pub(super) fn config_command(
     grants: &[String],
     revokes: &[String],
 ) -> Result<Value, String> {
-    let dir = plugin_dir(id);
+    let parsed_id = PluginId::parse(id.to_string())?;
+    let dir = plugin_dir(&parsed_id);
     if !dir.exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }

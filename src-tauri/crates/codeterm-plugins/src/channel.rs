@@ -159,9 +159,10 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
     let manifest = read_channel_manifest(&channel_path)?;
     let mut rows = Vec::new();
     for plugin in manifest.plugins {
+        let plugin_id = PluginId::parse(plugin.id.clone())?;
         let remote_path = plugin_path(&plugin)?;
         let remote_dir = channel_path.join(&remote_path);
-        let local_dir = plugin_dir(&plugin.id);
+        let local_dir = plugin_dir(&plugin_id);
         let local_version = manifest_version(&local_dir).ok().flatten();
         let remote_version = plugin
             .version

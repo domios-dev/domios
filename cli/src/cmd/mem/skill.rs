@@ -3,17 +3,45 @@ use std::path::PathBuf;
 use crate::client::SocketClient;
 use crate::{data_dir_name, MemSkillAction};
 
+struct SkillSlug(String);
+
+impl SkillSlug {
+    fn parse(value: String) -> Result<Self, String> {
+        let bytes = value.as_bytes();
+        let valid = bytes.first().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            && bytes.len() <= 64
+            && bytes.iter().skip(1).all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(*b, b'.' | b'_' | b'-'));
+        let base = value.split('.').next().unwrap_or("").to_ascii_uppercase();
+        let device = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || ["COM", "LPT"].iter().any(|prefix| base.strip_prefix(prefix).is_some_and(|n| matches!(n, "1"..="9")));
+        if value.is_empty() { return Err("skill slug must not be empty".into()); }
+        if !valid { return Err("skill slug must match [a-z0-9][a-z0-9._-]{0,63} with no path separators or dot-only segments".into()); }
+        if device { return Err("skill slug must not be a Windows device name".into()); }
+        Ok(Self(value))
+    }
+}
+
+fn skill_folder(root: &std::path::Path, slug: &SkillSlug) -> Result<PathBuf, String> {
+    let root = root.canonicalize().map_err(|e| format!("canonicalize skills root {}: {e}", root.display()))?;
+    let path = root.join(&slug.0);
+    let resolved = if path.exists() { path.canonicalize().map_err(|e| format!("canonicalize skill folder: {e}"))? } else { path.clone() };
+    if !resolved.starts_with(&root) || resolved == root { return Err("skill slug resolves outside skills root".into()); }
+    Ok(path)
+}
+
 pub(crate) fn handle_mem_skill(
     client: &mut SocketClient,
     action: MemSkillAction,
 ) -> Result<serde_json::Value, String> {
     match action {
         MemSkillAction::New { name, area } => {
+            let slug = SkillSlug::parse(name.clone())?;
             let skills_root = dirs::home_dir()
                 .unwrap_or_default()
                 .join(data_dir_name())
                 .join("skills");
-            let folder_path = skills_root.join(&name);
+            std::fs::create_dir_all(&skills_root).map_err(|e| format!("create skills root: {e}"))?;
+            let folder_path = skill_folder(&skills_root, &slug)?;
             if folder_path.exists() {
                 eprintln!(
                     "Error: skill folder already exists: {}",
@@ -207,4 +235,28 @@ fn parse_skill_frontmatter(body: &str) -> (Option<String>, Option<String>, Vec<S
         }
     }
     (title, area, tags)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skill_slug_rejects_traversal_and_empty() {
+        for value in ["", "../archivist-escape", "Bad Name/../x", "CON", "nul.md", "LPT9"] {
+            assert!(SkillSlug::parse(value.into()).is_err(), "accepted {value:?}");
+        }
+        assert!(SkillSlug::parse("x".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn valid_skill_slug_resolves_under_skills_root() {
+        let root = std::env::temp_dir().join(format!("skills-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let slug = SkillSlug::parse("release-notes_2.v1".into()).unwrap();
+        let folder = skill_folder(&root, &slug).unwrap();
+        assert_eq!(folder, root.canonicalize().unwrap().join("release-notes_2.v1"));
+        assert!(folder.starts_with(root.canonicalize().unwrap()));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
