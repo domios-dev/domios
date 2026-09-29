@@ -465,6 +465,7 @@ fn close_task_immediate_readback_is_consistent() {
         )
         .unwrap();
 
+    store.start_task_for_test(&plan.id, &task_id, 2);
     store
         .close_task(
             &plan.id,

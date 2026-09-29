@@ -232,6 +232,7 @@ fn worker_in_review_task_binding_is_not_nudge_eligible_after_report() {
 #[test]
 fn terminal_done_and_cancelled_work_is_not_nudge_eligible() {
     let (_done_dir, done_store, done_plan_id, done_task_id) = store_with_task("done-orch");
+    done_store.start_task_for_test(&done_plan_id, &done_task_id, 29);
     done_store
         .close_task(
             &done_plan_id,

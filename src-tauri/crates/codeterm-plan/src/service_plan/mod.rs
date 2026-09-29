@@ -256,4 +256,21 @@ impl PlanStore {
     pub(crate) fn operation_count_for_test(&self, entity_id: Option<&str>) -> usize {
         self.database.operation_count_for_test(entity_id)
     }
+
+    /// Stands in for the Worker ACK that moves a pending task in progress.
+    #[cfg(test)]
+    pub(crate) fn start_task_for_test(&self, plan_id: &str, task_id: &str, now_ms: u64) {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.status == TaskStatus::Pending {
+                task.status = TaskStatus::InProgress;
+            }
+            Ok(())
+        })
+        .expect("start task for test");
+    }
 }
