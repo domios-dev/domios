@@ -1097,34 +1097,6 @@ for (const [name, fixture] of [
 }
 
 {
-  const p = loadCodexWithHost(
-    baseHost({
-      platform: () => "windows",
-      shell: {
-        quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
-        quote: (v: unknown) => `BAD(${String(v)})`,
-      },
-    }),
-  );
-  eq(
-    p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex -c check_for_update_on_startup=false resume Q(windows:11111111-1111-1111-1111-111111111111) --no-daemon",
-    "buildResumeCommand quotes session id with quoteFor(platform)",
-  );
-  for (const enabled of [false, true]) {
-    for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
-      eq(command.startsWith("codex"), true, "every Codex launch uses the normal TUI");
-      eq((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
-        "every Codex launch disables startup updates exactly once");
-      eq(command.includes("tui.animations=false"), false, "every Codex launch retains TUI animations");
-      for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
-        eq(command.includes(flag), enabled, `full access controls ${flag}`);
-      }
-    }
-  }
-}
-
-{
   const hooksPath = "/tmp/home/.codex/hooks.json";
   const configPath = "/tmp/home/.codex/config.toml";
   const stale = JSON.stringify({

@@ -14,7 +14,8 @@ const context = {
     manifestJson: () => "null",
     platform: () => platform,
     shell: {
-      quoteFor: (value: unknown) => {
+      quoteFor: (value: unknown, target: string) => {
+        assert.equal(target, platform);
         const argument = String(value);
         quoted.push(argument);
         return `ARG(${argument})`;
@@ -40,6 +41,17 @@ const args = ["-m", "gpt-6-luna", "-c", 'model_reasoning_effort="xhigh"'];
 const resume = context.module.exports.default.buildResumeCommandWithContext;
 const launch = context.module.exports.default.buildLaunchCommand;
 const simpleResume = context.module.exports.default.buildResumeCommand;
+assert(simpleResume(uuid).includes(`resume ARG(${uuid}) --no-daemon`));
+for (const skipPermissions of [false, true]) {
+  for (const command of [launch({ skipPermissions }), simpleResume(uuid, skipPermissions)]) {
+    assert(command.includes("codex -c check_for_update_on_startup=false"));
+    assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+    assert(!command.includes("tui.animations=false"));
+    for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
+      assert.equal(command.includes(flag), skipPermissions);
+    }
+  }
+}
 for (const command of [
   launch({}),
   launch({ task: "task", instanceId: "instance-test" }),
