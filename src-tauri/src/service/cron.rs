@@ -553,7 +553,7 @@ impl ServiceContext {
                     || !binding_nonce.is_some_and(|nonce| {
                         self.mux
                             .read()
-                            .get_tab(tab_id)
+                            .get_tab(&tab_id)
                             .and_then(|tab| tab.session_binding_nonce.as_deref())
                             == Some(nonce)
                     })
@@ -1145,7 +1145,7 @@ mod tests {
             let store = cron.lock();
             let run = store
                 .get_history(&job_id)
-                .iter()
+                .into_iter()
                 .find(|run| run.run_id == run_id)
                 .expect("active run remains recorded");
             assert_eq!(run.status, CronRunStatus::Running);
@@ -1166,7 +1166,7 @@ mod tests {
         let store = cron.lock();
         let run = store
             .get_history(&job_id)
-            .iter()
+            .into_iter()
             .find(|run| run.run_id == run_id)
             .expect("owner-completed run remains recorded");
         assert_eq!(run.status, CronRunStatus::Success);

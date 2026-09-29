@@ -243,8 +243,7 @@ fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
 #[test]
 fn salvage_reads_only_intact_lines_of_the_right_tables() {
     let raw = "token = \"root-level\"\n[api]\nport = 7686\ntoken = \"t1\"\n[mesh]\nfull_access = true\n[agent]\nfull_access = false\n";
-    let mut config = AppConfig::default();
-    salvage_critical_keys(raw, &mut config);
-    assert_eq!(config.api.token.as_deref(), Some("t1"));
-    assert_eq!(config.agent.full_access, Some(false));
+    let (token, full_access) = salvaged_critical_values(raw);
+    assert_eq!(token.as_deref(), Some("t1"));
+    assert_eq!(full_access, Some(false));
 }
