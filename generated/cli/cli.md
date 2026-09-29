@@ -1289,6 +1289,12 @@ List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
 
+#### `codeterm mesh unrevoke`
+
+Explicitly lift a peer identity revocation so it can pair again
+
+- `<instance_id>` — Instance ID of the revoked peer
+
 #### `codeterm notify`
 
 Send, list, and clear notifications

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub fn instance_mesh_name_for_dev(configured: &str, instance_suffix: &str) -> String {
     let base = configured
         .rfind(" [dev")
-        .filter(|index| configured.ends_with(']'))
+        .filter(|_| configured.ends_with(']'))
         .map(|index| &configured[..index])
         .unwrap_or(configured);
     let marker = if instance_suffix.is_empty() {

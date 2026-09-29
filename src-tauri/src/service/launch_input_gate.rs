@@ -486,6 +486,7 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
 fn launch_composer_input_ready(
     input: &codeterm_pty::pty::screen_state::ComposerInputState,
     cursor_position: crate::agent::provider::ComposerCursorPosition,

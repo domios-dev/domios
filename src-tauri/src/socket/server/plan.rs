@@ -22,7 +22,8 @@ fn plan_project_path(params: &Value, mux: &crate::multiplexer::state::Multiplexe
         .and_then(Value::as_str)
         .and_then(|tab_id| mux.get_tab(tab_id))
         .filter(|tab| tab.team_id.is_some())
-        .and_then(|tab| mux.get_workspace(&tab.workspace_id))
+        .and_then(|tab| mux.find_workspace_for_tab(&tab.id))
+        .and_then(|workspace_id| mux.get_workspace(&workspace_id))
         .and_then(|workspace| workspace.cwd.clone());
     requested.or(team_workspace).unwrap_or_else(|| {
         std::env::current_dir()

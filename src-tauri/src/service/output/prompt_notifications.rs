@@ -42,6 +42,25 @@ pub(super) fn should_notify_pending_prompt(
 }
 
 impl ServiceContext {
+    fn trust_notification_key(&self, tab_id: &str) -> Option<String> {
+        let (provider, cwd) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id)?;
+            (
+                tab.agent_type.clone()?,
+                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone())?,
+            )
+        };
+        let mut folder = std::fs::canonicalize(&cwd)
+            .ok()?
+            .to_string_lossy()
+            .into_owned();
+        if cfg!(windows) {
+            folder.make_ascii_lowercase();
+        }
+        Some(format!("{provider}:{folder}"))
+    }
+
     pub(super) fn notify_pending_prompt(
         &self,
         tab_id: &str,
@@ -49,33 +68,21 @@ impl ServiceContext {
         kind: codeterm_types::pty::PromptKind,
     ) {
         if kind == codeterm_types::pty::PromptKind::DirectoryTrust {
-            let context = {
-                let mux = self.mux.read();
-                mux.get_tab(tab_id).and_then(|tab| {
-                    Some((
-                        tab.agent_type.clone()?,
-                        tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone())?,
-                    ))
-                })
-            };
-            let Some((provider, cwd)) = context else {
-                return;
-            };
-            let Some(folder) = std::fs::canonicalize(&cwd).ok() else {
-                return;
-            };
-            let mut folder = folder.to_string_lossy().into_owned();
-            if cfg!(windows) {
-                folder.make_ascii_lowercase();
-            }
-            let key = format!("{provider}:{folder}");
-            if !claim_trust_notification(key, tab_id, |owner| {
-                self.mux.read().get_tab(owner).is_some_and(|tab| {
-                    tab.pending_prompt_kind == Some(kind)
-                })
-            }) {
-                crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
-                return;
+            // Without a resolvable folder there is no sibling to share with, so the tab notifies alone.
+            let key = self.trust_notification_key(tab_id);
+            if let Some(key) = key {
+                if !claim_trust_notification(key, tab_id, |owner| {
+                    self.mux
+                        .read()
+                        .get_tab(owner)
+                        .is_some_and(|tab| tab.pending_prompt_kind == Some(kind))
+                }) {
+                    crate::service::launch_readiness::owner_prompt_pending(
+                        tab_id,
+                        &prompt.question,
+                    );
+                    return;
+                }
             }
         }
         let labels = prompt
@@ -133,7 +140,9 @@ mod tests {
     fn sibling_codex_trust_prompts_share_one_owner_notification() {
         let folder = format!("notification-test-{}", uuid::Uuid::new_v4());
         assert!(claim_trust_notification(folder.clone(), "first", |_| false));
-        assert!(!claim_trust_notification(folder.clone(), "sibling", |_| true));
+        assert!(!claim_trust_notification(folder.clone(), "sibling", |_| {
+            true
+        }));
         assert!(claim_trust_notification(folder, "sibling", |_| false));
     }
 }

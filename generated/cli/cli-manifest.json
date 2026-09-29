@@ -5708,6 +5708,24 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "unrevoke",
+          "about": "Explicitly lift a peer identity revocation so it can pair again",
+          "aliases": [],
+          "args": [
+            {
+              "name": "instance_id",
+              "positional": true,
+              "required": true,
+              "value_name": "INSTANCE_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Instance ID of the revoked peer",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },
