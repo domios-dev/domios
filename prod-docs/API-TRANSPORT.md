@@ -15,11 +15,11 @@ curl "http://host:7685/api/tabs/$TAB/output?offset=1234"
 
 ### ANSI Stripping
 
-Add `strip_ansi=true` for clean text without escape codes: `GET /api/tabs/:id/output?strip_ansi=true` or `POST /api/tabs/:id/exec {"command": "...", "strip_ansi": true}`.
+Add `strip_ansi=true` to drop escape codes: `GET /api/tabs/:id/output?strip_ansi=true` or `POST /api/tabs/:id/exec {"command": "...", "strip_ansi": true}`.
 
 ### Exec Pattern
 
-Send a command and wait for its output in one call:
+Run a command and wait for its output:
 ```bash
 curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
@@ -30,7 +30,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
 
 ### SSE Output Stream
 
-Subscribe to real-time output via Server-Sent Events:
+Real-time output via Server-Sent Events:
 ```bash
 curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 # data: {"output": "new text", "offset": 1234}
@@ -89,11 +89,10 @@ untranslated. A newer client against an older daemon passes this gate; a method 
 lacks still fails as `-32601`, which the CLI enriches with both app versions.
 
 **1.10.0 release note:** pre-1.10 CLIs and mesh peers send no
-`protocol_version`, so the moment a 1.10 daemon starts, every pre-1.10
-`codeterm` binary (including a mesh peer's relayed `agent report`) is
-hard-refused with this error on every socket and mesh dispatch until updated.
-No grace mode: update CLIs on all mesh peers with the daemon (`recovery`
-carries the exact command).
+`protocol_version`, so a 1.10+ daemon hard-refuses every pre-1.10 `codeterm`
+binary (including a mesh peer's relayed `agent report`) on every socket and mesh
+dispatch. No grace mode: update CLIs on all mesh peers with the daemon
+(`recovery` carries the exact command).
 
 ### Methods
 
@@ -113,7 +112,7 @@ carries the exact command).
 | `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
 | `team.show` | `{team_id}` | Return `{team: Team, members: [{tab_id, title, role, role_type, role_profile, anchors_team}]}` (members sorted by tab id) or reject an unknown Team. A Cartographer member reports `role: "cartographer"`, `role_type: "Manager"`, and `role_profile: "cartographer"`. |
 | `team.rename` | `{team_id, name, caller_tab_id?}` | Rename a Team and emit `mux-state-changed`. |
-| `team.close` | `{team_id, caller_tab_id?, force?, confirm?, force_busy?}` | Cascade-close Team members, remove the registry entry, archive/detach bound plans, finalize open attempts, assess every Team-owned task lane, delete Team crons, retire owner/planner routing, and emit `mux-state-changed`. Returns `{team, inventory}`: `removed` lanes, `kept` lanes with a reason, and worktree-less `orphan_branches`. Only a clean lane whose tip is an ancestor of its recorded destination is removed; the rest stay as cleanup debt. With no caller tab, `force: true` and `confirm` equal to `team_id` are required for Human attribution. A busy Team needs `force_busy: true` (ORCHESTRATION-OPERATIONS). |
+| `team.close` | `{team_id, caller_tab_id?, force?, confirm?, force_busy?}` | Cascade-close Team members, remove the registry entry, archive/detach bound plans, finalize open attempts, assess every Team-owned task lane, delete Team crons, retire owner/planner routing, and emit `mux-state-changed`. Returns `{team, inventory}`: `removed` lanes, `kept` lanes with a reason, and worktree-less `orphan_branches`. Only a clean lane already merged into its recorded destination is removed; the rest stay as cleanup debt. With no caller tab, `force: true` and `confirm` equal to `team_id` are required for Human attribution. A busy Team needs `force_busy: true` (ORCHESTRATION-OPERATIONS). |
 | `team.adopt_plan` | `{team_id, plan_id, caller_tab_id}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit `plan-changed` and `mux-state-changed`. The required caller must manage the destination Team. |
 | `team.adopt_agent` | `{team_id, tab_id, caller_tab_id}` | Attach an already-running ROLELESS agent tab to a Team, binding it under the Team's live Orchestrator, and emit `mux-state-changed`. Returns `{team_id, tab_id, team}`. |
 | `team.add_member` | `{team_id, provider, role, caller_tab_id?, title?, task?, model?}` | Staff a Team with a `worker`, `planner`, `orchestrator`, or `cartographer` member. The only staffing path: the UI add-member action, `POST /api/teams/{team_id}/members`, `team attach-cartographer` and `agent spawn --team <id> --role Orchestrator` all land on it. Returns `{tab_id, team, role_type, role_profile?, plan_takeover?, reused}`. A Cartographer is an optional singleton Manager: repeats return the existing tab with `reused: true`; Team close removes its tab and binding. An `orchestrator` is accepted only while the Team has no live Orchestrator (only **live** anchors count) and takes the retained active Plan over through the tab-gone owner rebind; `plan_takeover` reports `{plan_id, owner_tab_id}`. Takeover failure fails the request and rolls back the spawned member/lane, preserving Team and Plan owner/history. Unlinking the final Orchestrator retains Team and Plan identity/history so this command can still name them. `caller_tab_id` is optional only for a replacement anchor; roles needing a parent refuse without one. Structural refusals lead with an error-code constant (`codeterm-types::team::staffing`) and are logged with Team, requested role, and cause: `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. |
@@ -205,7 +204,7 @@ carries the exact command).
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.cancel` | `{id}` | Stop currently-running executions (`{cancelled: N}`) without deleting the job |
 | `cron.history` | `{id}` | Get run history |
-| `cron.complete` | `{run_id, summary?, caller_tab_id?, session_binding_nonce?}` | Mark a cron run complete. A tab caller must match the run's owning tab and binding nonce; a request without tab identity is the local human path. |
+| `cron.complete` | `{run_id, summary?, caller_tab_id?, session_binding_nonce?}` | Complete a cron run. A tab caller must match the owning tab and its binding nonce; no tab identity means the local human path. |
 | `services.list` | `{kind?, enabled?}` | List registered services (cron + daemon). |
 | `services.create` | `{name, kind:"daemon", health_mode, ...}` | Register a daemon-kind service. Same body shape as `POST /api/services`. Returns `{service, token}`; rejects non-daemon kinds with `-32602` (use `cron.create` for cron jobs). |
 | `services.get` | `{id}` | Get one service (with latest health snapshot). |
@@ -235,4 +234,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

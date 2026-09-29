@@ -39,10 +39,9 @@ and for failure, including argument errors; stderr stays empty. A failure is
 and the command exits non-zero. `error.code` is one of `not_found`,
 `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`,
 `internal`, or a command-specific snake_case code; a missing tab, plan, cron job,
-peer, or plugin is always `not_found`.
-`rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure,
-`2` invalid arguments, and the command-specific codes named in `SECRETS` and
-`MESH-BRIDGE`. Structured daemon error data stays under `data`, including
+peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null.
+Exit codes: `0` success, `1` failure, `2` invalid arguments, and the
+command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including
 `invalid_model` fields such as the provider, requested id, closest catalogue
 ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the
 provider choices and a message asking for `--agent`. Mesh relay failures keep
@@ -238,4 +237,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
