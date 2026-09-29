@@ -535,7 +535,7 @@
               "value_name": "CWD",
               "possible_values": [],
               "default": null,
-              "help": "Working directory (required with --mesh; resolves on the peer)",
+              "help": "Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths",
               "aliases": []
             },
             {
@@ -598,7 +598,7 @@
               "value_name": "NON_USER_FACING",
               "possible_values": [],
               "default": null,
-              "help": "Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications",
+              "help": "Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead",
               "aliases": []
             },
             {
@@ -648,7 +648,7 @@
               "value_name": "PRESET",
               "possible_values": [],
               "default": null,
-              "help": "Select a chatBackend shell preset. Omit to use the plugin default preset",
+              "help": "Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents",
               "aliases": []
             },
             {
@@ -714,7 +714,7 @@
               "value_name": "SYSTEM_PROMPT",
               "possible_values": [],
               "default": null,
-              "help": "Override the shell system prompt when spawning a chatBackend shell",
+              "help": "Override the shell system prompt of a chatBackend shell; refused for PTY agents",
               "aliases": []
             },
             {
@@ -5886,7 +5886,7 @@
               "value_name": "TAB_ID",
               "possible_values": [],
               "default": null,
-              "help": "The tab whose chat holds the message this notification is about",
+              "help": "The open tab whose chat holds the message this notification is about",
               "aliases": []
             },
             {
@@ -5896,7 +5896,7 @@
               "value_name": "TITLE",
               "possible_values": [],
               "default": null,
-              "help": "Notification title",
+              "help": "Notification title: not blank, at most 200 characters",
               "aliases": []
             }
           ],

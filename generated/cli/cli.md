@@ -148,24 +148,24 @@ Spawn a new agent; roleless unless --role is provided.
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
-- `--cwd` — Working directory (required with --mesh; resolves on the peer)
+- `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
 - `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
-- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications
+- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
-- `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--preset` — Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents
 - `--provider-reserve-pct`
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
-- `--system` — Override the shell system prompt when spawning a chatBackend shell
+- `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
@@ -1324,8 +1324,8 @@ Send a notification. The body is read only from the calling tab's AgentPad. Repo
 - `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
 - `--offer-accept` — Which of this notification's own choices accepts the offer
 - `--severity` — Record identity axis: info, warning, error. Tone comes from --level
-- `--target-tab` — The tab whose chat holds the message this notification is about
-- `<title>` — Notification title
+- `--target-tab` — The open tab whose chat holds the message this notification is about
+- `<title>` — Notification title: not blank, at most 200 characters
 
 #### `codeterm orchestrator`
 
