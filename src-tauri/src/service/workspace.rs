@@ -7,6 +7,7 @@ use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
+use tauri::Manager;
 
 fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> String {
     format!("requested={workspace_id} known_ids={known_ids:?}")
@@ -453,6 +454,16 @@ impl ServiceContext {
         for tab_id in &tab_ids {
             if let Err(error) = finish(self, tab_id) {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
+            }
+        }
+        if let Some(cron) = self.app_handle.try_state::<crate::CronState>() {
+            let wake = self.app_handle.try_state::<crate::CronWake>();
+            if let Err(error) = self.cron_delete_workspace(
+                cron.inner(),
+                wake.as_ref().map(|state| state.inner()),
+                id,
+            ) {
+                cleanup_errors.push(format!("crons: {error}"));
             }
         }
         // After the members are gone, never before: a Team that still holds a

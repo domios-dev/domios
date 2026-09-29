@@ -21,6 +21,7 @@ pub struct MockProvider {
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     models: Vec<ModelInfo>,
+    model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
@@ -62,6 +63,7 @@ impl MockProvider {
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
             models: Vec::new(),
+            model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability::default(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
@@ -276,6 +278,11 @@ impl MockProvider {
         self
     }
 
+    pub fn with_authoritative_model_catalogue(mut self) -> Self {
+        self.model_catalogue = codeterm_plugin::provider::ModelCatalogueCapability::authoritative();
+        self
+    }
+
     pub fn with_update_command(id: &str, command: &str) -> Self {
         Self {
             update_command: Some(command.to_string()),
@@ -457,6 +464,9 @@ impl AgentProvider for MockProvider {
     }
     fn available_models(&self) -> Vec<ModelInfo> {
         self.models.clone()
+    }
+    fn model_catalogue_capability(&self) -> codeterm_plugin::provider::ModelCatalogueCapability {
+        self.model_catalogue
     }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {
