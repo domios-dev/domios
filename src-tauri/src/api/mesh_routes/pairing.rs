@@ -465,6 +465,45 @@ pub async fn mesh_unpair(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+pub async fn mesh_unrevoke(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let local_token = state.config.lock().api.token.clone().unwrap_or_default();
+    if !mesh_owner_authorized(&headers, &local_token) {
+        return Err((StatusCode::UNAUTHORIZED, "Owner authorization required".into()));
+    }
+    let instance_id = body["instance_id"]
+        .as_str()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?;
+    {
+        let mut mesh = state.mesh.lock();
+        mesh.unrevoke(instance_id)
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
+        mesh.save()
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    }
+    log::warn!("[mesh] Owner explicitly lifted revocation for peer {}", instance_id);
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
+        "mesh-state-changed",
+        serde_json::Value::Null,
+    );
+    Ok(Json(serde_json::json!({"ok": true, "instance_id": instance_id})))
+}
+
+fn mesh_owner_authorized(headers: &HeaderMap, local_token: &str) -> bool {
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("");
+    !token.is_empty()
+        && !local_token.is_empty()
+        && crate::service::tokens::constant_time_eq(token.as_bytes(), local_token.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -473,5 +512,15 @@ mod tests {
         let stored_id = "peer-bob";
         let accept_id = "peer-eve";
         assert_ne!(stored_id, accept_id, "identity mismatch should be caught");
+    }
+
+    #[test]
+    fn unrevoke_requires_the_local_owner_token() {
+        let local = "Bearer local-token";
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", local.parse().unwrap());
+        assert!(super::mesh_owner_authorized(&headers, "local-token"));
+        assert!(!super::mesh_owner_authorized(&headers, "other-token"));
+        assert!(!super::mesh_owner_authorized(&headers, ""));
     }
 }

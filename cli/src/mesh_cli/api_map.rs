@@ -705,6 +705,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 "/api/mesh/disconnect".into(),
                 Some(serde_json::json!({"instance_id": instance_id}).to_string()),
             ),
+            MeshAction::Unrevoke { instance_id } => (
+                "POST".into(),
+                "/api/mesh/unrevoke".into(),
+                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
+            ),
             MeshAction::Broadcast => ("POST".into(), "/api/mesh/broadcast/start".into(), None),
             MeshAction::StopBroadcast => ("POST".into(), "/api/mesh/broadcast/stop".into(), None),
             MeshAction::Refresh => ("POST".into(), "/api/mesh/refresh".into(), None),

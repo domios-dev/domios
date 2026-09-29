@@ -1809,6 +1809,7 @@ EOF
     cargo build --release --manifest-path cli/Cargo.toml
     built_cli_artifact="$(cli_release_binary)"
     built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+    node scripts/bundle-cli.js
     write_cli_docs
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     ;;
