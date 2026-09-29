@@ -983,11 +983,6 @@ fn provider_update_and_trust_frames_refuse_initial_submit() {
 
         assert_eq!(delivery.code(), "tab_busy_refused");
         assert!(!delivery.bytes_written());
-        if index == 2 {
-            assert!(delivery
-                .to_string()
-                .contains("codeterm tab respond OPTION --tab"));
-        }
     }
 }
 

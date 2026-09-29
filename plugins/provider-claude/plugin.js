@@ -1795,6 +1795,13 @@ var plugin = {
     const onboarding = claudeOnboardingPrompt(text2);
     return onboarding && { question: onboarding.question, options: onboarding.options } || claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
   },
+  parseDirectoryTrustPrompt(text2) {
+    const prompt = claudeFolderTrustPrompt(String(text2 || ""));
+    return prompt && {
+      question: prompt.question,
+      options: prompt.options.map(([label], index) => [label, String(index + 1)])
+    };
+  },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
