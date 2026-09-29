@@ -115,7 +115,7 @@ fn validate_search_query(query: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+mod query_tests {
     use super::validate_search_query;
 
     #[test]

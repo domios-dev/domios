@@ -85,7 +85,12 @@ fn plan_mutation_requires_plan_role() {
                 "status": "pending"
             }));
             assert!(
-                verify_owner_epoch_for_task_mutation(method, &params, &harness.fixture.service).is_err(),
+                verify_owner_epoch_for_task_mutation(
+                    method,
+                    &params,
+                    &std::sync::Arc::new(harness.fixture.service.clone()),
+                )
+                .is_err(),
                 "{method} accepted an unauthorized caller"
             );
         }

@@ -41,7 +41,7 @@ pub(super) fn dispatch(
                     invalid_params(format!("Invalid mem.search parameters: {error}"))
                 })?;
             if request.q.trim().is_empty() {
-                return Err(invalid_params("search query must not be empty"));
+                return Err(invalid_params("search query must not be empty".to_string()));
             }
             execute_search(svc, request).map_err(internal_error)
         }

@@ -12,6 +12,7 @@ impl PluginId {
     }
 
     pub(super) fn as_str(&self) -> &str { &self.0 }
+    #[cfg(test)]
     pub(super) fn validated(value: &str) -> Self {
         Self::parse(value.to_string()).expect("plugin ids are validated at their boundary")
     }

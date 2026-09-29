@@ -136,7 +136,7 @@ pub(crate) fn create_team_plan_for_caller(
             now_ms,
         );
     };
-    let mut state = mux.write();
+    let state = mux.write();
     let caller_tab = state
         .get_tab(caller_tab_id)
         .ok_or_else(|| TeamPlanCreationError::Team("the claimed Planner tab is not live".into()))?;

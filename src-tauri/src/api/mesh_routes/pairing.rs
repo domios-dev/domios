@@ -371,7 +371,6 @@ pub async fn mesh_unpair(
     if let Some(ref pk) = mesh.ident.identity.public_key {
         known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
     }
-    let our_id = mesh.ident.identity.instance_id.clone();
     drop(mesh);
 
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
