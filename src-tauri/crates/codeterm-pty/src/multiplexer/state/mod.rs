@@ -91,23 +91,6 @@ impl TeamCloseTransaction {
     pub fn state_mut(&mut self) -> &mut MultiplexerState {
         &mut self.staged
     }
-
-    pub fn commit(self, target: &mut MultiplexerState, closed_roots: &[String]) {
-        for tab_id in closed_roots {
-            target.record_cascade_close(tab_id);
-        }
-        target.workspaces = self.staged.workspaces;
-        target.tabs = self.staged.tabs;
-        target.active_workspace_id = self.staged.active_workspace_id;
-        target.focused_tab_id = self.staged.focused_tab_id;
-        target.pty_to_tab = self.staged.pty_to_tab;
-        target.tab_aliases = self.staged.tab_aliases;
-        target.teams = self.staged.teams;
-        target.generation.store(
-            self.staged.generation.load(Ordering::Relaxed),
-            Ordering::Relaxed,
-        );
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +141,42 @@ impl MultiplexerState {
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
             },
         }
+    }
+
+    pub fn commit_team_close(
+        &mut self,
+        team_id: &str,
+        closed_roots: &[String],
+    ) -> Result<(), String> {
+        let mut transaction = self.begin_team_close_transaction();
+        transaction
+            .state_mut()
+            .remove_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?;
+        for tab_id in closed_roots {
+            if transaction.state_mut().get_tab(tab_id).is_some() {
+                transaction
+                    .state_mut()
+                    .close_tab_for_team_close(tab_id)?;
+            }
+        }
+        for tab_id in closed_roots {
+            if self.get_tab(tab_id).is_some() {
+                self.record_cascade_close(tab_id);
+            }
+        }
+        self.workspaces = transaction.staged.workspaces;
+        self.tabs = transaction.staged.tabs;
+        self.active_workspace_id = transaction.staged.active_workspace_id;
+        self.focused_tab_id = transaction.staged.focused_tab_id;
+        self.pty_to_tab = transaction.staged.pty_to_tab;
+        self.tab_aliases = transaction.staged.tab_aliases;
+        self.teams = transaction.staged.teams;
+        self.generation.store(
+            transaction.staged.generation.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+        Ok(())
     }
     /// Create an empty state with no workspaces.
     /// Used when General Agent will create its own workspace.
