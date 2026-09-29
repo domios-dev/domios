@@ -874,9 +874,8 @@ pub fn resolve_send_text_input<R: std::io::Read>(
         return Ok((buf, "--stdin"));
     }
     if let Some(path) = from_file {
-        return std::fs::read_to_string(&path)
-            .map(|s| (s, "--from-file"))
-            .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
+        return crate::cmd::payload_source::read_file_or_stdin(&path, "--from-file")
+            .map(|s| (s, "--from-file"));
     }
     let text = text.unwrap_or_default();
     if let Some(refusal) = crate::cmd::quoted_handoff::inline_refusal(

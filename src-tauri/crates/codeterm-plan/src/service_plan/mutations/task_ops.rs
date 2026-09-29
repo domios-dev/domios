@@ -137,6 +137,9 @@ impl PlanStore {
                     lane.as_ref(),
                 )?;
             }
+            if let Some(Some(key)) = group {
+                super::ensure_group_declared(p, Some(key));
+            }
             let task = &mut p.tasks[task_index];
             if let Some(lane) = lane {
                 let tab_explicit = lane.tab_id.is_some();

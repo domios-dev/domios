@@ -483,13 +483,33 @@ impl ServiceContext {
         let Some(planner_tab_id) = planner_tab_id else {
             return Ok(false);
         };
+        let (session_id, title) = self
+            .mux
+            .read()
+            .get_tab(&planner_tab_id)
+            .map(|planner| {
+                let binding_is_current =
+                    planner
+                        .session_binding_nonce
+                        .as_deref()
+                        .is_some_and(|nonce| {
+                            planner.reported_session_binding_nonce.as_deref() == Some(nonce)
+                        });
+                (
+                    binding_is_current
+                        .then(|| planner.agent_session_id.clone())
+                        .flatten(),
+                    Some(planner.title.clone()),
+                )
+            })
+            .unwrap_or_default();
         self.plan_store
             .set_planner_ref(
                 plan_id,
                 Some(PlannerRef::Tab {
                     tab_id: planner_tab_id.clone(),
-                    session_id: None,
-                    title: None,
+                    session_id,
+                    title,
                 }),
                 now_ms,
             )
