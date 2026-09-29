@@ -357,27 +357,32 @@ fn composer_follows_options(
         .lines()
         .map(|line| line.trim().trim_start_matches(['│', '┃']).trim())
         .collect::<Vec<_>>();
+    let is_option = |line: &str| {
+        prompt
+            .options
+            .iter()
+            .any(|option| line_has_option(line.trim_start_matches(COMPOSER_MARKERS), option))
+    };
+    let is_composer_line = |line: &str| line.starts_with(COMPOSER_MARKERS) && !is_option(line);
     let Some(last_option_row) = lines
         .iter()
         .enumerate()
-        .filter(|(_, line)| {
-            prompt
-                .options
-                .iter()
-                .any(|option| line_has_option(line, option))
-        })
+        .filter(|(_, line)| is_option(line))
         .map(|(index, _)| index)
         .max()
     else {
         return false;
     };
-    lines[last_option_row + 1..].iter().any(|line| {
-        line.starts_with(COMPOSER_MARKERS)
-            && !prompt
-                .options
-                .iter()
-                .any(|option| line_has_option(line.trim_start_matches(COMPOSER_MARKERS), option))
-    })
+    // Numbered rows typed into the composer sit under its marker line, not under a question.
+    let heads_composer_block = lines[..last_option_row]
+        .iter()
+        .rev()
+        .find(|line| !line.is_empty() && !is_option(line))
+        .is_some_and(|line| is_composer_line(line));
+    heads_composer_block
+        || lines[last_option_row + 1..]
+            .iter()
+            .any(|line| is_composer_line(line))
 }
 
 fn line_has_option(line: &str, option: &crate::multiplexer::types::PromptOption) -> bool {

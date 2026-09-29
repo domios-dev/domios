@@ -117,6 +117,9 @@ pub enum TabCommand {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentSpawnSpec {
     pub provider: String,
+    /// Startup ACK of a remote-bound Worker is supervised by its origin peer.
+    #[serde(skip)]
+    pub remote_task_bound: bool,
     #[serde(default)]
     pub planned_model: Option<String>,
     #[serde(default)]
@@ -416,15 +419,16 @@ impl ServiceContext {
             agent.spawned_by_tab_id.as_deref(),
         );
         let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
-        let startup_supervised = self.prepare_agent_startup_supervision(
-            &tab_id,
-            spec.parent_tab_id
-                .as_deref()
-                .or(agent.spawned_by_tab_id.as_deref())
-                .or(spec.creator_tab_id.as_deref()),
-            task_identity.clone(),
-        );
-        if task_identity.is_some() && !startup_supervised {
+        let startup_supervised = !agent.remote_task_bound
+            && self.prepare_agent_startup_supervision(
+                &tab_id,
+                spec.parent_tab_id
+                    .as_deref()
+                    .or(agent.spawned_by_tab_id.as_deref())
+                    .or(spec.creator_tab_id.as_deref()),
+                task_identity.clone(),
+            );
+        if task_identity.is_some() && !startup_supervised && !agent.remote_task_bound {
             if tab_created_by_spawn {
                 self.rollback_provisional_tab_via_close(&tab_id);
             }

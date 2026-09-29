@@ -24,6 +24,34 @@ fn remote_task_binding_matches_startup_identity_without_local_supervisor() {
 }
 
 #[test]
+fn tab_spawn_spec_carries_matching_remote_binding_to_the_startup_gate() {
+    let spec_for = |attempt: &str| {
+        let params = crate::service::SpawnAgentParams {
+            agent: Some("codex".into()),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "plan-remote".into(),
+                task_id: "task-remote".into(),
+                attempt_id: attempt.into(),
+                lane_base: None,
+            }),
+            remote_task_binding: Some(crate::service::RemoteTaskBinding {
+                plan_id: "plan-remote".into(),
+                task_id: "task-remote".into(),
+                attempt_id: "attempt-remote".into(),
+                origin_peer_id: "origin-peer".into(),
+            }),
+            ..Default::default()
+        };
+        match crate::service::spawn::SpawnTabSpec::from_agent_params(params).command {
+            crate::service::spawn::TabCommand::Agent(agent) => agent.remote_task_bound,
+            _ => panic!("agent spawn spec"),
+        }
+    };
+    assert!(spec_for("attempt-remote"));
+    assert!(!spec_for("attempt-other"));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_spawn_persists_restorable_launch_parameters() {
     let mut mux = crate::multiplexer::state::MultiplexerState::empty();
