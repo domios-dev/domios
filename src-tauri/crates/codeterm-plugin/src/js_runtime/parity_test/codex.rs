@@ -99,6 +99,24 @@ fn codex_sandbox_writable_roots_native_js_parity() {
 }
 
 #[test]
+fn codex_sandboxed_linux_network_grant_is_declared() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        codex().sandboxed_linux_launch_capability(),
+        Some(crate::provider::SandboxedLinuxLaunchCapability {
+            network_access_args: vec![
+                "-c".into(),
+                "sandbox_workspace_write.network_access=true".into(),
+            ],
+            network_access_config_path: "~/.codex/config.toml".into(),
+            network_access_setting: "sandbox_workspace_write.network_access".into(),
+        })
+    );
+}
+
+#[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;

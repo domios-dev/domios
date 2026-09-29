@@ -562,6 +562,17 @@ struct NativeCodexReadiness;
 
 #[async_trait::async_trait]
 impl AgentProvider for NativeCodexReadiness {
+    fn sandboxed_linux_launch_capability(&self) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
+        Some(crate::provider::SandboxedLinuxLaunchCapability {
+            network_access_args: vec![
+                "-c".into(),
+                "sandbox_workspace_write.network_access=true".into(),
+            ],
+            network_access_config_path: "~/.codex/config.toml".into(),
+            network_access_setting: "sandbox_workspace_write.network_access".into(),
+        })
+    }
+
     fn id(&self) -> &str {
         "codex-readiness-fixture"
     }
@@ -640,12 +651,24 @@ fn codex_composer_fingerprint_native_js_parity() {
         native.composer_cursor_position()
     );
     assert_eq!(js.status_bar_rows(), native.status_bar_rows());
-
     let cursor = load_js("cursor");
     assert!(cursor.provider_readiness_strategy().requires_composer());
     assert_eq!(
         cursor.composer_cursor_position(),
         crate::provider::ComposerCursorPosition::BottomRegion
+    );
+}
+
+#[test]
+fn codex_linux_sandbox_codeterm_reach_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let native = NativeCodexReadiness;
+    let js = load_js("codex");
+    assert_eq!(
+        js.sandboxed_linux_launch_capability(),
+        native.sandboxed_linux_launch_capability()
     );
 }
 

@@ -390,8 +390,47 @@ fn provider_cli_availability_rejects_invalid_binary_name() {
     let registry =
         registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
 
-    let err = provider_launch_preflight(&registry, "bad-cli").unwrap_err();
+    let err = provider_launch_preflight(&registry, "bad-cli", false).unwrap_err();
     assert_eq!(err.code(), "invalid_provider_binary");
+}
+
+#[test]
+fn sandboxed_linux_launch_args_are_capability_and_platform_scoped() {
+    use codeterm_plugin::provider::SandboxedLinuxLaunchCapability;
+
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("provider-fixture")
+            .with_sandboxed_linux_launch(SandboxedLinuxLaunchCapability {
+                network_access_args: vec![
+                    "-c".into(),
+                    "sandbox_workspace_write.network_access=true".into(),
+                ],
+                network_access_config_path: "~/.codeterm-fixture-no-config/config.toml".into(),
+                network_access_setting: "sandbox_workspace_write.network_access".into(),
+            }),
+    ));
+    let make = |skip, platform| {
+        let mut args = Vec::new();
+        crate::service::launch_session_detection::append_sandbox_linux_network_args(
+            &registry,
+            "provider-fixture",
+            skip,
+            platform,
+            &mut args,
+        );
+        args
+    };
+    assert_eq!(
+        make(false, "linux"),
+        vec![
+            "-c".to_string(),
+            "sandbox_workspace_write.network_access=true".to_string()
+        ]
+    );
+    assert!(make(true, "linux").is_empty());
+    assert!(make(false, "windows").is_empty());
+    assert!(make(false, "macos").is_empty());
 }
 
 /// The defect this replaces: an unresolvable provider produced a live tab whose
@@ -407,7 +446,7 @@ fn unresolvable_launch_binary_is_refused_before_a_tab_exists() {
         "install missing-cli",
     ));
 
-    let refused = provider_launch_preflight(&registry, "missing-cli")
+    let refused = provider_launch_preflight(&registry, "missing-cli", false)
         .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
 
     let err = refused.expect_err("an unresolvable binary must not launch");

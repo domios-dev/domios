@@ -49,6 +49,7 @@ pub struct MockProvider {
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
+    sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
 }
 
 impl MockProvider {
@@ -87,6 +88,7 @@ impl MockProvider {
             resume_context_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
+            sandboxed_linux_launch: None,
         }
     }
 
@@ -126,6 +128,14 @@ impl MockProvider {
         state: codeterm_plugin::provider::DirectoryTrustState,
     ) -> Self {
         self.directory_trust_state = Some(state);
+        self
+    }
+
+    pub fn with_sandboxed_linux_launch(
+        mut self,
+        capability: codeterm_plugin::provider::SandboxedLinuxLaunchCapability,
+    ) -> Self {
+        self.sandboxed_linux_launch = Some(capability);
         self
     }
 
@@ -340,6 +350,12 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability> {
+        self.sandboxed_linux_launch.clone()
+    }
+
     fn additional_writable_dir_flag(&self) -> Option<String> {
         self.additional_writable_dir_flag.clone()
     }

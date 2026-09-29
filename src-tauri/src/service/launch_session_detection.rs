@@ -151,6 +151,13 @@ pub(crate) fn marked_provider_launch_command(
 ) -> Option<String> {
     mark_fresh_launch(tab_id, params);
     let mut args = params.args.clone().unwrap_or_default();
+    append_sandbox_linux_network_args(
+        registry,
+        provider_id,
+        params.skip_permissions,
+        crate::agent::provider::current_platform_tag(),
+        &mut args,
+    );
     append_sandbox_git_metadata_args(
         registry,
         provider_id,
@@ -217,6 +224,79 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     args.push(flag);
     args.push(path.to_string_lossy().into_owned());
     log_sandbox_additional_roots_included(tab_id, 1);
+}
+
+pub(crate) fn append_sandbox_linux_network_args(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    skip_permissions: bool,
+    platform: &str,
+    args: &mut Vec<String>,
+) {
+    if skip_permissions || platform != "linux" {
+        return;
+    }
+    let Some(capability) = registry
+        .with_provider(provider_id, |provider| {
+            provider.sandboxed_linux_launch_capability()
+        })
+        .flatten()
+    else {
+        return;
+    };
+    let setting_override = format!("{}=true", capability.network_access_setting);
+    if capability.network_access_args.is_empty()
+        || configured_network_access(
+            &capability.network_access_config_path,
+            &capability.network_access_setting,
+        )
+        || args.iter().any(|arg| arg == &setting_override)
+    {
+        return;
+    }
+    log::info!("[sandbox-network] granting Linux CodeTerm connectivity for provider={provider_id}");
+    args.extend(capability.network_access_args);
+}
+
+fn configured_network_access(path: &str, setting: &str) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let Some(path) = path.strip_prefix("~/").map(|relative| home.join(relative)) else {
+        return false;
+    };
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    toml_setting_is_true(&contents, setting)
+}
+
+fn toml_setting_is_true(contents: &str, setting: &str) -> bool {
+    let Ok(config) = contents.parse::<toml::Value>() else {
+        return false;
+    };
+    setting
+        .split('.')
+        .try_fold(&config, |value, key| value.get(key))
+        .and_then(toml::Value::as_bool)
+        == Some(true)
+}
+
+#[cfg(test)]
+mod sandbox_network_tests {
+    use super::toml_setting_is_true;
+
+    #[test]
+    fn existing_network_access_setting_is_detected_without_rewriting_config() {
+        assert!(toml_setting_is_true(
+            "[sandbox_workspace_write]\nnetwork_access = true\n",
+            "sandbox_workspace_write.network_access"
+        ));
+        assert!(!toml_setting_is_true(
+            "[sandbox_workspace_write]\nnetwork_access = false\n",
+            "sandbox_workspace_write.network_access"
+        ));
+    }
 }
 
 pub(crate) fn append_sandbox_git_metadata_args(
