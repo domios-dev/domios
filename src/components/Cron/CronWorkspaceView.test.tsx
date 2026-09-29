@@ -184,13 +184,16 @@ test("a cron with no report_target_tab_id renders schedule, history and controls
 test("an owner prompt remains visible in history and exposes cancel while active", async () => {
   const calls: string[] = [];
   const { host, root } = await render(CRON_ID, adapter({
-    history: async () => [{
-      run_id: "run-blocked",
-      started_at: 100,
-      finished_at: null,
-      status: "AwaitingOwnerPrompt",
-      tab_id: "cron-tab",
-    }],
+    history: async () => {
+      calls.push("history");
+      return [{
+        run_id: "run-blocked",
+        started_at: 100,
+        finished_at: null,
+        status: "AwaitingOwnerPrompt",
+        tab_id: "cron-tab",
+      }];
+    },
   }, calls), calls, "AwaitingOwnerPrompt");
 
   assert(host.textContent?.includes("Awaiting owner"), "history labels the blocked run as awaiting its owner");
