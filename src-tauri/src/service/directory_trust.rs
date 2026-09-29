@@ -14,8 +14,8 @@ static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
 #[derive(Default)]
 struct SharedTrustCache {
     generation: u64,
-    trusted: HashMap<String, bool>,
-    checking: HashMap<String, u64>,
+    trusted: HashMap<(String, String), bool>,
+    checking: HashMap<(String, String), u64>,
 }
 
 impl SharedTrustCache {
@@ -316,10 +316,10 @@ impl ServiceContext {
     }
 
     fn schedule_shared_trust_lookup(&self, tab_id: &str, agent_type: &str, cwd: &str) {
-        let key = cwd.to_string();
+        let key = (agent_type.to_string(), cwd.to_string());
         let generation = {
             let mut cache = SHARED_TRUST.lock();
-            match cache.trusted.get(cwd).copied() {
+            match cache.trusted.get(&key).copied() {
                 Some(true) => None,
                 Some(false) => return,
                 None => {
@@ -340,6 +340,7 @@ impl ServiceContext {
         let tab = tab_id.to_string();
         let agent = agent_type.to_string();
         let path = cwd.to_string();
+        let cache_key = key.clone();
         std::thread::spawn(move || {
             let result = service
                 .agent_registry
@@ -354,17 +355,20 @@ impl ServiceContext {
             };
             {
                 let mut cache = SHARED_TRUST.lock();
-                if cache.generation == generation && cache.checking.get(&path) == Some(&generation)
+                if cache.generation == generation
+                    && cache.checking.get(&cache_key) == Some(&generation)
                 {
-                    cache.checking.remove(&path);
-                    cache.trusted.insert(path.clone(), trusted);
+                    cache.checking.remove(&cache_key);
+                    cache.trusted.insert(cache_key, trusted);
                 } else {
                     return;
                 }
             }
             if trusted {
-                service.respond_to_shared_trust_prompt(&tab, &path);
+                service.respond_to_shared_directory_trust_prompts(&path, &agent);
                 service.respond_to_pending_directory_trust_prompts();
+            } else {
+                service.surface_shared_directory_trust_prompts(&path, &agent);
             }
         });
     }
@@ -389,10 +393,8 @@ impl ServiceContext {
         let Some((pty_id, agent_type)) = target else {
             return;
         };
-        let trusted = SHARED_TRUST
-            .lock()
-            .trusted
-            .get(expected_cwd)
+        let trusted = SHARED_TRUST.lock().trusted
+            .get(&(agent_type.clone(), expected_cwd.to_string()))
             .copied()
             .unwrap_or(false);
         if !trusted {
@@ -414,6 +416,78 @@ impl ServiceContext {
                 &agent_type,
                 DirectoryTrustPromptResponse::Answer { step },
             );
+        }
+    }
+
+    pub(crate) fn respond_to_shared_directory_trust_prompts(
+        &self,
+        expected_cwd: &str,
+        agent_type: &str,
+    ) {
+        let tab_ids = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter(|tab| {
+                    shared_directory_trust_check_applies(tab)
+                        && tab.agent_type.as_deref() == Some(agent_type)
+                        && tab.cwd.as_deref() == Some(expected_cwd)
+                })
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tab_ids {
+            self.respond_to_directory_trust(&tab_id, None);
+        }
+    }
+
+    fn surface_shared_directory_trust_prompts(&self, expected_cwd: &str, agent_type: &str) {
+        let targets = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter(|tab| {
+                    shared_directory_trust_check_applies(tab)
+                        && tab.agent_type.as_deref() == Some(agent_type)
+                        && tab.cwd.as_deref() == Some(expected_cwd)
+                })
+                .filter_map(|tab| {
+                    tab.pty_id
+                        .as_ref()
+                        .map(|pty_id| (tab.id.clone(), pty_id.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (tab_id, pty_id) in targets {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default();
+            let prompt = self
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.parse_directory_trust_prompt(&screen)
+                })
+                .flatten();
+            if let Some(prompt) = prompt {
+                let decision = self
+                    .prompt_detector
+                    .lock()
+                    .evaluate_pty_output_parsed(
+                        &tab_id,
+                        true,
+                        true,
+                        Some(crate::agent::prompt::ResolvedPrompt {
+                            prompt,
+                            explicit: false,
+                        }),
+                    );
+                self.apply_prompt_decision_with_kind(
+                    &decision,
+                    Some(&screen),
+                    codeterm_types::pty::PromptKind::DirectoryTrust,
+                    false,
+                );
+            }
         }
     }
 
@@ -450,7 +524,11 @@ impl ServiceContext {
         };
         if !provisioned {
             self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
-            return if SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true) {
+            let cache = SHARED_TRUST.lock();
+            let key = (agent_type, cwd.clone());
+            return if cache.trusted.get(&key) == Some(&true)
+                || cache.checking.contains_key(&key)
+            {
                 TrustDecision::Waiting
             } else {
                 TrustDecision::NotApplicable
@@ -712,7 +790,12 @@ impl ServiceContext {
                 .read()
                 .get_tab(tab_id)
                 .is_some_and(directory_trust_check_applies);
-            let eligible = provisioned || SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true);
+            let eligible = provisioned
+                || SHARED_TRUST
+                    .lock()
+                    .trusted
+                    .get(&(agent_type.to_string(), cwd.clone()))
+                    == Some(&true);
             match self.provider_directory_trust_response(agent_type, &screen) {
                 Some(DirectoryTrustPromptResponse::Answer { step }) if eligible => {
                     (step == expected, true)
