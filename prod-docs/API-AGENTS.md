@@ -45,17 +45,23 @@ Switch one idle agent tab to another model. Only that tab changes: CodeTerm neve
 {"model": "sonnet"}
 ```
 
-The call returns only after the relaunched session's own session-start report names the model (`evidence: "session_start_report"`), or it fails inside a bounded deadline.
+The current binding's launch report or first post-relaunch assistant turn can confirm the model. After the bounded confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A relaunch failure or a confirmed different model remains an error.
 
-**Switched response** (`200 OK`):
+Confirmed success (`200 OK`) includes `model_confirmation: "observed"`, `observed_model`, and `evidence` (`session_start_report` or `first_post_relaunch_turn`).
+
+When the resumed provider omits its model and no assistant turn arrives before the confirmation deadline, the success response keeps the same relaunch evidence and reports pending confirmation:
+
 ```json
 {
   "ok": true, "tab_id": "a3f1b2c7", "provider": "claude", "mechanism": "restart_resume",
-  "previous_model": "haiku", "requested_model": "sonnet", "launched_model": "sonnet", "model": "sonnet",
-  "evidence": "session_start_report", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "previous_model": "haiku", "requested_model": "sonnet", "launched_model": "sonnet",
+  "model_confirmation": "pending", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "relaunch_evidence": { "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab", "launched_model": "sonnet", "agent_ready": true },
   "restart": { "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "session_action": "resume" }
 }
 ```
+
+`relaunch_evidence.session_id` is the resumed session id, `launched_model` is the model passed through the provider's `--model` launch argument, and `agent_ready` confirms the relaunch reached readiness. Pending success omits `observed_model` and `evidence`; the tab identity updates when the first post-relaunch turn provides a model.
 
 Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fields below:
 - `404 not_found` — tab id not found
@@ -64,7 +70,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `409 not_switchable` — no agent, the agent is not observed live, it is mid-turn or waiting on a prompt, the tab has no verified resumable session, or the tab is the General Agent (its model comes from Settings)
 - `429 rate_limited` — the tab restarted moments ago; `retry_after_secs` and `Retry-After`
 - `500`/`504 relaunch_failed` — teardown, relaunch, readiness or rebinding failed; `restart` carries the observed transition fields
-- `502`/`504 model_not_observed` — the relaunch came up but its session-start report named another model (`observed_model`, 502) or named none within the deadline (504); `launched_model` and `restart` are included
+- `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 
 CLI: `codeterm agent model --tab TAB_ID MODEL [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
 

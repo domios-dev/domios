@@ -7,7 +7,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab, AppState};
-use crate::service::agent_restart::{ModelSwitchError, ModelSwitchOutcome};
+use crate::service::agent_restart::{
+    ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
@@ -64,7 +66,7 @@ pub async fn agent_model_handler(
 }
 
 pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_json::Value {
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "ok": true,
         "tab_id": outcome.restart.tab_id,
         "provider": outcome.restart.provider,
@@ -72,11 +74,27 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
         "previous_model": outcome.previous_model,
         "requested_model": outcome.requested_model,
         "launched_model": outcome.launched_model,
-        "model": outcome.observed_model,
-        "evidence": "session_start_report",
+        "model_confirmation": match &outcome.confirmation {
+            ModelSwitchConfirmation::Observed { .. } => "observed",
+            ModelSwitchConfirmation::Pending => "pending",
+        },
         "session_id": outcome.restart.session_id,
+        "relaunch_evidence": {
+            "session_id": outcome.restart.session_id,
+            "launched_model": outcome.launched_model,
+            "agent_ready": outcome.restart.agent_ready,
+        },
         "restart": crate::api::agent_routes::agent_restart_response(&outcome.restart),
-    })
+    });
+    if let ModelSwitchConfirmation::Observed { model, evidence } = &outcome.confirmation {
+        body["observed_model"] = model.clone().into();
+        body["evidence"] = match evidence {
+            ModelSwitchEvidence::SessionStartReport => "session_start_report",
+            ModelSwitchEvidence::FirstPostRelaunchTurn => "first_post_relaunch_turn",
+        }
+        .into();
+    }
+    body
 }
 
 pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode {
@@ -91,11 +109,7 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
             timed_out: true, ..
         } => StatusCode::GATEWAY_TIMEOUT,
         ModelSwitchError::RelaunchFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
-        ModelSwitchError::NotObserved {
-            observed_model: Some(_),
-            ..
-        } => StatusCode::BAD_GATEWAY,
-        ModelSwitchError::NotObserved { .. } => StatusCode::GATEWAY_TIMEOUT,
+        ModelSwitchError::ModelMismatch { .. } => StatusCode::BAD_GATEWAY,
     }
 }
 
@@ -107,7 +121,7 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::NotSwitchable(_) => "not_switchable",
         ModelSwitchError::RateLimited { .. } => "rate_limited",
         ModelSwitchError::RelaunchFailed { .. } => "relaunch_failed",
-        ModelSwitchError::NotObserved { .. } => "model_not_observed",
+        ModelSwitchError::ModelMismatch { .. } => "model_mismatch",
     };
     let mut body = serde_json::json!({
         "ok": false,
@@ -127,7 +141,7 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::RelaunchFailed { outcome, .. } => {
             body["restart"] = crate::api::agent_routes::agent_restart_response(outcome);
         }
-        ModelSwitchError::NotObserved {
+        ModelSwitchError::ModelMismatch {
             outcome,
             launched_model,
             observed_model,
@@ -140,3 +154,6 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
     }
     body
 }
+
+#[cfg(test)]
+mod tests;
