@@ -276,7 +276,12 @@ pub enum PlanAction {
     /// Resume a paused effort, restoring its previous mode
     Resume { plan_id: String },
     /// Archive a plan
-    Archive { plan_id: String },
+    Archive {
+        plan_id: String,
+        /// Confirm archive when no Plan tab identity is available.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
     /// Delete a plan. Cascades: the plan's owned spec (1:1, co-located
@@ -628,6 +633,23 @@ mod tests {
             .to_string();
         assert!(help.contains("Cascades"), "{help}");
         assert!(help.contains("owned spec"), "{help}");
+    }
+
+    #[test]
+    fn plan_archive_accepts_human_confirmation_flag() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::PlanAction;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["codeterm", "plan", "archive", "pl_1", "--yes"])
+            .expect("confirmed human archive should parse");
+
+        assert!(matches!(
+            cli.command,
+            Commands::Plan {
+                action: PlanAction::Archive { yes: true, .. }
+            }
+        ));
     }
 
     fn parse_goal_set(argv: &[&str]) -> (Option<String>, Option<String>) {

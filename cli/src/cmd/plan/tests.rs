@@ -14,7 +14,7 @@ fn plan_display_paths_strip_windows_verbatim_prefix() {
 
 #[test]
 fn plan_delete_refuses_without_confirmation_before_rpc() {
-    let err = plan_delete_params("pl_1".into(), false).unwrap_err();
+    let err = plan_delete_params("pl_1".into(), false, None).unwrap_err();
     assert!(err.contains("refusing to delete plan 'pl_1' without --yes"));
     assert!(err.contains("--confirm"));
 }
@@ -22,8 +22,25 @@ fn plan_delete_refuses_without_confirmation_before_rpc() {
 #[test]
 fn plan_delete_confirmation_builds_rpc_params() {
     assert_eq!(
-        plan_delete_params("pl_1".into(), true).unwrap(),
-        json!({ "plan_id": "pl_1" })
+        plan_delete_params("pl_1".into(), true, None).unwrap(),
+        json!({ "plan_id": "pl_1", "human_confirmation": true })
+    );
+}
+
+#[test]
+fn plan_archive_requires_confirmation_without_tab_identity() {
+    assert!(plan_archive_params("pl_1".into(), false, None).is_err());
+    assert_eq!(
+        plan_archive_params("pl_1".into(), true, None).unwrap(),
+        json!({ "plan_id": "pl_1", "human_confirmation": true })
+    );
+}
+
+#[test]
+fn plan_mutation_with_tab_identity_does_not_claim_human_confirmation() {
+    assert_eq!(
+        plan_mutation_params("pl_1".into(), Some("planner-tab"), true),
+        json!({ "plan_id": "pl_1", "caller_tab_id": "planner-tab" })
     );
 }
 
