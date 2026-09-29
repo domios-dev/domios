@@ -604,27 +604,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
-        let described = if self.has_js("describeSession") {
-            self.manifest_describe_session(session)
-        } else if self.has_js("findSession") {
-            self.find_session(&session.session_id)
-                .map(|described| SessionMetadata {
-                    project_path: described.project_path,
-                    title: described.title,
-                    summary: described.summary,
-                    ..session.clone()
-                })
-                .unwrap_or_else(|| session.clone())
-        } else {
-            session.clone()
-        };
-        SessionMetadata {
-            transcript_path: described.transcript_path.clone().or_else(|| {
-                crate::session_evidence::stored_transcript_path(&described.session_id)
-                    .map(|path| path.to_string_lossy().to_string())
-            }),
-            ..described
-        }
+        self.js_describe_session_for_search(session)
     }
 
     fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
