@@ -212,11 +212,6 @@ pub(crate) fn create_team_plan_for_caller(
         plan_store.create_plan_for_team(title, project_path, owner, team_id.clone(), kinds, now_ms)
     };
     let plan = create.map_err(TeamPlanCreationError::Plan)?;
-    if let Some(owner_tab) = state.get_tab_mut(&owner_tab_id) {
-        if owner_tab.pending_paired_planner_tab_id.as_deref() == Some(caller_tab_id) {
-            owner_tab.pending_paired_planner_tab_id = None;
-        }
-    }
     Ok(TeamPlanCreationOutcome {
         plan,
         team_id,

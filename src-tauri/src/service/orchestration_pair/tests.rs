@@ -95,15 +95,15 @@ fn fresh_pair_planner_can_mutate_without_rebind() {
             fixture.temp.path().display().to_string(),
             OrchestratorRef::from_tab(&orchestrator_tab_id),
             crate::service::TeamPlanCaller {
-                tab_id: Some(orchestrator_tab_id.clone()),
-                session_id: None,
-                binding_nonce: None,
+                tab_id: Some(planner_tab_id.clone()),
+                session_id: Some("planner-session".into()),
+                binding_nonce: Some("planner-nonce".into()),
             },
             Vec::new(),
             None,
             1,
         )
-        .expect("Orchestrator first goal creates its Plan");
+        .expect("paired Planner creates its Plan");
     let expected_planner = Some(PlannerRef::Tab {
         tab_id: planner_tab_id.clone(),
         session_id: Some("planner-session".into()),

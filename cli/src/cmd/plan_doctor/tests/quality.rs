@@ -569,9 +569,9 @@ fn quality_warns_for_missing_executor_role_on_execution_task() {
         }]
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    let warn = findings.iter().find(|f| f.kind == "missing_executor_role");
-    assert!(warn.is_some(), "expected missing_executor_role warning");
-    assert_eq!(warn.unwrap().severity, "warning");
+    let finding = findings.iter().find(|f| f.kind == "missing_executor_role");
+    assert!(finding.is_some(), "expected missing_executor_role finding");
+    assert_eq!(finding.unwrap().severity, "error");
 }
 
 #[test]
@@ -748,22 +748,22 @@ fn planner_pairing_base_plan(planner: Option<Value>) -> Value {
 }
 
 #[test]
-fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
+fn planner_unpaired_is_an_error_when_orchestrator_bound_without_planner() {
     let plan = planner_pairing_base_plan(None);
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     let finding = findings
         .iter()
         .find(|f| f.kind == "planner_unpaired")
         .expect("expected planner_unpaired finding");
-    assert_eq!(finding.severity, "warning");
-    assert!(finding.fix.contains("agent spawn <provider>"));
-    assert!(finding.fix.contains("[--model <model>]"));
-    assert!(!finding.fix.contains("agent spawn claude"));
+    assert_eq!(finding.severity, "error");
+    assert!(finding.fix.contains("team show <team-id>"));
+    assert!(finding.fix.contains("--planner <planner-tab>"));
+    assert!(!finding.fix.contains("agent spawn"));
     assert!(!finding.fix.contains("fable"));
 }
 
 #[test]
-fn planner_unpaired_escalates_to_error_at_approval() {
+fn planner_unpaired_keeps_the_same_error_severity_at_approval() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     let plan = planner_pairing_base_plan(None);
@@ -774,16 +774,9 @@ fn planner_unpaired_escalates_to_error_at_approval() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|f| f["kind"] == "planner_unpaired" && f["severity"] == "warning"));
-
-    let mut escalated = report.clone();
-    escalate_approval_blocking_warnings(&mut escalated);
-    assert!(!escalated["ok"].as_bool().unwrap());
-    assert!(escalated["findings"]
-        .as_array()
-        .unwrap()
-        .iter()
         .any(|f| f["kind"] == "planner_unpaired" && f["severity"] == "error"));
+
+    assert_eq!(report["ok"], false);
 }
 
 #[test]
@@ -1053,20 +1046,9 @@ fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
 
-    let mut report =
+    let report =
         super::authoritative_report(&roleless_task_plan(), "pl_1", dir.path(), "quality");
-    assert!(
-        report["ok"].as_bool().unwrap(),
-        "standalone doctor only reports it: {report}"
-    );
-    assert!(report["findings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|f| f["kind"] == "missing_executor_role" && f["severity"] == "warning"));
-
-    escalate_approval_blocking_warnings(&mut report);
-    assert!(!report["ok"].as_bool().unwrap(), "approval must refuse");
+    assert!(!report["ok"].as_bool().unwrap(), "doctor and approval must agree: {report}");
     assert!(report["findings"]
         .as_array()
         .unwrap()
@@ -1138,7 +1120,6 @@ fn role_guidance_contract_doctor_warns_on_duplicates_without_blocking_similar_gu
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].severity, "warning");
-    assert!(!APPROVAL_BLOCKING_WARNINGS.contains(&"duplicate_role_guidance"));
     assert!(!duplicate.iter().any(|finding| finding.severity == "error"));
 
     let similar = inspect_plan(
