@@ -17,8 +17,6 @@ fn plugin_id_rejects_traversal_empty_reserved_and_system_ids() {
         assert!(!root.exists(), "invalid override reached filesystem: {id:?}");
         assert!(!err.is_empty());
     }
-    let err = install_command(Some("codex".into()), None, None, None).unwrap_err();
-    assert!(!err.is_empty());
 }
 
 #[test]
@@ -195,6 +193,20 @@ mod store_index_tests {
     }
 
     #[test]
+    fn system_ids_are_refused_from_directory_sources() {
+        with_data_root(|root| {
+            let source = root.join("impostor-source");
+            std::fs::create_dir_all(&source).unwrap();
+            std::fs::write(source.join("plugin.json"), serde_json::json!({"id":"codex","version":"1.0.0"}).to_string()).unwrap();
+            std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
+            let dir = source.display().to_string();
+            assert!(install_command(None, Some(dir.clone()), None, None).is_err());
+            assert!(install_command(None, Some(dir), Some("codex".into()), None).is_err());
+            assert!(!plugin_dir(&PluginId::validated("codex")).exists());
+        });
+    }
+
+    #[test]
     fn id_override_renames_runtime_consistently() {
         with_data_root(|root| {
             let source = root.join("override-source");
@@ -203,7 +215,7 @@ mod store_index_tests {
             std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
             let result = install_command(None, Some(source.display().to_string()), Some("runtime-id".into()), None).unwrap();
             assert_eq!(result["id"], "runtime-id");
-            let folder = plugin_dir(&PluginId::parse("runtime-id".into()).unwrap());
+            let folder = plugin_dir(&PluginId::parse("runtime-id").unwrap());
             let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("plugin.json")).unwrap()).unwrap();
             assert_eq!(manifest["id"], "runtime-id");
             let rows = list_installed().unwrap();

@@ -1383,6 +1383,7 @@ dependencies = [
 name = "codeterm-util"
 version = "1.6.2"
 dependencies = [
+ "codeterm-paths",
  "libc",
  "log",
  "parking_lot",
