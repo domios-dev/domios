@@ -81,10 +81,13 @@ pub(super) fn dispatch(
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-                data: None,
+            .map_err(|e| {
+                let missing = e.contains("not found");
+                JsonRpcError {
+                    code: if missing { -32602 } else { -32603 },
+                    message: e,
+                    data: missing.then(|| serde_json::json!({ "code": "not_found" })),
+                }
             })
         }
 

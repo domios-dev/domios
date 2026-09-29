@@ -20,6 +20,9 @@ pub(super) fn update_command(id: Option<String>) -> Result<serde_json::Value, St
 
 pub(super) fn update_one(id: &str) -> Result<(), String> {
     let parsed_id = PluginId::parse(id.to_string())?;
+    if !plugin_dir(&parsed_id).exists() {
+        return Err(format!("plugin '{id}' is not installed"));
+    }
     let record = read_install_record(id)?;
     let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
     match record.source.clone() {

@@ -121,7 +121,8 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
         output["data"]["refresh_command"],
         "codeterm agent models codex"
     );
-    assert_eq!(output["code"], -32602);
+    assert_eq!(output["error"]["rpc_code"], -32602);
+    assert_eq!(output["error"]["code"], "invalid_argument");
 }
 
 fn list_action(status: Option<&str>) -> PlanTaskAction {

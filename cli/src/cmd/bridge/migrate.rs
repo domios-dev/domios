@@ -44,33 +44,35 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         .filter(|s| !s.is_empty())
         .is_some()
     {
-        eprintln!("Error: bridge migrate must run locally on the source machine. Aborting.");
-        std::process::exit(EXIT_USAGE);
+        crate::cmd::print::fail(
+            EXIT_USAGE,
+            "bridge migrate must run locally on the source machine. Aborting.",
+        );
     }
 
     let (base, _) = read_api_config();
     let api = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to connect to local API: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
         }
     };
 
     let source_state = match get_bridge_state_local(&api, &base, &args.service) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: bridge subsystem not available locally: {}", e);
-            eprintln!("hint: update the daemon — /api/bridge/state may not exist on this build.");
-            std::process::exit(EXIT_TARGET_MISCONFIG);
+            crate::cmd::print::fail_with_hints(
+                EXIT_TARGET_MISCONFIG,
+                format!("bridge subsystem not available locally: {}", e),
+                &["hint: update the daemon — /api/bridge/state may not exist on this build."],
+            );
         }
     };
 
     let source_name = match source_state.instance_name.clone() {
         Some(n) if !n.is_empty() => n,
         _ => {
-            eprintln!("Error: /api/bridge/state did not include instance_name. Daemon may be older than the bridge migrate feature.");
-            std::process::exit(EXIT_TARGET_MISCONFIG);
+            crate::cmd::print::fail(EXIT_TARGET_MISCONFIG, "/api/bridge/state did not include instance_name. Daemon may be older than the bridge migrate feature.");
         }
     };
 
@@ -88,23 +90,29 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     };
 
     if let Err(e) = relay_get(&target_id, "/api/health") {
-        eprintln!("Error: target {} unreachable: {}", args.to, e);
-        std::process::exit(EXIT_TARGET_MISCONFIG);
+        crate::cmd::print::fail(
+            EXIT_TARGET_MISCONFIG,
+            format!("target {} unreachable: {}", args.to, e),
+        );
     }
     log_step(json, "preflight", &format!("target {} reachable", args.to));
 
     let target_state = match relay_get_state(&target_id, &args.service) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: target {} bridge state unavailable: {}", args.to, e);
-            std::process::exit(EXIT_TARGET_MISCONFIG);
+            crate::cmd::print::fail(
+                EXIT_TARGET_MISCONFIG,
+                format!("target {} bridge state unavailable: {}", args.to, e),
+            );
         }
     };
 
     if !args.force {
         if let Err(msg) = target_can_serve(&target_state) {
-            eprintln!("Error: target {}: {}", args.to, msg);
-            std::process::exit(EXIT_TARGET_MISCONFIG);
+            crate::cmd::print::fail(
+                EXIT_TARGET_MISCONFIG,
+                format!("target {}: {}", args.to, msg),
+            );
         }
     }
 
@@ -148,8 +156,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             .and_then(|x| x.as_u64())
             .unwrap_or_else(|| stop_started.elapsed().as_millis() as u64),
         Err(e) => {
-            eprintln!("Error: source release failed: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("source release failed: {}", e));
         }
     };
     log_step(json, "stop", &format!("released in {}ms", released_ms));

@@ -1,5 +1,6 @@
 use super::*;
 
+mod error_paths;
 mod id_validation;
 
 mod store_index_tests {

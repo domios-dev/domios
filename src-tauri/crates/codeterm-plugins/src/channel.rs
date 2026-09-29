@@ -41,7 +41,13 @@ pub(super) fn add_channel(
     } else {
         clone_git_channel(&source, &cache_path)?;
     }
-    let manifest = read_channel_manifest(&cache_path)?;
+    let manifest = match read_channel_manifest(&cache_path) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&cache_path);
+            return Err(error);
+        }
+    };
     let name = name_override.unwrap_or_else(|| manifest.name.clone());
     let final_path = channels_root().join(&name);
     if final_path != cache_path {

@@ -20,8 +20,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
             match result {
                 Ok(value) => print!("{}", render_search_hits(&value)),
                 Err(error) => {
-                    eprintln!("Error: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, error.to_string());
                 }
             }
             return;
@@ -62,8 +61,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
                 match result {
                     Ok(value) => print!("{}", render_mem_skill_list(&value)),
                     Err(error) => {
-                        eprintln!("Error: {error}");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, error.to_string());
                     }
                 }
             } else {
@@ -188,9 +186,11 @@ fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) 
                 return;
             }
         }
-        if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
-            println!("{}", text);
-            return;
+        if !json_mode {
+            if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
+                println!("{}", text);
+                return;
+            }
         }
     }
     handle_result(json_mode, result);

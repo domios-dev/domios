@@ -71,8 +71,7 @@ pub(super) fn print_remote_workspace_topology(target: &str) {
     let mut rpc_client = match super::rpc::MeshRpcClient::connect(&base, &token, target) {
         Ok(client) => client,
         Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     };
     let mut rest = |method: &str, path: &str| {
@@ -83,8 +82,7 @@ pub(super) fn print_remote_workspace_topology(target: &str) {
     let (data, warnings) = match fetch_workspace_topology(&mut rest, &mut rpc) {
         Ok(result) => result,
         Err(error) => {
-            eprintln!("Error: mesh request to '{target}' failed: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("mesh request to '{target}' failed: {error}"));
         }
     };
     for warning in warnings {

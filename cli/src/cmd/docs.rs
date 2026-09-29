@@ -251,11 +251,24 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
 ];
 
-pub fn handle(name: Option<String>) {
+pub fn handle(json: bool, name: Option<String>) {
     match name {
+        None if json => crate::cmd::print::print_json(&serde_json::json!({
+            "ok": true,
+            "docs": DOCS
+                .iter()
+                .map(|document| serde_json::json!({ "name": document.name, "purpose": document.purpose }))
+                .collect::<Vec<_>>(),
+        })),
         None => print!("{}", render_list()),
         Some(name) => match render_doc(&name) {
+            Ok(body) if json => crate::cmd::print::print_json(
+                &serde_json::json!({ "ok": true, "name": name, "content": body }),
+            ),
             Ok(body) => print!("{body}"),
+            Err(error) if json => {
+                crate::cmd::print::fail(1, format!("No doc named '{}'", error.requested))
+            }
             Err(error) => {
                 eprintln!("{error}");
                 std::process::exit(1);

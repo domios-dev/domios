@@ -6,8 +6,12 @@ pub(super) fn install_command(
     id_override: Option<String>,
     channel: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if let Some(override_id) = id_override.as_deref() { PluginId::parse(override_id.to_string())?; }
-    if let Some(requested_id) = id.as_deref() { PluginId::parse(requested_id.to_string())?; }
+    if let Some(override_id) = id_override.as_deref() {
+        PluginId::parse(override_id.to_string())?;
+    }
+    if let Some(requested_id) = id.as_deref() {
+        PluginId::parse(requested_id.to_string())?;
+    }
     if let Some(dir) = from_dir {
         let source = absolutize(Path::new(&dir))?;
         let install_id = id_override
@@ -22,7 +26,9 @@ pub(super) fn install_command(
             });
         let parsed_id = PluginId::parse(install_id.clone())?;
         if is_reserved_system_id(&install_id) {
-            return Err(format!("plugin id '{install_id}' is reserved for the official system channel"));
+            return Err(format!(
+                "plugin id '{install_id}' is reserved for the official system channel"
+            ));
         }
         let version = manifest_version(&source).ok().flatten();
         let record = InstallRecord {
@@ -67,10 +73,14 @@ pub(super) fn install_command(
     let mut warnings = Vec::new();
     let candidate = resolve_channel_install_candidate(&id, channel.as_deref(), &mut warnings)?;
     let official_system_source = candidate.channel_name == SYSTEM_CHANNEL_NAME
-        && read_channel_registry()?.channels.get(SYSTEM_CHANNEL_NAME)
+        && read_channel_registry()?
+            .channels
+            .get(SYSTEM_CHANNEL_NAME)
             .is_some_and(|entry| entry.url == system_channel_url());
     if is_reserved_system_id(&id) && !official_system_source {
-        return Err(format!("plugin id '{id}' is reserved for the official system channel"));
+        return Err(format!(
+            "plugin id '{id}' is reserved for the official system channel"
+        ));
     }
     let source_dir = candidate.channel_path.join(&candidate.plugin_path);
     let channel_name = candidate.channel_name.clone();
@@ -79,9 +89,15 @@ pub(super) fn install_command(
         id: id.clone(),
         version: version.clone(),
         source: if official_system_source {
-            InstallSource::SystemChannel { channel: channel_name.clone(), path: candidate.plugin_path }
+            InstallSource::SystemChannel {
+                channel: channel_name.clone(),
+                path: candidate.plugin_path,
+            }
         } else {
-            InstallSource::Channel { channel: channel_name.clone(), path: candidate.plugin_path }
+            InstallSource::Channel {
+                channel: channel_name.clone(),
+                path: candidate.plugin_path,
+            }
         },
         installed_at: now_rfc3339(),
         last_change: Some(last_change_for_install(version, Some(channel_name.clone()))),
@@ -293,7 +309,9 @@ pub(super) fn install_from_dir(
     let parsed_id = PluginId::parse(id.to_string())?;
     let official = record.is_some_and(|r| matches!(&r.source, InstallSource::SystemChannel { channel, .. } if channel == SYSTEM_CHANNEL_NAME));
     if is_reserved_system_id(id) && !official {
-        return Err(format!("plugin id '{id}' is reserved for the official system channel"));
+        return Err(format!(
+            "plugin id '{id}' is reserved for the official system channel"
+        ));
     }
     if !source.join("plugin.json").exists() {
         return Err(format!("{} has no plugin.json", source.display()));
@@ -307,10 +325,16 @@ pub(super) fn install_from_dir(
     }
     copy_dir_filtered(source, &tmp)?;
     let manifest_path = tmp.join("plugin.json");
-    let manifest_text = fs::read_to_string(&manifest_path).map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
-    let mut manifest: serde_json::Value = serde_json::from_str(&manifest_text).map_err(|e| format!("parse plugin.json: {e}"))?;
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&manifest_text).map_err(|e| format!("parse plugin.json: {e}"))?;
     manifest["id"] = serde_json::Value::String(id.to_string());
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| format!("write {}: {e}", manifest_path.display()))?;
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("write {}: {e}", manifest_path.display()))?;
     if let Some(record) = record {
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
@@ -364,15 +388,25 @@ pub(super) fn should_skip(name: &str) -> bool {
     )
 }
 
+/// A missing file is named by kind, not by the platform's localized OS error text.
+fn read_manifest_file(dir: &Path, file: &str) -> Result<String, String> {
+    let path = dir.join(file);
+    fs::read_to_string(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("{file} not found in {}", dir.display())
+        } else {
+            format!("read {}: {e}", path.display())
+        }
+    })
+}
+
 pub(super) fn read_plugin_manifest(dir: &Path) -> Result<PluginManifest, String> {
-    let text = fs::read_to_string(dir.join("plugin.json"))
-        .map_err(|e| format!("read {}: {e}", dir.join("plugin.json").display()))?;
+    let text = read_manifest_file(dir, "plugin.json")?;
     serde_json::from_str(&text).map_err(|e| format!("parse plugin.json: {e}"))
 }
 
 pub(super) fn read_channel_manifest(dir: &Path) -> Result<ChannelManifest, String> {
-    let text = fs::read_to_string(dir.join("channel.json"))
-        .map_err(|e| format!("read {}: {e}", dir.join("channel.json").display()))?;
+    let text = read_manifest_file(dir, "channel.json")?;
     serde_json::from_str(&text).map_err(|e| format!("parse channel.json: {e}"))
 }
 

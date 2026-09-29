@@ -88,8 +88,7 @@ fn run_diary(limit: usize) -> ! {
     match result {
         Ok(_) => std::process::exit(0),
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
@@ -101,8 +100,7 @@ fn run_dream_phase(phase: &str) -> ! {
     let http = match crate::build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
     let url = format!(
@@ -120,18 +118,10 @@ fn run_dream_phase(phase: &str) -> ! {
         Ok(r) => {
             let status = r.status();
             let body = r.text().unwrap_or_default();
-            println!(
-                "{}",
-                serde_json::json!({"ok": false, "status": status.as_u16(), "body": body})
-            );
-            std::process::exit(1);
+            crate::cmd::print::fail_http(1, status.as_u16(), &body);
         }
         Err(e) => {
-            println!(
-                "{}",
-                serde_json::json!({"ok": false, "error": e.to_string()})
-            );
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
@@ -177,8 +167,7 @@ fn run_apply(plan_file: &str, db_path: Option<&str>) -> ! {
             std::process::exit(0);
         }
         Err(e) => {
-            println!("{}", serde_json::json!({"ok": false, "error": e}));
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e);
         }
     }
 }

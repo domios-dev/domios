@@ -83,8 +83,8 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
             print_delayed_result(json, value);
         }
         DelayedAction::Delete { id } => {
-            let value = request_json("DELETE", &format!("/api/delayed-messages/{}", id), None);
-            print_delayed_result(json, value);
+            let record = request_json("DELETE", &format!("/api/delayed-messages/{}", id), None);
+            print_delayed_deleted(json, &id, record);
         }
         DelayedAction::SendNow { id } => {
             let value = request_json(
@@ -242,6 +242,16 @@ fn request_json(method: &str, path: &str, body: Option<serde_json::Value>) -> se
     serde_json::from_str(&text).unwrap_or_else(|e| {
         exit_error(format!("invalid JSON response: {}", e));
     })
+}
+
+fn print_delayed_deleted(json: bool, id: &str, record: serde_json::Value) {
+    if json {
+        crate::cmd::print::print_json(
+            &serde_json::json!({ "ok": true, "deleted": true, "id": id, "record": record }),
+        );
+    } else {
+        println!("Deleted {id}");
+    }
 }
 
 pub(crate) fn print_delayed_result(json: bool, value: serde_json::Value) {
@@ -486,8 +496,7 @@ fn now_ms() -> u64 {
 }
 
 fn exit_error(msg: String) -> ! {
-    eprintln!("Error: {}", msg);
-    std::process::exit(1);
+    crate::cmd::print::fail(1, msg);
 }
 
 #[cfg(test)]
