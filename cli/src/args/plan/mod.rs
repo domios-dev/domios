@@ -743,4 +743,36 @@ mod tests {
         assert_eq!(goal_text, None);
         assert_eq!(vision.as_deref(), Some("explicit vision"));
     }
+
+    #[test]
+    fn review_verdict_plan_id_is_optional_before_the_task_id() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanReviewAction};
+        use clap::Parser;
+
+        let parse = |argv: &[&str]| match Cli::try_parse_from(argv)
+            .expect("review accept should parse")
+            .command
+        {
+            Commands::Plan {
+                action:
+                    PlanAction::Review {
+                        action: PlanReviewAction::Accept {
+                            plan_id, task_id, ..
+                        },
+                    },
+            } => (plan_id, task_id),
+            _ => panic!("expected plan review accept"),
+        };
+        let base = ["codeterm", "plan", "review", "accept"];
+        let short: Vec<&str> = base.iter().copied().chain(["t_1", "--note", "n"]).collect();
+        let full: Vec<&str> = base
+            .iter()
+            .copied()
+            .chain(["pl_1", "t_1", "--note", "n"])
+            .collect();
+
+        assert_eq!(parse(&short), (None, "t_1".to_string()));
+        assert_eq!(parse(&full), (Some("pl_1".to_string()), "t_1".to_string()));
+    }
 }

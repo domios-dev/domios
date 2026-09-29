@@ -43,9 +43,15 @@ impl CliEnv {
         Self {
             data_dir: tempfile::tempdir().expect("temp data dir"),
             instance: format!("jsoncontract-{}", std::process::id()),
-            stub_port,
+            stub_port: Some(stub_port.unwrap_or_else(refused_port)),
         }
     }
+}
+
+/// Without an explicit port the CLI defaults to the production daemon's port.
+fn refused_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind probe port");
+    listener.local_addr().expect("probe address").port()
 }
 
 fn kill_process(pid: u32) {

@@ -39,29 +39,3 @@ pub(super) fn print_local_tab_text(
         None => fail(1, format!("tab {tab_id} returned no screen text")),
     }
 }
-
-pub(super) fn print_exec_output(json: bool, output: &str) {
-    if json {
-        print_json(&serde_json::json!({ "ok": true, "output": output }));
-    } else {
-        print!("{output}");
-    }
-}
-
-pub(super) fn print_local_exec(json: bool, status: u16, body: &str) {
-    if !(200..300).contains(&status) {
-        fail_http(1, status, body);
-    }
-    let value: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
-    match value.get("output").and_then(|output| output.as_str()) {
-        Some(output) => print_exec_output(json, output),
-        None => fail(
-            1,
-            value
-                .get("error")
-                .and_then(|error| error.as_str())
-                .unwrap_or("exec returned no output")
-                .to_string(),
-        ),
-    }
-}
