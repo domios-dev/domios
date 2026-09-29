@@ -77,6 +77,9 @@ impl TabLifecycleJournal {
         let _ = fs::create_dir_all(&dir);
         let path = dir.join(JOURNAL_FILE_NAME);
         let load = read_journal(&path);
+        if let Err(error) = quarantine_refused_tail(&path, &load) {
+            log::warn!("[tab-lifecycle] refused tail kept in place: {error}");
+        }
         let mut last_epoch_by_tab = HashMap::new();
         for record in &load.records {
             let epoch = record_epoch(record);
@@ -162,11 +165,7 @@ impl TabLifecycleJournal {
             .lock()
             .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
         let load = read_journal(&self.path);
-        if let TailStatus::Refused { line, reason } = &load.tail {
-            return Err(format!(
-                "refusing to compact a journal whose tail is unreadable (line {line}: {reason})"
-            ));
-        }
+        quarantine_refused_tail(&self.path, &load)?;
         let compacted = super::reduce::compact_records(&load.records);
         let written = compacted.len();
         write_all_records(&self.path, &compacted)?;
@@ -185,6 +184,42 @@ fn append_line(path: &Path, record: &JournalRecord) -> Result<(), String> {
         .map_err(|error| format!("open {}: {error}", path.display()))?;
     file.write_all(line.as_bytes())
         .map_err(|error| format!("append {}: {error}", path.display()))
+}
+
+/// Sidecar that receives a refused tail, verbatim and never replayed.
+pub fn refused_tail_path(path: &Path) -> PathBuf {
+    path.with_extension("refused.jsonl")
+}
+
+/// Moves a refused tail aside so later appends land behind an intact prefix
+/// instead of behind a line the loader stops at forever.
+fn quarantine_refused_tail(path: &Path, load: &JournalLoad) -> Result<(), String> {
+    let TailStatus::Refused { line, reason } = &load.tail else {
+        return Ok(());
+    };
+    let body =
+        fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let mut refused: String = body
+        .lines()
+        .skip(line.saturating_sub(1))
+        .flat_map(|text| [text, "\n"])
+        .collect();
+    if refused.is_empty() {
+        refused.push('\n');
+    }
+    let sidecar = refused_tail_path(path);
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sidecar)
+        .and_then(|mut file| file.write_all(refused.as_bytes()))
+        .map_err(|error| format!("append {}: {error}", sidecar.display()))?;
+    write_all_records(path, &load.records)?;
+    log::warn!(
+        "[tab-lifecycle] quarantined journal tail from line {line} ({reason}) into {}",
+        sidecar.display()
+    );
+    Ok(())
 }
 
 fn write_all_records(path: &Path, records: &[JournalRecord]) -> Result<(), String> {

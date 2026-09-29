@@ -664,7 +664,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         if let Err(error) =
-            launch.capture_binding_nonce(&svc, task_identity.as_ref(), public_send_key)
+            launch.capture_binding_nonce(&svc, task_identity.as_ref(), public_send_key, origin)
         {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
@@ -784,6 +784,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                             &svc,
                             task_identity.as_ref(),
                             public_send_key,
+                            origin,
                         ) {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);

@@ -414,3 +414,129 @@ fn plain_shell_without_a_live_pty_is_refused_before_acceptance() {
     assert_eq!(tab.agent_type, None);
     assert!(!tab.agent_booting);
 }
+
+/// The common live order: readiness seals first, the hook binding lands after it.
+fn journal_binding_after_readiness(
+    journal: &TabLifecycleJournal,
+    tab_id: &str,
+    provider: &str,
+    session_id: &str,
+) {
+    let key = LifecycleKey::new(tab_id, journal.next_epoch_for_tab(tab_id), "launch");
+    for transition in [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ProviderIdentityCommitted {
+            provider: provider.into(),
+        },
+        LifecycleTransition::LaunchReady,
+        LifecycleTransition::SessionBound {
+            session_id: session_id.into(),
+            binding_nonce: format!("nonce-{session_id}"),
+            source: Default::default(),
+        },
+    ] {
+        journal.append(key.clone(), transition).unwrap();
+    }
+}
+
+fn exited_tab(
+    state: &mut crate::multiplexer::state::MultiplexerState,
+    provider: &str,
+    session_id: &str,
+) -> String {
+    let workspace = state.create_workspace("exit-recovery".into(), None).id;
+    let tab_id = state.create_tab(&workspace).unwrap();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some(provider.into());
+    tab.agent_session_id = Some(session_id.into());
+    tab.session_binding_nonce = Some(format!("nonce-{session_id}"));
+    tab.reported_session_binding_nonce = Some(format!("nonce-{session_id}"));
+    tab_id
+}
+
+#[test]
+fn exit_clear_keeps_verified_binding_in_lineage() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut state, _) = crate::multiplexer::state::MultiplexerState::new();
+    let tab_id = exited_tab(&mut state, "codex", "session-a");
+    {
+        let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+        journal_binding_after_readiness(&journal, &tab_id, "codex", "session-a");
+        journal.compact().unwrap();
+        journal.compact().unwrap();
+    }
+
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+    assert_eq!(tab.session_binding_nonce, None);
+    assert_eq!(
+        crate::multiplexer::types::latest_prior_session(&tab.prior_session_binding_nonces),
+        Some("session-a")
+    );
+
+    let reopened = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    reopened
+        .append(
+            LifecycleKey::new(&tab_id, LifecycleEpoch::first(), "launch"),
+            LifecycleTransition::RolledBack {
+                reason: "provider process exited to a surviving shell".into(),
+            },
+        )
+        .unwrap();
+    reopened.compact().unwrap();
+    let load = reopened.load();
+    assert!(load.tail.is_intact(), "compaction left an unreadable tail");
+    let verified_ids = verified_session_ids(&load.records, &tab_id);
+
+    assert_eq!(
+        select_recovery_session(&tab.prior_session_binding_nonces, &verified_ids).unwrap(),
+        "session-a"
+    );
+}
+
+#[test]
+fn exit_recovery_resumes_roleless_and_team_tabs() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    let (mut state, _) = crate::multiplexer::state::MultiplexerState::new();
+    let cases = [
+        ("provider-a", "roleless-a", false),
+        ("provider-a", "member-a", true),
+        ("provider-b", "roleless-b", false),
+        ("provider-b", "member-b", true),
+    ];
+    let mut tabs = Vec::new();
+    for (provider, session_id, team_member) in cases {
+        let tab_id = exited_tab(&mut state, provider, session_id);
+        if team_member {
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+            tab.team_id = Some("team-exit".into());
+        }
+        journal_binding_after_readiness(&journal, &tab_id, provider, session_id);
+        tabs.push((tab_id, provider, session_id));
+    }
+    journal.compact().unwrap();
+    let registry = registry(&[
+        ("provider-a", Some("roleless-a")),
+        ("provider-b", Some("roleless-b")),
+    ]);
+
+    for (tab_id, provider, session_id) in &tabs {
+        let tab = state.get_tab_mut(tab_id).unwrap();
+        assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+        let verified_ids = verified_session_ids(&journal.load().records, tab_id);
+        let recovered =
+            select_recovery_session(&tab.prior_session_binding_nonces, &verified_ids).unwrap();
+        assert_eq!(
+            recovered, *session_id,
+            "tab {tab_id} lost its verified session"
+        );
+        if session_id.starts_with("roleless") {
+            assert_eq!(
+                recovery_provider(&registry, Some("D:/repo"), &recovered).unwrap(),
+                *provider
+            );
+        }
+    }
+}
