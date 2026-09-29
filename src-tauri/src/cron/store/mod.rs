@@ -35,6 +35,7 @@ use crate::persisted_state::{Loaded, StateFile};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CronRunStatus {
     Running,
+    AwaitingOwnerPrompt,
     Success,
     Failed,
     Cancelled,

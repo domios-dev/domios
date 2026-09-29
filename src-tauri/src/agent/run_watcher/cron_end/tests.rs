@@ -133,6 +133,15 @@ fn assert_retired_with_report(
     assert!(text.contains(&run.run_id), "{text}");
     assert!(text.contains(&format!("{status:?}")), "{text}");
     assert!(text.contains(summary), "{text}");
+    drop(deliveries);
+    drop(store);
+    let visible_history = run
+        .fixture
+        .service
+        .cron_history(&run.cron, &run.job_id)
+        .expect("deleted oneshot history remains available");
+    assert_eq!(visible_history.len(), 1);
+    assert_eq!(visible_history[0].status, status);
 }
 
 #[test]
