@@ -821,16 +821,10 @@ var plugin = {
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
-    let localTaskPath = null;
+    let taskPath = null;
     if (p.task) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
-      const platform = host.platform();
-      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-      localTaskPath = `.codeterm/${taskName}`;
-      const source = host.shell.quoteFor(taskPath, platform);
-      const local = host.shell.quoteFor(localTaskPath, platform);
-      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -850,8 +844,7 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    const cleanup = localTaskPath ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}` : "";
-    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : void 0, cleanup);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0);
   },
   buildResumeCommand(sessionId, skipPermissions) {
     return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
@@ -877,14 +870,9 @@ var plugin = {
     if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
     if (!taskPath) return withPadPermissionConfig(parts.join(" "));
-    const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-    const localTaskPath = `.codeterm/${taskName}`;
-    const source = host.shell.quoteFor(taskPath, platform);
-    const local = host.shell.quoteFor(localTaskPath, platform);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
-    const prologue = platform === "windows" ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
-    const cleanup = platform === "windows" ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;` : `rm -f -- ${local}`;
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
+    const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
