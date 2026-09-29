@@ -143,6 +143,16 @@ impl ServiceContext {
     }
 
     pub fn cron_delete(&self, cron: &CronState, wake: &CronWake, id: &str) -> Result<(), String> {
+        self.cron_delete_inner(cron, wake, id, false)
+    }
+
+    fn cron_delete_inner(
+        &self,
+        cron: &CronState,
+        wake: &CronWake,
+        id: &str,
+        preserve_history: bool,
+    ) -> Result<(), String> {
         let mut store = cron.lock();
         let owned_tabs: Vec<String> = store.tab_owners_for_job(id);
         let history_tabs: Vec<String> = store
@@ -161,7 +171,11 @@ impl ServiceContext {
         drop(store);
         let _ = std::fs::remove_dir_all(&logs_dir);
 
-        cron.lock().delete(id)?;
+        if preserve_history {
+            cron.lock().delete_preserving_history(id)?;
+        } else {
+            cron.lock().delete(id)?;
+        }
         wake.notify_all();
         self.emit_cron_changed();
         Ok(())
@@ -277,6 +291,8 @@ impl ServiceContext {
             tab_id: None,
             session_id: None,
             cwd: None,
+            summary: None,
+            report_delivery: None,
         };
 
         let skill_block = skill.as_deref().map(crate::commands::cron_skill_block);
@@ -412,6 +428,7 @@ impl ServiceContext {
             }
 
             let _ = store.update_run_status(&job_id, run_id, CronRunStatus::Success);
+            let report_target = store.get(&job_id).and_then(|job| job.report_target_tab_id.clone());
             let is_oneshot = store.get(&job_id).map(|j| j.oneshot).unwrap_or(false);
             store.unregister_tab(&tab_id);
             log::info!(
@@ -422,6 +439,23 @@ impl ServiceContext {
                 log_text.len()
             );
             drop(store);
+
+            if let Some(report_target) = report_target {
+                let report = format!(
+                    "Cron run {run_id} completed with status Success. Summary: {summary_text}"
+                );
+                let delivery = match self.send_text(&report_target, &report) {
+                    Ok(()) => "delivered".to_string(),
+                    Err(error) => format!("failed: {error}"),
+                };
+                let _ = cron
+                    .lock()
+                    .set_run_report(&job_id, run_id, summary_text, delivery);
+            } else {
+                let _ = cron
+                    .lock()
+                    .set_run_report(&job_id, run_id, summary_text, "no report target".into());
+            }
 
             // Tell the run-watcher this tab is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
@@ -439,7 +473,7 @@ impl ServiceContext {
                 let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
                 if is_oneshot {
                     log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                    if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {
+                    if let Err(e) = svc.cron_delete_inner(&cron, &wake, &job_id, true) {
                         log::error!("Failed to auto-delete oneshot cron: {}", e);
                     }
                 }
