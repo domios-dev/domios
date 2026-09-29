@@ -233,7 +233,9 @@ impl ServiceContext {
 
         let logs_dir = store.logs_dir().join(id);
         drop(store);
-        let _ = std::fs::remove_dir_all(&logs_dir);
+        if !preserve_history {
+            let _ = std::fs::remove_dir_all(&logs_dir);
+        }
 
         if preserve_history {
             cron.lock().delete_preserving_history(id)?;

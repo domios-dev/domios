@@ -349,7 +349,8 @@
             .lock()
             .process(
                 &pty_id,
-                "opaque-question-62\n❯ opaque-choice-62\nPress Enter to confirm".as_bytes(),
+                "opaque-question-62\r\n❯ 1. opaque-choice-62\r\n  2. opaque-choice-63\r\nPress Enter to confirm"
+                    .as_bytes(),
             );
         (fixture, tab_id, pty_id)
     }
@@ -357,10 +358,16 @@
     fn owner_prompt() -> codeterm_types::pty::PendingPrompt {
         codeterm_types::pty::PendingPrompt {
             question: "opaque-question-62".into(),
-            options: vec![codeterm_types::pty::PromptOption {
-                label: "opaque-choice-62".into(),
-                value: "1".into(),
-            }],
+            options: vec![
+                codeterm_types::pty::PromptOption {
+                    label: "opaque-choice-62".into(),
+                    value: "1".into(),
+                },
+                codeterm_types::pty::PromptOption {
+                    label: "opaque-choice-63".into(),
+                    value: "2".into(),
+                },
+            ],
             sections: None,
             multi_select: None,
             submit_available: None,
