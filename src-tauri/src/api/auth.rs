@@ -163,6 +163,61 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     }
 }
 
+pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match identify_caller(state, auth).ok()? {
+        CallerIdentity::Peer { instance_id, .. } => Some(instance_id),
+        _ => None,
+    }
+}
+
+pub(crate) fn isolated_caller_peer_id(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Option<String> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match identify_caller(state, auth).ok()? {
+        CallerIdentity::Peer {
+            instance_id,
+            access_level: AccessLevel::AgentIsolated,
+            ..
+        } => Some(instance_id),
+        _ => None,
+    }
+}
+
+fn tab_id_from_scoped_path(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/api/tabs/")?;
+    let (tab_id, _) = rest.split_once('/')?;
+    (!tab_id.is_empty()).then_some(tab_id)
+}
+
+pub(crate) fn peer_owns_tab(peer_id: &str, tab: &crate::multiplexer::types::Tab) -> bool {
+    tab.ownership
+        .as_ref()
+        .is_some_and(|ownership| ownership.peer_id == peer_id)
+}
+
+fn peer_access_allowed(
+    access: &AccessLevel,
+    peer_id: &str,
+    method: &Method,
+    path: &str,
+    tab_owner_id: Option<&str>,
+) -> bool {
+    if !check_access(access, method, path) {
+        return false;
+    }
+    *access != AccessLevel::AgentIsolated
+        || tab_id_from_scoped_path(path).is_none_or(|_| tab_owner_id == Some(peer_id))
+}
+
 pub(crate) fn caller_access_level(
     state: &AppState,
     headers: &axum::http::HeaderMap,
@@ -292,7 +347,26 @@ pub async fn auth_middleware(
                 )
                     .into_response();
             }
-            if check_access(access_level, &method, &path) {
+            let tab_owner_id = if *access_level == AccessLevel::AgentIsolated {
+                tab_id_from_scoped_path(&path).and_then(|tab_id| {
+                    let mux = state.svc.mux.read();
+                    mux.get_tab(tab_id)
+                        .and_then(|tab| {
+                            tab.ownership
+                                .as_ref()
+                                .map(|ownership| ownership.peer_id.clone())
+                        })
+                })
+            } else {
+                None
+            };
+            if peer_access_allowed(
+                access_level,
+                instance_id,
+                &method,
+                &path,
+                tab_owner_id.as_deref(),
+            ) {
                 next.run(req).await
             } else {
                 log::warn!(
@@ -490,11 +564,17 @@ mod tests {
     fn agent_isolated_allows_agent_ops() {
         let level = AccessLevel::AgentIsolated;
         assert!(check_access(&level, &Method::GET, "/api/tabs"));
-        assert!(check_access(&level, &Method::GET, "/api/config"));
+        assert!(check_access(&level, &Method::GET, "/api/tabs/abc/text"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/exec"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/respond"));
         assert!(check_access(&level, &Method::POST, "/api/agents/spawn"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/report"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/clear"));
+        assert!(!check_access(&level, &Method::GET, "/api/config"));
+        assert!(!check_access(&level, &Method::GET, "/api/mem/search"));
+        assert!(!check_access(&level, &Method::GET, "/api/notifications"));
+        assert!(!check_access(&level, &Method::GET, "/api/workspaces"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
         assert!(!check_access(
@@ -502,6 +582,53 @@ mod tests {
             &Method::POST,
             "/api/mesh/broadcast/start"
         ));
+    }
+
+    #[test]
+    fn agent_isolated_limited_to_spawned_tabs() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let tab_id = mux.snapshot().workspaces[0].tabs[0].clone();
+        mux.get_tab_mut(&tab_id).unwrap().ownership = Some(
+            codeterm_types::pty::RemoteOwnership {
+                controller_title: "remote".into(),
+                controller_tab_id: None,
+                peer_id: "peer-a".into(),
+                peer_name: "Peer A".into(),
+                team: None,
+            },
+        );
+        let level = AccessLevel::AgentIsolated;
+        for (method, path) in [
+            (Method::GET, "/api/tabs/abc/text"),
+            (Method::POST, "/api/tabs/abc/send"),
+            (Method::POST, "/api/tabs/abc/exec"),
+            (Method::POST, "/api/tabs/abc/prompt/respond"),
+            (Method::POST, "/api/tabs/abc/report"),
+            (Method::POST, "/api/tabs/abc/prompt/clear"),
+        ] {
+            assert!(peer_access_allowed(
+                &level,
+                "peer-a",
+                &method,
+                path,
+                Some("peer-a")
+            ));
+            assert!(!peer_access_allowed(
+                &level,
+                "peer-a",
+                &method,
+                path,
+                Some("peer-b")
+            ));
+        }
+        assert!(!peer_access_allowed(
+            &level,
+            "peer-a",
+            &Method::POST,
+            "/api/tabs/abc/send",
+            None
+        ));
+        assert!(peer_owns_tab("peer-a", mux.get_tab(&tab_id).unwrap()));
     }
 
     #[test]

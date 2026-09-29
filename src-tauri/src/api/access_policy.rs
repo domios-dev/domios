@@ -2,8 +2,11 @@ use axum::http::Method;
 
 use crate::mesh::types::{AccessLevel, Permission};
 
-fn is_mesh_control(method: &Method, path: &str) -> bool {
-    *method == Method::POST && matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
+fn is_tab_scoped_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/tabs/") else {
+        return false;
+    };
+    rest.split_once('/').is_some_and(|(tab_id, _)| !tab_id.is_empty())
 }
 
 pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
@@ -11,32 +14,35 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
     if bare_path.starts_with("/api/secrets/") || bare_path == "/api/mesh/debug/sign" {
         return false;
     }
-    if is_mesh_control(method, path) {
-        return true;
+    if *method == Method::POST && path == "/api/mesh/announce" {
+        return matches!(access, AccessLevel::Full);
+    }
+    if *method == Method::POST && path == "/api/mesh/sync" {
+        return matches!(
+            access,
+            AccessLevel::Full | AccessLevel::ReadOnly | AccessLevel::AgentIsolated
+        ) || matches!(access, AccessLevel::Custom(perms) if perms.contains(&Permission::Admin));
     }
     match access {
         AccessLevel::Full => true,
         AccessLevel::ReadOnly => *method == Method::GET,
         AccessLevel::AgentIsolated => {
-            if *method == Method::GET {
+            if *method == Method::GET && path == "/api/tabs" {
                 return true;
             }
-            let write_allowed = [
-                "/send",
-                "/exec",
-                "/report",
-                "/reports",
-                "/respond",
-                "/clear",
-                "/describe",
-                "/can-spawn",
-                "/agent-type",
-                "/attachments",
-            ];
-            if path.starts_with("/api/tabs/") && write_allowed.iter().any(|s| path.ends_with(s)) {
+            if path == "/api/agents/spawn" && *method == Method::POST {
                 return true;
             }
-            path == "/api/agents/spawn" || path == "/api/batch" || path == "/api/notifications"
+            if !is_tab_scoped_path(path) {
+                return false;
+            }
+            if *method == Method::GET && path.ends_with("/text") {
+                return true;
+            }
+            *method == Method::POST
+                && ["/send", "/exec", "/respond", "/report", "/clear"]
+                    .iter()
+                    .any(|suffix| path.ends_with(suffix))
         }
         AccessLevel::Custom(perms) => {
             if perms.contains(&Permission::Admin) {
@@ -93,7 +99,7 @@ mod tests {
     fn read_only_allows_reads_and_mesh_control_only() {
         let access = AccessLevel::ReadOnly;
         assert!(check_access(&access, &Method::GET, "/api/tabs"));
-        assert!(check_access(&access, &Method::POST, "/api/mesh/announce"));
+        assert!(!check_access(&access, &Method::POST, "/api/mesh/announce"));
         assert!(check_access(&access, &Method::POST, "/api/mesh/sync"));
         assert!(!check_access(&access, &Method::POST, "/api/tabs/abc/send"));
         assert!(!check_access(&access, &Method::PUT, "/api/config"));
@@ -105,8 +111,18 @@ mod tests {
     fn agent_isolated_keeps_agent_scope() {
         let access = AccessLevel::AgentIsolated;
         assert!(check_access(&access, &Method::GET, "/api/tabs"));
+        assert!(check_access(&access, &Method::GET, "/api/tabs/abc/text"));
         assert!(check_access(&access, &Method::POST, "/api/tabs/abc/send"));
+        assert!(check_access(&access, &Method::POST, "/api/tabs/abc/exec"));
+        assert!(check_access(&access, &Method::POST, "/api/tabs/abc/respond"));
+        assert!(check_access(&access, &Method::POST, "/api/tabs/abc/report"));
+        assert!(check_access(&access, &Method::POST, "/api/tabs/abc/clear"));
         assert!(check_access(&access, &Method::POST, "/api/agents/spawn"));
+        assert!(!check_access(&access, &Method::GET, "/api/config"));
+        assert!(!check_access(&access, &Method::GET, "/api/mem/search"));
+        assert!(!check_access(&access, &Method::POST, "/api/mesh/announce"));
+        assert!(check_access(&access, &Method::POST, "/api/mesh/sync"));
+        assert!(!check_access(&access, &Method::POST, "/api/batch"));
         assert!(!check_access(&access, &Method::POST, "/api/config"));
         assert!(!check_access(&access, &Method::DELETE, "/api/crons/123"));
     }
@@ -131,5 +147,18 @@ mod tests {
             assert!(!check_access(&access, &Method::GET, "/api/secrets/items"));
             assert!(!check_access(&access, &Method::GET, "/api/mesh/debug/sign"));
         }
+    }
+
+    #[test]
+    fn mesh_control_denied_below_full() {
+        for access in [AccessLevel::ReadOnly, AccessLevel::AgentIsolated] {
+            assert!(!check_access(&access, &Method::POST, "/api/mesh/announce"));
+            assert!(check_access(&access, &Method::POST, "/api/mesh/sync"));
+        }
+        assert!(check_access(
+            &AccessLevel::Full,
+            &Method::POST,
+            "/api/mesh/announce"
+        ));
     }
 }

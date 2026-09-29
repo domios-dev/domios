@@ -66,11 +66,18 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 4. Peer sends introductions to all existing peers
 5. C is now in the mesh. All peers know about C.
 
+### Vouched introductions
+
+1. A is paired with B; B discovers C and sends C's identity and addresses to A.
+2. A records C as discovered and shows a pending pairing request with an `action_needed` notification.
+3. When A's owner approves, A sends the ordinary pairing request to C.
+4. C's owner approves the request; the correlated acceptance completes pairing on A and C.
+
 ### Flow 3: Disconnecting a Peer
 
-1. Machine clicks "Disconnect" on a peer — or "Exit Mesh" to leave entirely
-2. Notifies all peers to remove the disconnected machine
-3. Pubkey removed and the peer identity is tombstoned locally; future pairing is refused until the owner explicitly lifts that revocation.
+1. The local owner clicks "Disconnect" on a peer.
+2. The peer key is removed locally and the identity is tombstoned locally.
+3. Other machines keep their independent pairings until their owners disconnect them.
 
 ### Flow 4: Re-pairing a Disconnected Identity
 
@@ -83,10 +90,23 @@ Pairing records are keyed only by peer identity. Matching names or network addre
 ## Security
 
 - Ed25519 signed requests with 5-minute expiry and nonce (replay protection)
-- Manual approval for pairing (no auto-pair)
+- Every pairing request, including a vouched introduction, stays pending until the receiving owner approves it. The request raises an `action_needed` notification. Discovery and introductions never pair a peer.
 - Public keys exchanged during pairing, verified on every request
-- Disconnect removes the paired key and records a revocation by default.
+- Disconnect removes only the local pairing and records a local revocation by default; it does not cascade through third parties.
 - Only an owner authenticated with the local API token can lift a revocation; pairing never clears one implicitly.
+
+### Peer access levels
+
+Access is enforced on direct signed requests and relayed requests. Secret routes and mesh token minting are local-only at every level.
+
+| Level | Permitted operations |
+|---|---|
+| Full | All peer API operations except local-only secret routes and token minting. May announce addresses, sync peer introductions, and introduce peers. |
+| ReadOnly | `GET` routes permitted by peer policy, excluding local-only secret routes and token minting. `POST /api/mesh/sync` carries only the sender's liveness and identity; announce and third-party introductions are refused. |
+| AgentIsolated | Spawn agents; list only tabs spawned by this peer; read tab text and send, exec, respond, report, or clear only on those tabs. It cannot read other tabs or workspace lists, mesh inventory, memory, configuration, secrets, or notifications. |
+| Custom | Only operations granted by the configured `Permission` values; `Admin` grants ordinary peer API access and sender-only sync, except local-only routes and Full-only announce/introduction controls. |
+
+AgentIsolated ownership is stamped from the authenticated signed peer identity when an agent is spawned. Caller-supplied ownership fields cannot claim another peer's tabs. Every tab-scoped route checks the stored owner before dispatch.
 
 ## Web UI discovery and relay
 
@@ -231,4 +251,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
