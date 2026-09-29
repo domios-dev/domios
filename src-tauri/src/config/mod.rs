@@ -1,4 +1,5 @@
 mod agent_access;
+pub(crate) mod bounds;
 mod dropped_keys;
 mod kpi_default;
 mod load;
@@ -788,6 +789,7 @@ fn save_hook_reconciliation_config_at(
 fn serialize_config(config: &AppConfig) -> Result<String, String> {
     let mut sanitized = config.clone();
     sanitize_plugin_settings(&mut sanitized);
+    bounds::validate_app_config(&sanitized)?;
     toml::to_string_pretty(&sanitized).map_err(|e| format!("Failed to serialize config: {}", e))
 }
 
@@ -807,6 +809,7 @@ pub async fn update_config(
 ) -> Result<(), String> {
     let mut resolved = config;
     sanitize_plugin_settings(&mut resolved);
+    bounds::validate_app_config(&resolved)?;
     validate_api_trust_boundary(&resolved.api)?;
 
     // If the theme name changed, load the builtin theme fresh instead of trying to detect overrides.

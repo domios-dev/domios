@@ -40,7 +40,7 @@ pub trait CommandPort: Send + Sync {
         name: String,
         cwd: Option<String>,
         activate: bool,
-    ) -> crate::multiplexer::state::WorkspaceInfo;
+    ) -> Result<crate::multiplexer::state::WorkspaceInfo, String>;
     fn create_provisioned_workspace(
         &self,
         name: String,
@@ -724,7 +724,7 @@ fn cmd_workspace_create(
         }
         ctx.create_provisioned_workspace(name, activate)?
     } else {
-        ctx.create_workspace(name, cwd, activate)
+        ctx.create_workspace(name, cwd, activate)?
     };
     let json = serde_json::to_value(&ws).map_err(|e| format!("serialize WorkspaceInfo: {}", e))?;
     Ok(CommandResult::Json(json))

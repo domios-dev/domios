@@ -35,7 +35,7 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 **`mem_items`** — every memorable thing
 - `id` — slug-derived (`fact_pgbouncer_config`, `skill_deploy_staging`)
 - `kind` — `fact` | `learning` | `note` | `conversation` | `skill` | `rule` | `preference` | `peer` | `daily` | `summary`
-- `scope` — `global` | `workspace:<id>`
+- `scope` — `global` | `workspace:<id>`; any other value is refused
 - `area` — project/topic tag (`auth`, `billing`, `deploy`, `home`, `_dreams`)
 - `tags_json` — free-form tags
 - `body_inline` (<2KB) / `body_blob_path` (larger → disk blob)
@@ -179,4 +179,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

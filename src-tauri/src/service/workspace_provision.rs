@@ -56,6 +56,7 @@ impl ServiceContext {
         name: String,
         activate: bool,
     ) -> Result<WorkspaceInfo, String> {
+        super::workspace::validate_workspace_name(&name)?;
         let root = crate::paths::data_dir().join(PROVISIONED_WORKSPACES_DIR);
         let dir = provision_workspace_directory(&root, &name)?;
         let cwd = dir.to_string_lossy().to_string();

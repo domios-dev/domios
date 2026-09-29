@@ -18,11 +18,19 @@ mod tests;
 pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
+pub const MAX_TAB_TITLE_CHARS: usize = 64;
 pub(crate) const TAB_TITLE_ERROR: &str =
-    "tab title must be one word with no whitespace; put descriptive text in description";
+    "tab title must be one word of at most 64 characters with no whitespace or control characters";
 
 pub(crate) fn validate_tab_title(title: &str) -> Result<(), String> {
-    if title.is_empty() || title.chars().any(char::is_whitespace) {
+    if title.is_empty()
+        || title.chars().count() > MAX_TAB_TITLE_CHARS
+        || title.chars().any(|character| {
+            character.is_whitespace()
+                || character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+        })
+    {
         Err(TAB_TITLE_ERROR.to_string())
     } else {
         Ok(())
@@ -61,6 +69,12 @@ pub(crate) fn is_coordinator(
 }
 
 pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
+    if value
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Err("description must be one line without control characters".into());
+    }
     let trimmed = value.trim();
     if trimmed.chars().count() > MAX_TAB_DESCRIPTION_CHARS {
         return Err(format!(

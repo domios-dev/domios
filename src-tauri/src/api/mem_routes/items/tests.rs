@@ -18,6 +18,12 @@ fn save_same_body_skips_extraction_schedule() {
     ));
 }
 
+#[test]
+fn unknown_mem_scope_is_refused() {
+    assert!(crate::mem::store::MemScope::from_str("misspelled").is_err());
+    assert!(crate::mem::store::MemScope::from_str("global").is_ok());
+}
+
 fn hist(id: i64, old: Option<&str>, new: Option<&str>) -> HistoryEntry {
     HistoryEntry {
         id,

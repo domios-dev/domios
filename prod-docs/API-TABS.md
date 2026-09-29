@@ -11,8 +11,8 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `id` | `string` | Unique tab ID (8-char hex, e.g. `a3f1b2c7`) |
 | `pty_id` | `string` | Associated PTY process ID |
 | `tab_type` | `string` | `"Terminal"` or `"Choice"` |
-| `title` | `string` | The tab's single-word name; the sole name field in tab payloads. |
-| `description` | `string?` | Short activity summary, max 200 chars; shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
+| `title` | `string` | The tab's single-word name, at most 64 characters, without whitespace or control characters; the sole name field in tab payloads. |
+| `description` | `string?` | One-line activity summary, max 200 chars, without control characters; shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
@@ -47,9 +47,9 @@ Neither route promises the recipient *answered*. Replies come through the sender
 | Method | Path | Body | Description |
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` required (absent body: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
+| POST | `/api/workspaces` | `{name, cwd?, provision?}` | Create workspace; `name` is required, non-empty, one line, at most 64 characters, and has no control characters (absent or invalid name: `400`). A `cwd` matching a workspace returns it with `existing: true`. `provision: true` (`400` with `cwd`) creates a new empty data-dir directory; agents started exactly there get directory trust. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
-| POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
+| POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace with the same name limits as create. |
 | POST | `/api/workspaces/{id}/close` | `{force?, confirm?}` or no body | Close the workspace. Agent tabs require `force: true`. A request without `X-CodeTerm-Tab-Id` is Human only when it sends `{force: true, confirm: "<workspace_id>"}` after the user confirms (logged `human-attributed (headerless, confirmed)`); otherwise it is refused as Unattributed and logged. A coordinator agent cannot close its own workspace even with `force: true`. Every Team with members here is closed through Team close before remaining tabs are removed. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | This workspace's recently-closed tabs as `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
 | POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` or no body | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` picks the ring entry (default 0, most recent). Returns `TabInfo {id, title, tab_id}`. |
@@ -215,4 +215,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

@@ -74,7 +74,7 @@ Save identity is the exact kind and title. Saving an unchanged body after whites
 - `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
 - `GET /pinned?limit=N` — list pinned items (default 100, max 500)
 - `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
-- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted)
+- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted; other scope values are refused)
 - `POST /dream`
 - `PATCH /items/{id}` (`{pinned: true|false}` toggles `is_pinned_wakeup`, audited)
 - `DELETE /items/{id}`, `/forget/{area}`
@@ -113,4 +113,4 @@ Memory Tabl UI reads this directly.
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryTabl/` — UI
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
