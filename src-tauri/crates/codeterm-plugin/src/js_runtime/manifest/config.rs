@@ -344,6 +344,23 @@ pub struct SessionsConfig {
     /// File extension session files use (`jsonl`, `json`, etc).
     #[serde(default = "default_session_ext")]
     pub file_extension: String,
+    #[serde(default)]
+    pub search_files: Option<SessionFileSearchConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SessionFileSearchConfig {
+    #[serde(default)]
+    pub root_subdir: Option<String>,
+    #[serde(default = "default_session_search_depth")]
+    pub directory_depth: usize,
+    #[serde(default)]
+    pub file_stem_regex: Option<String>,
+}
+
+fn default_session_search_depth() -> usize {
+    1
 }
 
 fn default_session_ext() -> String {

@@ -158,6 +158,7 @@ Drives the manifest fallbacks for session discovery (`sessionFilePath`,
 | `rootDir` | string (required) | — | Filesystem root the provider writes session files into. `~/` expands to the home dir. E.g. `~/.claude/projects`. |
 | `cwdEncoding` | `"dash_encoded"` \| `"none"` | `dash_encoded` | How a cwd maps to a subdirectory name: `dash_encoded` turns `/Users/foo/code` into `-Users-foo-code`; `none` uses the path as-is. |
 | `fileExtension` | string | `"jsonl"` | Session file extension. |
+| `searchFiles` | object? | absent | Search-only filesystem enumeration. `rootSubdir` selects a path beneath `rootDir`, `directoryDepth` bounds the number of directories to descend (default 1, host maximum 8), and `fileStemRegex` optionally extracts the session id from capture group 1. Search reads file paths and timestamps in Rust, then asks the provider for descriptive fields only after the raw content prefilter selects a candidate. |
 
 ### `commands`
 

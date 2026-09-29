@@ -77,6 +77,16 @@ fn claude_find_session_native_js_parity() {
     assert_eq!(json_of(&native_found), json_of(&native_listed));
     assert_eq!(json_of(&js_found), json_of(&js_listed));
 
+    let js_search_candidate = js
+        .enumerate_sessions_for_search()
+        .into_iter()
+        .find(|session| session.session_id == CLAUDE_SID)
+        .expect("search enumeration uses the same session file");
+    assert_eq!(js_search_candidate.file_path, native_listed.file_path);
+    assert_eq!(js_search_candidate.modified_ts, native_listed.modified_ts);
+    let js_search_described = js.describe_session_for_search(&js_search_candidate);
+    assert_eq!(json_of(&native_listed), json_of(&js_search_described));
+
     let pathlike = format!("../-work-owned/{CLAUDE_SID}");
     for unowned in [
         "cccc3333-none-4ccc-8ccc-cccccccccccc",

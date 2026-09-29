@@ -237,6 +237,16 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Fast-path session metadata used by content search.
+    fn enumerate_sessions_for_search(&self) -> Vec<SessionMetadata> {
+        self.enumerate_sessions()
+    }
+
+    /// Resolve optional session fields after content search selects a candidate.
+    fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
+        session.clone()
+    }
+
     /// This provider's own record for exactly `session_id`; `None` when it does
     /// not own the id. Never walks session history, never guesses by cwd or recency.
     fn find_session(&self, _session_id: &str) -> Option<SessionMetadata> {
