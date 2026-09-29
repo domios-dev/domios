@@ -53,7 +53,7 @@ codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
 # View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
 codeterm tab list
 
-# Get one tab's state (working|question|idle|exited, as tab list shows), type, session, prompt
+# Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt
 codeterm tab status --tab $WORKER
 
 # Include pending_prompt question and numbered options for an active provider dialog
@@ -135,4 +135,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

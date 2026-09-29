@@ -37,6 +37,7 @@ pub fn capture_response(
                 std::thread::sleep(Duration::from_millis(300));
                 break;
             }
+            TabStatus::Error => return Err("Agent turn failed".to_string()),
             TabStatus::Dead => return Err("Agent died".to_string()),
             _ => {}
         }

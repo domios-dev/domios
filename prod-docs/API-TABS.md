@@ -94,6 +94,10 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
 
 Provider-reported live turn state: `{event, provider_id?, session_id?, binding_nonce?}`. `event` resolves against the reporting provider's declared `hookEventRoster`, so an undeclared event changes nothing; a binding nonce disagreeing with the tab's launch nonce is rejected with 409. A binding here carries a `working` or `idle` verdict (OpenCode declares `session.status` Working, `session.idle` Idle); core reads the declaration, never a provider id.
 
+#### Provider Lifecycle Event Hook (POST /api/tabs/{id}/hook/provider_event)
+
+Providers with lifecycle event detection may report `{session_id, event}` with their provider id and acknowledged launch nonce headers. Core accepts only the tab's currently claimed session and dispatches the raw event through that provider's `detectEvents` capability. `turn_error`, `task_complete`, and `turn_started` update the tab's error, idle, and working status respectively; a stale session or nonce is rejected with 409.
+
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
 Called by Claude Code's `SessionStart` matcher whenever Claude opens a session: fresh launch, `--resume`, `/new`, or `/clear`. No body is accepted for a status-only report. CodeTerm persists the `session_id` from the JSON Claude pipes to the hook on stdin, so the next restart resumes the right thread, not the previous stale id. A changed id makes the prior session a persisted context epoch: Chat keeps its transcript behind a labelled divider, and archived turns are excluded from the provider's new context.

@@ -140,7 +140,7 @@ function dispatchTestChatReply(detail: TestChatReplyDetail): void {
 }
 
 function isTestTabStatus(status: unknown): status is TabStatus {
-  return status === "Working" || status === "Waiting" || status === "Idle" || status === "Dead";
+  return status === "Working" || status === "Waiting" || status === "Idle" || status === "Error" || status === "Dead";
 }
 
 function drainPendingTestChatReplies(tabId: string, commit: ChatEventCommit): void {

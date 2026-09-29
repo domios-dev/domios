@@ -80,6 +80,7 @@ function getStatusColor(status: string, colors: ThemeColors): string {
   switch (status) {
     case "Working": return colors.green;
     case "Waiting": return colors.yellow;
+    case "Error": return colors.red;
     case "Dead": return colors.red;
     default: return colors.muted;
   }
