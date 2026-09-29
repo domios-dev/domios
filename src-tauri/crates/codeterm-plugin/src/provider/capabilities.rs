@@ -48,6 +48,17 @@ impl ModelCatalogueCapability {
     }
 }
 
+/// How a live agent tab changes its model without touching the provider's
+/// machine-global default. `RestartResume` relaunches the same session with the
+/// model launch args and needs a session-start report naming the running model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchMode {
+    RestartResume,
+    #[default]
+    Unsupported,
+}
+
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
 /// Replaces the old injected `kind` string and is the spawn discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

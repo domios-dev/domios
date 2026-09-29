@@ -37,6 +37,37 @@ Failures after acceptance include `error` plus the same transition fields. Every
 
 CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]`.
 
+#### Agent Model Switch (POST /api/tabs/{id}/agent/model)
+
+Switch one idle agent tab to another model. Only that tab changes: CodeTerm never types a provider model command, because provider pickers save the choice as the machine-global default. The provider descriptor's `model_switch` says how the switch is done. `restart_resume` relaunches the tab through the restart path above, resuming its own nonce-verified session with the new model launch args and the same effort, arguments and system prompt a daemon restore would use. The tab's restorable launch record is rewritten before the relaunch, so a later restore starts the model that is running. `unsupported` (the default) refuses the switch and writes nothing to the tab.
+
+```json
+{"model": "sonnet"}
+```
+
+The call returns only after the relaunched session's own session-start report names the model (`evidence: "session_start_report"`), or it fails inside a bounded deadline.
+
+**Switched response** (`200 OK`):
+```json
+{
+  "ok": true, "tab_id": "a3f1b2c7", "provider": "claude", "mechanism": "restart_resume",
+  "previous_model": "haiku", "requested_model": "sonnet", "launched_model": "sonnet", "model": "sonnet",
+  "evidence": "session_start_report", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "restart": { "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "session_action": "resume" }
+}
+```
+
+Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fields below:
+- `404 not_found` — tab id not found
+- `400 invalid_model` — the model is not in the provider's catalogue; `model_error` carries `closest_model_ids` and `refresh_command`
+- `409 model_switch_unsupported` — the provider declares no live switch; `provider` names it
+- `409 not_switchable` — no agent, the agent is not observed live, it is mid-turn or waiting on a prompt, the tab has no verified resumable session, or the tab is the General Agent (its model comes from Settings)
+- `429 rate_limited` — the tab restarted moments ago; `retry_after_secs` and `Retry-After`
+- `500`/`504 relaunch_failed` — teardown, relaunch, readiness or rebinding failed; `restart` carries the observed transition fields
+- `502`/`504 model_not_observed` — the relaunch came up but its session-start report named another model (`observed_model`, 502) or named none within the deadline (504); `launched_model` and `restart` are included
+
+CLI: `codeterm agent model --tab TAB_ID MODEL [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
+
 ### Plan Task Attempts
 
 Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` is the executor identity, not the primary key. `requested_model` and `provider_resolved_model` preserve the selected and provider-resolved ids; `session_model` records the model detected from that attempt's bound session and stays null until observed. `model_identity_mismatch` records a difference and its cause. Respawn creates a new Worker tab and live attempt, never reactivating the selected historical attempt.

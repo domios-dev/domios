@@ -134,7 +134,7 @@
     "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
-    "modelSwitchFormat": "/model {model}",
+    "modelSwitch": "restart_resume",
     "autoApproveFlags": [
       "--dangerously-skip-permissions"
     ],

@@ -236,12 +236,10 @@ pub struct ProviderDescriptor {
     /// Shell command for updating the CLI on the current platform.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_command: Option<String>,
-    /// Provider-declared in-agent model switch command template. `{model}` is
-    /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
-    /// the provider may publish models for launch/config surfaces but does not
-    /// support an arg-based live session switch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_switch_format: Option<String>,
+    /// How a live tab of this provider switches model; `unsupported` means the
+    /// model is chosen only at spawn.
+    #[serde(default)]
+    pub model_switch: ModelSwitchMode,
     /// Provider-declared command that starts a fresh context in the same tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_context_command: Option<String>,

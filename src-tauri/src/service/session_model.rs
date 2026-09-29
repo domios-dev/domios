@@ -237,6 +237,65 @@ impl ServiceContext {
         };
         let Some(sid) = sid else { return };
         self.refresh_session_reasoning_effort_once(tab_id, agent_id, cwd, &sid);
+        let launch_report = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| current_launch_report(tab, &sid))
+        };
+        let transcript_model = self
+            .agent_registry
+            .with_provider(agent_id, |p| p.detect_session_model(cwd, &sid))
+            .flatten()
+            .map(|model| crate::service::spawn::normalize_session_model(&model));
+        // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
+        let Some((model, launch_report)) = session_model_evidence(launch_report, transcript_model)
+        else {
+            return;
+        };
+        self.apply_session_model(tab_id, agent_id, &sid, model, launch_report);
+    }
+
+    /// The provider named the model this binding runs at session start. That
+    /// report outranks a transcript whose tail still predates the launch.
+    pub(crate) fn record_launch_reported_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        reported_model: &str,
+    ) {
+        let model = crate::service::spawn::normalize_session_model(reported_model);
+        if model.is_empty() {
+            return;
+        }
+        let cwd = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| runtime_model_update_matches_session(tab, agent_id, session_id))
+                .and_then(|tab| tab.cwd.clone())
+        };
+        let Some(cwd) = cwd else { return };
+        let transcript_model_at_launch = self
+            .agent_registry
+            .with_provider(agent_id, |p| p.detect_session_model(&cwd, session_id))
+            .flatten()
+            .map(|model| crate::service::spawn::normalize_session_model(&model));
+        let report = crate::multiplexer::types::LaunchModelReport {
+            model: model.clone(),
+            transcript_model_at_launch,
+        };
+        self.apply_session_model(tab_id, agent_id, session_id, model, Some(report));
+        super::boot_wait::notify_boot_changed();
+    }
+
+    fn apply_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        sid: &str,
+        model: String,
+        launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
+    ) {
         let (
             current_model,
             planned_model,
@@ -258,15 +317,6 @@ impl ServiceContext {
                 tab.model_identity_mismatch.clone(),
             )
         };
-        // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
-        let Some(model) = self
-            .agent_registry
-            .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
-            .flatten()
-            .map(|model| crate::service::spawn::normalize_session_model(&model))
-        else {
-            return;
-        };
         let identity_update = model_identity_update(
             current_model.as_deref(),
             planned_model.as_deref(),
@@ -275,15 +325,7 @@ impl ServiceContext {
             current_fallback.clone(),
             &model,
             requested_model.as_deref().is_none_or(|requested| {
-                models_match(requested, &model)
-                    || crate::service::spawn::normalize_session_model(requested)
-                        .eq_ignore_ascii_case(&model)
-                    || crate::service::spawn::catalogue_models_match(
-                        &self.agent_registry,
-                        &agent_id,
-                        requested,
-                        &model,
-                    )
+                session_model_matches(&self.agent_registry, agent_id, requested, &model)
             }),
         );
         let mismatch_changed = identity_update.mismatch != current_mismatch;
@@ -292,8 +334,8 @@ impl ServiceContext {
             let model_binding_updated = {
                 let mut mux = self.mux.write();
                 if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    if runtime_model_update_matches_session(tab, agent_id, &sid) {
-                        let identity = session_model_identity(tab, &sid);
+                    if runtime_model_update_matches_session(tab, agent_id, sid) {
+                        let identity = session_model_identity(tab, sid, launch_report.clone());
                         tab.agent_session_model_identity = identity;
                         true
                     } else {
@@ -306,7 +348,7 @@ impl ServiceContext {
             if !model_binding_updated {
                 return;
             }
-            self.persist_attempt_session_model(tab_id, agent_id, &sid, &model);
+            self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
             return;
         }
         let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
@@ -345,7 +387,7 @@ impl ServiceContext {
         let updated = {
             let mut mux = self.mux.write();
             if let Some(tab) = mux.get_tab_mut(tab_id) {
-                if runtime_model_update_matches_session(tab, agent_id, &sid) {
+                if runtime_model_update_matches_session(tab, agent_id, sid) {
                     if identity_update.model_changed {
                         log::info!(
                             "[session-model] tab={} {:?} -> {:?}",
@@ -356,7 +398,7 @@ impl ServiceContext {
                     }
                     tab.agent_session_model = model.clone();
                     tab.agent_provider_resolved_model = model.clone();
-                    let model_identity = session_model_identity(tab, &sid);
+                    let model_identity = session_model_identity(tab, sid, launch_report);
                     tab.agent_session_model_identity = model_identity;
                     tab.model_fallback = identity_update.fallback;
                     tab.model_identity_mismatch = identity_update.mismatch;
@@ -371,7 +413,7 @@ impl ServiceContext {
         if updated {
             self.emit_state_changed();
             if let Some(model) = model.as_deref() {
-                self.persist_attempt_session_model(tab_id, agent_id, &sid, model);
+                self.persist_attempt_session_model(tab_id, agent_id, sid, model);
             }
         }
     }
@@ -512,6 +554,52 @@ fn models_match(requested: &str, actual: &str) -> bool {
     requested.trim().eq_ignore_ascii_case(actual.trim())
 }
 
+/// One equivalence for every "is the tab running the model it asked for" check.
+pub(crate) fn session_model_matches(
+    registry: &crate::agent::registry::AgentRegistry,
+    agent_id: &str,
+    requested: &str,
+    actual: &str,
+) -> bool {
+    models_match(requested, actual)
+        || crate::service::spawn::normalize_session_model(requested).eq_ignore_ascii_case(actual)
+        || crate::service::spawn::catalogue_models_match(registry, agent_id, requested, actual)
+}
+
+fn session_model_evidence(
+    launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
+    transcript_model: Option<String>,
+) -> Option<(String, Option<crate::multiplexer::types::LaunchModelReport>)> {
+    match (launch_report, transcript_model) {
+        (Some(report), transcript)
+            if transcript.as_deref().is_none_or(|transcript| {
+                report
+                    .transcript_model_at_launch
+                    .as_deref()
+                    .is_some_and(|at_launch| models_match(at_launch, transcript))
+            }) =>
+        {
+            Some((report.model.clone(), Some(report)))
+        }
+        (_, Some(transcript)) => Some((transcript, None)),
+        (None, None) => None,
+    }
+}
+
+/// This binding's launch report, only while the tab still holds the exact
+/// session and verified nonce the report was recorded under.
+pub(crate) fn current_launch_report(
+    tab: &crate::multiplexer::types::Tab,
+    session_id: &str,
+) -> Option<crate::multiplexer::types::LaunchModelReport> {
+    let identity = tab.agent_session_model_identity.as_ref()?;
+    let current = session_model_identity(tab, session_id, None)?;
+    (current.session_id == identity.session_id
+        && current.session_binding_nonce == identity.session_binding_nonce)
+        .then(|| identity.launch_report.clone())
+        .flatten()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ModelIdentityUpdate {
     model_changed: bool,
@@ -586,6 +674,7 @@ pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::
 fn session_model_identity(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
+    launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
 ) -> Option<crate::multiplexer::types::SessionModelIdentity> {
     let nonce = tab.session_binding_nonce.as_ref()?;
     (tab.agent_session_id.as_deref() == Some(session_id)
@@ -593,6 +682,7 @@ fn session_model_identity(
     .then(|| crate::multiplexer::types::SessionModelIdentity {
         session_id: session_id.into(),
         session_binding_nonce: nonce.clone(),
+        launch_report,
     })
 }
 

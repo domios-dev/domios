@@ -175,7 +175,6 @@
     "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
-    "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": [
       "--dangerously-bypass-approvals-and-sandbox",
       "--dangerously-bypass-hook-trust"

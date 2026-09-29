@@ -198,9 +198,9 @@ pub enum AgentAction {
         #[arg(long, default_value = "10")]
         grace_secs: u64,
     },
-    /// Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead.
+    /// Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`.
     Model {
-        /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
+        /// Model id. Run `agent models PROVIDER` to list.
         name: String,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
