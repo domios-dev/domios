@@ -1475,6 +1475,7 @@ Mark the plan approved for task generation
 Archive a plan
 
 - `<plan_id>`
+- `--yes` — Confirm archive when no Plan tab identity is available
 
 #### `codeterm plan claim`
 
