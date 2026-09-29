@@ -25,10 +25,10 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         for value in values {
-            super::text_bounds::validate_plan_text("external reference", value)?;
+            crate::service_plan::text_bounds::validate_plan_text("external reference", value)?;
         }
         let additions = crate::service_plan::external_refs::canonicalize_external_refs(values)?;
-        super::text_bounds::validate_external_refs(&additions)?;
+        crate::service_plan::text_bounds::validate_external_refs(&additions)?;
         if additions.is_empty() {
             return Ok(());
         }
@@ -120,7 +120,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(name) = name {
-            super::text_bounds::validate_plan_label("task name", name)?;
+            crate::service_plan::text_bounds::validate_plan_label("task name", name)?;
         }
         for (field, value) in [
             ("task type", kind),
@@ -136,7 +136,7 @@ impl PlanStore {
             ("task handle", handle),
         ] {
             if let Some(value) = value {
-                super::text_bounds::validate_plan_text(field, value)?;
+                crate::service_plan::text_bounds::validate_plan_text(field, value)?;
             }
         }
         for (field, values) in [
@@ -144,11 +144,11 @@ impl PlanStore {
             ("section id", section_ids.as_deref().unwrap_or_default()),
         ] {
             for value in values {
-                super::text_bounds::validate_plan_text(field, value)?;
+                crate::service_plan::text_bounds::validate_plan_text(field, value)?;
             }
         }
         if let Some(lane) = lane.as_ref() {
-            super::text_bounds::validate_lane_update(lane)?;
+            crate::service_plan::text_bounds::validate_lane_update(lane)?;
         }
         // Presence, not vocabulary: any lexical floor is satisfiable by a longer
         // shrug, and what makes a role real is not machine-checkable.
@@ -261,7 +261,7 @@ impl PlanStore {
                 task.handle = Some(handle.into());
             }
             task.updated_at = now_ms;
-            super::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_task_text(task)?;
             Ok(())
         });
         let verified = self.verify_task_updated(
@@ -327,7 +327,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(Some(guidance)) = role_guidance {
-            super::text_bounds::validate_plan_text("role guidance", guidance)?;
+            crate::service_plan::text_bounds::validate_plan_text("role guidance", guidance)?;
         }
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
@@ -336,7 +336,7 @@ impl PlanStore {
                 task.role_guidance = guidance.map(str::to_string);
             }
             task.updated_at = now_ms;
-            super::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_task_text(task)?;
             Ok(())
         })
     }
@@ -357,7 +357,7 @@ impl PlanStore {
             .transpose()
             .map_err(PlanError::InvalidExecutorName)?;
         if let Some(Some(name)) = personality.as_ref() {
-            super::text_bounds::validate_plan_label("personality", name)?;
+            crate::service_plan::text_bounds::validate_plan_label("personality", name)?;
         }
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
@@ -369,7 +369,7 @@ impl PlanStore {
                 task.personality_provenance = provenance;
             }
             task.updated_at = now_ms;
-            super::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_task_text(task)?;
             Ok(())
         })
     }
@@ -479,7 +479,7 @@ impl PlanStore {
         lane: super::TaskLaneUpdate,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        super::text_bounds::validate_lane_update(&lane)?;
+        crate::service_plan::text_bounds::validate_lane_update(&lane)?;
         let expected = lane.clone();
         // Explicit --tab overwrites the executor binding.
         let tab_explicit = lane.tab_id.is_some();
@@ -500,7 +500,7 @@ impl PlanStore {
                 task.assigned_tab_id = task.lane.tab_id.clone();
             }
             task.updated_at = now_ms;
-            super::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_task_text(task)?;
             Ok(())
         });
         pending_after_verified(
@@ -526,7 +526,7 @@ impl PlanStore {
                 | AcceptanceCriteriaUpdate::Replace(values) => values,
             };
             for value in values {
-                super::text_bounds::validate_plan_text("acceptance criterion", value)?;
+                crate::service_plan::text_bounds::validate_plan_text("acceptance criterion", value)?;
             }
         }
         for (field, value) in [
@@ -538,7 +538,7 @@ impl PlanStore {
             ),
         ] {
             if let Some(value) = value {
-                super::text_bounds::validate_plan_text(field, value)?;
+                crate::service_plan::text_bounds::validate_plan_text(field, value)?;
             }
         }
         self.with_plan(plan_id, now_ms, |p| {
@@ -569,7 +569,7 @@ impl PlanStore {
                 task.correctness = vector.map(str::to_string);
             }
             task.updated_at = now_ms;
-            super::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_task_text(task)?;
             Ok(criteria_counts)
         })
     }
