@@ -1064,7 +1064,9 @@ pub(crate) fn screen_shows_agent_tui(
 mod exit_recovery;
 mod model_switch;
 mod relaunch;
-pub(crate) use model_switch::{ModelSwitchError, ModelSwitchOutcome};
+pub(crate) use model_switch::{
+    ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
+};
 
 #[cfg(test)]
 mod tests;
