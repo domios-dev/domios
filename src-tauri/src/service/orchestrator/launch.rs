@@ -300,7 +300,16 @@ fn command_with_binding_nonce(
     binding_nonce: &str,
     startup_attempt_id: &str,
 ) -> String {
-    let cli_path = std::env::var_os("CODETERM_CLI_PATH");
+    let local_cli = crate::paths::data_dir()
+        .join("bin")
+        .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
+    let cli_path = if local_cli.exists() {
+        Some(local_cli.into_os_string())
+    } else if !crate::paths::is_dev_instance() {
+        std::env::var_os("CODETERM_CLI_PATH")
+    } else {
+        None
+    };
     command_with_binding_nonce_for_shell(
         command,
         binding_nonce,

@@ -5,7 +5,7 @@
 1. **Paired = trusted.** Not paired = doesn't exist.
 2. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine. Each machine decides locally what a peer can do. Default = Full.
 3. **No crown, no king, no trust declarations, no TTL.** Flat peer-to-peer model.
-4. **Unpair = ban.** Pubkey removed, auth fails naturally.
+4. **Disconnect revokes by default.** A local owner can explicitly lift that revocation with `codeterm mesh unrevoke <instance-id>` before pairing that identity again.
 5. **One machine = one mesh.** Cannot be in two meshes simultaneously.
 
 ## Discovery
@@ -70,14 +70,23 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 
 1. Machine clicks "Disconnect" on a peer — or "Exit Mesh" to leave entirely
 2. Notifies all peers to remove the disconnected machine
-3. Pubkey removed — auth fails naturally for any future requests
+3. Pubkey removed and the peer identity is tombstoned locally; future pairing is refused until the owner explicitly lifts that revocation.
+
+### Flow 4: Re-pairing a Disconnected Identity
+
+1. Each endpoint owner runs `codeterm mesh unrevoke <instance-id>` for the identity revoked in that endpoint's local mesh state.
+2. Each local revocation entry is removed and logged; blocked identities remain blocked.
+3. The peers complete the ordinary discovery, connect, and manual approval flow again.
+
+Pairing records are keyed only by peer identity. Matching names or network addresses never replace a different identity. Development daemons derive a distinct advertised mesh name from their instance/data directory, and child agents receive that instance's CLI directory first on `PATH`.
 
 ## Security
 
 - Ed25519 signed requests with 5-minute expiry and nonce (replay protection)
 - Manual approval for pairing (no auto-pair)
 - Public keys exchanged during pairing, verified on every request
-- Unpair = remove pubkey = auth fails
+- Disconnect removes the paired key and records a revocation by default.
+- Only an owner authenticated with the local API token can lift a revocation; pairing never clears one implicitly.
 
 ## Web UI discovery and relay
 
