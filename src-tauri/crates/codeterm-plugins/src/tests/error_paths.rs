@@ -43,10 +43,10 @@ fn channel_add_without_a_channel_manifest_names_the_file_and_leaves_no_cache() {
 #[test]
 fn get_of_a_bundled_system_plugin_is_not_reported_as_not_installed() {
     with_scratch_root(|_| {
-        let error = get_command("claude").unwrap_err();
+        let error = config::get_command("claude").unwrap_err();
         assert!(!error.contains("is not installed"), "{error}");
         assert!(error.contains("bundled"), "{error}");
-        let unknown = get_command("nosuch").unwrap_err();
+        let unknown = config::get_command("nosuch").unwrap_err();
         assert!(unknown.contains("is not installed"), "{unknown}");
     });
 }
