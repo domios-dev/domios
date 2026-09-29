@@ -10,6 +10,23 @@ pub enum TabStatus {
     Dead,
 }
 
+impl TabStatus {
+    /// The one status vocabulary every tab surface reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            TabStatus::Working => "working",
+            TabStatus::Waiting => "question",
+            TabStatus::Idle => "idle",
+            TabStatus::Dead => "exited",
+        }
+    }
+
+    /// Only a turn in progress has anything to interrupt.
+    pub fn has_active_turn(self) -> bool {
+        matches!(self, TabStatus::Working | TabStatus::Waiting)
+    }
+}
+
 pub fn reconcile_status(
     raw: TabStatus,
     boot_stage: Option<BootStage>,

@@ -270,12 +270,14 @@ fn decode_command(s: &str) -> String {
 pub struct ShellIntegration {
     parser: SemanticMarkerParser,
     detection: CommandDetection,
+    marker_observed: bool,
 }
 
 impl ShellIntegration {
     pub fn feed(&mut self, data: &[u8]) -> Vec<CommandLifecycle> {
-        self.parser
-            .feed(data)
+        let events = self.parser.feed(data);
+        self.marker_observed |= !events.is_empty();
+        events
             .into_iter()
             .filter_map(|ev| self.detection.apply(ev))
             .collect()
@@ -332,6 +334,12 @@ impl ShellCapabilityTracker {
         self.tabs
             .get(pty_id)
             .is_some_and(|si| si.detection.prompt_idle_after_command())
+    }
+
+    /// True once the shell emitted any integration marker, so a command
+    /// completion is observable at all.
+    pub fn integration_observed(&self, pty_id: &str) -> bool {
+        self.tabs.get(pty_id).is_some_and(|si| si.marker_observed)
     }
 
     pub fn remove(&mut self, pty_id: &str) {

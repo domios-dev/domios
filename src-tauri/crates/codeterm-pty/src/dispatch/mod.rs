@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
-    /// Try to build the status-bearing snapshot without waiting on lifecycle
-    /// locks. `None` is an observable busy result, not a readiness guess.
-    fn try_mux_snapshot(&self) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
-        None
-    }
+    /// The status-bearing snapshot, waiting for the state locks no later than
+    /// `deadline`. `None` means a writer held them past the deadline.
+    fn mux_snapshot_until(
+        &self,
+        deadline: std::time::Instant,
+    ) -> Option<crate::multiplexer::state::MultiplexerSnapshot>;
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn read_tab_output(
         &self,
@@ -220,16 +221,19 @@ pub async fn dispatch_blocking(
         .map_err(|e| e.to_string())?
 }
 
-/// Compact tab summaries are safe to project only after one consistent
-/// snapshot has been acquired. The API route uses this entry point so a GUI
-/// startup/lifecycle transition never occupies an async worker waiting for
-/// `mux` or `agent_tracker`.
+/// Returned only when a state writer held the snapshot locks past
+/// [`TAB_SUMMARY_LOCK_DEADLINE`]; other readers never cause it.
 pub const TAB_SUMMARY_BUSY_ERROR: &str =
     "tab summary unavailable while tab state is initializing or changing";
+
+/// Failure deadline for a read-only tab summary waiting on the state locks.
+pub const TAB_SUMMARY_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub const WORKSPACE_PROVISION_CWD_CONFLICT: &str =
     "provision creates its own directory and cannot be combined with cwd";
 
+/// Blocking: waits on the state locks, so async callers go through
+/// [`dispatch_tab_summary_blocking`].
 pub fn dispatch_tab_summary_if_ready(
     cmd: &Command,
     ctx: &dyn CommandPort,
@@ -245,7 +249,7 @@ pub fn dispatch_tab_summary_if_ready(
     };
 
     let snapshot = ctx
-        .try_mux_snapshot()
+        .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
@@ -256,6 +260,16 @@ pub fn dispatch_tab_summary_if_ready(
             *agents_only,
         )
     )))
+}
+
+/// Runs the summary's bounded lock wait off the async runtime.
+pub async fn dispatch_tab_summary_blocking(
+    cmd: Command,
+    ctx: std::sync::Arc<dyn CommandPort>,
+) -> Result<CommandResult, String> {
+    tokio::task::spawn_blocking(move || dispatch_tab_summary_if_ready(&cmd, ctx.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
@@ -605,7 +619,10 @@ pub fn build_tab_summary_json(
                 "tab_type": tab.tab_type,
                 "cwd": tab.cwd,
                 "boot_stage": tab.boot_stage,
-                "status": tab.agent_state.as_ref().map(|state| state.state),
+                "status": crate::multiplexer::state::tab_status_label(
+                    tab,
+                    snapshot.tab_statuses.get(tab.id.as_str()).copied(),
+                ),
                 "task_binding": tab.task_binding,
                 "roleless_tracked": tab.roleless_tracked,
                 "role": tab.role,

@@ -135,7 +135,8 @@ class CodeTermAPI:
     ) -> dict:
         """POST /api/tabs/{id}/exec — send command, wait for output.
 
-        Returns dict with keys: output, offset, and optionally timeout.
+        Returns dict with keys: output, offset, exit_code, completion, and
+        timeout when the deadline elapsed first.
         """
         return self.post(
             f"/api/tabs/{tab_id}/exec",

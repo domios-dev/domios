@@ -100,6 +100,7 @@ pub(crate) mod session_binding_deferral;
 mod session_binding_state;
 pub(crate) mod session_model;
 pub mod session_persist;
+pub(crate) mod shell_exec;
 mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
@@ -118,6 +119,7 @@ pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
+pub(crate) mod tab_stop;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
