@@ -605,6 +605,7 @@ mod tests {
             (Method::POST, "/api/tabs/abc/prompt/respond"),
             (Method::POST, "/api/tabs/abc/report"),
             (Method::POST, "/api/tabs/abc/prompt/clear"),
+            (Method::POST, "/api/tabs/abc/attachments"),
         ] {
             assert!(peer_access_allowed(
                 &level,
