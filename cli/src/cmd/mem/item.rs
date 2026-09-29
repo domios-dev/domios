@@ -106,7 +106,7 @@ fn validate_save_importance(importance: f64) -> Result<(), ()> {
 }
 
 #[cfg(test)]
-mod tests {
+mod importance_tests {
     use super::validate_save_importance;
 
     #[test]

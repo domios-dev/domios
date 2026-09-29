@@ -13,7 +13,7 @@ impl SkillSlug {
             && bytes.iter().skip(1).all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(*b, b'.' | b'_' | b'-'));
         let base = value.split('.').next().unwrap_or("").to_ascii_uppercase();
         let device = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-            || ["COM", "LPT"].iter().any(|prefix| base.strip_prefix(prefix).is_some_and(|n| matches!(n, "1"..="9")));
+            || ["COM", "LPT"].iter().any(|prefix| base.strip_prefix(prefix).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9'])));
         if value.is_empty() { return Err("skill slug must not be empty".into()); }
         if !valid { return Err("skill slug must match [a-z0-9][a-z0-9._-]{0,63} with no path separators or dot-only segments".into()); }
         if device { return Err("skill slug must not be a Windows device name".into()); }
