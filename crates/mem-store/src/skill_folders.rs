@@ -88,6 +88,68 @@ fn tombstoned_keys(conn: &Connection) -> MemStoreResult<HashSet<String>> {
     Ok(keys)
 }
 
+pub fn folder_skill_source_path(conn: &Connection, id: &str) -> MemStoreResult<Option<String>> {
+    let item: Option<(String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT kind, tags_json, source_path FROM mem_items WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((kind, tags_json, Some(source_path))) = item else {
+        return Ok(None);
+    };
+    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+    if kind != "skill" || !tags.iter().any(|tag| tag == "folder-skill") {
+        return Ok(None);
+    }
+    Ok(Some(source_path))
+}
+
+pub fn folder_skill_folder_to_remove(
+    source_path: &str,
+    skills_root: &Path,
+) -> Option<std::path::PathBuf> {
+    let Some(raw_path) = source_path.strip_prefix("file:") else {
+        return None;
+    };
+    let skill_md = Path::new(raw_path);
+    if skill_md.file_name() != Some(std::ffi::OsStr::new("SKILL.md")) {
+        return None;
+    }
+    let Some(folder) = skill_md.parent() else {
+        return None;
+    };
+    let Ok(root_type) = std::fs::symlink_metadata(skills_root) else {
+        return None;
+    };
+    if !root_type.file_type().is_dir() {
+        return None;
+    }
+    let Ok(root) = skills_root.canonicalize() else {
+        return None;
+    };
+    let Ok(folder_type) = std::fs::symlink_metadata(folder) else {
+        return None;
+    };
+    if !folder_type.file_type().is_dir() {
+        return None;
+    }
+    let Ok(canonical_folder) = folder.canonicalize() else {
+        return None;
+    };
+    if canonical_folder.parent() != Some(root.as_path()) {
+        return None;
+    }
+    let Ok(skill_type) = std::fs::symlink_metadata(&canonical_folder.join("SKILL.md")) else {
+        return None;
+    };
+    if !skill_type.file_type().is_file() {
+        return None;
+    }
+    Some(canonical_folder)
+}
+
 struct RegisteredSkill {
     id: String,
     source_path: String,
