@@ -220,6 +220,11 @@ fn insert_with_options(
         })
         .unwrap_or((None, None));
 
+    if let Some(path) = item.source_path.as_deref() {
+        codeterm_mem_store::skill_folders::clear_tombstone(conn, path)
+            .map_err(|e| format!("clear source tombstone: {}", e))?;
+    }
+
     let pinned_int: i64 = if item.pinned { 1 } else { 0 };
     conn.execute(
         r#"INSERT INTO mem_items
@@ -904,6 +909,23 @@ pub fn delete_with_reason(
         )
         .optional()
         .map_err(|e| format!("pre-delete fetch: {}", e))?;
+
+    let is_merge = reason.map_or(false, |r| r.starts_with("merge_into="));
+    if !is_merge {
+        let source_path: Option<String> = conn
+            .query_row(
+                "SELECT source_path FROM mem_items WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("pre-delete source fetch: {}", e))?
+            .flatten();
+        if let Some(path) = source_path {
+            codeterm_mem_store::skill_folders::record_tombstone(conn, &path)
+                .map_err(|e| format!("record source tombstone: {}", e))?;
+        }
+    }
 
     let n = conn
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
