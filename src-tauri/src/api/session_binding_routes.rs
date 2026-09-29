@@ -156,7 +156,7 @@ pub(crate) async fn validate_and_commit_rebind(
             None,
         ));
     }
-    let (previous_provider, previous_session_id, evidence, binding_nonce) = svc
+    let (previous_provider, previous_session_id, evidence, binding_nonce, live_owner) = svc
         .mux
         .read()
         .get_tab(tab_id)
@@ -171,6 +171,7 @@ pub(crate) async fn validate_and_commit_rebind(
                     && tab.session_binding_nonce == tab.reported_session_binding_nonce)
                     .then(|| tab.session_binding_nonce.clone())
                     .flatten(),
+                crate::service::tab_has_live_agent(tab),
             )
         })
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string(), None))?;
@@ -197,6 +198,19 @@ pub(crate) async fn validate_and_commit_rebind(
             None,
         )
     })?;
+    if let Some(owner) = crate::api::hook_routes::foreign_provider_session_owner(
+        previous_provider.as_deref(),
+        &provider_id,
+        live_owner,
+    ) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Session '{session_id}' belongs to provider {provider_id}, but Tab {tab_id} runs a verified {owner} agent; a rebind never switches the provider of a live agent"
+            ),
+            None,
+        ));
+    }
     let conditional = svc
         .commit_verified_tab_agent_type_with_origin(
             tab_id,

@@ -160,6 +160,14 @@ fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute)
 
 /// SessionStart identity ladder: report > tab > the store owning the reported
 /// session > the route's sole declarer. Unknown stays unknown, never a default.
+pub(crate) fn foreign_provider_session_owner<'a>(
+    tab_provider: Option<&'a str>,
+    reported_provider: &str,
+    live_owner: bool,
+) -> Option<&'a str> {
+    tab_provider.filter(|owner| live_owner && *owner != reported_provider)
+}
+
 fn session_start_provider(
     registry: &AgentRegistry,
     reported: Option<String>,
@@ -518,7 +526,7 @@ pub async fn hook_session_start(
         ));
     };
 
-    let (existing, cwd, current_session_id) = state
+    let (existing, cwd, current_session_id, live_owner) = state
         .svc
         .mux
         .read()
@@ -528,13 +536,14 @@ pub async fn hook_session_start(
                 tab.agent_type.clone(),
                 tab.cwd.clone(),
                 tab.agent_session_id.clone(),
+                crate::service::tab_has_live_agent(tab),
             )
         })
         .unwrap_or_default();
     let Some(provider_id) = session_start_provider(
         &state.svc.agent_registry,
         provider_id,
-        existing,
+        existing.clone(),
         cwd.as_deref(),
         &sid,
     ) else {
@@ -551,6 +560,16 @@ pub async fn hook_session_start(
         state.svc.emit_session_binding_state(&tab_id);
         return Err((StatusCode::CONFLICT, message));
     };
+    if let Some(owner) =
+        foreign_provider_session_owner(existing.as_deref(), &provider_id, live_owner)
+    {
+        // A child process started from this tab's shell inherits CODETERM_TAB_ID; it is not the tab's agent.
+        let message = format!(
+            "session_id '{sid}' belongs to provider {provider_id}, but Tab {tab_id} runs a verified {owner} agent"
+        );
+        log::warn!("[hook_session_start] ignoring foreign-provider session: {message}");
+        return Err((StatusCode::CONFLICT, message));
+    }
 
     let mut fallback_retry = None;
     let claim = match bind_reported_session(

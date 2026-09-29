@@ -76,6 +76,7 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
+pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod plugin_host;
 pub(crate) mod provider_identity;
 pub(crate) mod pty_activation;
