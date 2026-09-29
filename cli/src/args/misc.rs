@@ -293,7 +293,7 @@ pub enum TabAction {
         pattern: String,
     },
     /// Interrupt the agent's current generation (NOT a clean exit). Sends the
-    /// provider's declared stopKey (Esc for all bundled providers). Plain
+    /// provider's declared stop-key sequence. Plain
     /// shells get a 200 with {stopped:false} (no key). Designed for
     /// mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it
     /// map straight here.

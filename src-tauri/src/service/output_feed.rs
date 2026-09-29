@@ -86,6 +86,10 @@ impl ServiceContext {
     }
 
     pub(crate) fn mark_agent_turn_error(&self, tab_id: &str) -> bool {
+        if self.is_agent_stop_suppressed_for_tab(tab_id) {
+            log::info!("[tab-stop] suppressed_turn_error tab={}", tab_id);
+            return self.mark_agent_turn_complete(tab_id);
+        }
         self.mark_agent_turn_status(tab_id, TabStatus::Error)
     }
 

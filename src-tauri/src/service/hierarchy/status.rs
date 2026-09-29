@@ -159,6 +159,32 @@ mod tests {
         not(windows),
         ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
     )]
+    fn provider_turn_error_after_user_interrupt_surfaces_idle_status() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.pty_id = Some("pty-interrupted-provider-error".into());
+            tab.agent_type = Some("opaque-provider".into());
+            tab.boot_stage = Some(BootStage::AgentReady);
+        }
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let service = &fixture.service;
+        service
+            .agent_tracker
+            .lock()
+            .update_output("pty-interrupted-provider-error", [8u8; 32]);
+        service.arm_agent_stop_suppression("pty-interrupted-provider-error");
+
+        assert!(service.mark_agent_turn_error(&tab_id));
+        assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "idle");
+        assert_eq!(summary_status(service, &tab_id), "idle");
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+    )]
     fn get_tab_status_includes_pending_prompt_for_terminal_choice() {
         let (mut mux, tab_id) = MultiplexerState::new();
         mux.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(PendingPrompt {

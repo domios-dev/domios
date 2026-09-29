@@ -169,7 +169,9 @@ All fields optional.
 | `compact` | string? | In-agent compact command (e.g. `/compact`). |
 | `freshContext` | string? | In-agent fresh-context command. |
 | `exit` | string? | In-agent clean-exit command. |
-| `stopKey` | string? | Raw key bytes the host writes into the PTY to **interrupt** the current generation (not a clean exit). All four bundled providers declare Esc (`"\u001b"`) — see "The stop key" below. Absent ⇒ the UI hides the Stop affordance (`supports_stop` is derived from this field). |
+| `stopKey` | string? | One raw key value for interrupting the current generation. |
+| `stopKeys` | string[]? | Ordered raw key values for a multi-key interrupt sequence. |
+| `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |
 | `modelSwitch` | `"restart_resume"` \| `"unsupported"` | How `agent model` changes a live tab's model. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`, and requires the provider's session-start report to carry a top-level `model`; that report is the switch's evidence. Default `unsupported` refuses the switch without writing to the tab. Never declare an in-agent slash command: provider model pickers persist the choice as the machine-global default. |
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
@@ -315,17 +317,10 @@ Transcribed limits a JS-only author must know:
 
 ## The stop key
 
-What CodeTerm sends to interrupt a generating agent is exactly
-`commands.stopKey` — `JsProvider::stop_keystroke()` returns the manifest value
-verbatim, and the descriptor's `supports_stop` is derived from its presence
-(two reads of one capability, guarded by
-`parity_test.rs::supports_stop_matches_stop_keystroke`). The claude, codex,
-and cursor manifests declare Esc (`"\u001b"`); OpenCode declares two Esc bytes
-(`"\u001b\u001b"`) for its interrupt sequence. Cursor has no native Rust
-provider, so its manifest is the sole operative source: no code path sends
-Ctrl+C to any bundled provider. The
-`AgentProvider` trait doc and the CLI help state the mechanism — the
-provider's declared stopKey — not a per-provider key table.
+The host sends `commands.stopKeys` in order, or the single `commands.stopKey`
+when no sequence is declared. `stopKeyWaitForOutput` inserts an event-driven
+screen-change wait between keys. `supports_stop` follows whether a valid key
+sequence exists. Provider choice and timing stay in the manifest.
 
 ## Fixture capture — the codex pattern
 

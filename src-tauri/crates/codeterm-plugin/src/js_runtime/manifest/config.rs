@@ -453,6 +453,12 @@ pub struct CommandsConfig {
     /// `""` for Ctrl+C.
     #[serde(default)]
     pub stop_key: Option<String>,
+    /// Ordered raw key bytes for a multi-key stop action.
+    #[serde(default)]
+    pub stop_keys: Option<Vec<String>>,
+    /// Wait for a PTY screen change between sequence keys.
+    #[serde(default)]
+    pub stop_key_wait_for_output: bool,
     #[serde(default)]
     pub model_switch: crate::provider::ModelSwitchMode,
     #[serde(default)]

@@ -1070,14 +1070,12 @@ fn model_launch_args_match_each_cli_flag_format() {
 }
 
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
-/// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
+/// must stay in lockstep with `stop_keys().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show
 /// a Stop button that sends nothing (or hide one that works). This is the
 /// drift class that hid the R1 native-Claude bug; here it guards the JS path.
-/// NOTE: all four bundled manifests declare Esc as the stop key; the byte is a
-/// manifest choice, so this test asserts the invariant rather than the raw byte.
 #[test]
-fn supports_stop_matches_stop_keystroke() {
+fn supports_stop_matches_stop_sequence() {
     if require_plugins().is_none() {
         return;
     }
@@ -1085,8 +1083,8 @@ fn supports_stop_matches_stop_keystroke() {
         let p = load_js(id);
         assert_eq!(
             p.describe().supports_stop,
-            p.stop_keystroke().is_some(),
-            "{id}: descriptor supports_stop must equal stop_keystroke().is_some()"
+            p.stop_keys().is_some(),
+            "{id}: descriptor supports_stop must equal stop_keys().is_some()"
         );
     }
 }
