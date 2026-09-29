@@ -680,8 +680,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             public_send_key,
             origin,
             resume_session_id.as_deref(),
-        )
-        {
+        ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
             set_booting(false);

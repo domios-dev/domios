@@ -1,7 +1,6 @@
 // `mem run-worker` processes one dreaming/librarian batch directly in knowledge.db.
 // It exits after one pass; supervisor runs it to isolate maintenance failures.
 
-
 pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
     let db_path = match db_path_arg {
         Some(p) => std::path::PathBuf::from(p),

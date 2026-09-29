@@ -268,8 +268,7 @@ fn failed_resume_attempt_preserves_its_verified_target_session() {
     assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
 
     assert_eq!(
-        select_recovery_session(&tab.prior_session_binding_nonces, &verified(&["s1"]))
-            .unwrap(),
+        select_recovery_session(&tab.prior_session_binding_nonces, &verified(&["s1"])).unwrap(),
         "s1"
     );
     assert_eq!(

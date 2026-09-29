@@ -33,9 +33,7 @@ impl ServiceContext {
             Ok(true) => self.emit_cron_changed(),
             Ok(false) => {}
             Err(error) => {
-                log::error!(
-                    "Failed to persist cron owner-prompt state for tab {tab_id}: {error}"
-                );
+                log::error!("Failed to persist cron owner-prompt state for tab {tab_id}: {error}");
                 self.emit_cron_changed();
             }
         }

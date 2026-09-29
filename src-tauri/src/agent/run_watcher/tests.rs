@@ -390,10 +390,8 @@ fn cron_reap_requires_a_seen_then_absent_provider_tree() {
     .collect();
     witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Present(present));
     let exited = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
-    let unseen = ProviderTreeWitnesses::default().record_for_test(
-        &key,
-        ProviderProcessTreeSnapshot::Absent,
-    );
+    let unseen =
+        ProviderTreeWitnesses::default().record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     let cron = AgentRunKind::Cron {
         job_id: "job".into(),
         run_id: "run".into(),
