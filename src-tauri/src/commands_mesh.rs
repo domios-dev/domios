@@ -353,15 +353,17 @@ pub async fn ordinary_tabs_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let local = crate::dispatch::dispatch_tab_summary_if_ready(
-        &crate::dispatch::Command::TabSummary {
+    let port: std::sync::Arc<dyn crate::dispatch::CommandPort> = svc.inner().clone();
+    let local = crate::dispatch::dispatch_tab_summary_blocking(
+        crate::dispatch::Command::TabSummary {
             workspace_id: None,
             caller_tab_id: None,
             focused_workspace: false,
             agents_only: false,
         },
-        svc.as_ref(),
-    )?
+        port,
+    )
+    .await?
     .into_json()
     .as_array()
     .cloned()

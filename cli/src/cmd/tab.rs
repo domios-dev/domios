@@ -12,6 +12,7 @@ pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 mod adopt;
 mod capture;
 mod chat_view;
+mod exec;
 mod inspect;
 pub(crate) mod labels;
 pub(crate) mod remote_target;
@@ -391,20 +392,22 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             command,
             timeout,
         } => {
+            let body = serde_json::json!({
+                "command": command,
+                "timeout_ms": timeout,
+                "strip_ansi": true,
+            });
             if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
-                let body = serde_json::json!({"command": command, "timeout_ms": timeout, "strip_ansi": true}).to_string();
                 let data = relay_tab_json(
                     &peer,
                     "POST",
                     &format!("/api/tabs/{}/exec", urlencoding::encode(&remote_tab)),
-                    Some(&body),
+                    Some(&body.to_string()),
                 );
-                if let Some(output) = data.get("output").and_then(|value| value.as_str()) {
-                    print!("{output}");
-                    return;
+                if data.get("output").is_some() {
+                    exec::finish_exec(json, data);
                 }
-                eprintln!("Exec failed");
-                std::process::exit(1);
+                exec::fail_exec(json, "the peer returned no exec result".into());
             }
             if tab
                 .as_deref()
@@ -416,34 +419,23 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let (api_url, _) = read_api_config();
             let api = match build_local_api() {
                 Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Error: failed to connect to local API: {}", e);
-                    std::process::exit(1);
-                }
+                Err(e) => exec::fail_exec(json, format!("failed to connect to local API: {e}")),
             };
             match api
                 .post(format!("{}/api/tabs/{}/exec", api_url, tab_id))
-                .json(&serde_json::json!({
-                    "command": command,
-                    "timeout_ms": timeout,
-                    "strip_ansi": true,
-                }))
+                .json(&body)
                 .send()
             {
+                Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>() {
+                    Ok(val) => exec::finish_exec(json, val),
+                    Err(e) => exec::fail_exec(json, format!("unreadable exec result: {e}")),
+                },
                 Ok(resp) => {
-                    if let Ok(val) = resp.json::<serde_json::Value>() {
-                        if let Some(output) = val.get("output").and_then(|v| v.as_str()) {
-                            print!("{}", output);
-                            return;
-                        }
-                    }
-                    eprintln!("Exec failed");
-                    std::process::exit(1);
+                    let status = resp.status();
+                    let text = resp.text().unwrap_or_default();
+                    exec::fail_exec(json, format!("HTTP {status}: {text}"));
                 }
-                Err(e) => {
-                    eprintln!("Exec request failed: {}", e);
-                    std::process::exit(1);
-                }
+                Err(e) => exec::fail_exec(json, format!("request failed: {e}")),
             }
         }
         TabAction::Search { pattern } => {
@@ -728,8 +720,18 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                         .unwrap_or(false)
                     {
                         println!("Stopped tab {}", tab_id);
+                    } else if let Some(status) = body
+                        .get("reason")
+                        .filter(|reason| reason.as_str() == Some("not_working"))
+                        .and(body.get("status"))
+                        .and_then(|v| v.as_str())
+                    {
+                        println!(
+                            "Tab {} is not working (status: {}); nothing to stop",
+                            tab_id, status
+                        );
                     } else {
-                        println!("Tab {} has no stop keystroke declared", tab_id);
+                        println!("Tab {} has no agent to stop", tab_id);
                     }
                 }
                 Err(e) => {

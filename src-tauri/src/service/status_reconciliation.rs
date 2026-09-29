@@ -59,6 +59,19 @@ pub(crate) fn try_snapshot_with_reconciled_status(
     }))
 }
 
+/// The reconciled snapshot every tab status surface reads, waiting for the
+/// state locks until `deadline` instead of refusing on a concurrent reader.
+pub(crate) fn snapshot_with_reconciled_status_until(
+    mux: &MuxState,
+    tracker: &AgentTrackerState,
+    registry: &AgentRegistry,
+    deadline: std::time::Instant,
+) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
+    crate::multiplexer::state::snapshot_with_status_until(mux, tracker, deadline, |tab, raw| {
+        reconcile_tab_status(registry, tab, raw)
+    })
+}
+
 /// Blocks until both snapshot locks are free, taken in the snapshot's lock order.
 pub(crate) fn wait_until_snapshot_readable(mux: &MuxState, tracker: &AgentTrackerState) {
     let _mux = mux.read();
@@ -90,6 +103,15 @@ impl ServiceContext {
 
     fn reconcile_tab_status(&self, tab: &Tab, raw: TabStatus) -> TabStatus {
         reconcile_tab_status(&self.agent_registry, tab, raw)
+    }
+
+    /// One tab's status as every surface reports it. The caller already holds
+    /// `mux`; `agent_tracker` is taken second, per lock order.
+    pub(crate) fn resolved_tab_status(&self, tab: &Tab) -> Option<TabStatus> {
+        let tracker = self.agent_tracker.lock();
+        crate::multiplexer::state::resolved_tab_status(tab, &tracker, |tab, raw| {
+            self.reconcile_tab_status(tab, raw)
+        })
     }
 
     pub(crate) fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
