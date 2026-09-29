@@ -332,12 +332,17 @@ fn should_write_provider_entry(src: &std::path::Path, dst: &std::path::Path, rev
 fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
     use sha2::Digest;
     let mut files = Vec::new();
-    fn collect(path: &std::path::Path, root: &std::path::Path, files: &mut Vec<(String, Vec<u8>)>) {
+    fn collect(
+        path: &std::path::Path,
+        root: &std::path::Path,
+        render: bool,
+        files: &mut Vec<(String, Vec<u8>)>,
+    ) {
         let Ok(entries) = std::fs::read_dir(path) else { return };
         for entry in entries.flatten() {
             let item = entry.path();
             if item.is_dir() {
-                collect(&item, root, files);
+                collect(&item, root, render, files);
             } else if item.file_name().is_some_and(|name| name != PROVIDER_OWNERSHIP_FILE) {
                 if let Ok(mut bytes) = std::fs::read(&item) {
                     if render && item == root.join("SKILL.md") {
@@ -354,7 +359,7 @@ fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
             }
         }
     }
-    collect(path, path, &mut files);
+    collect(path, path, render, &mut files);
     files.sort_by(|a, b| a.0.cmp(&b.0));
     let mut digest = sha2::Sha256::new();
     for (name, bytes) in files {
