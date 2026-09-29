@@ -947,6 +947,14 @@ impl PlanStore {
                     note,
                     now_ms,
                 ));
+                // A reported peer lane merges only after its exact attempt is judged accepted.
+                if let Some(attempt) = task.execution_attempts.iter_mut().rev().find(|attempt| {
+                    attempt.mesh_peer.is_some()
+                        && attempt.remote_dispatch_state
+                            == Some(crate::plan::RemoteDispatchState::Reported)
+                }) {
+                    super::task_attempts::accept_exact_attempt(attempt, note, now_ms);
+                }
             }
             super::mutations::finalize_task_done(p, idx, now_ms)?;
             if p.tasks[idx].review_round >= rounds {

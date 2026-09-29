@@ -619,13 +619,23 @@ mod tests {
             )
             .is_err());
         store
-            .with_plan(&plan_id, 8, |plan| {
-                let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
-                task.execution_attempts[0].judge_verdict = Some("accepted".into());
-                task.execution_attempts[0].judged_at = Some(8);
-                Ok(())
-            })
+            .accept_review(
+                &plan_id,
+                &task_id,
+                "origin review accepts the peer lane",
+                false,
+                false,
+                None,
+                crate::plan::AgentRef::from_tab("origin-orchestrator"),
+                8,
+            )
             .unwrap();
+        assert_eq!(
+            store.show_task(&task_id).unwrap().task.execution_attempts[0]
+                .judge_verdict
+                .as_deref(),
+            Some("accepted")
+        );
         store
             .mark_remote_dispatch_integrated(
                 &plan_id,
