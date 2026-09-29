@@ -222,10 +222,9 @@ fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
         ("provider-a".into(), r"C:\Users\owner\Trusted".into()),
         true,
     );
-    cache.checking.insert(
-        ("provider-a".into(), r"C:\Users\owner\Pending".into()),
-        0,
-    );
+    cache
+        .checking
+        .insert(("provider-a".into(), r"C:\Users\owner\Pending".into()), 0);
     assert_eq!(
         cache
             .trusted
@@ -266,10 +265,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
     SHARED_TRUST
         .lock()
         .trusted
-        .insert(
-            ("codex".into(), r"C:\Users\owner\Trusted".into()),
-            true,
-        );
+        .insert(("codex".into(), r"C:\Users\owner\Trusted".into()), true);
     fixture
         .service
         .respond_to_shared_trust_prompt(&tab_id, r"C:\Users\owner\Trusted");
@@ -308,11 +304,13 @@ fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
         selected_values: None,
     };
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("fixture")
-            .with_directory_trust_response(DirectoryTrustPromptResponse::Answer {
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "fixture",
+            DirectoryTrustPromptResponse::Answer {
                 step: b"\r".to_vec(),
-            })
-            .with_directory_trust_prompt(prompt.clone()),
+            },
+        )
+        .with_directory_trust_prompt(prompt.clone()),
     ));
     let key = ("fixture".to_string(), cwd.clone());
     {
@@ -327,7 +325,9 @@ fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
             .respond_to_directory_trust(&tab_id, Some("owner trust screen")),
         TrustDecision::Waiting
     );
-    assert!(!crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+    assert!(!crate::service::launch_readiness::owner_prompt_is_active(
+        &tab_id
+    ));
 
     {
         let mut cache = SHARED_TRUST.lock();
@@ -341,7 +341,9 @@ fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
         .service
         .surface_shared_directory_trust_prompts(&cwd, "fixture");
 
-    assert!(crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+    assert!(crate::service::launch_readiness::owner_prompt_is_active(
+        &tab_id
+    ));
     assert_eq!(
         fixture
             .service

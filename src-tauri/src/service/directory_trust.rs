@@ -337,7 +337,6 @@ impl ServiceContext {
             return;
         };
         let service = self.clone();
-        let tab = tab_id.to_string();
         let agent = agent_type.to_string();
         let path = cwd.to_string();
         let cache_key = key.clone();
@@ -393,7 +392,9 @@ impl ServiceContext {
         let Some((pty_id, agent_type)) = target else {
             return;
         };
-        let trusted = SHARED_TRUST.lock().trusted
+        let trusted = SHARED_TRUST
+            .lock()
+            .trusted
             .get(&(agent_type.clone(), expected_cwd.to_string()))
             .copied()
             .unwrap_or(false);
@@ -469,18 +470,15 @@ impl ServiceContext {
                 })
                 .flatten();
             if let Some(prompt) = prompt {
-                let decision = self
-                    .prompt_detector
-                    .lock()
-                    .evaluate_pty_output_parsed(
-                        &tab_id,
-                        true,
-                        true,
-                        Some(crate::agent::prompt::ResolvedPrompt {
-                            prompt,
-                            explicit: false,
-                        }),
-                    );
+                let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
+                    &tab_id,
+                    true,
+                    true,
+                    Some(crate::agent::prompt::ResolvedPrompt {
+                        prompt,
+                        explicit: false,
+                    }),
+                );
                 self.apply_prompt_decision_with_kind(
                     &decision,
                     Some(&screen),
@@ -526,9 +524,7 @@ impl ServiceContext {
             self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
             let cache = SHARED_TRUST.lock();
             let key = (agent_type, cwd.clone());
-            return if cache.trusted.get(&key) == Some(&true)
-                || cache.checking.contains_key(&key)
-            {
+            return if cache.trusted.get(&key) == Some(&true) || cache.checking.contains_key(&key) {
                 TrustDecision::Waiting
             } else {
                 TrustDecision::NotApplicable
