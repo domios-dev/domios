@@ -963,4 +963,19 @@ Press enter to confirm";
   1) opaque step one
   2) opaque step two";
     assert!(prompt_is_composer_text(composer, &unsubmitted));
+    let second_turn = "› opaque request, answer briefly:
+  1) opaque step one
+  2) opaque step two
+
+• 1. 0
+  2. 0
+
+› opaque request, answer briefly:
+  1) opaque step one
+  2) opaque step two";
+    let fallback = PendingPrompt {
+        question: "Choose an option".into(),
+        ..prompt.clone()
+    };
+    assert!(prompt_is_composer_text(second_turn, &fallback));
 }

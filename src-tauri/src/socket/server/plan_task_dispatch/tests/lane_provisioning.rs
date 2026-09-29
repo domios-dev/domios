@@ -729,6 +729,11 @@ fn assert_payloads_agree(provenance: &WorkerLaneProvenance, project: &Path) {
         &canonical_project_path,
         &TaskLaneMetadata::default(),
     );
+    assert_eq!(
+        response["destination"].as_str(),
+        provenance.destination.as_deref(),
+        "the dispatch response reports the destination the lane persists"
+    );
     let event = dispatch_ready_event(
         "pl_test",
         "task_test",

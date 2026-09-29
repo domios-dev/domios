@@ -107,7 +107,7 @@ pub(super) fn dispatch_response_lane(
         "branch": provenance.branch,
         "base": provenance.base,
         "canonical_project_path": canonical_project_path,
-        "destination": lane.destination,
+        "destination": lane.destination.as_ref().or(provenance.destination.as_ref()),
         "workspace_id": lane.workspace_id,
         "workspace_name": lane.workspace_name,
     })
