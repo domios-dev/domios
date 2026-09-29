@@ -248,6 +248,21 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Where content search reads this provider's session text from.
+    fn session_content_source(&self) -> SessionContentSource {
+        SessionContentSource::None
+    }
+
+    /// One session's messages from a `SharedStore`, scanning at most
+    /// `query.max_bytes`. `None` means the store could not be read. Pure + I/O-only.
+    fn read_session_content(
+        &self,
+        _session_id: &str,
+        _query: &SessionContentQuery,
+    ) -> Option<SessionContent> {
+        None
+    }
+
     /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
     /// chat tailer reads this file with byte-offset bookmarks. Returns
     /// `None` when the provider doesn't store sessions as a single JSONL

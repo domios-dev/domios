@@ -1131,5 +1131,6 @@ mod opencode;
 mod reasoning_efforts;
 mod record_identity;
 mod resume_first_turn;
+mod session_content;
 mod trust_grant;
 mod usage_sources;

@@ -3,9 +3,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::*;
-use crate::agent::provider::SessionMessage;
+use crate::agent::provider::{SessionContentSource, SessionMessage};
 
 struct StubSearchProvider {
+    source: SessionContentSource,
     sessions: Vec<SessionMetadata>,
     messages: HashMap<String, Vec<SessionMessage>>,
     parsed: Arc<AtomicUsize>,
@@ -53,6 +54,9 @@ impl AgentProvider for StubSearchProvider {
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         self.sessions.clone()
     }
+    fn session_content_source(&self) -> SessionContentSource {
+        self.source
+    }
     fn parse_session_messages(&self, path: &std::path::Path) -> Vec<SessionMessage> {
         let key = path.to_str().unwrap_or("").to_string();
         self.parsed.fetch_add(1, Ordering::SeqCst);
@@ -95,6 +99,14 @@ fn session(id: &str, file: &str, modified_ts: i64) -> SessionMetadata {
 }
 
 fn probe(sessions: Vec<SessionMetadata>, msgs: Vec<(&str, Vec<(&str, &str)>)>) -> Probe {
+    probe_with(SessionContentSource::SessionFile, sessions, msgs)
+}
+
+fn probe_with(
+    source: SessionContentSource,
+    sessions: Vec<SessionMetadata>,
+    msgs: Vec<(&str, Vec<(&str, &str)>)>,
+) -> Probe {
     let mut messages = HashMap::new();
     for (file, list) in msgs {
         messages.insert(
@@ -113,6 +125,7 @@ fn probe(sessions: Vec<SessionMetadata>, msgs: Vec<(&str, Vec<(&str, &str)>)>) -
     let parsed_paths = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(StubSearchProvider {
+        source,
         sessions,
         messages,
         parsed: parsed.clone(),
@@ -163,7 +176,11 @@ fn search_stops_reading_once_limit_is_satisfied() {
             ("f-old", vec![("user", "also unrelated")]),
         ],
     );
-    let hits = p.registry.search_sessions(&opts(&["needle"], 1));
+    let hits = p
+        .registry
+        .search_sessions(&opts(&["needle"], 1))
+        .unwrap()
+        .hits;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].meta.session_id, "newest");
     assert_eq!(
@@ -182,7 +199,11 @@ fn search_stops_reading_once_limit_is_satisfied() {
             ("f-old", vec![("user", "the needle is here")]),
         ],
     );
-    let hits = p.registry.search_sessions(&opts(&["needle"], 1));
+    let hits = p
+        .registry
+        .search_sessions(&opts(&["needle"], 1))
+        .unwrap()
+        .hits;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].meta.session_id, "oldest");
     assert_eq!(p.parse_calls(), 3, "a hit behind two misses is still found");
@@ -219,10 +240,23 @@ fn oversized_session_file_is_skipped_not_loaded() {
         ],
     );
 
-    let hits = p.registry.search_sessions(&SessionSearchOpts {
-        max_file_bytes: 1024,
-        ..opts(&["needle"], 10)
-    });
+    let result = p
+        .registry
+        .search_sessions(&SessionSearchOpts {
+            max_file_bytes: 1024,
+            ..opts(&["needle"], 10)
+        })
+        .unwrap();
+    assert_eq!(
+        result
+            .warnings
+            .iter()
+            .map(|w| (w.provider.as_str(), w.reason, w.sessions))
+            .collect::<Vec<_>>(),
+        vec![("stub", SessionSkipReason::OverByteCap, 1)],
+        "the skipped file is reported, never a silent miss"
+    );
+    let hits = result.hits;
     assert_eq!(hits.len(), 1, "only the under-cap session may match");
     assert_eq!(hits[0].meta.session_id, "small");
     assert_eq!(
@@ -233,8 +267,9 @@ fn oversized_session_file_is_skipped_not_loaded() {
 
     // Without the cap both files match — proving the cap alone drove the skip.
     p.reset();
-    let hits = p.registry.search_sessions(&opts(&["needle"], 10));
-    assert_eq!(hits.len(), 2);
+    let result = p.registry.search_sessions(&opts(&["needle"], 10)).unwrap();
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    assert_eq!(result.hits.len(), 2);
     assert_eq!(p.parse_calls(), 2);
 }
 
@@ -257,7 +292,10 @@ fn search_sessions_all_terms_must_match_in_same_session() {
             ),
         ],
     );
-    let hits = reg.search_sessions(&opts(&["webpack", "config"], 10));
+    let hits = reg
+        .search_sessions(&opts(&["webpack", "config"], 10))
+        .unwrap()
+        .hits;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].meta.session_id, "s1");
 }
@@ -269,10 +307,13 @@ fn search_sessions_utf8_snippet_does_not_panic() {
         vec![session("s", "f", 1)],
         vec![("f", vec![("user", body)])],
     );
-    let hits = reg.search_sessions(&SessionSearchOpts {
-        max_snippets: 1,
-        ..opts(&["webpack"], 5)
-    });
+    let hits = reg
+        .search_sessions(&SessionSearchOpts {
+            max_snippets: 1,
+            ..opts(&["webpack"], 5)
+        })
+        .unwrap()
+        .hits;
     assert_eq!(hits.len(), 1);
     let snippet = &hits[0].snippets[0].text;
     assert!(snippet.contains("webpack"));
@@ -286,16 +327,23 @@ fn search_sessions_respects_provider_filter() {
         vec![session("s", "f", 1)],
         vec![("f", vec![("user", "needle in haystack")])],
     );
-    let hits_other = reg.search_sessions(&SessionSearchOpts {
+    let unknown = reg.search_sessions(&SessionSearchOpts {
         provider: Some("nonexistent".into()),
         ..opts(&["needle"], 10)
     });
-    assert!(hits_other.is_empty());
+    assert_eq!(
+        unknown.unwrap_err(),
+        SessionSearchError::UnknownProvider("nonexistent".into()),
+        "an unknown provider is an error, never an empty match"
+    );
 
-    let hits_match = reg.search_sessions(&SessionSearchOpts {
-        provider: Some("stub".into()),
-        ..opts(&["needle"], 10)
-    });
+    let hits_match = reg
+        .search_sessions(&SessionSearchOpts {
+            provider: Some("stub".into()),
+            ..opts(&["needle"], 10)
+        })
+        .unwrap()
+        .hits;
     assert_eq!(hits_match.len(), 1);
 }
 
@@ -315,10 +363,81 @@ fn search_sessions_returns_hits_newest_first() {
     );
     let ids: Vec<_> = reg
         .search_sessions(&opts(&["needle"], 10))
+        .unwrap()
+        .hits
         .into_iter()
         .map(|h| h.meta.session_id)
         .collect();
     assert_eq!(ids, vec!["new", "mid", "old"]);
+}
+
+/// Raw-byte prefilter: a real file lacking a hint-safe term is never handed to
+/// the parser, while a term the prefilter cannot vouch for (non-ASCII) still
+/// parses every file, so the prefilter only ever removes certain misses.
+#[test]
+fn raw_prefilter_parses_only_files_holding_every_term() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let with_path = dir.path().join("with.jsonl");
+    let without_path = dir.path().join("without.jsonl");
+    std::fs::write(&with_path, "{\"text\":\"The Needle and grüße\"}\n").expect("write");
+    std::fs::write(&without_path, "{\"text\":\"haystack grüße\"}\n").expect("write");
+    let with = with_path.to_string_lossy().to_string();
+    let without = without_path.to_string_lossy().to_string();
+    let p = probe(
+        vec![
+            session("with", &with, 200),
+            session("without", &without, 300),
+        ],
+        vec![
+            (with.as_str(), vec![("user", "The Needle and grüße")]),
+            (without.as_str(), vec![("user", "haystack grüße")]),
+        ],
+    );
+
+    let hits = p
+        .registry
+        .search_sessions(&opts(&["NEEDLE"], 10))
+        .unwrap()
+        .hits;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].meta.session_id, "with");
+    assert_eq!(
+        p.paths(),
+        vec![with.clone()],
+        "the file without the term is never parsed"
+    );
+
+    p.reset();
+    let hits = p
+        .registry
+        .search_sessions(&opts(&["grüße"], 10))
+        .unwrap()
+        .hits;
+    assert_eq!(hits.len(), 2);
+    assert_eq!(p.parse_calls(), 2, "a non-hint term cannot skip the parse");
+}
+
+#[test]
+fn provider_without_content_source_is_reported_not_silently_empty() {
+    let p = probe_with(
+        SessionContentSource::None,
+        vec![session("a", "f-a", 2), session("b", "f-b", 1)],
+        vec![("f-a", vec![("user", "needle")])],
+    );
+    let result = p.registry.search_sessions(&opts(&["needle"], 10)).unwrap();
+    assert!(result.hits.is_empty());
+    assert_eq!(
+        p.parse_calls(),
+        0,
+        "no content source means nothing is read"
+    );
+    assert_eq!(result.warnings.len(), 1);
+    assert_eq!(result.warnings[0].provider, "stub");
+    assert_eq!(
+        result.warnings[0].reason,
+        SessionSkipReason::NoContentSource
+    );
+    assert_eq!(result.warnings[0].sessions, 2);
 }
 
 // UTF-8 safety: snippet windowing must never slice mid-codepoint.

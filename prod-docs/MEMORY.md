@@ -24,7 +24,7 @@ Two stores, two purposes — don't confuse them:
 | Surface | Stored where | Asks | Used for |
 |---|---|---|---|
 | **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
-| **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
+| **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts / OpenCode's sqlite store | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
 Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `codeterm docs API-STATE` for the session API; the binding model lives in the [core essence](../essences/core.md#agents-and-providers).
 
@@ -177,4 +177,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

@@ -33,6 +33,7 @@ import {
   OpencodeSessionRow,
   ModelGroupUsage,
 } from "./helpers";
+import { readOpencodeSessionContent, SessionContentQuery } from "./sessionContent";
 
 const TITLE_RE = /opencode/i;
 // Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
@@ -314,6 +315,13 @@ const plugin: PluginModule = {
     if (!db || !host.fs.fileExists(db)) return null;
     const rows = host.fs.sqliteQuery<OpencodeSessionRow>(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
+  },
+
+  readSessionContent(sessionId: string, query?: SessionContentQuery | null): unknown {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    return readOpencodeSessionContent(db, sessionId, query);
   },
 
   checkIntegration(): unknown {
