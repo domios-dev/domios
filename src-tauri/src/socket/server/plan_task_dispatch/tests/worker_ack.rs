@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "worker_ack/remote_deadline.rs"]
+mod remote_deadline;
+
 /// A Worker tab that reached `awaiting_worker_ack`: one live, session-bound
 /// attempt whose task is still pending, which is the state `agent ack` meets.
 fn dispatched_worker_task(

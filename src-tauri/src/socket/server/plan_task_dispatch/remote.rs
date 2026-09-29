@@ -261,6 +261,15 @@ pub(super) fn dispatch(
             now,
         )
         .map_err(super::super::plan::plan_rpc_err)?;
+    svc.arm_remote_worker_ack_deadline(
+        &plan_id,
+        &task_id,
+        &attempt_id,
+        &peer_id,
+        &peer_name,
+        worker_tab_id,
+        &origin_tab_id,
+    );
     super::emit_plan_changed(app, &plan_id);
     Ok(json!({
         "accepted": false,

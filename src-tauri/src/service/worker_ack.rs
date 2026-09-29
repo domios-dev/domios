@@ -30,6 +30,8 @@ const COLD_START_MEASUREMENT_METHOD: &str =
 pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
 pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
 pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+pub(crate) const REMOTE_WORKER_ACK_DEADLINE: Duration =
+    Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
@@ -85,6 +87,16 @@ enum AgentStartupNoticeOutcome {
 enum WorkerAckWaitOutcome {
     Resolved,
     Overdue,
+}
+
+pub(crate) fn await_remote_worker_ack(
+    receiver: &Receiver<WorkerAckSignal>,
+    timeout: Duration,
+) -> bool {
+    matches!(
+        receiver.recv_timeout(timeout),
+        Ok(WorkerAckSignal::Acknowledged | WorkerAckSignal::Superseded)
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -803,6 +815,14 @@ fn worker_lifecycle_notice(
         .get("task_id")
         .and_then(Value::as_str)
         .map(|task| compact_notice_text(task, 40));
+    let peer_name = payload
+        .get("peer_name")
+        .and_then(Value::as_str)
+        .map(|peer| compact_notice_text(peer, 32));
+    let remote_tab = payload
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .map(|tab| compact_notice_text(tab, 40));
     let kind = payload
         .get("kind")
         .and_then(Value::as_str)
@@ -815,6 +835,18 @@ fn worker_lifecycle_notice(
         "worker_ack_startup_failed" => format!(
             "did not acknowledge task {}",
             task_id.as_deref().unwrap_or("unknown task")
+        ),
+        "remote_ack_timeout" => format!(
+            "did not acknowledge task {} on peer {} tab {}",
+            task_id.as_deref().unwrap_or("unknown task"),
+            peer_name.as_deref().unwrap_or("unknown peer"),
+            remote_tab.as_deref().unwrap_or("unknown tab")
+        ),
+        "remote_peer_offline" => format!(
+            "peer {} went offline before acknowledging task {} on tab {}",
+            peer_name.as_deref().unwrap_or("unknown peer"),
+            task_id.as_deref().unwrap_or("unknown task"),
+            remote_tab.as_deref().unwrap_or("unknown tab")
         ),
         "agent_startup_failed" => "failed to start".to_string(),
         "agent_startup_overdue" if startup_notice_waits_for_owner(payload) => {
