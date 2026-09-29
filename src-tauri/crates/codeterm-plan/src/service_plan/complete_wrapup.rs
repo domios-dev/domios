@@ -57,6 +57,7 @@ mod tests {
                 2,
             )
             .unwrap();
+        store.start_task_for_test(&plan.id, &task_id, 2);
         store
             .close_task(&plan.id, &task_id, None, AgentRef::from_tab("o"), 3)
             .unwrap();
