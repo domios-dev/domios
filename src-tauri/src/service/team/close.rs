@@ -6,7 +6,7 @@ use codeterm_types::team::Team;
 use serde::Serialize;
 
 use super::TeamMutationCaller;
-use crate::multiplexer::state::{MultiplexerState, TeamCloseTransaction};
+use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::TabBacking;
 use crate::plan::Plan;
 use crate::process_util;
@@ -45,7 +45,6 @@ struct StagedTeamClose {
     chat_backings: Vec<(String, String)>,
     pty_ids: Vec<String>,
     closed_roots: Vec<String>,
-    transaction: TeamCloseTransaction,
 }
 
 #[cfg(test)]
@@ -104,7 +103,7 @@ where
             return Err(error);
         }
     };
-    let (team, cleanup) = commit_staged_team_close(mux, staged);
+    let (team, cleanup) = commit_staged_team_close(mux, staged)?;
     crate::service::publish_mux_state_changed(events);
     finish_team_lane_cleanup(plan_store, &lanes, now_ms)?;
     Ok((team, cleanup, changed_plan_ids))
@@ -135,7 +134,7 @@ pub(super) fn commit_prepared_team_close(
     if staged.member_tab_ids != expected.member_tab_ids {
         return Err("Team membership changed during close; retry the close".into());
     }
-    let (team, cleanup) = commit_staged_team_close(mux, staged);
+    let (team, cleanup) = commit_staged_team_close(mux, staged)?;
     Ok((team, cleanup))
 }
 
@@ -388,16 +387,15 @@ where
         chat_backings,
         pty_ids,
         closed_roots,
-        transaction,
     })
 }
 
 fn commit_staged_team_close(
     mux: &mut MultiplexerState,
     staged: StagedTeamClose,
-) -> (Team, CloseTeamCleanup) {
-    staged.transaction.commit(mux, &staged.closed_roots);
-    (
+) -> Result<(Team, CloseTeamCleanup), String> {
+    mux.commit_team_close(&staged.team.id, &staged.closed_roots)?;
+    Ok((
         staged.team,
         CloseTeamCleanup {
             member_tab_ids: staged.member_tab_ids,
@@ -405,7 +403,7 @@ fn commit_staged_team_close(
             chat_backings: staged.chat_backings,
             pty_ids: staged.pty_ids,
         },
-    )
+    ))
 }
 
 fn push_lane(

@@ -80,7 +80,10 @@ pub async fn focus_workspace(
     state
         .svc
         .focus_workspace(&id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+        .map_err(|_| {
+            state.svc.log_workspace_not_found(&id);
+            (StatusCode::NOT_FOUND, "Workspace not found")
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -331,7 +334,10 @@ pub async fn create_tab(
     let tab_id = state
         .svc
         .create_tab_with_activate(&workspace_id, false)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+        .map_err(|_| {
+            state.svc.log_workspace_not_found(&workspace_id);
+            (StatusCode::NOT_FOUND, "Workspace not found")
+        })?;
     let eager = body.map(|b| b.eager).unwrap_or(false);
     let pty_id = if eager {
         state
