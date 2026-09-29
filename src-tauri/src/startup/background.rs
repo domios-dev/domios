@@ -129,6 +129,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             last_sync_secs.get(&peer.instance_id).copied(),
                             mesh::discovery::PROACTIVE_SYNC_INTERVAL_SECS,
                         );
+                        if online && !was_online && mesh.lock().has_unacked_announce(&peer.instance_id) {
+                            let _ = mesh::broadcast_announce(&mesh, Some(&peer.instance_id)).await;
+                        }
                         if should_sync {
                             let reason = if !was_online {
                                 "reconnected"

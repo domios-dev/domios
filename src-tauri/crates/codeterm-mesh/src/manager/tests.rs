@@ -282,3 +282,15 @@ fn client_for_picks_tailscale_via_tier_ranking() {
         .unwrap();
     assert_eq!(picked.ip, "100.65.0.30");
 }
+
+#[test]
+fn mesh_rename_announce_stays_queued_until_the_peer_acknowledges() {
+    let mut m = make_mesh_with_peer("peer-1", vec!["100.64.0.9"]);
+    assert!(!m.has_unacked_announce("peer-1"));
+    m.record_announce_outcome("peer-1", false);
+    assert!(m.has_unacked_announce("peer-1"));
+    m.record_announce_outcome("peer-1", false);
+    assert!(m.has_unacked_announce("peer-1"), "a repeat failure keeps one entry");
+    m.record_announce_outcome("peer-1", true);
+    assert!(!m.has_unacked_announce("peer-1"));
+}

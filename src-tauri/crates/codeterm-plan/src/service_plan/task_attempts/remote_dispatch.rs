@@ -103,6 +103,7 @@ impl PlanStore {
                     RemoteDispatchState::PeerMissingRepo
                         | RemoteDispatchState::PeerMissingBase
                         | RemoteDispatchState::PeerOffline
+                        | RemoteDispatchState::PeerRefused
                         | RemoteDispatchState::RelayLost
                         | RemoteDispatchState::RemoteAckTimeout
                 );
