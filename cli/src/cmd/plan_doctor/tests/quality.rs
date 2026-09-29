@@ -575,7 +575,7 @@ fn quality_warns_for_missing_executor_role_on_execution_task() {
 }
 
 #[test]
-fn quality_errors_for_test_author_report_without_red_green_demo() {
+fn doctor_terminal_tasks_raise_no_errors() {
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -584,32 +584,45 @@ fn quality_errors_for_test_author_report_without_red_green_demo() {
         "goal": {"vector": "ship"},
         "primary_spec_id": "sp_1",
         "sections": [{"id": "sec_1", "title": "Tests", "body": "section"}],
-        "tasks": [{
-            "id": "task_1",
-            "name": "Author drill",
-            "type": "test",
-            "status": "done",
-            "section_ids": ["sec_1"],
-            "body": "body",
-            "acceptance_criteria": ["criterion"],
-            "test_plan": "run cargo test drill_fixture",
-            "correctness": "matches spec",
-            "executor_role": "test-author",
-            "lane": {
-                "report": {
-                    "id": "report_1",
-                    "message": "STATUS: done\nCHANGES: added drill\nTESTS RUN: cargo test drill_fixture passed"
-                }
+        "tasks": [
+            {
+                "id": "done",
+                "name": "Author drill",
+                "type": "test",
+                "status": "done",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run cargo test drill_fixture",
+                "correctness": "matches spec",
+                "executor_role": "test-author",
+                "lane": {"report": {"id": "report_1", "message": "STATUS: done\nCHANGES: added drill\nTESTS RUN: cargo test drill_fixture passed"}}
+            },
+            {
+                "id": "cancelled",
+                "name": "Cancelled drill",
+                "type": "test",
+                "status": "cancelled",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run cargo test drill_fixture",
+                "correctness": "matches spec",
+                "executor_role": "test-author",
+                "lane": {"report": {"id": "report_2", "message": "STATUS: cancelled\nCHANGES: stopped drill"}}
             }
-        }]
+        ]
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     let finding = findings
         .iter()
         .find(|f| f.kind == "test_author_report_missing_red_green_demo");
 
-    assert!(finding.is_some(), "expected red-green report enforcement");
-    assert_eq!(finding.unwrap().severity, "error");
+    assert!(
+        finding.is_none(),
+        "terminal task should not retain test-author report errors: {findings:?}"
+    );
+    assert!(findings.iter().all(|finding| finding.severity != "error"));
 }
 
 #[test]

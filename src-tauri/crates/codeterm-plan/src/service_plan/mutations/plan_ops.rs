@@ -322,6 +322,7 @@ impl PlanStore {
             }
             let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
             task.depends_on = resolved_depends_on.clone();
+            super::ensure_group_declared(p, task.group.as_deref());
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }
