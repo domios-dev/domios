@@ -1,30 +1,7 @@
 use super::*;
 
-#[test]
-fn plugin_id_rejects_traversal_empty_reserved_and_system_ids() {
-    for id in ["", "../evil", "a/b", "CON", "nul.txt", "COM9.log"] {
-        assert!(PluginId::parse(id.to_string()).is_err(), "accepted {id:?}");
-    }
-    assert!(PluginId::parse("x".repeat(65)).is_err());
-    let root = std::env::temp_dir().join(format!("plugin-id-validation-{}", uuid::Uuid::new_v4()));
-    for id in ["", "../outside", "CON", "a/b"] {
-        let err = run(PluginCtx { data_root: root.clone(), version: None }, PluginAction::Remove { id: id.into(), force: true, remove_data: false }).unwrap_err();
-        assert!(!root.exists(), "invalid id reached filesystem: {id:?}");
-        assert!(!err.is_empty());
-    }
-    for id in ["", "../outside", "CON", "a/b"] {
-        let err = run(PluginCtx { data_root: root.clone(), version: None }, PluginAction::Install { id: None, from_dir: Some("missing-source".into()), id_override: Some(id.into()), channel: None }).unwrap_err();
-        assert!(!root.exists(), "invalid override reached filesystem: {id:?}");
-        assert!(!err.is_empty());
-    }
-}
+mod id_validation;
 
-#[test]
-fn remove_never_leaves_plugins_root() {
-    for id in ["", "../outside", "CON"] {
-        assert!(remove_installed(id, true, false).is_err(), "accepted {id:?}");
-    }
-}
 mod store_index_tests {
     use super::*;
     use std::collections::BTreeMap;
@@ -190,20 +167,6 @@ mod store_index_tests {
             git_ref, "develop",
             "the default system channel installs as System trust; it must not track unreleased code"
         );
-    }
-
-    #[test]
-    fn system_ids_are_refused_from_directory_sources() {
-        with_data_root(|root| {
-            let source = root.join("impostor-source");
-            std::fs::create_dir_all(&source).unwrap();
-            std::fs::write(source.join("plugin.json"), serde_json::json!({"id":"codex","version":"1.0.0"}).to_string()).unwrap();
-            std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
-            let dir = source.display().to_string();
-            assert!(install_command(None, Some(dir.clone()), None, None).is_err());
-            assert!(install_command(None, Some(dir), Some("codex".into()), None).is_err());
-            assert!(!plugin_dir(&PluginId::validated("codex")).exists());
-        });
     }
 
     #[test]
