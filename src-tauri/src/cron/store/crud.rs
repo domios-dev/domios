@@ -1,8 +1,8 @@
 //! CronStore CRUD: create / read / update / delete + run history recording.
 
 use super::{
-    compute_backoff, compute_next_run_jittered_at, default_max_history, parse_oneshot_schedule_at,
-    validate_schedule, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
+    cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
+    parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
     CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
 };
 
@@ -23,18 +23,16 @@ impl CronStore {
         let reasoning_effort = normalize_reasoning_effort(params.reasoning_effort);
 
         let now_ms = self.now_ms();
-        let next_run = if !params.enabled.unwrap_or(true) {
-            if oneshot {
-                parse_oneshot_schedule_at(&params.schedule, now_ms)?;
-            } else {
-                validate_schedule(&params.schedule)?;
-            }
-            None
-        } else if oneshot {
-            Some(parse_oneshot_schedule_at(&params.schedule, now_ms)?)
+        let enabled = params.enabled.unwrap_or(true);
+        let (next_run, jitter) = if oneshot {
+            let next = parse_oneshot_schedule_at(&params.schedule, now_ms)
+                .map_err(|error| format!("schedule: {error}"))?;
+            (enabled.then_some(next), jitter)
         } else {
-            validate_schedule(&params.schedule)?;
-            compute_next_run_jittered_at(&params.schedule, jitter, tz.as_deref(), now_ms)?
+            let jitter = cap_jitter_max_ms_at(&params.schedule, jitter, tz.as_deref(), now_ms)?;
+            let next =
+                compute_next_run_jittered_at(&params.schedule, jitter, tz.as_deref(), now_ms)?;
+            (if enabled { next } else { None }, jitter)
         };
 
         let job = CronJob {
@@ -44,7 +42,7 @@ impl CronStore {
             workspace_id: params.workspace_id,
             team_id: params.team_id,
             schedule: params.schedule,
-            enabled: params.enabled.unwrap_or(true),
+            enabled,
             agent: params
                 .agent
                 .unwrap_or_else(crate::config::default_agent_provider),
@@ -111,12 +109,15 @@ impl CronStore {
 
     pub fn update(&mut self, id: &str, patch: CronUpdateParams) -> Result<CronJob, String> {
         let now_ms = self.now_ms();
-        let job = self
+        let index = self
             .file
             .jobs
-            .iter_mut()
-            .find(|j| j.id == id)
+            .iter()
+            .position(|job| job.id == id)
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
+        let schedule_changed = patch.schedule.is_some();
+        let enabled_requested = patch.enabled == Some(true);
+        let mut job = self.file.jobs[index].clone();
 
         if let Some(name) = patch.name {
             job.name = name;
@@ -125,11 +126,6 @@ impl CronStore {
             job.description = Some(desc);
         }
         if let Some(schedule) = patch.schedule {
-            if job.oneshot {
-                parse_oneshot_schedule_at(&schedule, now_ms)?;
-            } else {
-                validate_schedule(&schedule)?;
-            }
             job.schedule = schedule;
         }
         if let Some(task) = patch.task {
@@ -175,22 +171,63 @@ impl CronStore {
             job.timeout_seconds = if ts == 0 { None } else { Some(ts) };
         }
 
-        job.next_run = if !job.enabled {
-            None
-        } else if job.oneshot {
-            Some(parse_oneshot_schedule_at(&job.schedule, now_ms)?)
+        job.next_run = if job.oneshot {
+            if schedule_changed || enabled_requested || job.enabled {
+                let next = parse_oneshot_schedule_at(&job.schedule, now_ms)
+                    .map_err(|error| format!("schedule: {error}"))?;
+                if job.enabled {
+                    Some(next)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         } else {
-            compute_next_run_jittered_at(
+            job.jitter_max_ms =
+                cap_jitter_max_ms_at(&job.schedule, job.jitter_max_ms, job.tz.as_deref(), now_ms)?;
+            let next = compute_next_run_jittered_at(
                 &job.schedule,
                 job.jitter_max_ms,
                 job.tz.as_deref(),
                 now_ms,
-            )?
+            )?;
+            if job.enabled {
+                next
+            } else {
+                None
+            }
         };
 
         let updated = job.clone();
+        self.file.jobs[index] = job;
         self.save()?;
         Ok(updated)
+    }
+
+    pub fn delete_for_workspace(&mut self, workspace_id: &str) -> Result<Vec<CronJob>, String> {
+        let removed = self
+            .file
+            .jobs
+            .iter()
+            .filter(|job| job.workspace_id == workspace_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        if removed.is_empty() {
+            return Ok(removed);
+        }
+        let ids = removed
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        self.file.jobs.retain(|job| !ids.contains(job.id.as_str()));
+        self.file
+            .history
+            .retain(|job_id, _| !ids.contains(job_id.as_str()));
+        self.tab_owners
+            .retain(|_, (job_id, _)| !ids.contains(job_id.as_str()));
+        self.save()?;
+        Ok(removed)
     }
 
     pub fn delete(&mut self, id: &str) -> Result<(), String> {

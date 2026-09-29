@@ -23,10 +23,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use schedule::{
-    compute_backoff, compute_next_run, compute_next_run_at, compute_next_run_in,
-    compute_next_run_jittered, compute_next_run_jittered_at, compute_next_run_jittered_in,
-    parse_oneshot_schedule, parse_oneshot_schedule_at, parse_tz, to_6field, validate_schedule,
-    validate_tz, MAX_CONSECUTIVE_FAILURES,
+    cap_jitter_max_ms_at, compute_backoff, compute_next_run, compute_next_run_at,
+    compute_next_run_in, compute_next_run_jittered, compute_next_run_jittered_at,
+    compute_next_run_jittered_in, parse_oneshot_schedule, parse_oneshot_schedule_at, parse_tz,
+    to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES,
 };
 
 use crate::cron::clock::{system_clock, SharedClock};
