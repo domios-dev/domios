@@ -255,11 +255,10 @@ impl ServiceContext {
         let tabs = {
             let mux = self.mux.read();
             mux.all_tabs()
-                .filter_map(|tab| {
-                    (tab.pending_prompt_kind
-                        == Some(codeterm_types::pty::PromptKind::DirectoryTrust))
-                    .then(|| tab.id.clone())
+                .filter(|tab| {
+                    tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::DirectoryTrust)
                 })
+                .map(|tab| tab.id.clone())
                 .collect::<Vec<_>>()
         };
         for tab_id in tabs {

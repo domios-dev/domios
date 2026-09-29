@@ -480,6 +480,7 @@ fn acquire_machine_update_lock() -> Result<MachineUpdateLock, String> {
         .join("provider-update.lock");
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)
