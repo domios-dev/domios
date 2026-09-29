@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -23,7 +22,7 @@ impl SecretBackendFactory for LocalFactory {
         "Local secret storage"
     }
     fn description(&self) -> &'static str {
-        "Persisted locally in ~/.codeterm/.secrets with user-only file permissions. Offline, no external service."
+        "Plaintext JSON file in ~/.codeterm/.secrets with user-only permissions (not encrypted, not the OS keychain). Offline, no external service."
     }
     fn build(&self, _cfg: &serde_json::Value) -> Box<dyn SecretStore> {
         Box::new(LocalStore::detect_and_build())
@@ -62,6 +61,24 @@ pub struct LocalIndex {
     version: u32,
     /// Keyed by lowercased name for case-insensitive lookup.
     entries: HashMap<String, IndexEntry>,
+    /// Next unallocated item number; persisted so ids survive restarts and deletes.
+    #[serde(default)]
+    next_id: u64,
+}
+
+impl LocalIndex {
+    fn alloc_id(&mut self) -> String {
+        let highest = self
+            .entries
+            .values()
+            .filter_map(|e| e.item_id.strip_prefix("local-"))
+            .filter_map(|n| u64::from_str_radix(n, 16).ok())
+            .max()
+            .unwrap_or(0);
+        let n = self.next_id.max(highest + 1).max(1);
+        self.next_id = n + 1;
+        format!("local-{:08x}", n)
+    }
 }
 
 fn default_index_version() -> u32 {
@@ -166,7 +183,6 @@ impl IndexStorage for MemIndexStorage {
 pub struct LocalStore {
     keychain: SecretFile,
     index: Box<dyn IndexStorage>,
-    next_id: AtomicUsize,
     /// Set when the local file backend construction failed. CRUD calls
     /// short-circuit to `Backend { message: <reason> }` so the user sees a
     /// clear error in Settings instead of mysteriously empty results.
@@ -190,7 +206,6 @@ impl LocalStore {
         Self {
             keychain,
             index,
-            next_id: AtomicUsize::new(1),
             unavailable_reason: unavailable,
         }
     }
@@ -200,14 +215,8 @@ impl LocalStore {
         Self {
             keychain,
             index,
-            next_id: AtomicUsize::new(1),
             unavailable_reason: None,
         }
-    }
-
-    fn alloc_id(&self) -> String {
-        let n = self.next_id.fetch_add(1, Ordering::SeqCst);
-        format!("local-{:08x}", n)
     }
 
     fn now_ms() -> i64 {
@@ -303,6 +312,7 @@ impl SecretStore for LocalStore {
         let now = Self::now_ms();
         let mut value_to_persist = req.value.expose_secret().to_string();
 
+        let is_overwrite = index.entries.contains_key(&key);
         let entry = if let Some(existing) = index.entries.get(&key).cloned() {
             if !req.overwrite {
                 return Err(SecretError::AlreadyExists);
@@ -317,7 +327,7 @@ impl SecretStore for LocalStore {
             }
         } else {
             IndexEntry {
-                item_id: self.alloc_id(),
+                item_id: index.alloc_id(),
                 name: req.name.clone(),
                 folder: req.folder.clone(),
                 organization: req.organization.clone(),
@@ -326,9 +336,18 @@ impl SecretStore for LocalStore {
             }
         };
 
+        let notes = match (&req.notes, is_overwrite) {
+            (None, true) => self
+                .keychain
+                .get(&Self::keychain_account(&entry.name))
+                .ok()
+                .and_then(|raw| serde_json::from_str::<LocalEntry>(&raw).ok())
+                .and_then(|e| e.notes),
+            (n, _) => n.clone(),
+        };
         let blob = LocalEntry {
             value: std::mem::take(&mut value_to_persist),
-            notes: req.notes.clone(),
+            notes,
         };
         let json = serde_json::to_string(&blob).map_err(|e| SecretError::Backend {
             message: format!("encode entry: {}", e),
@@ -678,6 +697,46 @@ mod tests {
             .unwrap();
         assert_eq!(only.len(), 1);
         assert_eq!(only[0].name, "a");
+    }
+
+    #[tokio::test]
+    async fn overwrite_without_notes_keeps_existing_notes() {
+        let s = store();
+        let mut first = req("k", "v1");
+        first.notes = Some("keep me".into());
+        s.save(first).await.unwrap();
+        let mut second = req("k", "v2");
+        second.overwrite = true;
+        s.save(second).await.unwrap();
+        assert_eq!(s.get("k").await.unwrap().notes.as_deref(), Some("keep me"));
+    }
+
+    #[tokio::test]
+    async fn secret_ids_persist_across_restart() {
+        use std::sync::Arc;
+        struct Shared(Arc<Mutex<LocalIndex>>);
+        impl IndexStorage for Shared {
+            fn load(&self) -> Result<LocalIndex, SecretError> {
+                Ok(self.0.lock().clone())
+            }
+            fn save(&self, index: &LocalIndex) -> Result<(), SecretError> {
+                *self.0.lock() = index.clone();
+                Ok(())
+            }
+        }
+        let disk = Arc::new(Mutex::new(LocalIndex::default()));
+        let file = SecretFile::in_memory("test");
+        let first = LocalStore::new(file.clone(), Box::new(Shared(disk.clone())));
+        let a = first.save(req("a", "v")).await.unwrap();
+        let b = first.save(req("b", "v")).await.unwrap();
+        drop(first);
+        let second = LocalStore::new(file, Box::new(Shared(disk)));
+        let c = second.save(req("c", "v")).await.unwrap();
+        second.delete("c").await.unwrap();
+        let d = second.save(req("d", "v")).await.unwrap();
+        let ids = [a.item_id, b.item_id, c.item_id, d.item_id];
+        let unique: std::collections::HashSet<_> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len());
     }
 
     #[tokio::test]

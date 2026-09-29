@@ -110,7 +110,7 @@ Response (one of):
 
 ### Secrets
 
-Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL plus optional auto-unlock.
+Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL. Auto-unlock is not a config key: a secret-backend plugin opts in through its manifest and the unlock request (`codeterm docs SECRETS`).
 
 ```toml
 [integrations.secrets]
@@ -120,20 +120,19 @@ default_collection = ""          # Default collection id for new items (Bitwarde
 
 [integrations.secrets.bitwarden]
 server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
-persist_master_password = false              # Auto-unlock after daemon restart by saving the master password in the keychain alongside the session token. Off by default.
 ```
 
 Backends:
-- `local` (default) — one entry per secret in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager) under service `codeterm-secrets`. A non-secret index of names + ids + folders + timestamps lives at `~/.codeterm/secrets/local-index.json`; values are never written there. Offline, no external service.
+- `local` (default) — a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), mode `0600` on Unix. Values are **not encrypted** and do **not** use the OS keychain; treat the file like an `.env`. A metadata-only index (names, ids, folders, timestamps) lives at `<data_dir>/secrets/local-index.json`. Offline, no external service.
 - `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint, an "Install Bitwarden CLI" button, and the CLI returns exit code 6 (backend unavailable). Supports `vault.bitwarden.com` and self-hosted Vaultwarden via `server_url`.
 - `mock` — in-memory only. Anything you save is lost on daemon restart. Use for dev / screenshots / tests.
 
-The unlocked Bitwarden session token is stored in the keychain under service `codeterm.secrets.bitwarden` (account `session`). With `persist_master_password = true`, the master password lives in the same keychain (account `master_password`) so the daemon can auto-unlock after a restart — opt-in trade-off because that's one more secret on the same disk surface as the session. In dev builds the "keychain" is a `0600` JSON file at `~/.codeterm-dev/keychain/<service>.json` (signed-binary-changes-on-rebuild make the OS keychain unusable); release builds use the real OS keychain. On Linux without libsecret the keychain probe fails and the backend reports `Unavailable` — we never silently fall back to plaintext on disk in production builds.
+A secret-backend plugin keeps its persisted session and any remembered credential in its own host bucket (service `codeterm.plugin.<plugin-id>`), which uses the same plaintext local file as the `local` backend. Nothing here uses the OS keychain.
 
-**Secrets do not cross the mesh.** `codeterm --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds the keychain.
+**Secrets do not cross the mesh.** `codeterm --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds it.
 
 Full secret-store reference, including CLI, storage internals, error mapping, and plugin authoring: `codeterm docs SECRETS`.
 
-Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), Remember-master-password toggle, default scope, recently saved items, lock / sign-out.
+Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
