@@ -954,20 +954,28 @@ impl ServiceContext {
 
     pub(crate) fn notify_surviving_shell_restart_required(&self, tab_id: &str, attempt_id: &str) {
         let command = recovery_command(tab_id);
-        self.create_notification_ext(
-            "Agent process exited".into(),
-            Some(format!(
+        log::warn!(
+            "[launch-recovery] tab={tab_id} launch={attempt_id} agent exited; shell survives"
+        );
+        self.raise_agent_exited(
+            tab_id,
+            "Agent process exited",
+            format!(
                 "The agent process exited and its shell is available. Restart this Tab with `{command}`."
-            )),
-            Some("warning"),
-            None,
-            Some(true),
-            crate::service::notification::NotificationOrigin::claimed(Some(tab_id.to_string())),
-            crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("surviving-shell-restart:{tab_id}:{attempt_id}")),
+            ),
+        );
+    }
+
+    fn raise_agent_exited(&self, tab_id: &str, title: &str, body: String) {
+        self.raise_tab_condition(
+            tab_id,
+            crate::notification::dedupe::TabCondition::AgentExited,
+            crate::service::tab_conditions::ConditionNotice {
+                title: title.to_string(),
+                body,
+                actions: None,
+                hint: None,
             },
-            None,
         );
     }
 
@@ -978,20 +986,12 @@ impl ServiceContext {
             tab_id,
             attempt_id,
         );
-        self.create_notification_ext(
-            "Agent recovery stopped".into(),
-            Some(format!(
+        self.raise_agent_exited(
+            tab_id,
+            "Agent recovery stopped",
+            format!(
                 "Automatic resume did not reach readiness. The shell is available; recover this Tab with `{command}`."
-            )),
-            Some("warning"),
-            None,
-            Some(true),
-            crate::service::notification::NotificationOrigin::claimed(Some(tab_id.to_string())),
-            crate::service::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("pre-ready-recovery:{tab_id}:{attempt_id}")),
-            },
-            None,
+            ),
         );
     }
 

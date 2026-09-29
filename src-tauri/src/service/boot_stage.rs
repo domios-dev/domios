@@ -340,6 +340,7 @@ impl ServiceContext {
             self.schedule_planner_replay(tab_id);
             self.schedule_parked_user_send(tab_id);
             self.heal_recovery_state_if_ready();
+            self.retire_superseded_process_conditions(tab_id);
         }
         if stage == BootStage::SpawnFailed {
             self.record_lifecycle_end(

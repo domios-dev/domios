@@ -116,9 +116,31 @@ recipients = []        # explicit audience (chat ids) — NOT telegram_allowed_u
 per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not a rate)
 ```
 
+## Lifecycle and validation
+
+`notify send` refuses a blank title, a title over 200 characters (put detail in
+the pad body), and a `--target-tab` that names no open tab on this machine.
+
+Two notices are raised by CodeTerm itself, never by an agent: **Agent needs your
+response** (the agent is blocked on a prompt) and **Agent process exited** or
+**Agent recovery stopped** (the tab needs a restart). Each belongs to one standing
+condition of one tab, so a tab holds at most one live notice per condition and the
+same prompt or exit never opens a second one. The notice resolves when the
+condition ends: the prompt is answered or goes away, the agent reaches readiness
+again after `codeterm agent restart`, or the tab closes. A tab spawned with
+`--non-user-facing`, and any hidden service tab (memory workers, cron runs), is
+never the user's to answer: its prompts and exits go to its parent or report target
+as a report, and are only written to the CodeTerm log when it has none.
+
+Unread sticky notices — the condition notices above, and any record created with
+`sticky` over the API — survive a restart of CodeTerm, kept in
+`notifications.json` in the data folder; one whose tab did not come back resolves
+at startup. Read, resolved and non-sticky records do not persist, and neither
+does an offer to turn a surface on, which must be sent again.
+
 ## Related documents
 
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

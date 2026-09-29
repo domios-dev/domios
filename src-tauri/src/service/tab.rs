@@ -274,13 +274,17 @@ impl ServiceContext {
         self.finish_tab_close(tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
-        {
+        let resolved = {
             let mut notif = self.notif.lock();
+            // A closed tab has no agent to exit or prompt to answer, so its conditions end with it.
+            let resolved = notif.resolve_tab_conditions(&canonical_tab_id);
             notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));
             // An unanswered question outlives its tab as a visibly undeliverable
             // card, never as buttons that would quietly do nothing.
             notif.forget_answer_tab(tab_id);
-        }
+            resolved
+        };
+        self.announce_resolved(&resolved);
         self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
