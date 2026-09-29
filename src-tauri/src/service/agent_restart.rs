@@ -196,16 +196,16 @@ impl ServiceContext {
                 snap.tab_id
             ));
         }
-        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+        if !self.tab_is_idle(&snap.tab_id) {
             return Err(format!("Tab {} is no longer idle", snap.tab_id));
         }
         let claim = self
             .claim_restart(&snap.tab_id, true)
             .map_err(|error| format!("{error:?}"))?;
-        let launch_cmd = build_relaunch_command(self, &snap, true, None)
-            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
+        let launch_cmd = relaunch::build_relaunch(self, &snap, true)
+            .map(|relaunch| relaunch.command)
             .ok_or_else(|| format!("provider {} returned no resume command", snap.provider))?;
-        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+        if !self.tab_is_idle(&snap.tab_id) {
             return Err(format!(
                 "Tab {} became busy before it could be paused",
                 snap.tab_id
@@ -220,7 +220,7 @@ impl ServiceContext {
         })
     }
 
-    fn provider_update_tab_is_idle(&self, tab_id: &str) -> bool {
+    fn tab_is_idle(&self, tab_id: &str) -> bool {
         let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
             return false;
         };
@@ -329,30 +329,19 @@ impl ServiceContext {
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
-            Some(launch) if session_present => launch.command(self, &snap),
-            Some(_) => None,
-            None => {
-                let launch_task = (!session_present)
-                    .then(|| {
-                        crate::service::orchestrator::provider_launch_task(
-                            &self.agent_registry,
-                            &snap.provider,
-                            None,
-                            snap.role.as_deref(),
-                            snap.role_profile.as_deref(),
-                        )
-                    })
-                    .flatten();
-                build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
-                    .map(|command| (command, launch_task))
+            Some(launch) if session_present => {
+                launch.command(self, &snap).map(|(command, task)| {
+                    (
+                        crate::agent::stub_launch::apply(&snap.provider, command),
+                        task,
+                    )
+                })
             }
+            Some(_) => None,
+            None => relaunch::build_relaunch(self, &snap, session_present)
+                .map(|relaunch| (relaunch.command, relaunch.task)),
         };
-        let Some((launch_cmd, launch_task)) = relaunch.map(|(command, task)| {
-            (
-                crate::agent::stub_launch::apply(&snap.provider, command),
-                task,
-            )
-        }) else {
+        let Some((launch_cmd, launch_task)) = relaunch else {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             let reason = if model_switch.is_some() && !session_present {
                 "the Tab's session is no longer resumable, so its model cannot be switched in place"
@@ -671,6 +660,15 @@ impl ServiceContext {
         let Some(exit_command) = exit_command else {
             return;
         };
+        // A busy composer takes the exit command as a queued user turn, so a
+        // working agent is stopped at the process by the PTY teardown instead.
+        if !self.tab_is_idle(&snap.tab_id) {
+            log::info!(
+                "[agent_restart] tab={} is busy; skipping the in-chat exit command",
+                snap.tab_id
+            );
+            return;
+        }
         if let Err(error) = self.send_text(&snap.tab_id, &exit_command) {
             log::warn!(
                 "[agent_restart] graceful exit send failed for tab={}: {}",
@@ -1065,6 +1063,7 @@ pub(crate) fn screen_shows_agent_tui(
 
 mod exit_recovery;
 mod model_switch;
+mod relaunch;
 pub(crate) use model_switch::{ModelSwitchError, ModelSwitchOutcome};
 
 #[cfg(test)]

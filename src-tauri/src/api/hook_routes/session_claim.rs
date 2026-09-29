@@ -226,10 +226,13 @@ fn commit_reported_session(
         ));
     }
 
-    let launch_nonce = tab.session_binding_nonce.clone();
+    let adopted_nonce = (source == SessionBindingSource::Hook)
+        .then(|| surviving_shell_launch_nonce(tab, report_nonce))
+        .flatten();
+    let launch_nonce = tab.session_binding_nonce.clone().or(adopted_nonce.clone());
     let acknowledged_nonce = tab.reported_session_binding_nonce.clone();
     let nonce_already_acknowledged = launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
-    let nonce_verified = if let Some(expected) = tab.session_binding_nonce.clone() {
+    let nonce_verified = if let Some(expected) = launch_nonce.clone() {
         match report_nonce {
             Some(reported) if reported != expected => {
                 log::warn!(
@@ -351,6 +354,14 @@ fn commit_reported_session(
     let Some(tab) = mux.get_tab_mut(tab_id) else {
         return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
     };
+    if nonce_verified && adopted_nonce.is_some() {
+        log::info!(
+            "[hook_session_start] tab={} provider={} adopted a provider started in its surviving shell",
+            tab_id,
+            provider_id,
+        );
+        tab.session_binding_nonce = adopted_nonce;
+    }
     let previous = tab.agent_session_id.clone();
     let changed = previous.as_deref() != Some(session_id);
     if changed {
@@ -374,4 +385,19 @@ fn commit_reported_session(
         nonce_already_acknowledged,
         identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence::capture(tab),
     }))
+}
+
+/// A provider started by hand in the tab's surviving shell inherits the nonce
+/// its exited launch exported there, which the tab retired as its newest one.
+fn surviving_shell_launch_nonce(
+    tab: &crate::multiplexer::types::Tab,
+    report_nonce: Option<&str>,
+) -> Option<String> {
+    let reported = report_nonce?;
+    let retired = tab.prior_session_binding_nonces.last()?;
+    (tab.session_binding_nonce.is_none()
+        && !tab.agent_booting
+        && tab.pty_id.is_some()
+        && retired.nonce == reported)
+        .then(|| reported.to_string())
 }

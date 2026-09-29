@@ -22,6 +22,9 @@ use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowled
 #[cfg(test)]
 #[path = "hook_routes/review_regressions.rs"]
 mod review_regressions;
+#[cfg(test)]
+#[path = "hook_routes/surviving_shell_tests.rs"]
+mod surviving_shell_tests;
 
 #[cfg(test)]
 pub(crate) use session_claim::bind_validated_rebind_session;
@@ -911,6 +914,10 @@ pub(crate) async fn finish_session_binding(
         claim.nonce_verified,
         claim.changed,
     );
+    // A provider adopted from a surviving shell proves itself outside any launch.
+    if claim.nonce_verified && svc.mux.read().lifecycle_key(tab_id).is_none() {
+        svc.open_lifecycle_epoch(tab_id);
+    }
     let identity_committed = if let Some(origin) = identity_origin {
         if origin == crate::session::lifecycle::AgentTypeWriteOrigin::Hook {
             matches!(

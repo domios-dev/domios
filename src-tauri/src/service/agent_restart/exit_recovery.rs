@@ -6,8 +6,8 @@ use std::time::Duration;
 use codeterm_types::pty::{AgentLiveness, BootStage};
 
 use super::{
-    build_relaunch_command, evidenced_transcript_block, AgentRestartError, RestartAttemptError,
-    RestartOutcome, TabRestartSnapshot, RESTART_READY_TIMEOUT_SECS,
+    evidenced_transcript_block, AgentRestartError, RestartAttemptError, RestartOutcome,
+    TabRestartSnapshot, RESTART_READY_TIMEOUT_SECS,
 };
 use crate::agent::provider_identity::provider_for_claimed_session;
 use crate::multiplexer::types::{PriorBindingNonce, Tab, TabBacking};
@@ -194,9 +194,7 @@ impl ServiceContext {
         );
         let mut outcome = RestartOutcome::accepted(&snap, false, force);
         outcome.recovered_in_place = true;
-        let Some(launch_cmd) = build_relaunch_command(self, &snap, true, None)
-            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
-        else {
+        let Some(relaunch) = super::relaunch::build_relaunch(self, &snap, true) else {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 reason: format!("provider {} returned no resume command", snap.provider),
@@ -228,14 +226,14 @@ impl ServiceContext {
         crate::service::orchestrator::launch_agent_in_background(
             self.clone(),
             snap.tab_id.clone(),
-            launch_cmd,
+            relaunch.command,
             snap.provider.clone(),
             if automatic {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
             },
-            None,
+            relaunch.task,
             None,
             None,
             None,
