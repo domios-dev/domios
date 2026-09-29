@@ -20,6 +20,12 @@ and `POST /api/tasks` return `key`.
 label (`plan groups set` relabels), so `plan groups close` accepts every group a
 heartbeat names.
 
+All task text fields together are limited to 256 KiB per task. Each other
+user-supplied plan text field is limited to 256 KiB, with 16 MiB total stored
+plan text. Control characters such as ESC and BEL are refused; body and
+narrative fields may still contain line breaks. Plan, section, and task names
+are required, one line, and at most 256 characters.
+
 ### Planner authority over task structure
 
 A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same
@@ -235,4 +241,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

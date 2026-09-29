@@ -653,7 +653,6 @@ export interface SecretsConfig {
 
 export interface BitwardenSettings {
   server_url: string;
-  persist_master_password: boolean;
 }
 
 export interface MeshConfig {

@@ -8,6 +8,27 @@ use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
 
+pub(crate) const MAX_WORKSPACE_NAME_CHARS: usize = 64;
+
+pub(crate) fn validate_workspace_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("workspace name must not be empty".into());
+    }
+    if name.chars().count() > MAX_WORKSPACE_NAME_CHARS {
+        return Err(format!(
+            "workspace name must be {} characters or fewer",
+            MAX_WORKSPACE_NAME_CHARS
+        ));
+    }
+    if name
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Err("workspace name must be one line without control characters".into());
+    }
+    Ok(())
+}
+
 fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> String {
     format!("requested={workspace_id} known_ids={known_ids:?}")
 }
@@ -87,7 +108,8 @@ impl ServiceContext {
         name: String,
         cwd: Option<String>,
         activate: bool,
-    ) -> WorkspaceInfo {
+    ) -> Result<WorkspaceInfo, String> {
+        validate_workspace_name(&name)?;
         if let Some(cwd_str) = cwd.as_deref() {
             let existing = self.mux.write().find_workspace_info_by_cwd(cwd_str);
             if let Some(ws) = existing {
@@ -101,10 +123,10 @@ impl ServiceContext {
                     ws.id,
                     cwd_str
                 );
-                return WorkspaceInfo {
+                return Ok(WorkspaceInfo {
                     existing: Some(true),
                     ..ws
-                };
+                });
             }
         }
 
@@ -114,7 +136,7 @@ impl ServiceContext {
         }
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
-        ws
+        Ok(ws)
     }
 
     pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
@@ -134,6 +156,7 @@ impl ServiceContext {
     }
 
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
+        validate_workspace_name(name)?;
         self.mux.write().rename_workspace(id, name)?;
         self.emit_state_changed();
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
@@ -481,6 +504,9 @@ impl ServiceContext {
         from_workspace_id: &str,
         to_workspace_id: &str,
     ) -> Result<(), String> {
+        if self.mux.read().get_workspace(to_workspace_id).is_none() {
+            return Err(format!("Workspace not found: {to_workspace_id}"));
+        }
         self.mux
             .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;

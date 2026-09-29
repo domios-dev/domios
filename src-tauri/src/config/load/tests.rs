@@ -131,6 +131,24 @@ fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
 }
 
 #[test]
+fn config_bounds_invalid_load_keeps_last_known_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    let cache: ConfigCache = Mutex::new(None);
+    let first = load_config_cached(&path, &cache);
+    assert_eq!(first.api.token.as_deref(), Some("tok-original"));
+
+    std::fs::write(&path, format!("{VALID}\n[font]\nsize = 0\n")).unwrap();
+    bump_mtime(&path);
+    let recovered = load_config_cached(&path, &cache);
+
+    assert_eq!(recovered.api.token.as_deref(), Some("tok-original"));
+    assert_eq!(recovered.font.size, AppConfig::default().font.size);
+    assert!(config_file(&path).held().is_some());
+}
+
+#[test]
 fn salvage_reads_only_intact_lines_of_the_right_tables() {
     let raw = "token = \"root-level\"\n[api]\nport = 7686\ntoken = \"t1\"\n[mesh]\nfull_access = true\n[agent]\nfull_access = false\n";
     let mut config = AppConfig::default();

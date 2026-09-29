@@ -289,12 +289,16 @@ impl MemScope {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
-        if let Some(rest) = s.strip_prefix("workspace:") {
-            Self::Workspace(rest.to_string())
-        } else {
-            Self::Global
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        if s == "global" {
+            return Ok(Self::Global);
         }
+        if let Some(rest) = s.strip_prefix("workspace:") {
+            if !rest.trim().is_empty() && !rest.chars().any(char::is_control) {
+                return Ok(Self::Workspace(rest.to_string()));
+            }
+        }
+        Err("scope must be global or workspace:<id>".into())
     }
 }
 

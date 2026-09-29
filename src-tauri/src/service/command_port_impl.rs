@@ -66,7 +66,12 @@ impl CommandPort for ServiceContext {
         ServiceContext::set_tab_description(self, tab_id, desc)
     }
 
-    fn create_workspace(&self, name: String, cwd: Option<String>, activate: bool) -> WorkspaceInfo {
+    fn create_workspace(
+        &self,
+        name: String,
+        cwd: Option<String>,
+        activate: bool,
+    ) -> Result<WorkspaceInfo, String> {
         ServiceContext::create_workspace(self, name, cwd, activate)
     }
 

@@ -151,7 +151,7 @@ impl CommandPort for StartupBlockedPort {
         _: String,
         _: Option<String>,
         _: bool,
-    ) -> crate::multiplexer::state::WorkspaceInfo {
+    ) -> Result<crate::multiplexer::state::WorkspaceInfo, String> {
         unreachable!()
     }
 

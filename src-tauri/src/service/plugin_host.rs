@@ -137,7 +137,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             Ok(o) => o,
             Err(e) => return err(format!("bad workspace.ensure opts: {e}")),
         };
-        let ws = self.create_workspace(opts.name, opts.external_root, false);
+        let ws = match self.create_workspace(opts.name, opts.external_root, false) {
+            Ok(workspace) => workspace,
+            Err(error) => return err(error),
+        };
         serde_json::json!({ "workspaceId": ws.id }).to_string()
     }
 

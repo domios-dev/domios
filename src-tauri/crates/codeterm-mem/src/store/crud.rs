@@ -526,12 +526,8 @@ pub fn managed_payload(
     let Some(kind) = MemKind::from_str(&kind) else {
         return Err(format!("unrecognized kind {kind}"));
     };
-    // `MemScope::from_str` is infallible (defaults to Global), so an
-    // unrecognized stored value must be caught by round-tripping it.
-    let parsed_scope = MemScope::from_str(&scope);
-    if parsed_scope.as_str() != scope {
-        return Err(format!("unrecognized scope {scope}"));
-    }
+    let parsed_scope =
+        MemScope::from_str(&scope).map_err(|_| format!("unrecognized scope {scope}"))?;
     let body = if let Some(inline) = body_inline {
         inline
     } else if let Some(rel) = body_blob_path.as_ref() {

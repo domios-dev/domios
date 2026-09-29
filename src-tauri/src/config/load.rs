@@ -36,15 +36,16 @@ pub(super) fn config_file(path: &Path) -> StateFile {
 }
 
 fn validate_config(text: &str) -> Result<(), String> {
-    toml::from_str::<AppConfig>(text)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    super::bounds::validate_config_text(text).map_err(|error| {
+        log::warn!("[config] rejecting invalid config: {error}");
+        error
+    })
 }
 
 fn parse_config(text: &str) -> Result<(AppConfig, String), String> {
-    toml::from_str::<AppConfig>(text)
-        .map(|config| (config, text.to_string()))
-        .map_err(|error| error.to_string())
+    let config = toml::from_str::<AppConfig>(text).map_err(|error| error.to_string())?;
+    super::bounds::validate_app_config(&config)?;
+    Ok((config, text.to_string()))
 }
 
 pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig {
@@ -121,8 +122,7 @@ fn finish_loaded(
 
 fn create_default(file: &StateFile) -> AppConfig {
     let (config, _) = with_generated_token(AppConfig::default());
-    let toml_str =
-        toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
+    let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
     match file.save(&toml_str) {
         Ok(()) => log::info!("Default config created at {}", file.path().display()),
         Err(e) => log::warn!("Failed to write default config: {}", e),
