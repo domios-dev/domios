@@ -59,6 +59,7 @@ pub struct SessionModelIdentity {
     pub session_id: String,
     pub session_binding_nonce: String,
     pub launch_report: Option<LaunchModelReport>,
+    pub model_switch_turn_confirmed: bool,
 }
 
 /// The model a provider named when this binding started, with the transcript's
@@ -73,6 +74,7 @@ pub struct LaunchModelReport {
 pub struct PendingModelSwitchObservation {
     pub session_id: String,
     pub launched_model: String,
+    pub transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

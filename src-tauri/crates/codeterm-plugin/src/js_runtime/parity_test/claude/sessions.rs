@@ -169,6 +169,70 @@ fn parse_session_delta_handles_polymorphic_content() {
     );
 }
 
+#[test]
+fn model_switch_transcript_boundary_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::AgentProvider;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let cwd = temp.path().join("project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let home = home.to_string_lossy().into_owned();
+    let _env = EnvGuard::new(&[("HOME", &home), ("USERPROFILE", &home)]);
+    let cwd = cwd.to_string_lossy().into_owned();
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = load_js("claude");
+    let path = native
+        .session_file_path(&cwd, &session_id)
+        .expect("Claude transcript path");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let transcript = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/queued-mid-turn.jsonl"
+    ))
+    .replace("claude-opus-5", "claude-haiku-4-5");
+    std::fs::write(&path, &transcript).unwrap();
+
+    let boundary = native
+        .session_model_transcript_boundary(&cwd, &session_id)
+        .expect("native captures the relaunch boundary");
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        Some(boundary.clone())
+    );
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(
+        file,
+        r#"{{"type":"assistant","uuid":"after-relaunch","message":{{"model":"claude-sonnet-5-5"}}}}"#
+    )
+    .unwrap();
+    let native_model = native
+        .detect_session_model_after_boundary(&cwd, &session_id, &boundary)
+        .expect("native observes the appended assistant turn");
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        Some(native_model)
+    );
+}
+
 /// Eval: the host flatten path (real plugin.js `parseSessionDelta` →
 /// Rust `rich_to_chat_msgs`) must produce the SAME normalized `ChatMsg`
 /// shape the desktop TS parser (`parseJsonlSession`) produces, so the

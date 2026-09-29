@@ -241,6 +241,14 @@ export interface AgentProvider {
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
+  sessionModelTranscriptBoundary?(cwd: string, sessionId: string): {
+    lastEntryUuid: string | null;
+  } | null;
+  detectSessionModelAfterBoundary?(
+    cwd: string,
+    sessionId: string,
+    boundary: { lastEntryUuid: string | null },
+  ): string | null;
   detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   /** The one record owning exactly this id, or null; never scans session history. */
