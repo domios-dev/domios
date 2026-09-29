@@ -589,13 +589,16 @@ fn resume_hidden_run(
     if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
         tab.auto_approve = full_access;
     }
-    let cmd = hidden_recovery_resume_command(
-        &svc.agent_registry,
-        &provider,
-        &sid,
-        full_access,
-        system_prompt,
-    );
+    crate::service::task_files::release_tab(svc, tab_id);
+    let cmd = crate::service::task_files::capture(svc, tab_id, || {
+        hidden_recovery_resume_command(
+            &svc.agent_registry,
+            &provider,
+            &sid,
+            full_access,
+            system_prompt,
+        )
+    });
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
         return;

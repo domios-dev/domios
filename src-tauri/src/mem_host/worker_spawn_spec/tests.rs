@@ -16,9 +16,14 @@ fn inputs(agent: &str) -> MemWorkerSpawnInputs {
     }
 }
 
+fn worker_cwd() -> std::path::PathBuf {
+    crate::paths::data_dir().join("workers")
+}
+
 /// The spec `spawn_headless_worker` hand-built before the routing seam existed.
 fn legacy_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
+        cwd: Some(worker_cwd().to_string_lossy().into_owned()),
         visibility: TabVisibility::Hidden,
         audience: TabAudience::Automation,
         title: Some("mem:extract".into()),
@@ -41,7 +46,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
 #[test]
 fn spawn_routing_mem_worker_chat_backend_is_refused_for_the_missing_worker_identity() {
     let chatbackends = registry_with_spawnable("gamma-shell");
-    let rejection = build_mem_worker_spawn_spec(&chatbackends, inputs("gamma-shell"))
+    let rejection = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), inputs("gamma-shell"))
         .expect_err("a chat backend cannot carry the memory-worker identity");
 
     assert_eq!(
@@ -59,7 +64,7 @@ fn spawn_routing_mem_worker_chat_backend_is_refused_for_the_missing_worker_ident
 #[test]
 fn spawn_routing_mem_worker_pty_provider_spec_is_byte_identical() {
     let chatbackends = registry_with_spawnable("gamma-shell");
-    let spec = build_mem_worker_spawn_spec(&chatbackends, inputs("pty-agent"))
+    let spec = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), inputs("pty-agent"))
         .expect("a PTY agent carries the worker identity");
 
     assert_eq!(
@@ -73,6 +78,7 @@ fn spawn_routing_mem_worker_empty_model_stays_unset() {
     let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
     let spec = build_mem_worker_spawn_spec(
         &chatbackends,
+        worker_cwd(),
         MemWorkerSpawnInputs {
             model: String::new(),
             ..inputs("pty-agent")
@@ -84,4 +90,16 @@ fn spawn_routing_mem_worker_empty_model_stays_unset() {
         TabCommand::Agent(agent) => assert!(agent.model.is_none()),
         other => panic!("expected the PTY agent runtime, got {other:?}"),
     }
+}
+
+#[test]
+fn headless_mem_worker_cwd_is_instance_owned() {
+    let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
+    let spec = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), inputs("pty-agent"))
+        .expect("a PTY agent carries the worker identity");
+    let cwd = spec.cwd.expect("headless worker has an explicit cwd");
+    let root = crate::paths::data_dir().join("workers");
+
+    assert!(std::path::Path::new(&cwd).starts_with(root));
+    assert!(!std::path::Path::new(&cwd).starts_with(std::env::current_dir().unwrap()));
 }

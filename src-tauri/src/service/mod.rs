@@ -41,6 +41,7 @@ pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
+pub(crate) mod task_files;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
@@ -175,6 +176,7 @@ pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused
 pub(crate) const TEAM_CLOSE_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED]";
 pub(crate) const WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX: &str = "[WORKSPACE CLOSE CLEANUP FAILED]";
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -238,6 +240,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 #[derive(Clone)]
 pub struct ServiceContext {
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
+    pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,

@@ -186,6 +186,7 @@ impl ServiceContext {
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
+        crate::service::task_files::release_tab(self, &snap.tab_id);
 
         self.record_lifecycle(
             &snap.tab_id,
@@ -196,6 +197,7 @@ impl ServiceContext {
         let Some(launch_cmd) = build_relaunch_command(self, &snap, true, None)
             .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
         else {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 reason: format!("provider {} returned no resume command", snap.provider),
                 outcome,
@@ -206,6 +208,7 @@ impl ServiceContext {
             self.claim_exited_shell_for_recovery(attempt)?;
         }
         if let Err(reason) = self.retire_exited_shell_stage(&snap, attempt) {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             if let Some(attempt) = attempt {
                 self.release_exited_shell_recovery_claim(&snap, attempt);
             }
@@ -243,7 +246,14 @@ impl ServiceContext {
             outcome,
             None,
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )?;
+        );
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(error);
+            }
+        };
         self.settle_restored_binding(ready, &snap)
     }
 

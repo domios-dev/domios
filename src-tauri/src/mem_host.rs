@@ -237,8 +237,12 @@ pub fn spawn_headless_worker(
         let intent_for_spawn = intent.clone();
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
+            let worker_cwd = crate::paths::data_dir().join("workers");
+            std::fs::create_dir_all(&worker_cwd)
+                .map_err(|error| format!("create worker directory: {error}"))?;
             let spec = worker_spawn_spec::build_mem_worker_spawn_spec(
                 svc_blocking.chatbackend_registry.as_ref(),
+                worker_cwd,
                 worker_spawn_spec::MemWorkerSpawnInputs {
                     agent_provider: agent_for_spawn,
                     model: model_for_spawn,

@@ -175,6 +175,27 @@ pub(crate) fn marked_provider_launch_command(
     })
 }
 
+pub(crate) fn marked_provider_launch_command_for_service(
+    service: &ServiceContext,
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+    tab_id: &str,
+    cwd: Option<&str>,
+    canonical_project: Option<&str>,
+    params: &mut crate::agent::provider::AgentLaunchParams,
+) -> Option<String> {
+    super::task_files::capture(service, tab_id, || {
+        marked_provider_launch_command(
+            registry,
+            provider_id,
+            tab_id,
+            cwd,
+            canonical_project,
+            params,
+        )
+    })
+}
+
 /// A sandboxed agent still writes its report through its own AgentPad.
 pub(crate) fn append_sandbox_agent_pad_arg(
     registry: &crate::agent::registry::AgentRegistry,
@@ -352,7 +373,8 @@ pub(crate) fn marked_launch_command_for_tab(
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }
     let canonical_project = canonical_project_for_tab(&svc.plan_store, tab_id, cwd);
-    marked_provider_launch_command(
+    marked_provider_launch_command_for_service(
+        svc,
         &svc.agent_registry,
         provider_id,
         tab_id,

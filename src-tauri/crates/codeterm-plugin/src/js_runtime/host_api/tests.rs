@@ -844,15 +844,14 @@ fn host_write_temp_file_returns_real_path() {
         crate::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")]).unwrap();
     let path = path.unwrap();
     assert!(path.ends_with(".task.txt"));
+    assert!(std::path::Path::new(&path).starts_with(codeterm_util::task_files::task_dir()));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "payload payload");
     let _ = std::fs::remove_file(&path);
 }
 
-/// A CONFINED plugin's `host.writeTempFile` must still succeed, and the
-/// result must land under that plugin's own scoped temp subdir — never the
-/// bare system temp dir another plugin (or process) can also reach.
+/// Task files stay under the owning CodeTerm instance for every plugin tier.
 #[test]
-fn host_write_temp_file_confined_lands_under_the_plugin_scoped_dir() {
+fn host_write_temp_file_confined_lands_under_instance_task_dir() {
     use crate::js_runtime::manifest::PermissionsConfig;
     use crate::js_runtime::vm::PluginVm;
 
@@ -878,14 +877,36 @@ fn host_write_temp_file_confined_lands_under_the_plugin_scoped_dir() {
         crate::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")]).unwrap();
     let path = path.expect("writeTempFile must still succeed when confined");
 
-    let scoped_dir = crate::js_runtime::loader::plugin_temp_dir(&plugin_id);
+    let scoped_dir = codeterm_util::task_files::task_dir();
     assert!(
         std::path::Path::new(&path).starts_with(&scoped_dir),
-        "{path} must be under the plugin's own scoped temp dir {}",
+        "{path} must be under this instance's task-file dir {}",
         scoped_dir.display()
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "payload payload");
-    let _ = std::fs::remove_dir_all(&scoped_dir);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn host_launch_task_file_is_captured_for_its_tab() {
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                mk(c) { return host.writeTempFile(c, ".ct-task.md"); }
+            };
+        "#,
+    );
+    let (path, files) = codeterm_util::task_files::capture("tab-host-capture", || {
+        crate::js_runtime::vm::call_json::<Option<String>>(&vm, "mk", &[json!("payload")])
+            .unwrap()
+            .unwrap()
+    });
+    let path = std::path::PathBuf::from(path);
+
+    assert_eq!(files, vec![path.clone()]);
+    assert!(path.starts_with(codeterm_util::task_files::task_dir()));
+    assert!(path.file_name().unwrap().to_string_lossy().contains("7461622d686f73742d63617074757265"));
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]

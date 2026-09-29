@@ -82,9 +82,13 @@ impl LaunchGeneration {
         if let Some(attempt) = self.attempt() {
             svc.retire_public_send_launch_attempt(&attempt);
         }
-        self.finish_if_current(|| {
+        let failed = self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
-        })
+        });
+        if failed {
+            crate::service::task_files::release_tab(svc, &self.tab_id);
+        }
+        failed
     }
 
     pub(super) fn attempt(&self) -> Option<crate::service::launch_readiness::LaunchAttempt> {
