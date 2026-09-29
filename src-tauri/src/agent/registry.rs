@@ -8,7 +8,8 @@ use super::classify_input::StatusBarRowsSource;
 use super::provider::{AgentProvider, SessionMetadata};
 
 pub use super::registry_search::{
-    SessionSearchHit, SessionSearchOpts, SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP,
+    SessionSearchError, SessionSearchHit, SessionSearchOpts, SessionSearchResult,
+    SessionSearchWarning, SessionSkipReason, SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP,
 };
 
 pub struct AgentRegistry {

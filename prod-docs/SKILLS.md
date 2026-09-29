@@ -90,7 +90,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 21. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 22. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 23. **Keep system awake**: `codeterm keepawake start --duration-secs 3600 [--display]` (cross-platform: caffeinate on macOS, SetThreadExecutionState on Windows). Stop: `codeterm keepawake stop`. Status: `codeterm keepawake status`. Use this instead of calling `caffeinate` / `powercfg` / `systemd-inhibit` directly.
-24. **Search past agent sessions**: `codeterm sessions search "QUERY" [--provider claude|codex|all] [--project /path] [--limit N]` — content search across every registered provider's on-disk sessions. Each hit carries its `provider` and `session_id`.
+24. **Search past agent sessions**: `codeterm sessions search "QUERY" [--provider claude|codex|all] [--project /path] [--limit N]` — content search across every registered provider's sessions. Each hit carries its `provider` and `session_id`; a `warning:` line names any provider store that could not be fully searched, so an empty result is not proof of absence.
 25. **Inspect a past session**: `codeterm sessions get SESSION_ID` — provider, recorded cwd, file path, timestamps. Use before `resume` to verify the JSONL is still on disk.
 26. **Resume a past session atomically**: `codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]` — `--title` is a tab name with a single word. The command locates the session, opens the right workspace at the recorded cwd, spawns the agent tab, and hands the resume id to the provider with the correct CLI shape. Use this instead of the brittle "create workspace at guessed cwd → `agent spawn --args=--resume=UUID`" dance.
     - **Recover a reduced/wiped desk**: `codeterm sessions backups list` shows rotated full-desk snapshots (name, saved time, workspace/tab counts); `codeterm sessions backups restore NAME` additively recreates workspaces/tabs missing from the live desk — it replaces nothing and never closes what exists.
@@ -187,4 +187,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 72 -->
+<!-- revision: 73 -->

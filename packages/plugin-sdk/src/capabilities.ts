@@ -257,6 +257,12 @@ export interface AgentProvider {
    *  bare model-id prefix). The picker shows it for the selected model's group. */
   modelGroupUsage?(): ModelGroupUsage[];
   parseSessionMessages?(text: string): unknown[];
+  /** One session's messages from a store shared by every session, newest-first within
+   *  `query.maxBytes`; a message lacking any `hintTerms` entry may be omitted. Null = unreadable. */
+  readSessionContent?(
+    sessionId: string,
+    query: { maxBytes: number; hintTerms: string[] },
+  ): { messages: unknown[]; truncated?: boolean } | null;
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;

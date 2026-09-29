@@ -1,4 +1,4 @@
-use super::{classify_backend_response, BackendOutcome};
+use super::{classify_backend_response, render_search_human, BackendOutcome};
 use reqwest::StatusCode;
 
 /// The exact body `sessions get <unknown>` receives today. Before the fix the
@@ -121,4 +121,35 @@ fn every_success_status_class_member_stays_success() {
             "{status} is a 2xx and must not be failed"
         );
     }
+}
+
+/// Warnings reach the human output even when nothing matched, so a skipped
+/// provider store never reads as a clean "no match".
+#[test]
+fn search_human_output_carries_every_warning() {
+    let body = serde_json::json!({
+        "hits": [],
+        "warnings": [
+            {"provider": "p1", "reason": "unreadable", "sessions": 2, "message": "warn-token-a"},
+            {"provider": "p2", "reason": "over_byte_cap", "sessions": 1, "message": "warn-token-b"}
+        ]
+    });
+    let out = render_search_human("q", &body);
+    assert_eq!(out.matches("warn-token-a").count(), 1, "{out}");
+    assert_eq!(out.matches("warn-token-b").count(), 1, "{out}");
+}
+
+#[test]
+fn search_human_resume_hint_is_the_provider_agnostic_command() {
+    let body = serde_json::json!({
+        "hits": [{
+            "meta": {"provider": "any-provider", "session_id": "ses_token", "file_path": "/x"},
+            "snippets": [{"role": "assistant", "text": "snippet-token"}],
+            "match_count": 1
+        }],
+        "warnings": []
+    });
+    let out = render_search_human("q", &body);
+    assert!(out.contains("codeterm sessions resume ses_token"), "{out}");
+    assert!(out.contains("[any-provider] snippet-token"), "{out}");
 }

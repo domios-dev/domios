@@ -29,8 +29,8 @@ use std::time::Duration;
 
 use crate::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, StarterPrompt,
-    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
+    SessionContentSource, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
+    StarterPrompt, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
     VerifySubmitStrategy,
 };
 
@@ -113,6 +113,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         sessions::parse_session_messages(file_path)
+    }
+
+    fn session_content_source(&self) -> SessionContentSource {
+        SessionContentSource::SessionFile
     }
 
     fn parse_interactive_events(
