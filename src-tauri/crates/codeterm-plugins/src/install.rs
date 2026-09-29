@@ -6,6 +6,8 @@ pub(super) fn install_command(
     id_override: Option<String>,
     channel: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    if let Some(override_id) = id_override.as_deref() { PluginId::parse(override_id.to_string())?; }
+    if let Some(requested_id) = id.as_deref() { PluginId::parse(requested_id.to_string())?; }
     if let Some(dir) = from_dir {
         let source = absolutize(Path::new(&dir))?;
         let install_id = id_override
@@ -18,6 +20,10 @@ pub(super) fn install_command(
                     .unwrap_or("plugin")
                     .to_string()
             });
+        let parsed_id = PluginId::parse(install_id.clone())?;
+        if is_reserved_system_id(&install_id) {
+            return Err(format!("plugin id '{install_id}' is reserved for the official system channel"));
+        }
         let version = manifest_version(&source).ok().flatten();
         let record = InstallRecord {
             id: install_id.clone(),
@@ -31,7 +37,7 @@ pub(super) fn install_command(
         if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
             return Err(format!("plugin '{install_id}' {reason}"));
         }
-        let before = manifest_version(&plugin_dir(&install_id)).ok().flatten();
+        let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
         let result = install_from_dir(&source, &install_id, Some(&record));
         audit_plugin_result(
             "install",
@@ -42,7 +48,7 @@ pub(super) fn install_command(
             &result,
         );
         result?;
-        let reload_required = manifest_requires_reload(&plugin_dir(&install_id));
+        let reload_required = manifest_requires_reload(&plugin_dir(&parsed_id));
         return Ok(serde_json::json!({
             "ok": true,
             "message": install_message(
@@ -51,23 +57,31 @@ pub(super) fn install_command(
                 reload_required,
             ),
             "id": install_id,
-            "path": plugin_dir(&install_id).display().to_string(),
+            "path": plugin_dir(&parsed_id).display().to_string(),
             "reload_required": reload_required,
         }));
     }
 
     let id = id.ok_or("install requires <id> or --from-dir <path>")?;
+    let parsed_id = PluginId::parse(id.clone())?;
     let mut warnings = Vec::new();
     let candidate = resolve_channel_install_candidate(&id, channel.as_deref(), &mut warnings)?;
+    let official_system_source = candidate.channel_name == SYSTEM_CHANNEL_NAME
+        && read_channel_registry()?.channels.get(SYSTEM_CHANNEL_NAME)
+            .is_some_and(|entry| entry.url == system_channel_url());
+    if is_reserved_system_id(&id) && !official_system_source {
+        return Err(format!("plugin id '{id}' is reserved for the official system channel"));
+    }
     let source_dir = candidate.channel_path.join(&candidate.plugin_path);
     let channel_name = candidate.channel_name.clone();
     let version = candidate.version;
     let record = InstallRecord {
         id: id.clone(),
         version: version.clone(),
-        source: InstallSource::Channel {
-            channel: channel_name.clone(),
-            path: candidate.plugin_path,
+        source: if official_system_source {
+            InstallSource::SystemChannel { channel: channel_name.clone(), path: candidate.plugin_path }
+        } else {
+            InstallSource::Channel { channel: channel_name.clone(), path: candidate.plugin_path }
         },
         installed_at: now_rfc3339(),
         last_change: Some(last_change_for_install(version, Some(channel_name.clone()))),
@@ -75,7 +89,7 @@ pub(super) fn install_command(
     if let Err(reason) = compat_check(manifest_min_codeterm(&source_dir).as_deref()) {
         return Err(format!("plugin '{id}' {reason}"));
     }
-    let before = manifest_version(&plugin_dir(&id)).ok().flatten();
+    let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
     let result = install_from_dir(&source_dir, &id, Some(&record));
     audit_plugin_result(
         "install",
@@ -86,7 +100,7 @@ pub(super) fn install_command(
         &result,
     );
     result?;
-    let reload_required = manifest_requires_reload(&plugin_dir(&id));
+    let reload_required = manifest_requires_reload(&plugin_dir(&parsed_id));
     Ok(serde_json::json!({
         "ok": true,
         "message": install_message(
@@ -95,7 +109,7 @@ pub(super) fn install_command(
             reload_required,
         ),
         "id": id,
-        "path": plugin_dir(&id).display().to_string(),
+        "path": plugin_dir(&parsed_id).display().to_string(),
         "reload_required": reload_required,
         "warnings": warnings,
     }))
@@ -153,26 +167,29 @@ pub(super) fn remove_installed(
     force: bool,
     remove_data: bool,
 ) -> Result<serde_json::Value, String> {
-    if is_reserved_system_id(id) && !force {
+    let id = PluginId::parse(id.to_string())?;
+    let id_str = id.as_str();
+    if is_reserved_system_id(id_str) && !force {
         return Err(format!(
-            "'{id}' is a system plugin id; pass --force to remove its user-installed folder"
+            "'{id_str}' is a system plugin id; pass --force to remove its user-installed folder"
         ));
     }
-    if remove_data && is_reserved_data_id(id) {
-        return Err(format!("'{id}' is a reserved plugin data id"));
+    if remove_data && is_reserved_data_id(id_str) {
+        return Err(format!("'{id_str}' is a reserved plugin data id"));
     }
-    let dir = plugin_dir(id);
+    let dir = plugin_dir(&id);
+    ensure_plugin_path_inside(&dir)?;
     if !dir.exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }
     let data_dirs = if remove_data {
-        removable_data_paths(id, &dir)?
+        removable_data_paths(id_str, &dir)?
     } else {
         Vec::new()
     };
     let before = manifest_version(&dir).ok().flatten();
     let result = fs::remove_dir_all(&dir).map_err(|e| format!("remove {}: {e}", dir.display()));
-    audit_plugin_result("remove", Some(id), None, before, None, &result);
+    audit_plugin_result("remove", Some(id_str), None, before, None, &result);
     result?;
     for data_dir in data_dirs {
         if data_dir.exists() {
@@ -182,7 +199,7 @@ pub(super) fn remove_installed(
     }
     Ok(serde_json::json!({
         "ok": true,
-        "message": format!("Removed plugin '{}'", id),
+        "message": format!("Removed plugin '{}'", id_str),
     }))
 }
 
@@ -273,15 +290,27 @@ pub(super) fn install_from_dir(
     id: &str,
     record: Option<&InstallRecord>,
 ) -> Result<(), String> {
+    let parsed_id = PluginId::parse(id.to_string())?;
+    let official = record.is_some_and(|r| matches!(&r.source, InstallSource::SystemChannel { channel, .. } if channel == SYSTEM_CHANNEL_NAME));
+    if is_reserved_system_id(id) && !official {
+        return Err(format!("plugin id '{id}' is reserved for the official system channel"));
+    }
     if !source.join("plugin.json").exists() {
         return Err(format!("{} has no plugin.json", source.display()));
     }
-    let dest = plugin_dir(id);
+    let dest = plugin_dir(&parsed_id);
+    ensure_plugin_path_inside(&dest)?;
     let tmp = dest.with_extension("tmp-install");
+    ensure_plugin_path_inside(&tmp)?;
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
     copy_dir_filtered(source, &tmp)?;
+    let manifest_path = tmp.join("plugin.json");
+    let manifest_text = fs::read_to_string(&manifest_path).map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
+    let mut manifest: serde_json::Value = serde_json::from_str(&manifest_text).map_err(|e| format!("parse plugin.json: {e}"))?;
+    manifest["id"] = serde_json::Value::String(id.to_string());
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?).map_err(|e| format!("write {}: {e}", manifest_path.display()))?;
     if let Some(record) = record {
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
