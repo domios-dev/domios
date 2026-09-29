@@ -165,7 +165,8 @@ surfaces as agents:
 - **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
-  no flag → the plugin's `defaultPreset`.
+  no flag → the plugin's `defaultPreset`. These and the watcher flags are refused
+  for a PTY agent, which has no use for them.
 - **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
   `--charter-file PATH` may be used instead of `--charter`. The REST body fields
   are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
@@ -230,4 +231,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

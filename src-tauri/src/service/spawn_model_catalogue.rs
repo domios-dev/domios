@@ -7,7 +7,7 @@ use crate::agent::registry::AgentRegistry;
 pub(crate) struct InvalidModelError {
     pub provider_id: String,
     pub requested_model: String,
-    pub closest_model_ids: Vec<String>,
+    pub valid_model_ids: Vec<String>,
     pub provider_mismatch: Option<String>,
     pub ambiguous_providers: Vec<String>,
 }
@@ -24,7 +24,7 @@ impl InvalidModelError {
             "type": if self.ambiguous_providers.is_empty() { "invalid_model" } else { "ambiguous_model" },
             "provider": self.provider_id.clone(),
             "requested_model": self.requested_model.clone(),
-            "closest_model_ids": self.closest_model_ids.clone(),
+            "valid_model_ids": self.valid_model_ids.clone(),
             "ambiguous_providers": self.ambiguous_providers.clone(),
             "refresh_command": self.refresh_command(),
             "message": self.to_string(),
@@ -53,10 +53,10 @@ impl fmt::Display for InvalidModelError {
                 requested_provider, self.provider_id
             );
         }
-        let suggestions = if self.closest_model_ids.is_empty() {
+        let suggestions = if self.valid_model_ids.is_empty() {
             "no model ids are currently advertised".to_string()
         } else {
-            self.closest_model_ids.join(", ")
+            self.valid_model_ids.join(", ")
         };
         write!(
             formatter,
@@ -226,7 +226,7 @@ pub(crate) fn resolve_agent_model_selection(
                     return Err(InvalidModelError {
                         provider_id: default_provider.to_string(),
                         requested_model: requested.to_string(),
-                        closest_model_ids: Vec::new(),
+                        valid_model_ids: Vec::new(),
                         provider_mismatch: None,
                         ambiguous_providers: owners,
                     })
@@ -266,7 +266,7 @@ fn provider_mismatch_error(
     InvalidModelError {
         provider_id: provider_id.to_string(),
         requested_model: requested_model.to_string(),
-        closest_model_ids: Vec::new(),
+        valid_model_ids: Vec::new(),
         provider_mismatch: Some(owner.to_string()),
         ambiguous_providers: Vec::new(),
     }
@@ -347,47 +347,25 @@ fn validate_provider_model(
     if resolved.is_some() {
         return Ok(());
     }
-    let closest_model_ids = if capability.authority == ModelCatalogueAuthority::FreeForm {
-        models
-            .iter()
-            .filter(|model| model.available != Some(false))
-            .map(|model| model.id.clone())
-            .collect()
-    } else {
-        closest_catalogue_ids(&models, &lookup)
-    };
+    let valid_model_ids = valid_catalogue_ids(&models);
     Err(InvalidModelError {
         provider_id: provider_id.to_string(),
         requested_model: requested,
-        closest_model_ids,
+        valid_model_ids,
         provider_mismatch: None,
         ambiguous_providers: Vec::new(),
     })
 }
 
-fn closest_catalogue_ids(catalogue: &[ModelInfo], requested: &str) -> Vec<String> {
-    let mut models: Vec<_> = catalogue
+fn valid_catalogue_ids(catalogue: &[ModelInfo]) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for model in catalogue
         .iter()
         .filter(|model| model.available != Some(false))
-        .cloned()
-        .collect();
-    models.sort_by_key(|model| edit_distance(requested, &model.id));
-    models.into_iter().take(3).map(|model| model.id).collect()
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let right: Vec<u8> = right.to_ascii_lowercase().into_bytes();
-    let mut row: Vec<usize> = (0..=right.len()).collect();
-    for (left_index, left_byte) in left.to_ascii_lowercase().bytes().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = left_index + 1;
-        for (right_index, right_byte) in right.iter().enumerate() {
-            let previous = row[right_index + 1];
-            row[right_index + 1] = (row[right_index] + 1)
-                .min(previous + 1)
-                .min(diagonal + usize::from(left_byte != *right_byte));
-            diagonal = previous;
+    {
+        if !ids.iter().any(|id| id.eq_ignore_ascii_case(&model.id)) {
+            ids.push(model.id.clone());
         }
     }
-    row[right.len()]
+    ids
 }

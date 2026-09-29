@@ -400,7 +400,11 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         }
     }
     if let Some(c) = cwd {
-        body["cwd"] = serde_json::json!(c);
+        let caller_cwd = std::env::current_dir().ok();
+        body["cwd"] = serde_json::json!(crate::cmd::agent::caller_resolved_spawn_cwd(
+            &c,
+            caller_cwd.as_deref()
+        ));
     }
     if let Some(r) = role {
         body["role"] = serde_json::json!(r.as_str());

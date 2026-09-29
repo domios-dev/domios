@@ -141,7 +141,7 @@ The general `agent spawn --mesh PEER --role Worker` path remains task-less and d
 
    A brief is authored prose, so it travels as a file. `--task "<brief>"` is refused once the text is multiline or over 240 characters: your shell would have expanded it before the CLI ran, and a remote Worker cannot be handed a silently truncated assignment. `--task-file -` with a single-quoted heredoc works the same way.
 
-   Mesh spawns require `--cwd` to name a workspace directory on the peer. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
+   Mesh spawns require `--cwd` to name a workspace directory on the peer; the peer refuses one that is not an absolute, existing directory there. Git Bash rewrites POSIX arguments such as `/srv/project` into Windows paths before the CLI runs, so pass a POSIX `--cwd` with `MSYS_NO_PATHCONV=1` set. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
 
    This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `codeterm agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
 
@@ -175,4 +175,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

@@ -240,7 +240,9 @@ pub enum AgentAction {
         /// Short tab description (max 200 chars)
         #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
-        /// Working directory (required with --mesh; resolves on the peer)
+        /// Working directory: an existing directory, refused otherwise. A relative
+        /// path resolves against your current directory. With --mesh it must be
+        /// absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths.
         #[arg(long)]
         cwd: Option<String>,
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
@@ -290,10 +292,10 @@ pub enum AgentAction {
         /// values are rejected, never silently downgraded.
         #[arg(long = "reasoning-effort")]
         reasoning_effort: Option<String>,
-        /// Override the shell system prompt when spawning a chatBackend shell.
+        /// Override the shell system prompt of a chatBackend shell; refused for PTY agents.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
-        /// Select a chatBackend shell preset. Omit to use the plugin default preset.
+        /// Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents.
         #[arg(long)]
         preset: Option<String>,
         /// Watcher charter text.

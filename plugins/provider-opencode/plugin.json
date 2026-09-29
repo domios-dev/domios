@@ -121,34 +121,6 @@
   "modelCatalogue": {
     "authority": "free_form"
   },
-  "reasoningEfforts": [
-    {
-      "id": "minimal",
-      "displayName": "Minimal",
-      "description": "Least reasoning, fastest responses."
-    },
-    {
-      "id": "low",
-      "displayName": "Low",
-      "description": "Lighter reasoning for routine tasks."
-    },
-    {
-      "id": "medium",
-      "displayName": "Medium",
-      "description": "Balanced speed and reasoning depth."
-    },
-    {
-      "id": "high",
-      "displayName": "High",
-      "description": "Greater reasoning depth for complex problems."
-    },
-    {
-      "id": "max",
-      "displayName": "Max",
-      "description": "Maximum reasoning depth."
-    }
-  ],
-  "defaultReasoningEffort": "medium",
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
@@ -170,10 +142,6 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
-    ],
-    "reasoningEffortLaunchArgsFormat": [
-      "--variant",
-      "{effort}"
     ]
   },
   "permissions": {

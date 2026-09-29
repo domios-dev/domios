@@ -333,9 +333,13 @@ pub async fn spawn_agent(
         .spawn_agent(params, ready_tx)
         .await
         .map_err(SpawnRejection::from)?;
-    if let Some(ready_rx) = ready_rx {
-        verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
-    }
+    let launch = match ready_rx {
+        Some(ready_rx) => {
+            verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
+            None
+        }
+        None => Some(spawn_rejection::await_spawn_launch(&state.svc, &result.tab_id).await?),
+    };
     let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
         match state.svc.arm_bound_worker_ack_deadline_for_tab(
             &result.tab_id,
@@ -375,7 +379,14 @@ pub async fn spawn_agent(
     if require_delivery_ack {
         resp["delivery_state"] = serde_json::json!("confirmed");
     }
-    if let Some(ref warning) = result.warning {
+    let warning = match launch.as_ref() {
+        Some(launch) => {
+            resp["launch_state"] = serde_json::json!(launch.launch_state());
+            launch.merged_warning(&result.tab_id, result.warning.as_deref())
+        }
+        None => result.warning.clone(),
+    };
+    if let Some(warning) = warning {
         resp["warning"] = serde_json::json!(warning);
     }
     if let Some(warning) = ack_warning {

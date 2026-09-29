@@ -310,6 +310,7 @@ impl ServiceContext {
         agent_cmd: &str,
         params: &SpawnAgentParams,
     ) -> Result<bool, String> {
+        crate::service::spawn_cwd::validate_spawn_cwd(params.cwd.as_deref())?;
         validate_watcher_spawn_target(
             &self.provider_registry,
             &self.chatbackend_registry,
@@ -323,6 +324,11 @@ impl ServiceContext {
                     return Err(format!(
                         "'{}' is a chat backend that is not user-spawnable",
                         agent_cmd
+                    ));
+                }
+                if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
+                    return Err(format!(
+                        "--args applies only to PTY agents; '{agent_cmd}' is a chatBackend shell, so remove it"
                     ));
                 }
                 if watcher
@@ -346,6 +352,7 @@ impl ServiceContext {
                         agent_cmd
                     ));
                 }
+                reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;
                 Ok(false)
             }
@@ -356,11 +363,41 @@ impl ServiceContext {
                         agent_cmd
                     ));
                 }
+                reject_chat_backend_only_fields(agent_cmd, params)?;
                 self.require_agent_provider_ready(agent_cmd)?;
                 Ok(false)
             }
         }
     }
+}
+
+/// Flags only a chatBackend shell consumes; a PTY launch would drop them silently.
+pub(crate) fn chat_backend_only_fields(params: &SpawnAgentParams) -> Vec<&'static str> {
+    [
+        ("--system", params.system_prompt.is_some()),
+        ("--preset", params.preset.is_some()),
+        ("--charter", params.charter.is_some()),
+        ("--interval", params.tick_interval_secs.is_some()),
+        ("--nudge-cooldown", params.nudge_cooldown_secs.is_some()),
+        ("--max-actions", params.max_actions_per_tick.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(flag, set)| set.then_some(flag))
+    .collect()
+}
+
+fn reject_chat_backend_only_fields(
+    agent_cmd: &str,
+    params: &SpawnAgentParams,
+) -> Result<(), String> {
+    let fields = chat_backend_only_fields(params);
+    if fields.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} apply only to chatBackend providers; '{agent_cmd}' launches a PTY agent, so remove them",
+        fields.join(", ")
+    ))
 }
 
 pub(crate) fn validate_watcher_spawn_target(
@@ -640,3 +677,7 @@ mod tests {
         assert_eq!(params.creator_tab_id.as_deref(), Some("tab_manager"));
     }
 }
+
+#[cfg(test)]
+#[path = "spawn_params/transport_tests.rs"]
+mod transport_tests;

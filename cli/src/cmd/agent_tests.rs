@@ -631,3 +631,21 @@ fn agent_providers_renders_the_three_valued_descriptor_field() {
     assert_eq!(marker("fixture-unknown"), AVAILABILITY_UNKNOWN);
     assert_eq!(marker("fixture-legacy"), AVAILABILITY_UNKNOWN);
 }
+
+#[test]
+fn a_relative_spawn_cwd_resolves_against_the_caller_directory() {
+    let caller = std::env::temp_dir().join("caller-dir-51c0");
+    let resolved = caller_resolved_spawn_cwd("nested-9e", Some(caller.as_path()));
+    assert_eq!(
+        std::path::PathBuf::from(&resolved),
+        caller.join("nested-9e")
+    );
+    assert!(std::path::Path::new(&resolved).is_absolute());
+
+    let absolute = caller.join("absolute-4b").to_string_lossy().into_owned();
+    assert_eq!(
+        caller_resolved_spawn_cwd(&absolute, Some(caller.as_path())),
+        absolute
+    );
+    assert_eq!(caller_resolved_spawn_cwd("nested-9e", None), "nested-9e");
+}

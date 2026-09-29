@@ -172,7 +172,7 @@ All fields optional.
 | `modelSwitch` | `"restart_resume"` \| `"unsupported"` | How `agent model` changes a live tab's model. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`, and requires the provider's session-start report to carry a top-level `model`; that report is the switch's evidence. Default `unsupported` refuses the switch without writing to the tab. Never declare an in-agent slash command: provider model pickers persist the choice as the machine-global default. |
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
-| `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`. Absent ⇒ provider has no scriptable effort flag even if it lists effort levels. |
+| `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`, checked against the installed CLI's own `--help`. Absent ⇒ no scriptable effort flag, and spawn refuses any `--reasoning-effort` for this provider; declare no `reasoningEfforts` then. |
 | `additionalWritableDirFlag` | string? | CLI flag accepting one extra writable directory. For a sandboxed linked worktree, core supplies the lane gitdir plus the canonical project's `objects`, `refs`, and `logs` directories; it never supplies the common `.git` directory. Applied on spawn, dispatch, restore, and resume after validating the worktree against its canonical project. |
 
 ### `integration`
