@@ -463,12 +463,28 @@ impl ServiceContext {
         wake: &CronWake,
         run_id: &str,
         summary: Option<&str>,
+        caller_tab_id: Option<&str>,
+        binding_nonce: Option<&str>,
     ) -> Result<(), String> {
         let mut store = cron.lock();
         let owner = store
             .get_tab_owner_by_run(run_id)
             .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, tab_id)) = owner {
+            if caller_tab_id.is_some_and(|caller| {
+                caller != tab_id
+                    || !binding_nonce.is_some_and(|nonce| {
+                        self.mux
+                            .read()
+                            .get_tab(tab_id)
+                            .and_then(|tab| tab.session_binding_nonce.as_deref())
+                            == Some(nonce)
+                    })
+            }) {
+                return Err(format!(
+                    "Only the owning Tab or a human caller may complete cron run {run_id}"
+                ));
+            }
             let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.write();
                 let tab = mux.get_tab(&tab_id);
@@ -827,5 +843,94 @@ mod tests {
             history[0].report_delivery.as_deref(),
             Some("failed: target gone")
         );
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_complete_requires_run_owner() {
+        let (mut mux, owner_tab) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&owner_tab).unwrap();
+        let foreign_tab = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&owner_tab)
+            .unwrap()
+            .session_binding_nonce = Some("owner-nonce".into());
+        mux.get_tab_mut(&foreign_tab)
+            .unwrap()
+            .session_binding_nonce = Some("foreign-nonce".into());
+        let fixture = ServiceFixture::new(mux);
+        let cron = Arc::new(Mutex::new(CronStore::new_with_path(
+            fixture.temp.path().join("crons.json"),
+        )));
+        let wake = Arc::new(std::sync::Condvar::new());
+        let run_id = "owner-run";
+        let job_id = {
+            let mut store = cron.lock();
+            let job = store.create(create_params("owner-check", None)).unwrap();
+            store
+                .record_run(
+                    &job.id,
+                    CronRunInfo {
+                        run_id: run_id.into(),
+                        started_at: 1,
+                        finished_at: None,
+                        status: CronRunStatus::Running,
+                        tab_id: Some(owner_tab.clone()),
+                        session_id: None,
+                        cwd: None,
+                        summary: None,
+                        report_delivery: None,
+                    },
+                )
+                .unwrap();
+            store.register_tab(&owner_tab, &job.id, run_id);
+            job.id
+        };
+
+        for (caller_tab_id, binding_nonce) in [
+            (foreign_tab.as_str(), "foreign-nonce"),
+            (owner_tab.as_str(), "foreign-nonce"),
+        ] {
+            assert!(fixture
+                .service
+                .cron_complete(
+                    &cron,
+                    &wake,
+                    run_id,
+                    Some("foreign-summary"),
+                    Some(caller_tab_id),
+                    Some(binding_nonce),
+                )
+                .is_err());
+        }
+
+        {
+            let store = cron.lock();
+            let run = store
+                .get_history(&job_id)
+                .iter()
+                .find(|run| run.run_id == run_id)
+                .expect("active run remains recorded");
+            assert_eq!(run.status, CronRunStatus::Running);
+            assert_eq!(run.summary, None);
+        }
+
+        assert!(fixture
+            .service
+            .cron_complete(
+                &cron,
+                &wake,
+                run_id,
+                Some("owner-summary"),
+                Some(&owner_tab),
+                Some("owner-nonce"),
+            )
+            .is_ok());
+        let store = cron.lock();
+        let run = store
+            .get_history(&job_id)
+            .iter()
+            .find(|run| run.run_id == run_id)
+            .expect("owner-completed run remains recorded");
+        assert_eq!(run.status, CronRunStatus::Success);
     }
 }

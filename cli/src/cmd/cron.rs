@@ -11,6 +11,25 @@ fn print_cron_ack(json: bool, state: &str, id: &str) {
     }
 }
 
+fn cron_completion_params(
+    run_id: &str,
+    summary: Option<&str>,
+    caller_tab_id: Option<&str>,
+    binding_nonce: Option<&str>,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({ "run_id": run_id });
+    if let Some(summary) = summary {
+        params["summary"] = serde_json::json!(summary);
+    }
+    if let Some(caller_tab_id) = caller_tab_id {
+        params["caller_tab_id"] = serde_json::json!(caller_tab_id);
+        if let Some(binding_nonce) = binding_nonce {
+            params["session_binding_nonce"] = serde_json::json!(binding_nonce);
+        }
+    }
+    params
+}
+
 pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
     match action {
         CronAction::List { workspace } => {
@@ -271,10 +290,14 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             }
         }
         CronAction::Complete { run_id, summary } => {
-            let mut params = serde_json::json!({"run_id": run_id});
-            if let Some(s) = summary {
-                params["summary"] = serde_json::json!(s);
-            }
+            let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
+            let binding_nonce = crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE");
+            let params = cron_completion_params(
+                &run_id,
+                summary.as_deref(),
+                caller_tab_id.as_deref(),
+                binding_nonce.as_deref(),
+            );
             match client.call("cron.complete", Some(params)) {
                 Ok(_) => print_cron_ack(json, "completed", &run_id),
                 Err(e) => {
@@ -305,4 +328,35 @@ fn caller_workspace_id(client: &mut SocketClient) -> String {
     )
     .map(|resolved| resolved.id.to_string())
     .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cron_completion_params;
+
+    #[test]
+    fn cron_complete_carries_the_current_tab_binding() {
+        assert_eq!(
+            cron_completion_params(
+                "run-token",
+                Some("summary-token"),
+                Some("tab-token"),
+                Some("nonce-token"),
+            ),
+            serde_json::json!({
+                "run_id": "run-token",
+                "summary": "summary-token",
+                "caller_tab_id": "tab-token",
+                "session_binding_nonce": "nonce-token",
+            })
+        );
+    }
+
+    #[test]
+    fn cron_complete_without_a_tab_identity_stays_a_human_call() {
+        assert_eq!(
+            cron_completion_params("run-token", None, None, Some("unused")),
+            serde_json::json!({ "run_id": "run-token" })
+        );
+    }
 }
