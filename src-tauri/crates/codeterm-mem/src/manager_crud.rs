@@ -216,11 +216,15 @@ impl MemManager {
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         self.embed_queue.cancel(id);
-        let removed = {
+        let (removed, skill_source) = {
             let conn = self.conn.lock();
-            store::delete(&conn, id)?
+            let skill_source =
+                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
+                    .map_err(|e| format!("read folder skill source: {e}"))?;
+            (store::delete(&conn, id)?, skill_source)
         };
         if removed {
+            remove_folder_skill(skill_source.as_deref(), &self.skill_dir, id);
             self.revoke_extraction(id);
         }
         Ok(removed)
@@ -241,13 +245,21 @@ impl MemManager {
             out
         };
         let mut deleted = Vec::new();
+        let mut skill_sources = Vec::new();
         for id in &ids {
             self.embed_queue.cancel(id);
+            let skill_source =
+                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
+                    .map_err(|e| format!("read folder skill source: {e}"))?;
             if store::delete(&conn, id)? {
                 deleted.push(id.clone());
+                skill_sources.push((id.clone(), skill_source));
             }
         }
         drop(conn);
+        for (id, source) in skill_sources {
+            remove_folder_skill(source.as_deref(), &self.skill_dir, &id);
+        }
 
         // Batch forget shares the single-delete lifecycle: each deleted source
         // revokes its own generations, so unrelated extractions are untouched.
@@ -332,5 +344,21 @@ impl MemManager {
             }
         }
         Ok(updated)
+    }
+}
+
+fn remove_folder_skill(source: Option<&str>, skills_root: &std::path::Path, id: &str) {
+    let Some(folder) = source.and_then(|source| {
+        codeterm_mem_store::skill_folders::folder_skill_folder_to_remove(source, skills_root)
+    }) else {
+        return;
+    };
+    if let Err(error) = std::fs::remove_dir_all(&folder) {
+        log::warn!(
+            "[mem] could not remove skill folder for {} at {}: {}",
+            id,
+            folder.display(),
+            error
+        );
     }
 }
