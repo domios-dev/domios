@@ -12,6 +12,7 @@ pub mod detector;
 pub mod directory_trust;
 pub mod embedded;
 pub mod glance;
+pub mod global_writes;
 pub mod host_traits;
 pub mod js_runtime;
 pub mod jsonl_window;
