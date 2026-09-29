@@ -218,10 +218,26 @@ fn mismatched_provisioned_cwd_never_uses_shared_trust() {
 #[test]
 fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
     let mut cache = SharedTrustCache::default();
-    cache.trusted.insert(r"C:\Users\owner\Trusted".into(), true);
-    cache.checking.insert(r"C:\Users\owner\Pending".into(), 0);
-    assert_eq!(cache.trusted.get(r"C:\Users\owner\Trusted"), Some(&true));
-    assert_eq!(cache.trusted.get(r"C:\Users\owner\Neighbor"), None);
+    cache.trusted.insert(
+        ("provider-a".into(), r"C:\Users\owner\Trusted".into()),
+        true,
+    );
+    cache.checking.insert(
+        ("provider-a".into(), r"C:\Users\owner\Pending".into()),
+        0,
+    );
+    assert_eq!(
+        cache
+            .trusted
+            .get(&("provider-a".into(), r"C:\Users\owner\Trusted".into())),
+        Some(&true)
+    );
+    assert_eq!(
+        cache
+            .trusted
+            .get(&("provider-b".into(), r"C:\Users\owner\Trusted".into())),
+        None
+    );
     cache.invalidate();
     assert!(cache.trusted.is_empty());
     assert!(cache.checking.is_empty());
@@ -250,7 +266,10 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
     SHARED_TRUST
         .lock()
         .trusted
-        .insert(r"C:\Users\owner\Trusted".into(), true);
+        .insert(
+            ("codex".into(), r"C:\Users\owner\Trusted".into()),
+            true,
+        );
     fixture
         .service
         .respond_to_shared_trust_prompt(&tab_id, r"C:\Users\owner\Trusted");
@@ -258,6 +277,85 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
         crate::service::output::prompt_step_dispatch_count_for_test("pty-shared-trust"),
         1,
         "an already-open sibling prompt receives one bound trust key",
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
+    let folder = tempfile::tempdir().expect("owner checkout");
+    let cwd = folder.path().to_string_lossy().into_owned();
+    let (mut mux, tab_id) = state_with_tab(Some(&cwd), None);
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.pty_id = Some("pty-owner-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "owner-trust-question-1".into(),
+        options: vec![
+            PromptOption {
+                label: "owner-trust-yes".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "owner-trust-no".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("fixture")
+            .with_directory_trust_response(DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            })
+            .with_directory_trust_prompt(prompt.clone()),
+    ));
+    let key = ("fixture".to_string(), cwd.clone());
+    {
+        let mut cache = SHARED_TRUST.lock();
+        let generation = cache.generation;
+        cache.checking.insert(key.clone(), generation);
+    }
+
+    assert_eq!(
+        fixture
+            .service
+            .respond_to_directory_trust(&tab_id, Some("owner trust screen")),
+        TrustDecision::Waiting
+    );
+    assert!(!crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+
+    {
+        let mut cache = SHARED_TRUST.lock();
+        cache.checking.remove(&key);
+        cache.trusted.insert(key, false);
+    }
+    fixture
+        .service
+        .surface_shared_directory_trust_prompts(&cwd, "fixture");
+    fixture
+        .service
+        .surface_shared_directory_trust_prompts(&cwd, "fixture");
+
+    assert!(crate::service::launch_readiness::owner_prompt_is_active(&tab_id));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref()),
+        Some(&prompt)
+    );
+    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-owner-trust"),
+        0,
+        "an untrusted folder must never receive an affirmative trust key"
     );
 }
 
