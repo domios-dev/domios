@@ -279,7 +279,11 @@ fn sandbox_additional_writable_dirs_allowed(
 ) -> bool {
     let trust_state = registry
         .with_provider(provider_id, |provider| {
-            provider.directory_trust_state(cwd.unwrap_or_default(), false)
+            // Providers key trust by plain paths; a verbatim-prefixed cwd would match no entry.
+            provider.directory_trust_state(
+                &codeterm_paths::strip_verbatim_prefix(cwd.unwrap_or_default()),
+                false,
+            )
         })
         .flatten();
     match trust_state {
@@ -972,6 +976,27 @@ mod tests {
             &mut ordinary_args,
         );
         assert_eq!(ordinary_args, vec!["--existing".to_string()]);
+    }
+
+    #[test]
+    fn a_verbatim_cwd_resolves_the_same_directory_trust_as_its_plain_spelling() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture")
+                .with_trusted_directory("C:\\repo"),
+        ));
+        assert!(sandbox_additional_writable_dirs_allowed(
+            &registry,
+            "fixture",
+            Some("\\\\?\\C:\\repo"),
+            "agent_pad",
+        ));
+        assert!(!sandbox_additional_writable_dirs_allowed(
+            &registry,
+            "fixture",
+            Some("C:\\other"),
+            "agent_pad",
+        ));
     }
 
     #[test]

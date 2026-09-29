@@ -27,6 +27,7 @@ pub struct MockProvider {
     directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
     directory_trusted_path: Option<String>,
     directory_trust_state: Option<codeterm_plugin::provider::DirectoryTrustState>,
+    trusted_directory: Option<String>,
     classified_prompt_auto_response: Option<codeterm_plugin::provider::ClassifiedPromptOptionRole>,
     tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
     parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
@@ -64,6 +65,7 @@ impl MockProvider {
             directory_trust_response: None,
             directory_trusted_path: None,
             directory_trust_state: None,
+            trusted_directory: None,
             classified_prompt_auto_response: None,
             tab_state_classification: None,
             parsed_prompt: None,
@@ -110,6 +112,12 @@ impl MockProvider {
 
     pub fn with_additional_writable_dir_flag(mut self, flag: &str) -> Self {
         self.additional_writable_dir_flag = Some(flag.to_string());
+        self
+    }
+
+    /// Trusted for exactly this plain path, untrusted for every other spelling.
+    pub fn with_trusted_directory(mut self, path: &str) -> Self {
+        self.trusted_directory = Some(path.to_string());
         self
     }
 
@@ -494,9 +502,16 @@ impl AgentProvider for MockProvider {
 
     fn directory_trust_state(
         &self,
-        _path: &str,
+        path: &str,
         _skip_permissions: bool,
     ) -> Option<codeterm_plugin::provider::DirectoryTrustState> {
+        if let Some(trusted) = &self.trusted_directory {
+            return Some(if path == trusted {
+                codeterm_plugin::provider::DirectoryTrustState::Trusted
+            } else {
+                codeterm_plugin::provider::DirectoryTrustState::Untrusted
+            });
+        }
         self.directory_trust_state
     }
     fn classify_tab_state(
