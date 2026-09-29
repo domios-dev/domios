@@ -27,6 +27,8 @@ use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
 
+const PLUGIN_READ_FILE_LIMIT: u64 = 1024 * 1024;
+
 struct HeldFileLock {
     call_id: String,
     file: File,
@@ -510,12 +512,15 @@ pub(super) fn install(
         }
     });
     let sb = sandbox.clone();
-    bind!("readFile", move |path: String| -> Option<String> {
+    bind!("readFile", move |ctx: Ctx, path: String| -> rquickjs::Result<Option<String>> {
         if !sb.can_read(&path) {
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
-            return None;
+            return Ok(None);
         }
-        std::fs::read_to_string(&path).ok()
+        match read_plugin_file(&path) {
+            Ok(contents) => Ok(Some(contents)),
+            Err(error) => Err(rquickjs::Exception::throw_range(&ctx, &error)),
+        }
     });
     let sb = sandbox.clone();
     bind!("readFileHead", move |path: String,
@@ -842,6 +847,20 @@ fn read_file_bounded(path: &str, max_bytes: u64, tail: bool) -> Option<String> {
     }
     buf.truncate(filled);
     Some(utf8_trim_partial(&buf, cut_front))
+}
+
+pub(super) fn read_plugin_file(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    let size = file.metadata().map_err(|error| error.to_string())?.len();
+    if size > PLUGIN_READ_FILE_LIMIT {
+        return Err(format!("readFile limit is {PLUGIN_READ_FILE_LIMIT} bytes"));
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(PLUGIN_READ_FILE_LIMIT)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
 }
 
 /// Drop a partial UTF-8 sequence left dangling at a byte-cut boundary: leading

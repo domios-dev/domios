@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
 use super::text_hooks;
@@ -22,6 +23,7 @@ use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
 /// Auto-edit window — if a new send arrives within this time, edit the previous message.
 const AUTO_EDIT_WINDOW_SECS: u64 = 60;
+const BRIDGE_MEDIA_READ_LIMIT: u64 = 50 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct OutboundMessage {
@@ -533,9 +535,23 @@ async fn send_media(
     let sanitized_caption = raw_caption.map(super::markdown::markdown_to_sanitized_html);
     let caption = sanitized_caption.as_deref();
 
-    let file_bytes = tokio::fs::read(file_path)
+    let file = tokio::fs::File::open(file_path)
         .await
         .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+    if file
+        .metadata()
+        .await
+        .map_err(|error| error.to_string())?
+        .len()
+        > BRIDGE_MEDIA_READ_LIMIT
+    {
+        return Err("media file exceeds 50 MiB upload limit".into());
+    }
+    let mut file_bytes = Vec::new();
+    file.take(BRIDGE_MEDIA_READ_LIMIT)
+        .read_to_end(&mut file_bytes)
+        .await
+        .map_err(|error| format!("Failed to read file {}: {}", file_path, error))?;
     let file_name = filename.map(|s| s.to_string()).unwrap_or_else(|| {
         std::path::Path::new(file_path)
             .file_name()
@@ -585,9 +601,23 @@ async fn send_media(
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
         if caption.is_some() && desc.contains("parse") {
-            let file_bytes2 = tokio::fs::read(file_path)
+            let file2 = tokio::fs::File::open(file_path)
                 .await
                 .map_err(|e| format!("Re-read failed: {}", e))?;
+            if file2
+                .metadata()
+                .await
+                .map_err(|error| error.to_string())?
+                .len()
+                > BRIDGE_MEDIA_READ_LIMIT
+            {
+                return Err("media file exceeds 50 MiB upload limit".into());
+            }
+            let mut file_bytes2 = Vec::new();
+            file2.take(BRIDGE_MEDIA_READ_LIMIT)
+                .read_to_end(&mut file_bytes2)
+                .await
+                .map_err(|error| format!("Re-read failed: {}", error))?;
             let file_name2 = std::path::Path::new(file_path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())

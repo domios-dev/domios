@@ -1,4 +1,6 @@
-use std::path::Path;
+use std::collections::HashSet;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -176,29 +178,54 @@ fn within_age(unix_ts: i64, max_age: Option<Duration>) -> bool {
 }
 
 fn pick_general_agent_session(candidates: &mut [SessionCandidate]) -> Option<String> {
+    pick_general_agent_session_with(candidates, is_general_agent_session_file)
+}
+
+fn pick_general_agent_session_with(
+    candidates: &mut [SessionCandidate],
+    mut is_general_agent: impl FnMut(&Path) -> bool,
+) -> Option<String> {
     candidates.sort_by(|a, b| b.sort_ts.cmp(&a.sort_ts));
-    candidates
-        .iter()
-        .find(|c| is_general_agent_session_file(Path::new(&c.file_path)))
-        .map(|c| c.session_id.clone())
+    let mut scanned_paths = HashSet::new();
+    candidates.iter().find_map(|candidate| {
+        let path = Path::new(&candidate.file_path);
+        let identity = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+        if !scanned_paths.insert(identity) {
+            return None;
+        }
+        is_general_agent(path).then(|| candidate.session_id.clone())
+    })
 }
 
 /// Cap on how much of a session transcript is scanned for the markers below.
 const MARKER_SCAN_LIMIT: usize = 512 * 1024;
 
 fn is_general_agent_session_file(path: &Path) -> bool {
-    let Ok(mut text) = std::fs::read_to_string(path) else {
+    let Ok(file) = std::fs::File::open(path) else {
         return false;
     };
-    if text.len() > MARKER_SCAN_LIMIT {
-        // `String::truncate` panics off a char boundary, and a non-ASCII
-        // transcript lands mid-codepoint here often enough to kill startup.
-        let mut end = MARKER_SCAN_LIMIT;
-        while end > 0 && !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
+    session_file_has_ga_marker(file)
+}
+
+fn session_file_has_ga_marker(mut file: impl Read) -> bool {
+    let mut bytes = Vec::with_capacity(MARKER_SCAN_LIMIT);
+    if file.by_ref().take(16).read_to_end(&mut bytes).is_err() {
+        return false;
     }
+    if bytes.starts_with(b"SQLite format 3\0") {
+        return false;
+    }
+    if file
+        .take((MARKER_SCAN_LIMIT - bytes.len()) as u64)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return false;
+    }
+    let valid_len = std::str::from_utf8(&bytes)
+        .map(|text| text.len())
+        .unwrap_or_else(|error| error.valid_up_to());
+    let text = String::from_utf8(bytes[..valid_len].to_vec()).unwrap_or_default();
     let markers = [
         "# CodeTerm General Agent",
         "You are the General Agent",
@@ -290,6 +317,37 @@ mod tests {
             pick_general_agent_session(&mut candidates).as_deref(),
             Some("ga-session")
         );
+    }
+
+    #[test]
+    fn general_agent_marker_scan_reads_at_most_limit() {
+        let mut bytes = vec![b'x'; 3 * 1024 * 1024];
+        bytes.extend_from_slice(b"# CodeTerm General Agent");
+        let mut reader = std::io::Cursor::new(bytes);
+        assert!(!session_file_has_ga_marker(&mut reader));
+        assert_eq!(reader.position(), MARKER_SCAN_LIMIT as u64);
+    }
+
+    #[test]
+    fn general_agent_scan_skips_sqlite_and_repeated_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.db");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"SQLite format 3\0# CodeTerm General Agent").unwrap();
+        let mut candidates: Vec<_> = (0..5)
+            .map(|index| SessionCandidate {
+                session_id: format!("session-{index}"),
+                file_path: path.to_string_lossy().into_owned(),
+                sort_ts: 5 - index,
+            })
+            .collect();
+        let mut scans = 0;
+        let selected = pick_general_agent_session_with(&mut candidates, |candidate_path| {
+            scans += 1;
+            is_general_agent_session_file(candidate_path)
+        });
+        assert_eq!(selected, None);
+        assert_eq!(scans, 1);
     }
 
     fn write_jsonl(path: &Path, line: &str) {
