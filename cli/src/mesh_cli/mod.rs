@@ -66,6 +66,11 @@ pub enum MeshAction {
         /// Instance ID of the paired peer
         instance_id: String,
     },
+    /// Explicitly lift a peer identity revocation so it can pair again
+    Unrevoke {
+        /// Instance ID of the revoked peer
+        instance_id: String,
+    },
     /// Trigger mesh discovery scan (list discovered peers)
     Discover,
     /// Start broadcasting for the configured duration
@@ -178,6 +183,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             | MeshAction::Approve { .. }
             | MeshAction::Reject { .. }
             | MeshAction::Disconnect { .. }
+            | MeshAction::Unrevoke { .. }
             | MeshAction::Discover
             | MeshAction::Broadcast
             | MeshAction::StopBroadcast

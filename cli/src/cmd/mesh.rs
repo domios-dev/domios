@@ -244,6 +244,32 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 }
             }
         }
+        MeshAction::Unrevoke { instance_id } => {
+            let body = serde_json::json!({"instance_id": instance_id});
+            let result = http
+                .post(format!("{}/api/mesh/unrevoke", base))
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", token.as_deref().unwrap_or("")),
+                )
+                .json(&body)
+                .send()
+                .map_err(|e| e.to_string())
+                .and_then(handle_resp);
+            match result {
+                Ok(val) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    } else {
+                        println!("Revocation lifted for {}", instance_id);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
         MeshAction::Discover => {
             match http
                 .post(format!("{}/api/mesh/discover", base))

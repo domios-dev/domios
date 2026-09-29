@@ -4,6 +4,20 @@ use super::crown;
 use super::types::{MeshIdentity, PairedPeer};
 use std::collections::HashMap;
 
+pub fn instance_mesh_name_for_dev(configured: &str, instance_suffix: &str) -> String {
+    let base = configured
+        .rfind(" [dev")
+        .filter(|index| configured.ends_with(']'))
+        .map(|index| &configured[..index])
+        .unwrap_or(configured);
+    let marker = if instance_suffix.is_empty() {
+        " [dev]".to_string()
+    } else {
+        format!(" [dev{}]", instance_suffix)
+    };
+    format!("{base}{marker}")
+}
+
 /// Manages this instance's identity and request signing/verification.
 pub struct IdentityManager {
     pub identity: MeshIdentity,
@@ -56,5 +70,20 @@ impl IdentityManager {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn instance_mesh_identity_derives_from_instance_not_hostname() {
+        assert_eq!(
+            super::instance_mesh_name_for_dev("same-host", "-worktree-a"),
+            "same-host [dev-worktree-a]"
+        );
+        assert_eq!(
+            super::instance_mesh_name_for_dev("same-host [dev-worktree-a]", "-worktree-b"),
+            "same-host [dev-worktree-b]"
+        );
     }
 }
