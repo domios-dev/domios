@@ -188,6 +188,10 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
 }
 
 pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
+    if !crate::global_writes::machine_global_write_allowed() {
+        log::info!("[agent-claude] skipped global rule write for non-owner instance");
+        return Ok(());
+    }
     let rules_dir = dirs::home_dir()
         .ok_or_else(|| "no home directory".to_string())?
         .join(".claude")
@@ -197,8 +201,18 @@ pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
 
     let final_path = rules_dir.join("codeterm.md");
     let tmp_path = rules_dir.join("codeterm.md.tmp");
+    let content = owned_rule_content(payload);
+    if final_path.exists() {
+        let installed = std::fs::read_to_string(&final_path).unwrap_or_default();
+        if !installed.contains("<!-- codeterm-owner -->") {
+            return Ok(());
+        }
+        if !should_write_rule(&installed, &content, cfg!(debug_assertions)) {
+            return Ok(());
+        }
+    }
 
-    std::fs::write(&tmp_path, payload)
+    std::fs::write(&tmp_path, &content)
         .map_err(|e| format!("write {}: {}", tmp_path.display(), e))?;
     std::fs::rename(&tmp_path, &final_path)
         .map_err(|e| format!("rename → {}: {}", final_path.display(), e))?;
@@ -210,13 +224,52 @@ pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn owned_rule_content(payload: &str) -> String {
+    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    owned_rule_content_for(payload, channel)
+}
+
+fn owned_rule_content_for(payload: &str, channel: &str) -> String {
+    format!("{payload}\n\n<!-- codeterm-owner -->\n<!-- codeterm-channel: {channel} -->\n")
+}
+
+fn should_write_rule(installed: &str, proposed: &str, source_debug: bool) -> bool {
+    let installed_revision = extract_revision(installed);
+    let proposed_revision = extract_revision(proposed);
+    let installed_prod = installed.contains("<!-- codeterm-channel: prod -->");
+    if installed_prod && source_debug {
+        return false;
+    }
+    if installed_revision > proposed_revision && installed_prod == !source_debug {
+        return false;
+    }
+    use sha2::Digest;
+    sha2::Sha256::digest(installed.as_bytes()) != sha2::Sha256::digest(proposed.as_bytes())
+}
+
+fn extract_revision(content: &str) -> u32 {
+    content.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let value = trimmed.strip_prefix("<!-- revision:")?.strip_suffix("-->")?.trim();
+        value.parse().ok()
+    }).unwrap_or_default()
+}
+
 pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
+    if !crate::global_writes::machine_global_write_allowed() {
+        log::info!("[agent-claude] skipped global rule removal for non-owner instance");
+        return Ok(());
+    }
     let path = dirs::home_dir()
         .ok_or_else(|| "no home directory".to_string())?
         .join(".claude")
         .join("rules")
         .join("codeterm.md");
-    if path.exists() {
+    let removable = std::fs::read_to_string(&path).is_ok_and(|content| {
+        content.contains("<!-- codeterm-owner -->")
+            && (!content.contains("<!-- codeterm-channel: prod -->") || !cfg!(debug_assertions))
+    });
+    if removable {
         std::fs::remove_file(&path).map_err(|e| format!("remove {}: {}", path.display(), e))?;
         log::info!("[agent-claude] bridge rule removed from {}", path.display());
     }
@@ -226,6 +279,34 @@ pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_rule_metadata_is_instance_agnostic_and_revision_bearing() {
+        let payload = "fixture\n<!-- revision: 7 -->\n";
+        let owned = owned_rule_content(payload);
+        assert!(owned.starts_with(payload));
+        assert!(owned.contains("<!-- codeterm-owner -->"));
+        assert!(owned.contains(if cfg!(debug_assertions) {
+            "<!-- codeterm-channel: dev -->"
+        } else {
+            "<!-- codeterm-channel: prod -->"
+        }));
+        assert_eq!(extract_revision(&owned), 7);
+    }
+
+    #[test]
+    fn rule_global_write_only_on_content_change() {
+        let body = "fixture\n<!-- revision: 7 -->\n";
+        let installed = owned_rule_content_for(body, if cfg!(debug_assertions) { "dev" } else { "prod" });
+        assert!(!should_write_rule(&installed, &installed, cfg!(debug_assertions)));
+        assert!(should_write_rule(
+            &installed,
+            &owned_rule_content_for("changed\n<!-- revision: 7 -->\n", if cfg!(debug_assertions) { "dev" } else { "prod" }),
+            cfg!(debug_assertions)
+        ));
+        let production = owned_rule_content_for(body, "prod");
+        assert!(!should_write_rule(&production, &installed, true));
+    }
     use crate::provider::AgentProvider;
 
     #[test]

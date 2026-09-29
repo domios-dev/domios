@@ -47,6 +47,7 @@ fn find_bundled_skills_dir() -> std::path::PathBuf {
 }
 
 const CODETERM_SKILL_ID: &str = "codeterm";
+const PROVIDER_OWNERSHIP_FILE: &str = ".codeterm-owner";
 
 /// Placeholder → the one semantic source that fills it. Shared fragments also
 /// reach coordinating prompts, so the skill file carries no second copy.
@@ -196,9 +197,7 @@ fn copy_skill_rendered(
     Ok(())
 }
 
-/// Mirror the `codeterm` skill into provider dirs and prune everything else.
-/// Provider dirs hold EXACTLY one skill — `codeterm`. All others are agents-only
-/// (discovered via `codeterm mem search`, not provider-dir injection).
+/// Mirror CodeTerm's owned skill entries into provider skill roots.
 pub fn mirror_skills_to_providers() {
     let canonical = crate::paths::data_dir().join("skills");
     let Some(home) = dirs::home_dir() else {
@@ -208,20 +207,42 @@ pub fn mirror_skills_to_providers() {
         home.join(".claude").join("skills"),
         home.join(".agents").join("skills"),
     ];
-    mirror_into_providers(&canonical, &targets);
+    mirror_into_providers_if_allowed(
+        &canonical,
+        &targets,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    );
+}
+
+fn mirror_into_providers_if_allowed(
+    canonical: &std::path::Path,
+    targets: &[std::path::PathBuf],
+    allowed: bool,
+) {
+    if !allowed {
+        log::info!("[skills] skipped global provider mirror for non-owner instance");
+        return;
+    }
+    mirror_into_providers(canonical, targets);
 }
 
 /// Pure inner implementation — injectable paths make this testable without touching real home dirs.
 fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::PathBuf]) {
-    // Install / update the `codeterm` skill in every provider dir.
     let codeterm_src = canonical.join(CODETERM_SKILL_ID);
     let codeterm_id = std::ffi::OsStr::new(CODETERM_SKILL_ID);
     for target in targets {
         let codeterm_dst = target.join(CODETERM_SKILL_ID);
-        if should_mirror_skill(&codeterm_src, &codeterm_dst) {
+        let source_revision = read_skill_revision(&codeterm_src);
+        if (!codeterm_dst.exists() || provider_entry_owned(&codeterm_dst))
+            && should_write_provider_entry(&codeterm_src, &codeterm_dst, source_revision)
+        {
             let _ = std::fs::create_dir_all(&codeterm_dst);
+            remove_unbundled_entries(&codeterm_src, &codeterm_dst, true);
             match copy_skill_rendered(codeterm_id, &codeterm_src, &codeterm_dst) {
-                Ok(()) => log::info!("[skills] mirrored codeterm -> {}", codeterm_dst.display()),
+                Ok(()) => {
+                    let _ = write_provider_ownership(&codeterm_dst, source_revision);
+                    log::info!("[skills] mirrored codeterm -> {}", codeterm_dst.display());
+                }
                 Err(e) => log::warn!(
                     "[skills] mirror codeterm -> {} failed: {}",
                     codeterm_dst.display(),
@@ -230,7 +251,6 @@ fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::Path
             }
         }
 
-        // Remove every non-codeterm entry — provider dirs must be exactly {codeterm}.
         let Ok(entries) = std::fs::read_dir(target) else {
             continue;
         };
@@ -238,19 +258,143 @@ fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::Path
             if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
             }
-            if entry.file_name() == "codeterm" {
+            let path = entry.path();
+            if path.file_name() == Some(codeterm_id) {
                 continue;
             }
-            let path = entry.path();
-            log::warn!(
-                "[skills] pruning non-codeterm entry from provider dir: {}",
-                path.display()
-            );
+            if !provider_entry_prunable(&path) {
+                continue;
+            }
+            log::info!("[skills] pruning owned provider entry: {}", path.display());
             if let Err(e) = std::fs::remove_dir_all(&path) {
                 log::warn!("[skills] failed to remove {}: {}", path.display(), e);
             }
         }
     }
+}
+
+fn provider_entry_owned(path: &std::path::Path) -> bool {
+    provider_metadata(path).is_some()
+}
+
+fn provider_entry_prunable(path: &std::path::Path) -> bool {
+    let source_channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    provider_metadata(path).is_some_and(|(_, installed_channel, _)| {
+        installed_channel != "prod" || source_channel == "prod"
+    })
+}
+
+fn read_skill_revision(path: &std::path::Path) -> u32 {
+    std::fs::read_to_string(path.join("SKILL.md"))
+        .map(|content| extract_revision(&content))
+        .unwrap_or_default()
+}
+
+fn provider_metadata(path: &std::path::Path) -> Option<(u32, String, String)> {
+    let data = std::fs::read_to_string(path.join(PROVIDER_OWNERSHIP_FILE)).ok()?;
+    let mut lines = data.lines();
+    if lines.next()? != "codeterm" {
+        return None;
+    }
+    let revision = lines.next()?.parse().ok()?;
+    let channel = lines.next()?.to_string();
+    let hash = lines.next()?.to_string();
+    if !matches!(channel.as_str(), "dev" | "prod")
+        || hash.len() != 64
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some((revision, channel, hash))
+}
+
+fn should_write_provider_entry(src: &std::path::Path, dst: &std::path::Path, revision: u32) -> bool {
+    if !dst.exists() {
+        return true;
+    }
+    let source_hash = provider_skill_hash(src, true);
+    let Some((installed_revision, installed_channel, installed_hash)) = provider_metadata(dst) else {
+        return false;
+    };
+    let source_channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    if installed_channel == "prod" && source_channel == "dev" {
+        return false;
+    }
+    if installed_channel == source_channel && installed_revision > revision {
+        return false;
+    }
+    installed_hash != source_hash
+        || provider_skill_hash(dst, false) != installed_hash
+        || installed_revision != revision
+        || installed_channel != source_channel
+}
+
+fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
+    use sha2::Digest;
+    let mut files = Vec::new();
+    fn collect(path: &std::path::Path, root: &std::path::Path, files: &mut Vec<(String, Vec<u8>)>) {
+        let Ok(entries) = std::fs::read_dir(path) else { return };
+        for entry in entries.flatten() {
+            let item = entry.path();
+            if item.is_dir() {
+                collect(&item, root, files);
+            } else if item.file_name().is_some_and(|name| name != PROVIDER_OWNERSHIP_FILE) {
+                if let Ok(mut bytes) = std::fs::read(&item) {
+                    if render && item == root.join("SKILL.md") {
+                        if let Ok(text) = String::from_utf8(bytes.clone()) {
+                            bytes = render_bundled_skill(
+                                std::ffi::OsStr::new(CODETERM_SKILL_ID),
+                                &text,
+                            )
+                            .into_bytes();
+                        }
+                    }
+                    files.push((item.strip_prefix(root).unwrap_or(&item).display().to_string(), bytes));
+                }
+            }
+        }
+    }
+    collect(path, path, &mut files);
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut digest = sha2::Sha256::new();
+    for (name, bytes) in files {
+        digest.update(name.as_bytes());
+        digest.update([0]);
+        digest.update(bytes);
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn remove_unbundled_entries(src: &std::path::Path, dst: &std::path::Path, root: bool) {
+    let Ok(entries) = std::fs::read_dir(dst) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let destination = entry.path();
+        let name = entry.file_name();
+        if root && name == PROVIDER_OWNERSHIP_FILE {
+            continue;
+        }
+        let source = src.join(&name);
+        if !source.exists() || source.is_dir() != destination.is_dir() {
+            if destination.is_dir() {
+                let _ = std::fs::remove_dir_all(destination);
+            } else {
+                let _ = std::fs::remove_file(destination);
+            }
+        } else if source.is_dir() && destination.is_dir() {
+            remove_unbundled_entries(&source, &destination, false);
+        }
+    }
+}
+
+fn write_provider_ownership(path: &std::path::Path, revision: u32) -> Result<(), String> {
+    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    std::fs::write(
+        path.join(PROVIDER_OWNERSHIP_FILE),
+        format!("codeterm\n{revision}\n{channel}\n{}\n", provider_skill_hash(path, false)),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// Copy if the provider copy is missing, or differs from canonical anywhere in the
@@ -424,6 +568,13 @@ mod skills_seed_tests {
 
         let src_dir = canonical.join(CODETERM_SKILL_ID);
         let dst_dir = provider.join(CODETERM_SKILL_ID);
+        let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+        let hash = provider_skill_hash(&dst_dir, false);
+        std::fs::write(
+            dst_dir.join(PROVIDER_OWNERSHIP_FILE),
+            format!("codeterm\n7\n{channel}\n{hash}\n"),
+        )
+        .unwrap();
         assert_eq!(
             std::fs::read_to_string(src_dir.join("SKILL.md")).unwrap(),
             std::fs::read_to_string(dst_dir.join("SKILL.md")).unwrap(),
@@ -515,39 +666,88 @@ mod mirror_tests {
         );
     }
 
-    /// Restart-does-not-resurrect drill: calls the REAL mirror_into_providers against a
-    /// tempdir fixture. Plants a stray in the provider dir, runs the mirror, asserts the
-    /// provider dir ends up with exactly {codeterm}.
     #[test]
-    fn mirror_installs_only_codeterm_and_prunes_strays() {
+    fn skills_mirror_prunes_only_owned_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let canonical = tmp.path().join("canonical");
         let provider = tmp.path().join("provider");
 
         // Canonical has codeterm + another skill (atlassian stays in canonical only).
-        write_skill(&canonical.join("codeterm"), "codeterm skill body");
+        write_skill(
+            &canonical.join("codeterm"),
+            "codeterm skill body\n<!-- revision: 2 -->",
+        );
         write_skill(&canonical.join("atlassian"), "atlassian skill body");
 
-        // Provider starts with a stray that should be pruned on mirror.
-        write_skill(&provider.join("stray"), "orphan");
+        write_skill(&provider.join("synced"), "provider-managed");
+        write_skill(&provider.join("qa-foreign"), "foreign");
+        write_skill(&provider.join("codeterm-owned-old"), "obsolete");
+        std::fs::write(
+            provider.join("codeterm-owned-old").join(PROVIDER_OWNERSHIP_FILE),
+            "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
+        )
+        .unwrap();
+        write_skill(&provider.join("codeterm"), "stale owned copy");
+        std::fs::write(
+            provider.join("codeterm").join(PROVIDER_OWNERSHIP_FILE),
+            "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
+        )
+        .unwrap();
 
-        // Call the real inner function with injected paths.
         mirror_into_providers(&canonical, &[provider.clone()]);
 
-        // codeterm must be installed.
         assert!(
             provider.join("codeterm").join("SKILL.md").exists(),
             "codeterm SKILL.md must be present after mirror"
         );
-        // stray must be gone — mirror actively prunes non-codeterm entries.
+        assert!(provider.join("synced").exists());
+        assert!(provider.join("qa-foreign").exists());
+        assert!(!provider.join("codeterm-owned-old").exists());
         assert!(
-            !provider.join("stray").exists(),
-            "stray was not pruned by mirror"
+            provider.join("codeterm").join(PROVIDER_OWNERSHIP_FILE).exists(),
+            "owned marker must remain inside the mirrored entry"
         );
-        // atlassian must NOT have been copied — it stays in canonical only.
         assert!(
             !provider.join("atlassian").exists(),
             "non-codeterm canonical skill must not appear in provider dir"
         );
+    }
+
+    #[test]
+    fn dev_instance_skips_machine_global_writes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let canonical = tmp.path().join("canonical");
+        let provider = tmp.path().join("provider");
+        write_skill(&canonical.join("codeterm"), "new global skill");
+        write_skill(&provider.join("codeterm"), "existing bytes");
+        let before = std::fs::read(provider.join("codeterm").join("SKILL.md")).unwrap();
+
+        mirror_into_providers_if_allowed(&canonical, &[provider.clone()], false);
+
+        assert_eq!(
+            std::fs::read(provider.join("codeterm").join("SKILL.md")).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn global_write_only_on_content_change() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source");
+        let target = tmp.path().join("target");
+        write_skill(&source, "body\n<!-- revision: 5 -->");
+        write_skill(&target, "body\n<!-- revision: 5 -->");
+        let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+        let hash = provider_skill_hash(&target, false);
+        std::fs::write(
+            target.join(PROVIDER_OWNERSHIP_FILE),
+            format!("codeterm\n5\n{channel}\n{hash}\n"),
+        )
+        .unwrap();
+        assert!(!should_write_provider_entry(&source, &target, 5));
+        std::fs::write(target.join(PROVIDER_OWNERSHIP_FILE), format!("codeterm\n5\n{channel}\n0000000000000000000000000000000000000000000000000000000000000000\n")).unwrap();
+        assert!(should_write_provider_entry(&source, &target, 5));
+        std::fs::write(target.join(PROVIDER_OWNERSHIP_FILE), "codeterm\n99\nprod\n0000000000000000000000000000000000000000000000000000000000000000\n").unwrap();
+        assert!(!should_write_provider_entry(&source, &target, 5));
     }
 }
