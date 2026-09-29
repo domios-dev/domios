@@ -12396,7 +12396,7 @@
               "value_name": "ID_OVERRIDE",
               "possible_values": [],
               "default": null,
-              "help": "Override the install id. Defaults to plugin.json#id or folder name",
+              "help": "Rename the installed runtime plugin id, including plugin.json#id",
               "aliases": []
             }
           ],
