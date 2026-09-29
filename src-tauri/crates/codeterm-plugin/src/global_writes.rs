@@ -18,6 +18,8 @@ fn machine_global_write_allowed_for(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn only_unnamed_production_instance_owns_machine_global_files_by_default() {
         assert!(!machine_global_write_allowed_for(true, None, None));
