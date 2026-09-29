@@ -260,6 +260,21 @@ pub(crate) enum SendAction {
 
 pub(crate) use crate::agent::keys::action_key_bytes as send_action_bytes;
 
+/// Keys aimed at a provider dialog are written as-is, so Enter is a plain carriage return.
+fn owner_dialog_keys(
+    ordered: &[crate::service::pty_io::OrderedPtyAction],
+) -> Vec<crate::service::pty_io::OrderedPtyAction> {
+    ordered
+        .iter()
+        .map(|action| match action {
+            crate::service::pty_io::OrderedPtyAction::Submit => {
+                crate::service::pty_io::OrderedPtyAction::Raw(b"\r".to_vec())
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
 fn action_preview(actions: &[SendAction]) -> String {
     actions
         .iter()
@@ -536,6 +551,7 @@ pub async fn send_text(
             let svc = state.svc.clone();
             let action_tab = tab_id.clone();
             let bytes_written = std::cell::Cell::new(false);
+            let keys_only = raw_text.is_empty();
             let action_result = tokio::task::spawn_blocking(move || {
                 let provider_action_refusal = || {
                     let target = {
@@ -613,6 +629,23 @@ pub async fn send_text(
                         }
                     })
                 };
+                if keys_only && provider_action_refusal().is_some() {
+                    // The owner answers a provider dialog with keys; only pasted text stays refused.
+                    log::info!(
+                        "[send-actions] owner keys into provider dialog tab={}",
+                        action_tab
+                    );
+                    return crate::service::pty_io::execute_ordered_actions(
+                        "",
+                        &owner_dialog_keys(&ordered),
+                        |_, _| Ok(()),
+                        |bytes| {
+                            svc.write_raw(&action_tab, bytes)
+                                .map_err(|error| DeliveryError::from_opaque(&action_tab, error))
+                        },
+                        crate::service::pty_io::await_action_deadline,
+                    );
+                }
                 if let Some(error) = action_refusal() {
                     return Err(error);
                 }
@@ -918,165 +951,7 @@ mod delivery_classification_tests {
 }
 
 #[cfg(test)]
-mod action_delivery_tests {
-    use super::SendRejection;
-    use crate::service::delivery_error::DeliveryError;
-    use crate::service::inject_verify::InjectionError;
-    use crate::service::pty_io::{execute_ordered_actions, OrderedPtyAction};
-    use axum::http::StatusCode;
-
-    #[test]
-    fn send_actions_enter_into_provider_modal_writes_zero_bytes() {
-        let mut bytes_written = 0usize;
-        let result = execute_ordered_actions(
-            "",
-            &[OrderedPtyAction::Submit],
-            |body, enter| {
-                assert!(body.is_empty());
-                assert!(enter);
-                Err::<(), _>(DeliveryError::TabBusyRefused {
-                    tab: "53854ac8".into(),
-                    detail: "provider update dialog is visible".into(),
-                })
-            },
-            |bytes| {
-                bytes_written += bytes.len();
-                Ok(())
-            },
-            |_| {},
-        );
-        let rejection = SendRejection::from(result.unwrap_err());
-
-        assert_eq!(bytes_written, 0);
-        assert_eq!(rejection.status, StatusCode::CONFLICT);
-        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
-        assert_eq!(rejection.body["error"]["bytes_written"], false);
-        assert_eq!(
-            rejection.body["error"]["detail"],
-            "provider update dialog is visible"
-        );
-    }
-
-    #[test]
-    fn send_actions_raw_key_into_provider_modal_writes_zero_bytes() {
-        let mut raw_writes = Vec::new();
-        let result = execute_ordered_actions(
-            "",
-            &[OrderedPtyAction::Raw(b"up".to_vec())],
-            |_, _| panic!("raw action must not wait for public agent readiness"),
-            |bytes| {
-                if bytes == b"up" {
-                    Err(DeliveryError::TabBusyRefused {
-                        tab: "53854ac8".into(),
-                        detail: "provider trust dialog is visible".into(),
-                    })
-                } else {
-                    raw_writes.push(bytes.to_vec());
-                    Ok(())
-                }
-            },
-            |_| {},
-        );
-        let rejection = SendRejection::from(result.unwrap_err());
-
-        assert!(raw_writes.is_empty());
-        assert_eq!(rejection.status, StatusCode::CONFLICT);
-        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
-        assert_eq!(rejection.body["error"]["bytes_written"], false);
-        assert_eq!(
-            rejection.body["error"]["detail"],
-            "provider trust dialog is visible"
-        );
-    }
-
-    #[test]
-    fn api_send_actions_text_enter_uses_acknowledged_submit() {
-        let mut submits = Vec::new();
-        let mut raw_writes = Vec::new();
-        let result = execute_ordered_actions(
-            "parked body",
-            &[OrderedPtyAction::Submit],
-            |text, enter| {
-                submits.push((text.to_string(), enter));
-                Err::<(), _>(InjectionError::SubmitNeverConfirmed {
-                    waited: std::time::Duration::ZERO,
-                    screen_tail: "> parked body".into(),
-                })
-            },
-            |bytes| {
-                raw_writes.push(bytes.to_vec());
-                Ok(())
-            },
-            |_| {},
-        );
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
-        assert_eq!(submits, [("parked body".into(), true)]);
-        assert!(raw_writes.is_empty());
-    }
-
-    #[test]
-    fn api_send_actions_raw_keys_ordered_bounded() {
-        let actions = [
-            OrderedPtyAction::Raw(b"up".to_vec()),
-            OrderedPtyAction::Delay(std::time::Duration::from_millis(25)),
-            OrderedPtyAction::Raw(b"esc".to_vec()),
-        ];
-        let mut raw_writes = Vec::new();
-        let mut deadlines = Vec::new();
-        let mut preflights = Vec::new();
-        execute_ordered_actions(
-            "",
-            &actions,
-            |text, enter| {
-                preflights.push((text.to_string(), enter));
-                Ok::<_, String>(())
-            },
-            |bytes| {
-                raw_writes.push(bytes.to_vec());
-                Ok(())
-            },
-            |deadline| deadlines.push(deadline),
-        )
-        .unwrap();
-        assert_eq!(raw_writes, [b"up".to_vec(), b"esc".to_vec()]);
-        assert_eq!(deadlines, [std::time::Duration::from_millis(25)]);
-        assert!(preflights.is_empty());
-    }
-
-    #[test]
-    fn send_actions_enter_and_ctrl_c_to_shell_write_their_bytes() {
-        let written = std::cell::RefCell::new(Vec::new());
-        let result = execute_ordered_actions(
-            "",
-            &[OrderedPtyAction::Submit, OrderedPtyAction::Raw(vec![0x03])],
-            |text, enter| {
-                assert!(text.is_empty());
-                assert!(enter);
-                written.borrow_mut().extend_from_slice(b"\r");
-                Ok::<_, DeliveryError>(())
-            },
-            |bytes| {
-                written.borrow_mut().extend_from_slice(bytes);
-                Ok(())
-            },
-            |_| {},
-        );
-
-        result.unwrap();
-        assert_eq!(written.into_inner(), b"\r\x03");
-    }
-
-    #[test]
-    fn a_keystroke_only_send_carries_no_return_address() {
-        use super::prefixes_return_address;
-        assert!(!prefixes_return_address("", true));
-        assert!(prefixes_return_address("answer the prompt", true));
-        assert!(!prefixes_return_address("answer the prompt", false));
-    }
-}
+mod action_delivery_tests;
 
 #[cfg(test)]
 mod payload_preflight_tests {
