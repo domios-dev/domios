@@ -254,7 +254,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let result = focus_tab(client, id);
             handle_cli_result(json, result);
         }
-        TabAction::Close { id, tab } => {
+        TabAction::Close { id, tab, force } => {
             let id = crate::args::misc::required_tab_selector(&id, &tab, "close").unwrap_or_else(
                 |error| {
                     eprintln!("Error: {error}");
@@ -262,11 +262,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 },
             );
             if let RemoteTabTarget::Remote(peer, remote_tab) = classify_remote_tab_id(id) {
-                let path = format!("/api/tabs/{}/close", urlencoding::encode(&remote_tab));
+                let mut path = format!("/api/tabs/{}/close", urlencoding::encode(&remote_tab));
+                if force {
+                    path.push_str("?force=true");
+                }
                 handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, None)));
                 return;
             }
-            let mut params = serde_json::json!({ "tab_id": id });
+            let mut params = close_tab_params(id, force);
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = close_tab(client, params);
             handle_cli_result(json, result);
@@ -844,6 +847,14 @@ fn focus_tab(client: &mut dyn RpcClient, id: &str) -> Result<serde_json::Value, 
     tab_rpc(client, "tab.focus", serde_json::json!({ "tab_id": id }))
 }
 
+fn close_tab_params(id: &str, force: bool) -> serde_json::Value {
+    let mut params = serde_json::json!({ "tab_id": id });
+    if force {
+        params["force"] = serde_json::json!(true);
+    }
+    params
+}
+
 fn close_tab(
     client: &mut dyn RpcClient,
     params: serde_json::Value,
@@ -906,7 +917,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .chain(tab)
             .find(|value| invalid(value))
             .map(String::as_str),
-        TabAction::Focus { id, tab } | TabAction::Close { id, tab } => id
+        TabAction::Focus { id, tab } | TabAction::Close { id, tab, .. } => id
             .as_deref()
             .into_iter()
             .chain(tab.as_deref())

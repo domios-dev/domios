@@ -66,6 +66,15 @@ fn is_list_response(val: &Value) -> bool {
     val.get("plans").is_some() || val.get("tasks").is_some()
 }
 
+fn plan_list_line(item: &Value) -> String {
+    let id = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+    match item.get("orphaned").and_then(Value::as_str) {
+        Some(reason) => format!("{id}\t{title}\t[flagged: {reason}]"),
+        None => format!("{id}\t{title}"),
+    }
+}
+
 fn print_plan_body(val: &Value) {
     if is_list_response(val) {
         if let Some(arr) = val.get("plans").and_then(|v| v.as_array()) {
@@ -73,9 +82,7 @@ fn print_plan_body(val: &Value) {
                 println!("(no plans)");
             } else {
                 for item in arr {
-                    let id = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    println!("{id}\t{title}");
+                    println!("{}", plan_list_line(item));
                 }
             }
             return;
@@ -350,6 +357,21 @@ mod tests {
         assert_eq!(
             render_strategy_warning(&json!({ "task_id": "task_1" })),
             None
+        );
+    }
+
+    #[test]
+    fn plan_list_line_carries_the_orphan_flag() {
+        let flagged = plan_list_line(&json!({
+            "plan_id": "pl_1",
+            "title": "Plan",
+            "orphaned": "reason-token",
+        }));
+        assert!(flagged.starts_with("pl_1\tPlan\t"));
+        assert!(flagged.contains("reason-token"));
+        assert_eq!(
+            plan_list_line(&json!({ "plan_id": "pl_2", "title": "Plan" })),
+            "pl_2\tPlan"
         );
     }
 }

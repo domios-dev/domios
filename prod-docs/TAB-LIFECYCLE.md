@@ -228,7 +228,7 @@ same write. Retirement is a one-way fence: `finish_task_dispatch`,
 `mark_task_attempt_runtime_ready`, and the startup-attempt lookup that backs
 `agent ack` all refuse a retired attempt. A `dispatch_ready` that lands after the
 tab is gone therefore fails its commit instead of settling the task into
-`in_progress` with no tab behind it.
+`in_progress` with no tab behind it. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. An attributed `tab close` of such a Worker is refused (`busy worker close refused`, `409`) unless `--force`; a human close proceeds and returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
 
 The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the
 stale attempts, clears the dead owner identity, and supersedes the epoch in one

@@ -734,6 +734,8 @@ pub struct IndexEntry {
     pub element_count: usize,
     pub loop_count: usize,
     pub has_goal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -341,11 +341,12 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::TabAction::Close { id, tab } => {
+            crate::TabAction::Close { id, tab, force } => {
                 let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
                     return unsupported("tab close requires --tab <ID>");
                 };
-                ("POST".into(), format!("/api/tabs/{}/close", id), None)
+                let query = if *force { "?force=true" } else { "" };
+                ("POST".into(), format!("/api/tabs/{}/close{query}", id), None)
             }
             crate::TabAction::Restart { tab, cwd, cmd } => {
                 if cmd.is_some() {
