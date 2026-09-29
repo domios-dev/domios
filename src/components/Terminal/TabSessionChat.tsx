@@ -34,6 +34,7 @@ import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
+import { useSteadyAgentState } from "./useSteadyAgentState";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -669,6 +670,7 @@ export function TabSessionChat({
     }
     return liveAgentState;
   }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
+  const steadyStatusRowState = useSteadyAgentState(statusRowState);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -835,7 +837,7 @@ export function TabSessionChat({
       <>
       <div className="w-full px-3">
         <AgentStateIndicator
-          state={statusRowState}
+          state={steadyStatusRowState}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
