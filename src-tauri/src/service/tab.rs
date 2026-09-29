@@ -760,6 +760,7 @@ impl ServiceContext {
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        self.release_boot_owner_prompt(tab_id);
         identity
     }
 

@@ -251,6 +251,11 @@ impl PromptDetector {
         }
     }
 
+    /// The pending permission request as its hook payload renders it.
+    pub fn permission_request_rendering(&self, tab_id: &str) -> Option<PendingPrompt> {
+        self.permission_requests.get(tab_id)?.to_pending_prompt()
+    }
+
     /// The last per-tool permission payload reported for a tab.
     #[allow(dead_code)]
     pub fn permission_request(&self, tab_id: &str) -> Option<&PermissionRequestSignal> {

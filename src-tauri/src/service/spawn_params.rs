@@ -112,6 +112,7 @@ impl SpawnTabSpec {
                 spawned_by_tab_id: params.spawned_by_tab_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
                 activate: params.activate,
+                launch_purpose: Default::default(),
             })
         });
         Self {

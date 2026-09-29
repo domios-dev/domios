@@ -194,6 +194,21 @@ fn validate_pair_provider(
         provider,
         model,
         reasoning_effort,
+    )?;
+    let full_access =
+        super::permission_policy::configured_permission_bypass(&service.agent_registry, provider)?
+            .is_some();
+    super::unattended_launch::preflight(
+        &service.agent_registry,
+        &super::unattended_launch::UnattendedLaunch {
+            provider_id: provider,
+            model,
+            role: Some(role),
+            role_profile,
+            has_task: true,
+            full_access,
+            ..Default::default()
+        },
     )
 }
 

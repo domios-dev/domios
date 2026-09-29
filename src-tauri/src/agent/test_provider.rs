@@ -50,6 +50,7 @@ pub struct MockProvider {
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
     sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
+    launch_permissions: Option<codeterm_plugin::provider::LaunchPermissionCapability>,
 }
 
 impl MockProvider {
@@ -89,6 +90,7 @@ impl MockProvider {
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
             sandboxed_linux_launch: None,
+            launch_permissions: None,
         }
     }
 
@@ -136,6 +138,14 @@ impl MockProvider {
         capability: codeterm_plugin::provider::SandboxedLinuxLaunchCapability,
     ) -> Self {
         self.sandboxed_linux_launch = Some(capability);
+        self
+    }
+
+    pub fn with_launch_permissions(
+        mut self,
+        capability: codeterm_plugin::provider::LaunchPermissionCapability,
+    ) -> Self {
+        self.launch_permissions = Some(capability);
         self
     }
 
@@ -354,6 +364,12 @@ impl AgentProvider for MockProvider {
         &self,
     ) -> Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability> {
         self.sandboxed_linux_launch.clone()
+    }
+
+    fn launch_permission_capability(
+        &self,
+    ) -> Option<codeterm_plugin::provider::LaunchPermissionCapability> {
+        self.launch_permissions.clone()
     }
 
     fn additional_writable_dir_flag(&self) -> Option<String> {

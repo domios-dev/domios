@@ -41,7 +41,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     }
 
     if let Some(ref extra) = params.args {
-        parts.extend(extra.iter().cloned());
+        parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
     }
 
     // Keep large worker prompts out of shell parsing and argv on every platform.

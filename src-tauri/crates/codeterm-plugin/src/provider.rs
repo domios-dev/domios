@@ -153,6 +153,7 @@ pub enum PathOpenKind {
 mod agent_provider;
 mod availability;
 mod capabilities;
+mod launch_permissions;
 mod launch_session;
 mod model_group;
 mod model_info;
@@ -163,6 +164,7 @@ mod usage_snapshot;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
+pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;
 pub use model_info::*;
