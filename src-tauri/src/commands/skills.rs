@@ -404,6 +404,7 @@ fn write_provider_ownership(path: &std::path::Path, revision: u32) -> Result<(),
 
 /// Copy if the provider copy is missing, or differs from canonical anywhere in the
 /// skill directory — a changed `references/` file counts. Never downgrades.
+#[cfg(test)]
 fn should_mirror_skill(src_dir: &std::path::Path, dst_dir: &std::path::Path) -> bool {
     should_copy_skill(std::ffi::OsStr::new(CODETERM_SKILL_ID), src_dir, dst_dir)
 }

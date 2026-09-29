@@ -70,7 +70,7 @@ pub(crate) fn assert_quality_ready(
     client: &mut dyn RpcClient,
     plan_id: &str,
 ) -> Result<(), String> {
-    let mut report =
+    let report =
         doctor_report_authoritative(client, Some(plan_id.to_string()), None, "quality")?;
     if report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(());
