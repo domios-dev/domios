@@ -798,3 +798,70 @@ fn repeated_lifecycle_subscriptions_release_screen_state_entries() {
         assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
     }
 }
+
+/// Records, from inside the provider call, whether `screen_state` was free.
+struct ScreenLockProbeProvider {
+    screen_state: crate::ScreenStateHandle,
+    screen_free_during_call: Arc<Mutex<Vec<bool>>>,
+}
+
+impl crate::agent::provider::AgentProvider for ScreenLockProbeProvider {
+    fn id(&self) -> &str {
+        "screen-lock-probe"
+    }
+    fn display_name(&self) -> &str {
+        "Screen Lock Probe"
+    }
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        String::new()
+    }
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+    fn detect_from_output(&self, _: &str) -> bool {
+        let free = self.screen_state.try_lock().is_some();
+        self.screen_free_during_call.lock().push(free);
+        true
+    }
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+}
+
+#[test]
+fn agent_output_readiness_releases_screen_state_before_provider_detection() {
+    let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+    screen_state.lock().process("pty-1", b"provider banner");
+    let screen_free_during_call = Arc::new(Mutex::new(Vec::new()));
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(ScreenLockProbeProvider {
+        screen_state: screen_state.clone(),
+        screen_free_during_call: screen_free_during_call.clone(),
+    }));
+    let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
+
+    assert!(super::await_agent_output_with_signal(
+        &screen_state,
+        &registry,
+        "pty-1",
+        &subscription.signal,
+        Duration::ZERO,
+        || false,
+        || {},
+    ));
+    assert_eq!(*screen_free_during_call.lock(), vec![true]);
+}
