@@ -1,6 +1,16 @@
 use crate::client::SocketClient;
 use crate::CronAction;
 
+fn print_cron_ack(json: bool, state: &str, id: &str) {
+    if json {
+        crate::cmd::print::print_json(&serde_json::json!({ "ok": true, "state": state, "id": id }));
+    } else {
+        let mut label = state.to_string();
+        label[..1].make_ascii_uppercase();
+        println!("{label}: {id}");
+    }
+}
+
 pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
     match action {
         CronAction::List { workspace } => {
@@ -46,8 +56,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -104,8 +113,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -173,41 +181,31 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Delete { id } => {
             match client.call("cron.delete", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Deleted: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "deleted", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Enable { id } => {
             match client.call("cron.enable", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Enabled: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "enabled", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Disable { id } => {
             match client.call("cron.disable", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Disabled: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "disabled", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -224,8 +222,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -244,8 +241,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -270,8 +266,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -281,12 +276,9 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 params["summary"] = serde_json::json!(s);
             }
             match client.call("cron.complete", Some(params)) {
-                Ok(_) => {
-                    println!("Completed: {}", run_id);
-                }
+                Ok(_) => print_cron_ack(json, "completed", &run_id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }

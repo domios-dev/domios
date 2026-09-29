@@ -20,6 +20,7 @@ mod render;
 mod repair;
 mod search;
 mod team_utility;
+mod text;
 mod workspace_topology;
 use adopt::handle_tab_adopt_agent;
 use capture::handle_tab_capture;
@@ -53,8 +54,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let requested_workspace = workspace.clone();
             if !json && requested_workspace.is_none() {
                 if let Err(error) = workspace_topology::print_local_workspace_map(client, agents) {
-                    eprintln!("Error: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, error.to_string());
                 }
                 return;
             }
@@ -109,8 +109,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to connect to local API: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
             let mut body = serde_json::json!({});
@@ -133,8 +132,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
             if let Some(team_id) = team.as_deref() {
                 if caller_tab_id.is_none() {
-                    eprintln!("Error: --team requires CODETERM_TAB_ID from a live Team member");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(
+                        1,
+                        "--team requires CODETERM_TAB_ID from a live Team member",
+                    );
                 }
                 body["team_id"] = serde_json::Value::String(team_id.to_string());
             }
@@ -150,8 +151,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     match serde_json::from_str::<serde_json::Value>(cfg) {
                         Ok(v) => body["config"] = v,
                         Err(e) => {
-                            eprintln!("Error: --config is not valid JSON: {}", e);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(
+                                1,
+                                format!("--config is not valid JSON: {}", e),
+                            );
                         }
                     }
                 }
@@ -235,16 +238,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         TabAction::Focus { id, tab } => {
             let id = crate::args::misc::required_tab_selector(&id, &tab, "focus").unwrap_or_else(
                 |error| {
-                    eprintln!("Error: {error}");
-                    std::process::exit(2);
+                    crate::cmd::print::fail(2, error.to_string());
                 },
             );
             if let RemoteTabTarget::Remote(peer, remote_tab) = classify_remote_tab_id(id) {
@@ -258,8 +259,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         TabAction::Close { id, tab, force } => {
             let id = crate::args::misc::required_tab_selector(&id, &tab, "close").unwrap_or_else(
                 |error| {
-                    eprintln!("Error: {error}");
-                    std::process::exit(2);
+                    crate::cmd::print::fail(2, error.to_string());
                 },
             );
             if let RemoteTabTarget::Remote(peer, remote_tab) = classify_remote_tab_id(id) {
@@ -305,8 +305,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 Ok(Some(d)) => d,
                 Ok(None) => String::new(),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             };
             match tab.as_deref().map(classify_remote_tab_id) {
@@ -336,12 +335,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     ),
                     None,
                 );
-                if let Some(text) = data.get("text").and_then(|value| value.as_str()) {
-                    print!("{text}");
-                    return;
+                match data.get("text").and_then(|value| value.as_str()) {
+                    Some(text) => text::print_tab_text(json, formatted, &remote_tab, text),
+                    None => crate::cmd::print::fail(
+                        1,
+                        format!("tab {remote_tab} on {peer} returned no screen text"),
+                    ),
                 }
-                eprintln!("No tab text");
-                std::process::exit(1);
+                return;
             }
             if tab
                 .as_deref()
@@ -354,8 +355,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
                 }
             };
             let url = format!(
@@ -364,26 +364,12 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             );
             match http.get(url).send() {
                 Ok(resp) => {
-                    if let Ok(val) = resp.json::<serde_json::Value>() {
-                        if let Some(text) = val.get("text").and_then(|v| v.as_str()) {
-                            if formatted {
-                                print!("{}", text);
-                            } else {
-                                for line in text.lines() {
-                                    if !line.trim().is_empty() {
-                                        println!("{}", line);
-                                    }
-                                }
-                            }
-                            return;
-                        }
-                    }
-                    eprintln!("No tab text");
-                    std::process::exit(1);
+                    let status = resp.status().as_u16();
+                    let body = resp.text().unwrap_or_default();
+                    text::print_local_tab_text(json, formatted, &tab_id, status, &body);
                 }
                 Err(e) => {
-                    eprintln!("Get-text request failed: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("get-text request failed: {}", e));
                 }
             }
         }
@@ -446,8 +432,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     print_tab_find_results(json, &pattern, &arr);
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -468,8 +453,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
                 }
             };
             match http
@@ -478,8 +462,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             {
                 Ok(resp) => {
                     if !resp.status().is_success() {
-                        eprintln!("Tab not found");
-                        std::process::exit(1);
+                        let status = resp.status().as_u16();
+                        let body = resp.text().unwrap_or_default();
+                        crate::cmd::print::fail_http(1, status, &body);
                     }
                     if let Ok(p) = resp.json::<serde_json::Value>() {
                         let tab_id = p
@@ -502,12 +487,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                         }
                         return;
                     }
-                    eprintln!("Tab not found");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(
+                        1,
+                        format!("tab {tab_selector} returned an unreadable status"),
+                    );
                 }
                 Err(e) => {
-                    eprintln!("Status request failed: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("status request failed: {}", e));
                 }
             }
         }
@@ -631,8 +617,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let api = match build_local_api() {
                 Ok(client) => client,
                 Err(error) => {
-                    eprintln!("Rebind failed: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("rebind failed: {error}"));
                 }
             };
             match api
@@ -644,8 +629,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     let status = response.status();
                     if !status.is_success() {
                         let message = response.text().unwrap_or_default();
-                        eprintln!("Rebind failed: {message}");
-                        std::process::exit(1);
+                        crate::cmd::print::fail_http(1, status.as_u16(), &message);
                     }
                     let value = response
                         .json::<serde_json::Value>()
@@ -653,8 +637,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     print_rebind_result(json, value);
                 }
                 Err(error) => {
-                    eprintln!("Rebind failed: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("rebind failed: {error}"));
                 }
             }
         }
@@ -695,8 +678,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to connect to local API: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
             match api
@@ -707,13 +689,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             {
                 Ok(resp) => {
                     let status = resp.status();
+                    if !status.is_success() {
+                        let text = resp.text().unwrap_or_default();
+                        crate::cmd::print::fail_http(1, status.as_u16(), &text);
+                    }
                     let body: serde_json::Value =
                         resp.json().unwrap_or_else(|_| serde_json::json!({}));
                     if json {
                         print_json(&body);
-                    } else if !status.is_success() {
-                        eprintln!("Stop failed: HTTP {}", status);
-                        std::process::exit(1);
                     } else if body
                         .get("stopped")
                         .and_then(|v| v.as_bool())
@@ -735,8 +718,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Stop request failed: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("stop request failed: {}", e));
                 }
             }
         }
@@ -762,8 +744,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let api = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to connect to local API: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
             let url = format!("{}/api/tabs/{}/chat?since={}", api_url, tab_id, since);
@@ -780,8 +761,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: chat read failed: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("chat read failed: {}", e));
                 }
             }
         }

@@ -168,8 +168,10 @@ pub(crate) fn handle_mem_graph(
             let patch_val: serde_json::Value =
                 serde_json::from_str(&patch).unwrap_or(serde_json::json!({}));
             if !patch_val.is_object() {
-                eprintln!("--patch must be a JSON object, got: {}", patch);
-                std::process::exit(1);
+                crate::cmd::print::fail(
+                    1,
+                    format!("--patch must be a JSON object, got: {}", patch),
+                );
             }
             let payload = serde_json::json!({
                 "id": id,

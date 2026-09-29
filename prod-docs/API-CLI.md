@@ -33,13 +33,20 @@ CLI reference and machine-readable command tree are refreshed by `build.sh cli`.
 
 ### CLI JSON Errors
 
-`agent spawn`, `plan task dispatch`, and `team pair` write failures to stdout as
-one `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":...,"code":...}`
-JSON envelope when passed `--json`; stderr stays empty and the command exits
-non-zero. Structured daemon error data stays under `data`, including
+With `--json` every command prints exactly one JSON object on stdout for success
+and for failure, including argument errors; stderr stays empty. A failure is
+`{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}`
+and the command exits non-zero. `error.code` is one of `not_found`,
+`invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`,
+`internal`, or a command-specific snake_case code; a missing tab, plan, cron job,
+peer, or plugin is always `not_found`.
+`rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure,
+`2` invalid arguments, and the command-specific codes named in `SECRETS` and
+`MESH-BRIDGE`. Structured daemon error data stays under `data`, including
 `invalid_model` fields such as the provider, requested id, closest catalogue
 ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the
-provider choices and a message asking for `--agent`.
+provider choices and a message asking for `--agent`. Mesh relay failures keep
+the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 

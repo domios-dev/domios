@@ -147,6 +147,10 @@ pub async fn cron_history(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    state
+        .svc
+        .cron_get(&state.cron, &id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     let history = state.svc.cron_history(&state.cron, &id);
     Ok(Json(serde_json::to_value(history).unwrap()))
 }

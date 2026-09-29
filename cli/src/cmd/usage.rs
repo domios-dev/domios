@@ -42,8 +42,7 @@ pub fn handle_usage(
                 Ok(v) if json_mode => println!("{}", serde_json::to_string(&v).unwrap_or_default()),
                 Ok(v) => render_rebuild(&v),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -72,8 +71,7 @@ pub fn handle_usage(
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -107,15 +105,13 @@ fn get_json<F: FnOnce(&serde_json::Value)>(
     let resp = match req.send().and_then(|r| r.error_for_status()) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let v: serde_json::Value = match resp.json() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: parse json: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("parse json: {}", e));
         }
     };
     if json_mode {

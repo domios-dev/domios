@@ -68,29 +68,29 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
     let val = match client.call("services.list", Some(serde_json::json!({}))) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!(
-                "Error: services.list failed while resolving '{}': {}",
-                input, e
+            crate::cmd::print::fail(
+                1,
+                format!("services.list failed while resolving '{}': {}", input, e),
             );
-            std::process::exit(1);
         }
     };
     match resolve_service_outcome(input, &val) {
         ResolveOutcome::Canonical(s) | ResolveOutcome::Match(s) => s,
         ResolveOutcome::NotFound => {
-            eprintln!("Error: no service named '{}'", input);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("no service named '{}'", input));
         }
         ResolveOutcome::Ambiguous(ids) => {
-            eprintln!(
-                "Error: {} services match name '{}'. Use the full svc_* id:",
-                ids.len(),
-                input
+            let candidates: Vec<String> = ids.iter().map(|id| format!("  {}", id)).collect();
+            let hints: Vec<&str> = candidates.iter().map(String::as_str).collect();
+            crate::cmd::print::fail_with_hints(
+                1,
+                format!(
+                    "{} services match name '{}'. Use the full svc_* id:",
+                    ids.len(),
+                    input
+                ),
+                &hints,
             );
-            for id in &ids {
-                eprintln!("  {}", id);
-            }
-            std::process::exit(1);
         }
     }
 }
@@ -234,8 +234,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -316,8 +315,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -383,8 +381,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -393,8 +390,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
             match client.call("services.delete", Some(serde_json::json!({"id": id}))) {
                 Ok(_) => println!("Deleted: {}", id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -415,8 +411,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, e.to_string());
                     }
                 }
             } else {

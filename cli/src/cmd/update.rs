@@ -126,8 +126,7 @@ pub fn handle_update(
     let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
 
@@ -190,12 +189,10 @@ pub fn handle_update(
                     }
                 }
                 Ok(resp) => {
-                    eprintln!("Error: {}", resp.status());
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, resp.status().to_string());
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -299,12 +296,10 @@ pub fn handle_update(
                     }
                 }
                 Ok(resp) => {
-                    eprintln!("Error: {}", resp.status());
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, resp.status().to_string());
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }

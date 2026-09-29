@@ -202,8 +202,9 @@ fn value_label(value: &serde_json::Value) -> Option<String> {
         .or_else(|| value.as_bool().map(|value| value.to_string()))
 }
 
-fn fail(json: bool, value: serde_json::Value) -> ! {
+fn fail(json: bool, mut value: serde_json::Value) -> ! {
     if json {
+        crate::cmd::error_contract::complete_error_object(&mut value);
         print_json(&value);
     } else {
         let code = value

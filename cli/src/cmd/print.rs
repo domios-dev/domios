@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use crate::client::SocketCallError;
+use crate::cmd::error_contract::{json_mode, ErrorCode};
 use crate::cmd::plan_output::error_envelope_with_data;
 
 /// Exit status of every failed CLI command, with and without `--json`.
@@ -19,10 +20,70 @@ pub struct CliError {
 
 impl CliError {
     pub fn new(message: impl Into<String>) -> Self {
+        let message = message.into();
+        if let Some((code, text)) = crate::client::parse_rpc_display(&message) {
+            return Self {
+                message: rpc_explanation(text),
+                code: Some(code),
+                data: None,
+            };
+        }
+        if let Some((status, body)) = parse_http_line(&message) {
+            return Self::http(status, body);
+        }
         Self {
-            message: message.into(),
+            message,
             code: None,
             data: None,
+        }
+    }
+
+    /// An HTTP refusal keeps its status and structured body so the envelope can
+    /// classify it (404 not found, 409 conflict) instead of echoing raw text.
+    pub fn http(status: u16, body: &str) -> Self {
+        let trimmed = body.trim();
+        let parsed = serde_json::from_str::<serde_json::Value>(trimmed)
+            .ok()
+            .filter(serde_json::Value::is_object);
+        let detail = parsed
+            .as_ref()
+            .and_then(|value| {
+                ["error", "message", "reason"]
+                    .iter()
+                    .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+            })
+            .unwrap_or(trimmed)
+            .to_string();
+        let mut data = parsed.unwrap_or_else(|| {
+            if trimmed.is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::json!({ "body": trimmed })
+            }
+        });
+        data["http_status"] = serde_json::json!(status);
+        let message = if detail.is_empty() {
+            format!("HTTP {status}")
+        } else {
+            format!("HTTP {status}: {detail}")
+        };
+        Self {
+            message,
+            code: None,
+            data: Some(data),
+        }
+    }
+
+    /// A clap usage failure: always an invalid-argument error, whatever its text.
+    pub fn usage(error: &clap::Error) -> Self {
+        let rendered = error.render().to_string();
+        let trimmed = rendered.trim();
+        let body = trimmed.strip_prefix("error: ").unwrap_or(trimmed);
+        let message = body.split("\n\n").next().unwrap_or(body).trim().to_string();
+        Self {
+            message,
+            code: None,
+            data: Some(serde_json::json!({ "code": ErrorCode::InvalidArgument.as_str() })),
         }
     }
 }
@@ -38,6 +99,21 @@ impl From<SocketCallError> for CliError {
             },
         }
     }
+}
+
+/// A rendered `HTTP <status>: <body>` (or `HTTP <status> — <body>`) failure line.
+fn parse_http_line(text: &str) -> Option<(u16, &str)> {
+    let rest = text.strip_prefix("HTTP ")?;
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let status = rest[..digits].parse().ok()?;
+    let after = &rest[digits..];
+    let body = after
+        .find([':', '—'])
+        .map(|at| {
+            after[at..].trim_start_matches(|c: char| c == ':' || c == '—' || c.is_whitespace())
+        })
+        .unwrap_or("");
+    Some((status, body))
 }
 
 /// The daemon's own message is the application-level explanation; an empty one
@@ -70,6 +146,48 @@ pub fn exit_with_cli_error(json: bool, error: &CliError) -> ! {
 
 fn cli_error_exit_code(_json: bool) -> i32 {
     CLI_ERROR_EXIT_CODE
+}
+
+/// Report a failure in the mode the caller asked for and leave with `exit_code`.
+pub fn fail_with(exit_code: i32, error: &CliError) -> ! {
+    write_cli_error(
+        json_mode(),
+        error,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    );
+    std::process::exit(exit_code);
+}
+
+pub fn fail(exit_code: i32, message: impl Into<String>) -> ! {
+    fail_with(exit_code, &CliError::new(message))
+}
+
+/// A usage failure whose human form keeps its multi-line hint on stderr and
+/// whose `--json` form carries the same hint inside the error object.
+pub fn fail_with_hints(exit_code: i32, message: impl Into<String>, hints: &[&str]) -> ! {
+    let json = json_mode();
+    let hint = hints
+        .iter()
+        .map(|line| line.trim().trim_start_matches("hint: "))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let error = CliError {
+        message: message.into(),
+        code: None,
+        data: Some(serde_json::json!({ "hint": hint })),
+    };
+    write_cli_error(json, &error, &mut std::io::stdout(), &mut std::io::stderr());
+    if !json {
+        for line in hints {
+            eprintln!("{line}");
+        }
+    }
+    std::process::exit(exit_code);
+}
+
+pub fn fail_http(exit_code: i32, status: u16, body: &str) -> ! {
+    fail_with(exit_code, &CliError::http(status, body))
 }
 
 pub(crate) fn write_cli_error(
@@ -488,7 +606,8 @@ mod tests {
             serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
-        assert_eq!(envelope["code"], -32603);
+        assert_eq!(envelope["error"]["rpc_code"], -32603);
+        assert_eq!(envelope["error"]["code"], "not_found");
     }
 
     /// The string path used to own a second, `--json`-blind error arm; the sink
@@ -521,7 +640,7 @@ mod tests {
             serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
-        assert_eq!(envelope["error"], "plan not found");
+        assert_eq!(envelope["error"]["message"], "plan not found");
     }
 
     #[test]
@@ -601,8 +720,8 @@ mod tests {
         );
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
-        assert_eq!(envelope["code"], serde_json::Value::Null);
-        assert_eq!(envelope["error"], "invalid remote tab id");
+        assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
+        assert_eq!(envelope["error"]["message"], "invalid remote tab id");
     }
 
     #[test]

@@ -137,8 +137,7 @@ pub(crate) fn run_plan_task_dispatch_origin(cli: super::Cli, peer: &str) {
     let (mut client, _) = match crate::client::SocketClient::connect_local() {
         Ok(connection) => connection,
         Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     };
     crate::cmd::plan::handle_mesh_dispatch(&mut client, cli.json, task, peer);
@@ -152,8 +151,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
             Ok(client) => client,
             Err(error) => {
-                eprintln!("Error: {error}");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, error.to_string());
             }
         };
         match cli.command {
@@ -204,8 +202,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     let local = match super::build_local_api() {
         Ok(client) => client,
         Err(e) => {
-            eprintln!("Error: failed to connect to local API: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
         }
     };
 
@@ -279,8 +276,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
-        eprintln!("Error: {}", path);
-        std::process::exit(2);
+        crate::cmd::print::fail(2, path.to_string());
     }
     if !cli.json
         && matches!(

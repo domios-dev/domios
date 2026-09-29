@@ -99,8 +99,9 @@ fn print_adopt_result(json: bool, value: &serde_json::Value) {
     println!("caller: {caller}");
 }
 
-fn fail(json: bool, value: serde_json::Value) -> ! {
+fn fail(json: bool, mut value: serde_json::Value) -> ! {
     if json {
+        crate::cmd::error_contract::complete_error_object(&mut value);
         print_json(&value);
     } else {
         let code = value

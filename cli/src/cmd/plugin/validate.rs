@@ -112,8 +112,7 @@ pub fn run(json: bool, dir: &Path) {
             }
         }
         Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
