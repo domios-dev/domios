@@ -122,9 +122,36 @@ mod tests {
         service.clear_pending_prompt(&tab_id);
         service.agent_tracker.lock().set_idle("pty-single-source");
         agree(TabStatus::Idle);
+        service.agent_tracker.lock().set_error("pty-single-source");
+        agree(TabStatus::Error);
 
         service.agent_tracker.lock().set_dead("pty-single-source");
         agree(TabStatus::Dead);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+    )]
+    fn provider_turn_error_surfaces_status() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.pty_id = Some("pty-provider-error".into());
+            tab.agent_type = Some("opaque-provider".into());
+            tab.boot_stage = Some(BootStage::AgentReady);
+        }
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let service = &fixture.service;
+        service
+            .agent_tracker
+            .lock()
+            .update_output("pty-provider-error", [7u8; 32]);
+
+        assert!(service.mark_agent_turn_error(&tab_id));
+        assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "error");
+        assert_eq!(summary_status(service, &tab_id), "error");
     }
 
     #[test]

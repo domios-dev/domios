@@ -45,7 +45,7 @@ fn tab_hook_target<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a s
     if tab_id.is_empty() || tab_id.contains('/') {
         return None;
     }
-    matches!(event, "session_start" | "stop").then_some((tab_id, event))
+    matches!(event, "session_start" | "provider_event" | "stop").then_some((tab_id, event))
 }
 
 pub(crate) const PUBLIC_PATHS: &[&str] = &[
@@ -412,6 +412,10 @@ mod tests {
         assert_eq!(
             tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/session_start"),
             Some(("tab-1", "session_start")),
+        );
+        assert_eq!(
+            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/provider_event"),
+            Some(("tab-1", "provider_event")),
         );
         assert_eq!(
             tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/stop"),

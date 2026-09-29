@@ -97,6 +97,37 @@ fn build_resume_command_shape() {
 }
 
 #[test]
+fn provider_turn_error_surfaces_status_event_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        opencode().detect_events(r#"{"type":"session.error","properties":{"sessionID":"ses_abc","error":{"name":"ProviderError"}}}"#),
+        vec![crate::detector::AgentEvent::TurnError]
+    );
+    assert_eq!(
+        opencode().detect_events(
+            r#"{"type":"session.idle","properties":{"sessionID":"ses_abc"}}"#
+        ),
+        vec![crate::detector::AgentEvent::TaskComplete]
+    );
+    assert_eq!(
+        opencode().detect_events(
+            r#"{"type":"session.status","properties":{"sessionID":"ses_abc","status":{"type":"busy"}}}"#
+        ),
+        vec![crate::detector::AgentEvent::TurnStarted]
+    );
+}
+
+#[test]
+fn opencode_stop_key_preserves_its_declared_interrupt_sequence() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(opencode().stop_keystroke(), Some("\x1b\x1b"));
+}
+
+#[test]
 fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     if require_plugins().is_none() {
         return;

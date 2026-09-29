@@ -229,6 +229,12 @@ impl AgentProvider for JsProvider {
         for n in names {
             if n == "permission_request" {
                 out.push(crate::detector::AgentEvent::PermissionRequest);
+            } else if n == "turn_error" {
+                out.push(crate::detector::AgentEvent::TurnError);
+            } else if n == "task_complete" {
+                out.push(crate::detector::AgentEvent::TaskComplete);
+            } else if n == "turn_started" {
+                out.push(crate::detector::AgentEvent::TurnStarted);
             }
         }
         if out.is_empty() && crate::detector::detect_interactive_prompt(text) {

@@ -73,6 +73,9 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
     if !evidence.declares_agent {
         return AgentLiveness::Absent;
     }
+    if evidence.provider_exit_observed {
+        return AgentLiveness::Absent;
+    }
     match evidence.backing {
         AgentBacking::ChatBackend { session_open } => {
             return if session_open {
@@ -85,12 +88,17 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         // no PTY yet has not been observed either way.
         AgentBacking::Pty { pty_live } => match pty_live {
             None => return AgentLiveness::Unobserved,
+            Some(false)
+                if matches!(
+                    evidence.boot_stage,
+                    Some(BootStage::ProviderReady | BootStage::AgentReady)
+                ) =>
+            {
+                return AgentLiveness::Unobserved;
+            }
             Some(false) => return AgentLiveness::Absent,
             Some(true) => {}
         },
-    }
-    if evidence.provider_exit_observed {
-        return AgentLiveness::Absent;
     }
     if evidence.boot_in_flight {
         return AgentLiveness::Unobserved;
@@ -252,9 +260,27 @@ mod tests {
 
     #[test]
     fn a_dead_pty_is_absent_whatever_the_record_says() {
-        let mut e = evidence(Some(BootStage::AgentReady));
+        let mut e = evidence(Some(BootStage::ShellReady));
         e.backing = pty(false);
         assert_eq!(classify_agent_liveness(e), AgentLiveness::Absent);
+    }
+
+    #[test]
+    fn conflicting_ready_stage_and_dead_pty_wait_for_lifecycle_reconciliation() {
+        assert_eq!(
+            classify_agent_liveness(evidence(Some(BootStage::AgentReady))),
+            AgentLiveness::Live
+        );
+        let mut contradictory = evidence(Some(BootStage::AgentReady));
+        contradictory.backing = pty(false);
+        assert_eq!(
+            classify_agent_liveness(contradictory),
+            AgentLiveness::Unobserved
+        );
+        let mut exited = evidence(Some(BootStage::AgentReady));
+        exited.backing = pty(false);
+        exited.provider_exit_observed = true;
+        assert_eq!(classify_agent_liveness(exited), AgentLiveness::Absent);
     }
 
     #[test]

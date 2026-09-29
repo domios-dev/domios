@@ -8,6 +8,7 @@ use super::tab_status::TabStatus;
 pub struct TabStatusTracker {
     statuses: HashMap<String, TabStatusEntry>,
     signals: HashMap<String, Arc<TabStatusSignal>>,
+    terminal_event_signals: HashMap<String, Arc<TabStatusSignal>>,
 }
 
 #[derive(Default)]
@@ -40,14 +41,15 @@ impl TabStatusSignal {
     }
 
     pub fn wait_after(&self, generation: u64, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
         let mut state = self.state.lock().unwrap();
-        if state.generation != generation {
-            return true;
+        while state.generation == generation && !state.closed {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            state = self.changed.wait_timeout(state, remaining).unwrap().0;
         }
-        if state.closed {
-            return false;
-        }
-        state = self.changed.wait_timeout(state, timeout).unwrap().0;
         !state.closed && state.generation != generation
     }
 }
@@ -73,6 +75,7 @@ impl TabStatusTracker {
         Self {
             statuses: HashMap::new(),
             signals: HashMap::new(),
+            terminal_event_signals: HashMap::new(),
         }
     }
 
@@ -81,6 +84,19 @@ impl TabStatusTracker {
             .entry(pty_id.to_string())
             .or_insert_with(|| Arc::new(TabStatusSignal::default()))
             .clone()
+    }
+
+    pub fn arm_terminal_event_signal(&mut self, pty_id: &str) -> Arc<TabStatusSignal> {
+        self.terminal_event_signals
+            .entry(pty_id.to_string())
+            .or_insert_with(|| Arc::new(TabStatusSignal::default()))
+            .clone()
+    }
+
+    pub fn notify_terminal_event(&self, pty_id: &str) {
+        if let Some(signal) = self.terminal_event_signals.get(pty_id) {
+            signal.mark_changed();
+        }
     }
 
     fn notify_if_changed(&self, pty_id: &str, previous: TabStatus, current: TabStatus) {
@@ -116,7 +132,9 @@ impl TabStatusTracker {
         let changed = if screen_hash != entry.last_output_hash {
             entry.last_output_hash = screen_hash;
             entry.last_output_time = now;
-            entry.status = TabStatus::Working;
+            if entry.status != TabStatus::Error {
+                entry.status = TabStatus::Working;
+            }
             true
         } else {
             false
@@ -128,6 +146,9 @@ impl TabStatusTracker {
 
     pub fn set_waiting(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
+        if previous == TabStatus::Error {
+            return;
+        }
         if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.status = TabStatus::Waiting;
         }
@@ -136,18 +157,74 @@ impl TabStatusTracker {
 
     pub fn set_idle(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
-        if let Some(entry) = self.statuses.get_mut(pty_id) {
-            entry.status = TabStatus::Idle;
+        if previous == TabStatus::Error {
+            return;
         }
-        self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
+        let now = Instant::now();
+        self.statuses
+            .entry(pty_id.to_string())
+            .or_insert_with(|| TabStatusEntry {
+                status: TabStatus::Idle,
+                last_output_hash: [0u8; 32],
+                last_output_time: now,
+                last_byte_time: now,
+                last_check_time: now,
+                status_elapsed: StatusElapsedTracker::new(),
+            })
+            .status = TabStatus::Idle;
+        self.notify_if_changed(pty_id, previous, TabStatus::Idle);
+    }
+
+    pub fn set_working(&mut self, pty_id: &str) {
+        let previous = self.get_status(pty_id);
+        let now = Instant::now();
+        self.statuses
+            .entry(pty_id.to_string())
+            .or_insert_with(|| TabStatusEntry {
+                status: TabStatus::Working,
+                last_output_hash: [0u8; 32],
+                last_output_time: now,
+                last_byte_time: now,
+                last_check_time: now,
+                status_elapsed: StatusElapsedTracker::new(),
+            })
+            .status = TabStatus::Working;
+        self.notify_if_changed(pty_id, previous, TabStatus::Working);
+    }
+
+    pub fn set_error(&mut self, pty_id: &str) {
+        let previous = self.get_status(pty_id);
+        let now = Instant::now();
+        self.statuses
+            .entry(pty_id.to_string())
+            .or_insert_with(|| TabStatusEntry {
+                status: TabStatus::Error,
+                last_output_hash: [0u8; 32],
+                last_output_time: now,
+                last_byte_time: now,
+                last_check_time: now,
+                status_elapsed: StatusElapsedTracker::new(),
+            })
+            .status = TabStatus::Error;
+        self.notify_if_changed(pty_id, previous, TabStatus::Error);
     }
 
     pub fn set_dead(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
-        if let Some(entry) = self.statuses.get_mut(pty_id) {
-            entry.status = TabStatus::Dead;
-        }
-        self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
+        let now = Instant::now();
+        self.statuses
+            .entry(pty_id.to_string())
+            .or_insert_with(|| TabStatusEntry {
+                status: TabStatus::Dead,
+                last_output_hash: [0u8; 32],
+                last_output_time: now,
+                last_byte_time: now,
+                last_check_time: now,
+                status_elapsed: StatusElapsedTracker::new(),
+            })
+            .status = TabStatus::Dead;
+        self.notify_if_changed(pty_id, previous, TabStatus::Dead);
+        self.notify_terminal_event(pty_id);
     }
 
     pub fn check_idle(&mut self, pty_id: &str, idle_timeout: Duration) {
@@ -209,6 +286,9 @@ impl TabStatusTracker {
     pub fn remove(&mut self, pty_id: &str) {
         self.statuses.remove(pty_id);
         if let Some(signal) = self.signals.remove(pty_id) {
+            signal.close();
+        }
+        if let Some(signal) = self.terminal_event_signals.remove(pty_id) {
             signal.close();
         }
     }

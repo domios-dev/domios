@@ -10,6 +10,10 @@
 pub enum AgentEvent {
     /// Agent is asking for permission (tool approval, confirmation)
     PermissionRequest,
+    /// Provider reported that the current turn failed.
+    TurnError,
+    /// Provider reported that a new turn is active.
+    TurnStarted,
     /// Agent finished working (prompt returned after output)
     TaskComplete,
 }

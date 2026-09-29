@@ -258,7 +258,7 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedTabView[];
-  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from the
+  /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
   tab_statuses?: Record<string, TabStatus>;
@@ -372,7 +372,7 @@ export interface Notification {
   sticky?: boolean;
 }
 
-export type TabStatus = "Working" | "Waiting" | "Idle" | "Dead";
+export type TabStatus = "Working" | "Waiting" | "Idle" | "Error" | "Dead";
 
 /** A worker running on another mesh peer that reports to a local orchestrator.
  *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost

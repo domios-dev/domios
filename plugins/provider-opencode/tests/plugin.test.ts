@@ -61,8 +61,8 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 const bindingPluginSource = opencodeBindingPluginSource();
 assert(isCurrentOpencodeBindingPluginSource(bindingPluginSource), "generated binding plugin is current");
 const previousBindingPluginSource = bindingPluginSource.replace(
+  "codeterm-opencode-session-binding-v4",
   "codeterm-opencode-session-binding-v3",
-  "codeterm-opencode-session-binding-v2",
 );
 assert(ownsOpencodeBindingPluginSource(previousBindingPluginSource), "older CodeTerm binding versions remain owned");
 assert(!isCurrentOpencodeBindingPluginSource(previousBindingPluginSource), "older binding version is stale");
@@ -141,7 +141,9 @@ console.log("\n--- session binding deduplicates by active session ---\n");
 
 {
   const resumed = await loadGeneratedBindingHooks();
-  await resumed.hooks.event({ event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } } });
+  await resumed.hooks.event({
+    event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } },
+  });
   eq(
     resumed.requests.map(({ session_id }) => session_id),
     ["ses_resumed"],

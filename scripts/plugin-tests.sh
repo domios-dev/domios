@@ -43,6 +43,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
+      plugins/provider-opencode/tests/lifecycle.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
       src/lib/plugins/__tests__/registry.test.ts
@@ -93,6 +94,12 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+    )
+    ;;
+  provider-opencode)
+    tests=(
+      plugins/provider-opencode/tests/plugin.test.ts
+      plugins/provider-opencode/tests/lifecycle.test.ts
     )
     ;;
   chat-preprocessor)

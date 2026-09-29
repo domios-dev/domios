@@ -30,6 +30,33 @@ fn test_set_dead() {
 }
 
 #[test]
+fn provider_error_status_notifies_waiters_and_is_visible_without_output_history() {
+    let mut tracker = TabStatusTracker::new();
+    let signal = tracker.arm_status_change_signal("pty-1");
+    let generation = signal.generation();
+
+    tracker.set_error("pty-1");
+
+    assert_eq!(tracker.get_status("pty-1"), TabStatus::Error);
+    assert!(signal.wait_after(generation, Duration::ZERO));
+}
+
+#[test]
+fn provider_error_status_survives_repaint_until_provider_starts_another_turn() {
+    let mut tracker = TabStatusTracker::new();
+    tracker.update_output("pty-1", [1u8; 32]);
+    tracker.set_error("pty-1");
+
+    tracker.update_output("pty-1", [2u8; 32]);
+    assert_eq!(tracker.get_status("pty-1"), TabStatus::Error);
+    tracker.set_idle("pty-1");
+    assert_eq!(tracker.get_status("pty-1"), TabStatus::Error);
+
+    tracker.set_working("pty-1");
+    assert_eq!(tracker.get_status("pty-1"), TabStatus::Working);
+}
+
+#[test]
 fn test_check_idle_not_timed_out() {
     let mut tracker = TabStatusTracker::new();
     tracker.update_output("pty-1", [1u8; 32]);
@@ -134,6 +161,24 @@ fn status_signal_advances_only_on_status_transition() {
     tracker.check_idle("pty-1", Duration::ZERO);
     assert_ne!(signal.generation(), working);
     assert_eq!(tracker.get_status("pty-1"), TabStatus::Idle);
+}
+
+#[test]
+fn tab_stop_waits_for_provider_status_event() {
+    let mut tracker = TabStatusTracker::new();
+    tracker.update_output("pty-stop", [1u8; 32]);
+    let signal = tracker.arm_terminal_event_signal("pty-stop");
+    let generation = signal.generation();
+
+    tracker.check_idle("pty-stop", Duration::ZERO);
+    assert!(!signal.wait_after(generation, Duration::ZERO));
+    assert!(!tracker.get_status("pty-stop").has_active_turn());
+
+    tracker.set_idle("pty-stop");
+    tracker.notify_terminal_event("pty-stop");
+
+    assert!(signal.wait_after(generation, Duration::ZERO));
+    assert!(!tracker.get_status("pty-stop").has_active_turn());
 }
 
 #[test]

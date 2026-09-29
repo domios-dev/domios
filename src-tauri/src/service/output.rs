@@ -1025,7 +1025,14 @@ impl ServiceContext {
 
         match event {
             AgentEvent::PermissionRequest => {}
+            AgentEvent::TurnError => {
+                self.mark_agent_turn_error(tab_id);
+            }
+            AgentEvent::TurnStarted => {
+                self.mark_agent_turn_started(tab_id);
+            }
             AgentEvent::TaskComplete => {
+                self.mark_agent_turn_complete(tab_id);
                 if prev_status == TabStatus::Working {
                     let title = self.mux.read().get_tab(tab_id).map(|p| p.title.clone());
                     if let Some(title) = title {

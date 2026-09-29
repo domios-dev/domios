@@ -16,6 +16,8 @@ use crate::api::{
 mod run_session;
 mod session_ack;
 mod session_claim;
+mod provider_events;
+pub(crate) use provider_events::hook_provider_event;
 #[cfg(test)]
 use session_ack::acknowledge_authenticated_launch;
 use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
