@@ -542,14 +542,18 @@ impl ServiceContext {
             .and_then(|owner| owner.tab_id)
             .filter(|target| !target.is_empty() && target != tab_id)
             .map(ReportTarget::Local);
-        let target = plan_owner_target.or(default_target_opt).ok_or_else(|| {
-            report_plan_ctx::nowhere_to_deliver_refusal(
+        let target = plan_owner_target.or(default_target_opt);
+        // A Team-root plan owner has nobody above it; its report is plan evidence only.
+        let record_only = matches!(plan_only_authority, Some(PlanOnlyReportAuthority::PlanOwner));
+        if target.is_none() && !record_only {
+            return Err(report_plan_ctx::nowhere_to_deliver_refusal(
                 tab_id,
                 rejected_task_transition
                     .as_ref()
                     .map(|rejection| rejection.cause.as_str()),
             )
-        })?;
+            .into());
+        }
 
         let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
         let homed_to_remote = if eff_plan_id.is_none() || foreign {
@@ -622,6 +626,23 @@ impl ServiceContext {
             message,
             epoch_ms(),
         )?;
+
+        let Some(target) = target else {
+            let (_, stride_id) = persisted_plan_evidence.clone().ok_or_else(|| {
+                report_plan_ctx::nowhere_to_deliver_refusal(tab_id, None)
+            })?;
+            report_requirement.accept();
+            notices.push("the report was recorded on the plan; a Team-root Orchestrator has no delivery target".into());
+            return Ok(ReportResult {
+                report_id: stride_id,
+                orchestrator_tab_id: tab_id.to_string(),
+                notices,
+                persisted_task: None,
+                persisted_plan_evidence,
+                rejected_task_transition,
+                report_outcome: Some(ReportOutcomeClass::StructurallyNotAttachable),
+            });
+        };
 
         if let Some(ref plan_id) = eff_plan_id {
             if !homed_to_remote
