@@ -67,6 +67,13 @@ Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Us
 
 Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here.
 
+A `crons.json` that fails to load is preserved as `crons.json.corrupt-<UTC timestamp>`,
+reported by one ERROR line and one action-needed notification, and recovered from
+the newest valid backup in `state-backups/crons.json/` (written on every save).
+Without a backup the store runs on an empty in-memory list: built-in jobs such as
+`mem-dreaming-auto` run in memory only, and every save is refused until a fixed
+`crons.json` is restored and CodeTerm restarts.
+
 ### `CronJob` schema
 
 | Field | Type | Default | Description |
@@ -192,4 +199,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

@@ -1,6 +1,7 @@
 mod agent_access;
 mod dropped_keys;
 mod kpi_default;
+mod load;
 pub mod schema;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -10,6 +11,9 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::AppHandle;
 
+pub use load::load_config;
+#[cfg(test)]
+use load::{load_config_cached, with_generated_token, ConfigCache};
 use schema::{AppConfig, ThemeConfig};
 
 pub type ConfigState = Arc<Mutex<AppConfig>>;
@@ -238,162 +242,6 @@ fn cleanup_removed_plugin_config_in_memory(config: &mut AppConfig, plugin_id: &s
     if config.integrations.voice_transcribe.active == plugin_id {
         config.integrations.voice_transcribe.active = schema::default_transcribe_active();
     }
-}
-
-/// Load config from disk, or create default if missing.
-/// Auto-generates an API token when none is configured — the internal
-/// webview and the CLI both need it to authenticate against the REST API.
-/// Cached config read. `config.toml` is re-parsed only when its mtime changes.
-/// `load_config()` is called from many hot paths (mesh heartbeats, request
-/// handlers, bridge/secrets/voice) — a disk read + full TOML parse per call was
-/// a measurable CPU sink (profiled). `config set` rewrites the file so the mtime
-/// bumps and readers see the new value on the next call.
-type ConfigCache = Mutex<Option<(Option<std::time::SystemTime>, AppConfig)>>;
-
-pub fn load_config() -> AppConfig {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<ConfigCache> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(None));
-    match config_path() {
-        Ok(path) => load_config_cached(&path, cache),
-        Err(e) => {
-            log::warn!("Cannot determine config path: {}. Using defaults.", e);
-            ensure_api_token(AppConfig::default(), None)
-        }
-    }
-}
-
-/// Cache the parsed config, keyed by file mtime. The cache lock is held across
-/// the uncached fill so a token auto-generated for a tokenless config is
-/// produced EXACTLY once: concurrent callers can no longer each generate a
-/// different token (the auth-token divergence that 401'd one tab while another
-/// tab with a sibling-generated token succeeded). The mtime is re-read AFTER
-/// the fill because `ensure_api_token` may rewrite the file — caching the
-/// post-write mtime keeps the next call a hit instead of a perpetual miss.
-fn load_config_cached(path: &std::path::Path, cache: &ConfigCache) -> AppConfig {
-    let mut guard = cache.lock();
-    let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-    if let Some((cached_mtime, cfg)) = guard.as_ref() {
-        if *cached_mtime == mtime {
-            return cfg.clone();
-        }
-    }
-    match load_config_uncached_at(path) {
-        Ok(cfg) => {
-            let post_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-            *guard = Some((post_mtime, cfg.clone()));
-            cfg
-        }
-        // Transient read/parse failure: keep the last-known good config instead
-        // of caching a token-less default that would 401 every tab.
-        Err(()) => match guard.as_ref() {
-            Some((_, cfg)) => cfg.clone(),
-            None => ensure_api_token(AppConfig::default(), None),
-        },
-    }
-}
-
-/// `Err` means a TRANSIENT failure (unreadable/unparseable file) — the caller
-/// must keep any previously cached config rather than fall back to a token-less
-/// default, since a token-less config reaching the auth layer 401s every tab.
-fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
-    if path.exists() {
-        match std::fs::read_to_string(path) {
-            Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
-                Ok(mut config) => {
-                    let migrated_agent_access = agent_access::migrate(&mut config, &contents);
-                    let migrated_kpi_default = kpi_default::migrate(&mut config);
-                    let dropped_keys = dropped_keys::detect(&contents);
-                    if !dropped_keys.is_empty() {
-                        log::warn!(
-                            "[config] upgrade dropped keys with no replacement, still present in {}: {}",
-                            path.display(),
-                            dropped_keys.join(", ")
-                        );
-                    }
-                    resolve_theme(&mut config);
-                    normalize_runtime_defaults(&mut config);
-                    // Mesh tab disabled → force offline. Tab is the on/off switch for the whole subsystem; flag is the runtime presence state.
-                    if !config.ui.mesh_tab_enabled {
-                        config.mesh.enabled = false;
-                    }
-                    log::info!("Config loaded from {}", path.display());
-                    let config = ensure_api_token(config, Some(path));
-                    if migrated_agent_access || migrated_kpi_default {
-                        if let Ok(toml_str) = toml::to_string_pretty(&config) {
-                            if let Err(error) = write_config_atomic(path, &toml_str) {
-                                log::warn!("Failed to persist config migration: {error}");
-                            }
-                        }
-                    }
-                    Ok(config)
-                }
-                Err(e) => {
-                    log::error!(
-                        "Failed to parse config at {}: {} — keeping last-known config",
-                        path.display(),
-                        e
-                    );
-                    Err(())
-                }
-            },
-            Err(e) => {
-                log::error!(
-                    "Failed to read config at {}: {} — keeping last-known config",
-                    path.display(),
-                    e
-                );
-                Err(())
-            }
-        }
-    } else {
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                log::warn!("Failed to create config directory: {}", e);
-                return Ok(ensure_api_token(AppConfig::default(), None));
-            }
-        }
-        let config = ensure_api_token(AppConfig::default(), None);
-        let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| default_config_toml());
-        if let Err(e) = write_config_atomic(path, &toml_str) {
-            log::warn!("Failed to write default config: {}", e);
-        } else {
-            log::info!("Default config created at {}", path.display());
-        }
-        Ok(config)
-    }
-}
-
-/// Crash-safe config write: serialize to a sibling temp file, then rename over
-/// the target. A concurrent reader sees either the old or the new file whole,
-/// never a truncated `fs::write` in progress (a torn read parses as a token-less
-/// config and 401s the tab that read it). `rename` replaces the destination
-/// atomically on both Unix and Windows.
-fn write_config_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let tmp = path.with_extension(format!("toml.tmp.{}.{}", std::process::id(), seq));
-    std::fs::write(&tmp, contents)?;
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
-    Ok(())
-}
-
-fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> AppConfig {
-    normalize_runtime_defaults(&mut config);
-    if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
-        let token = uuid::Uuid::new_v4().to_string().replace("-", "");
-        log::info!("[config] auto-generated API token (none was configured)");
-        config.api.token = Some(token);
-        if let Some(p) = path {
-            let toml_str = toml::to_string_pretty(&config).unwrap_or_default();
-            let _ = write_config_atomic(p, &toml_str);
-        }
-    }
-    config
 }
 
 fn normalize_runtime_defaults(config: &mut AppConfig) {
@@ -644,7 +492,7 @@ sound = false
 
     #[test]
     fn api_defaults_are_loopback_authenticated_and_cors_closed() {
-        let config = ensure_api_token(AppConfig::default(), None);
+        let config = with_generated_token(AppConfig::default()).0;
         assert_eq!(config.api.host, "127.0.0.1");
         assert!(!config.api.cors);
         assert!(config.api.cors_allow_origins.is_empty());
@@ -903,7 +751,9 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
     let toml_str = serialize_config(config)?;
-    write_config_atomic(&path, &toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
+    load::config_file(&path)
+        .save(&toml_str)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
     log::info!("Config saved to {}", path.display());
     Ok(())
 }

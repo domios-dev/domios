@@ -8,6 +8,7 @@ use std::{
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+use crate::persisted_state::{Loaded, StateFile};
 use crate::service::ServiceState;
 
 pub mod recurrence;
@@ -106,11 +107,9 @@ impl DelayedSendQueue {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("create {}: {}", parent.display(), e))?;
         }
-        let mut messages = if path.exists() {
-            let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
-            load_queue_records(&path, &bytes)
-        } else {
-            Vec::new()
+        let mut messages = match queue_file(&path).load(|text| parse_queue(&path, text)) {
+            Loaded::Parsed(messages) | Loaded::Recovered { value: messages, .. } => messages,
+            Loaded::Missing | Loaded::Unrecoverable { .. } => Vec::new(),
         };
         for msg in &mut messages {
             msg.last_tick_send_sequence = 0;
@@ -534,40 +533,45 @@ impl DelayedSendQueue {
 
     fn persist(&self) -> Result<(), String> {
         let messages = self.inner.lock().messages.clone();
-        write_queue_file(
-            &self.path,
-            &QueueFile {
-                version: QUEUE_VERSION,
-                messages,
-            },
-        )
+        let json = serde_json::to_string_pretty(&QueueFile {
+            version: QUEUE_VERSION,
+            messages,
+        })
+        .map_err(|e| e.to_string())?;
+        queue_file(&self.path).save(&json)
     }
 }
 
-fn load_queue_records(path: &Path, bytes: &[u8]) -> Vec<DelayedMessage> {
-    let root: serde_json::Value = match serde_json::from_slice(bytes) {
-        Ok(root) => root,
-        Err(error) => {
-            log::error!(
-                "[delayed_send] quarantined unreadable queue {} during startup: {}; source left unchanged",
-                path.display(),
-                error
-            );
-            return Vec::new();
-        }
-    };
-    let Some(records) = root.get("messages").and_then(serde_json::Value::as_array) else {
-        log::error!(
-            "[delayed_send] queue {} has no messages array; source left unchanged",
-            path.display()
-        );
-        return Vec::new();
-    };
-    records
+/// The strict validator keeps a hand-edited queue whose records no longer all
+/// parse: the next save preserves it as a corrupt copy instead of dropping them.
+fn queue_file(path: &Path) -> StateFile {
+    StateFile::new(path).with_validator(validate_queue_strict)
+}
+
+fn queue_records(root: &serde_json::Value) -> Result<&Vec<serde_json::Value>, String> {
+    root.get("messages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "queue has no messages array".to_string())
+}
+
+fn validate_queue_strict(text: &str) -> Result<(), String> {
+    let root: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    for (index, record) in queue_records(&root)?.iter().enumerate() {
+        let mut record = record.clone();
+        normalize_queue_record(&mut record).map_err(|e| format!("record {index}: {e}"))?;
+        serde_json::from_value::<DelayedMessage>(record)
+            .map_err(|e| format!("record {index}: {e}"))?;
+    }
+    Ok(())
+}
+
+fn parse_queue(path: &Path, text: &str) -> Result<Vec<DelayedMessage>, String> {
+    let root: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(queue_records(&root)?
         .iter()
         .enumerate()
         .filter_map(|(index, record)| parse_queue_record(path, index, record.clone()))
-        .collect()
+        .collect())
 }
 
 fn parse_queue_record(
@@ -1074,24 +1078,6 @@ fn emit_changed(svc: &crate::service::ServiceContext, tab_id: &str) {
         "delayed-send-changed",
         serde_json::json!({ "tabId": tab_id }),
     );
-}
-
-fn write_queue_file(path: &Path, file: &QueueFile) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("create {}: {}", parent.display(), e))?;
-    }
-    let bytes = serde_json::to_vec_pretty(file).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, bytes).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(first) if path.exists() => {
-            fs::remove_file(path)
-                .map_err(|e| format!("replace {}: {}; {}", path.display(), first, e))?;
-            fs::rename(&tmp, path).map_err(|e| format!("rename {}: {}", path.display(), e))
-        }
-        Err(e) => Err(format!("rename {}: {}", path.display(), e)),
-    }
 }
 
 fn sort_messages(messages: &mut [DelayedMessage]) {

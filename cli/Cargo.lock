@@ -336,6 +336,7 @@ name = "codeterm-plugins"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "codeterm-util",
  "dirs 5.0.1",
  "serde",
  "serde_json",

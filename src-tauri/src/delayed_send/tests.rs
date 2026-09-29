@@ -548,3 +548,62 @@ fn v2_queue_file_loads_with_recurrence_defaults() {
     assert_eq!(old.team_id, None);
     assert_eq!(old.last_tick_send_sequence, 0);
 }
+
+fn enqueue_one(queue: &DelayedSendQueue, text: &str) -> Result<DelayedMessage, String> {
+    queue.enqueue(
+        "tab".into(),
+        None,
+        None,
+        text.into(),
+        Some(100),
+        ReminderCreator::default(),
+    )
+}
+
+#[test]
+fn corrupt_queue_is_preserved_and_recovered_from_backup() {
+    let (dir, queue) = queue();
+    enqueue_one(&queue, "kept").unwrap();
+    drop(queue);
+    let path = dir.path().join("delayed_send.json");
+    let full = fs::read(&path).unwrap();
+    let truncated = full[..full.len() / 2].to_vec();
+    fs::write(&path, &truncated).unwrap();
+
+    let reopened = DelayedSendQueue::open(path.clone()).unwrap();
+
+    assert_eq!(reopened.list(None)[0].text, "kept");
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read(&copies[0]).unwrap(), truncated);
+}
+
+#[test]
+fn corrupt_queue_without_backup_is_never_saved_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("delayed_send.json");
+    let broken = b"{\"version\":3,\"messages\":[{\"id\":".to_vec();
+    fs::write(&path, &broken).unwrap();
+
+    let queue = DelayedSendQueue::open(path.clone()).unwrap();
+
+    assert!(queue.list(None).is_empty());
+    assert!(enqueue_one(&queue, "new").is_err());
+    assert!(!path.exists());
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read(&copies[0]).unwrap(), broken);
+}
+
+#[test]
+fn malformed_record_is_preserved_before_the_next_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("delayed_send.json");
+    let fixture = r#"{"version":2,"messages":[{"id":"dmsg-bad","paneId":42}]}"#;
+    fs::write(&path, fixture).unwrap();
+    let queue = DelayedSendQueue::open(path.clone()).unwrap();
+
+    enqueue_one(&queue, "new").unwrap();
+
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read_to_string(&copies[0]).unwrap(), fixture);
+    assert_eq!(DelayedSendQueue::open(path).unwrap().list(None).len(), 1);
+}
