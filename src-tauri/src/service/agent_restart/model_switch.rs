@@ -1,7 +1,7 @@
 //! Live model switch for one tab. The provider's capability says how: a
 //! `RestartResume` provider is relaunched on its own verified session with the
 //! new model launch args, and the switch is reported only once the provider's
-//! session-start report for that relaunch names the model.
+//! session-start report or first post-relaunch turn names the model.
 
 use std::time::{Duration, Instant};
 
@@ -115,6 +115,7 @@ impl From<AgentRestartError> for ModelSwitchError {
 /// would use for this tab, with only the model replaced.
 pub(super) struct ModelSwitchLaunch {
     provider: String,
+    session_id: String,
     params: SpawnAgentParams,
     launch: RestorableLaunchParameters,
     task: Option<String>,
@@ -201,6 +202,7 @@ impl ModelSwitchLaunch {
         };
         Ok(Self {
             provider: snap.provider.clone(),
+            session_id: session_id.to_string(),
             params,
             launch,
             task,
@@ -240,6 +242,12 @@ impl ModelSwitchLaunch {
         );
         if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
             tab.model_fallback = None;
+            tab.pending_model_switch_observation = Some(
+                crate::multiplexer::types::PendingModelSwitchObservation {
+                    session_id: self.session_id.clone(),
+                    launched_model: self.launched_model().to_string(),
+                },
+            );
         }
         if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
             svc,
@@ -338,9 +346,11 @@ impl ServiceContext {
             launched_model
         );
         let restart = self.restart_live_agent(snap, false, DEFAULT_GRACE_SECS, Some(&launch))?;
-        let observed = self.await_launch_reported_model(
+        let observed = self.await_model_switch_observation(
             &restart.tab_id,
+            &provider,
             &session_id,
+            &launched_model,
             Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS),
         );
         match observed {
@@ -389,21 +399,50 @@ impl ServiceContext {
         }
     }
 
-    /// Waits on the boot signal for this binding's own session-start report;
-    /// a report recorded under an earlier nonce never satisfies it.
-    fn await_launch_reported_model(
+    fn await_model_switch_observation(
         &self,
         tab_id: &str,
+        provider: &str,
         session_id: &str,
+        launched_model: &str,
         timeout: Duration,
     ) -> Option<String> {
         let mut observed = None;
         crate::service::boot_wait::wait_until(Instant::now() + timeout, || {
-            observed = self.mux.read().get_tab(tab_id).and_then(|tab| {
-                crate::service::session_model::current_launch_report(tab, session_id)
-                    .map(|report| report.model)
-            });
-            observed.is_some()
+            let (report, model, pending_model) = {
+                let mux = self.mux.read();
+                let Some(tab) = mux.get_tab(tab_id) else {
+                    return false;
+                };
+                let identity_current = crate::service::session_model::has_current_session_model(
+                    tab, session_id,
+                );
+                (
+                    crate::service::session_model::current_launch_report(tab, session_id),
+                    identity_current.then(|| tab.agent_session_model.clone()).flatten(),
+                    tab.pending_model_switch_observation
+                        .as_ref()
+                        .filter(|pending| pending.session_id == session_id)
+                        .map(|pending| pending.launched_model.clone()),
+                )
+            };
+            if let Some(report) = report {
+                observed = Some(report.model.clone());
+                if crate::service::session_model::session_model_matches(
+                    &self.agent_registry,
+                    provider,
+                    pending_model.as_deref().unwrap_or(launched_model),
+                    &report.model,
+                ) {
+                    return true;
+                }
+            }
+            if pending_model.is_none() {
+                observed = model.or(observed.clone());
+                observed.is_some()
+            } else {
+                false
+            }
         });
         observed
     }

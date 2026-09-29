@@ -380,6 +380,57 @@ mod model_refresh_tests {
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
+    fn model_switch_uses_the_first_post_launch_turn_after_a_stale_transcript_tail() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("binding-live".into());
+        tab.reported_session_binding_nonce = Some("binding-live".into());
+        tab.agent_requested_model = Some("sonnet".into());
+        tab.agent_provider_resolved_model = Some("sonnet".into());
+        tab.pending_model_switch_observation = Some(
+            crate::multiplexer::types::PendingModelSwitchObservation {
+                session_id: "session-live".into(),
+                launched_model: "sonnet".into(),
+            },
+        );
+        let (provider, models) =
+            SessionModelProvider::with_provider(AGENT, &["session-live"]);
+        models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "haiku".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+
+        models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "sonnet".into());
+        assert!(fixture
+            .service
+            .observe_post_launch_turn_after_stop(&tab_id));
+        let reached_new_model = crate::service::boot_wait::wait_until(
+            std::time::Instant::now() + Duration::from_secs(2),
+            || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("sonnet"),
+        );
+
+        assert!(reached_new_model);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_model.as_deref(), Some("sonnet"));
+        assert!(tab.pending_model_switch_observation.is_none());
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
     fn claude_worker_tab_detects_its_own_session_model() {
         let (mut mux, tab_id) = seeded_tab(Some("claude-worker-own"));
         let tab = mux.get_tab_mut(&tab_id).unwrap();
