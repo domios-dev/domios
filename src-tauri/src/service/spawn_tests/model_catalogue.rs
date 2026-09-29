@@ -413,7 +413,7 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
     );
     assert!(!closest.is_empty());
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
-        let clearance = provider_launch_preflight(&registry, "codex-like")
+        let clearance = provider_launch_preflight(&registry, "codex-like", false)
             .map_err(|error| error.to_string())?;
         create_cleared_agent_tab(&mut mux, &workspace_id, &clearance)
             .map_err(|error| error.to_string())
