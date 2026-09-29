@@ -78,7 +78,11 @@ pub(super) fn select_recovery_session(
             )
         });
     };
-    let Some(session_id) = latest.session_id.as_deref() else {
+    let Some(session_id) = latest
+        .session_id
+        .as_deref()
+        .or(latest.resume_target_session_id.as_deref())
+    else {
         return Err(refusal(
             EXIT_RECOVERY_NO_VERIFIED_SESSION,
             "the exited launch never bound a session; spawn a fresh agent".to_string(),
@@ -223,7 +227,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
             relaunch.command,
@@ -233,10 +237,14 @@ impl ServiceContext {
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
             },
+            false,
+            None,
             relaunch.task,
             None,
+            Default::default(),
             None,
             None,
+            snap.session_id.clone(),
         );
         drop(restart_claim);
 

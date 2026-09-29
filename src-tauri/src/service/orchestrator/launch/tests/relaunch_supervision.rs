@@ -36,7 +36,7 @@ fn restore_resumes_idle_worker() {
     ] {
         let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
         launch
-            .capture_binding_nonce(&harness.service, None, None, origin)
+            .capture_binding_nonce(&harness.service, None, None, origin, None)
             .unwrap_or_else(|error| panic!("{origin:?} relaunch of a settled Worker: {error}"));
         let current = harness
             .service
@@ -54,6 +54,53 @@ fn restore_resumes_idle_worker() {
             None,
             None,
             AgentLaunchOrigin::OrchestratedSpawn,
+            None,
         )
         .is_err());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn resume_launch_keeps_its_target_session_after_identity_clear() {
+    use crate::multiplexer::types::PriorBindingNonce;
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let pty_id = "resume-target-pty";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some(pty_id.into());
+        tab.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id: Some("resume-target-session".into()),
+            resume_target_session_id: None,
+            nonce: "prior-binding-nonce".into(),
+        });
+    }
+    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
+    launch
+        .capture_binding_nonce(
+            &harness.service,
+            None,
+            None,
+            AgentLaunchOrigin::Resume,
+            Some("resume-target-session"),
+        )
+        .expect("resume launch records its exact target");
+    {
+        let mut mux = harness.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+        assert_eq!(
+            tab.prior_session_binding_nonces
+                .last()
+                .unwrap()
+                .resume_target_session_id
+                .as_deref(),
+            Some("resume-target-session")
+        );
+    }
+    LAUNCH_REGISTRY.lock().finish(&launch);
 }

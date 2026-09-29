@@ -62,6 +62,7 @@ fn lineage(entries: &[Option<&str>]) -> Vec<PriorBindingNonce> {
         .enumerate()
         .map(|(index, session_id)| PriorBindingNonce {
             session_id: session_id.map(str::to_string),
+            resume_target_session_id: None,
             nonce: format!("lineage-{index}"),
         })
         .collect()
@@ -85,6 +86,7 @@ fn moved_on_tab_fails_the_atomic_pre_ready_recovery_guard() {
     tab.pty_id = Some("pty-old".into());
     tab.prior_session_binding_nonces = vec![PriorBindingNonce {
         session_id: Some("session-a".into()),
+        resume_target_session_id: None,
         nonce: "nonce-a".into(),
     }];
     let attempt = crate::service::launch_readiness::LaunchAttempt {
@@ -96,6 +98,7 @@ fn moved_on_tab_fails_the_atomic_pre_ready_recovery_guard() {
 
     tab.prior_session_binding_nonces.push(PriorBindingNonce {
         session_id: Some("session-b".into()),
+        resume_target_session_id: None,
         nonce: "nonce-b".into(),
     });
     assert!(!launch_exit_tab_matches(tab, &attempt, false));
@@ -254,6 +257,33 @@ fn exited_launch_that_never_bound_does_not_fall_back_to_an_older_session() {
     ));
 
     assert!(message.starts_with(EXIT_RECOVERY_NO_VERIFIED_SESSION));
+}
+
+#[test]
+fn failed_resume_attempt_preserves_its_verified_target_session() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.session_binding_nonce = Some("resume-attempt-nonce".into());
+    tab.remember_resume_binding_nonce("s1");
+    assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+
+    assert_eq!(
+        select_recovery_session(&tab.prior_session_binding_nonces, &verified(&["s1"]))
+            .unwrap(),
+        "s1"
+    );
+    assert_eq!(
+        tab.prior_session_binding_nonces.last().unwrap().session_id,
+        None
+    );
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .unwrap()
+            .resume_target_session_id
+            .as_deref(),
+        Some("s1")
+    );
 }
 
 #[test]

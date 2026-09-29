@@ -414,6 +414,16 @@ impl ServiceContext {
         if !cleared {
             return false;
         }
+        if source != "explicit-clear" {
+            let pty_id = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
+            if let Some(pty_id) = pty_id {
+                self.screen_state.lock().reset_input_modes(&pty_id);
+            }
+        }
         if let Some(identity) = prompt_identity {
             self.resolve_prompt_notifications(tab_id, &identity);
         }

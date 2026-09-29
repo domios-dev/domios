@@ -498,12 +498,18 @@ pub struct TaskBinding {
 pub struct PriorBindingNonce {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_target_session_id: Option<String>,
     pub nonce: String,
 }
 
-/// Session of the newest retired launch; `None` when that launch never bound one.
+/// Session bound by the newest retired launch, or its target if a resume did not bind.
 pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
-    lineage.last()?.session_id.as_deref()
+    let newest = lineage.last()?;
+    newest
+        .session_id
+        .as_deref()
+        .or(newest.resume_target_session_id.as_deref())
 }
 
 /// A tab represents one terminal, chat backend, or transient choice surface.
@@ -817,17 +823,45 @@ impl Tab {
 
     /// Retire the current nonce with its issuing session before either is cleared.
     pub fn remember_superseded_binding_nonce(&mut self) {
-        const MAX_LINEAGE: usize = 8;
         let Some(current) = self.session_binding_nonce.clone() else {
             return;
         };
         let session_id = self.agent_session_id.clone();
+        if let Some(existing) = self
+            .prior_session_binding_nonces
+            .iter_mut()
+            .find(|entry| entry.nonce == current)
+        {
+            if session_id.is_some() {
+                existing.session_id = session_id;
+                existing.resume_target_session_id = None;
+            }
+            return;
+        }
+        self.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id,
+            resume_target_session_id: None,
+            nonce: current,
+        });
+        self.trim_prior_session_binding_nonces();
+    }
+
+    pub fn remember_resume_binding_nonce(&mut self, session_id: &str) {
+        let Some(current) = self.session_binding_nonce.clone() else {
+            return;
+        };
         self.prior_session_binding_nonces
             .retain(|entry| entry.nonce != current);
         self.prior_session_binding_nonces.push(PriorBindingNonce {
-            session_id,
+            session_id: None,
+            resume_target_session_id: Some(session_id.to_string()),
             nonce: current,
         });
+        self.trim_prior_session_binding_nonces();
+    }
+
+    fn trim_prior_session_binding_nonces(&mut self) {
+        const MAX_LINEAGE: usize = 8;
         let overflow = self
             .prior_session_binding_nonces
             .len()

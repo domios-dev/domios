@@ -104,6 +104,22 @@ impl ServiceContext {
     /// Rotate the per-launch binding nonce before a provider command is
     /// written. This is the launch boundary, so it opens the operation.
     pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, None)
+    }
+
+    pub(crate) fn rotate_session_binding_nonce_for_resume(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+    ) -> String {
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, Some(session_id))
+    }
+
+    fn rotate_session_binding_nonce_with_resume_target(
+        &self,
+        tab_id: &str,
+        resume_target: Option<&str>,
+    ) -> String {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
@@ -111,6 +127,9 @@ impl ServiceContext {
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
+            if let Some(session_id) = resume_target {
+                tab.remember_resume_binding_nonce(session_id);
+            }
         }
         nonce
     }

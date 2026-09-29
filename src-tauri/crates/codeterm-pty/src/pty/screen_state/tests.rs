@@ -614,3 +614,22 @@ fn bracketed_paste_mode_tracks_the_live_terminal_mode() {
     state.process("pty1", b"\x1b[?2004l");
     assert_eq!(state.bracketed_paste_mode("pty1"), Some(false));
 }
+
+#[test]
+fn reset_input_modes_restores_shell_defaults() {
+    let mut state = ScreenState::new();
+    state.process("pty1", b"\x1b[?2004h\x1b[?1h\x1b=\x1b[?1000h");
+    let screen = state.parsers.get("pty1").unwrap().screen();
+    assert!(screen.bracketed_paste());
+    assert!(screen.application_cursor());
+    assert!(screen.application_keypad());
+    assert_ne!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+
+    assert!(state.reset_input_modes("pty1"));
+
+    let screen = state.parsers.get("pty1").unwrap().screen();
+    assert!(!screen.bracketed_paste());
+    assert!(!screen.application_cursor());
+    assert!(!screen.application_keypad());
+    assert_eq!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+}
