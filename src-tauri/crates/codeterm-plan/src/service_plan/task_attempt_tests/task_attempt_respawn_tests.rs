@@ -72,7 +72,7 @@ fn attempt_model_fields_round_trip() {
 }
 
 #[test]
-fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
+fn respawn_keeps_persona() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(

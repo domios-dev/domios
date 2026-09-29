@@ -4,17 +4,15 @@ use uuid::Uuid;
 pub mod general_agent_membership;
 pub mod staffing;
 
-/// Team lifecycle. Shaped to later support ephemeral orchestration; only manual
-/// transitions ship in this phase.
+/// Team lifecycle from initial pairing through closure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TeamLifecycle {
     #[default]
     Forming,
     Active,
-    Paused,
-    Complete,
-    Archived,
+    #[serde(alias = "paused", alias = "complete", alias = "archived")]
+    Closing,
 }
 
 /// A Team groups the tabs of one multi-agent effort. Membership is the data

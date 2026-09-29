@@ -445,7 +445,10 @@ impl ServiceContext {
                 tab_id,
                 &details,
             )?;
-            if matches!(authority, PlanOnlyReportAuthority::EvidenceReporter(_)) {
+            if matches!(
+                authority,
+                PlanOnlyReportAuthority::EvidenceReporter(_) | PlanOnlyReportAuthority::PlanOwner
+            ) {
                 if details.status.is_some() {
                     return Err("PLAN EVIDENCE AUTHORITY REFUSED: a task-less plan evidence report cannot carry --status or transition any task".to_string().into());
                 }

@@ -763,7 +763,7 @@ fn planner_unpaired_is_an_error_when_orchestrator_bound_without_planner() {
 }
 
 #[test]
-fn planner_unpaired_keeps_the_same_error_severity_at_approval() {
+fn doctor_and_approve_share_severity() {
     let dir = tempfile::tempdir().unwrap();
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     let plan = planner_pairing_base_plan(None);

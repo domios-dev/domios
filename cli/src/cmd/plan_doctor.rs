@@ -142,11 +142,11 @@ fn doctor_report_authoritative(
         if let Some(id) = requested_id {
             findings.push(Finding {
                 severity: "error",
-                kind: "plan_not_inspected",
+                kind: "plan_not_found",
                 plan_id: Some(id.to_string()),
                 path: project_root.join(id).display().to_string(),
                 task_id: None,
-                detail: format!("explicit plan '{id}' was not found in the authoritative store"),
+                detail: format!("plan not found: {id}"),
                 fix: "verify the plan id with `codeterm plan list --all`, then rerun plan doctor"
                     .into(),
             });

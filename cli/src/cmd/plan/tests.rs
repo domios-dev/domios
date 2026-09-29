@@ -2,6 +2,17 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn plan_display_paths_strip_windows_verbatim_prefix() {
+    let mut value = json!({
+        "project_path": r"\\?\C:\repo",
+        "canonical_project_path": r"\\?\C:\repo"
+    });
+    strip_display_paths(&mut value);
+    assert_eq!(value["project_path"], r"C:\repo");
+    assert_eq!(value["canonical_project_path"], r"C:\repo");
+}
+
+#[test]
 fn plan_delete_refuses_without_confirmation_before_rpc() {
     let err = plan_delete_params("pl_1".into(), false).unwrap_err();
     assert!(err.contains("refusing to delete plan 'pl_1' without --yes"));
