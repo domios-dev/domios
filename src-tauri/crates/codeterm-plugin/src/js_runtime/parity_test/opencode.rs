@@ -97,7 +97,7 @@ fn build_resume_command_shape() {
 }
 
 #[test]
-fn restored_resume_command_preserves_exact_session_model_and_effort() {
+fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     if require_plugins().is_none() {
         return;
     }
@@ -111,15 +111,15 @@ fn restored_resume_command_preserves_exact_session_model_and_effort() {
             args: vec![
                 "-m".into(),
                 "big-pickle".into(),
-                "--variant".into(),
-                "high".into(),
+                "--agent".into(),
+                "build".into(),
             ],
         })
         .expect("opencode restored resume command");
 
     assert_eq!(
         opencode_invocation(&command),
-        format!("opencode --session '{SES_ID}' -m 'big-pickle' --variant 'high'")
+        format!("opencode --session '{SES_ID}' -m 'big-pickle' --agent 'build'")
     );
 }
 
@@ -143,8 +143,8 @@ fn resume_with_context_restages_the_session_config() {
             args: vec![
                 "-m".into(),
                 "big-pickle".into(),
-                "--variant".into(),
-                "high".into(),
+                "--agent".into(),
+                "build".into(),
             ],
         })
         .expect("opencode resume command");
@@ -158,7 +158,7 @@ fn resume_with_context_restages_the_session_config() {
     let invocation = opencode_invocation(&command);
     assert!(
         invocation.starts_with("opencode ")
-            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --variant 'high'"),
+            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --agent 'build'"),
         "{command}"
     );
     assert!(

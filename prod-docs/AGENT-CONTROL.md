@@ -85,7 +85,7 @@ The `agent.report` webhook event fires when any agent sends a report, enabling a
 
 ### One-call agent spawn
 
-The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn returns immediately (non-blocking) -- PTY readiness and agent launch happen in a background thread. Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
+The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn answers once the launch reaches a verdict, bounded at 20 s: `launch_state` `ready`, or `starting` with a warning while the agent is still coming up; a provider that exits before readiness fails the spawn with its output tail (`codeterm docs API-AGENTS`). Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
 
 ```bash
 # Spawn a Worker under the Orchestrator
@@ -135,4 +135,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

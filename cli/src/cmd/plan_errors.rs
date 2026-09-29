@@ -713,7 +713,7 @@ mod tests {
                 "type": "invalid_model",
                 "provider": "codex",
                 "requested_model": "gpt-9-bogus",
-                "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+                "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
                 "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; closest catalogue ids: gpt-6-sol, gpt-6-astra",
             }),
             &json!({}),

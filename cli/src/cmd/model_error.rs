@@ -64,13 +64,13 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn structured_model_refusal_prints_close_ids_and_refresh_command() {
+    fn structured_model_refusal_prints_valid_ids_and_refresh_command() {
         let error = json!({
             "type": "invalid_model",
             "provider": "codex",
             "requested_model": "gpt-9-bogus",
-            "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
-            "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; closest catalogue ids: gpt-6-sol, gpt-6-astra"
+            "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+            "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; valid model ids: gpt-6-sol, gpt-6-astra"
         });
         let rendered = render_model_catalogue_error(&error).unwrap();
         assert!(rendered.contains("gpt-9-bogus"));
@@ -108,7 +108,7 @@ mod tests {
             "type": "invalid_model",
             "provider": "codex",
             "requested_model": "gpt-9-bogus",
-            "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+            "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
             "refresh_command": "codeterm agent models codex",
             "message": "unknown model"
         });
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(output["data"]["type"], "invalid_model");
         assert_eq!(output["data"]["provider"], "codex");
         assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
-        assert_eq!(output["data"]["closest_model_ids"][0], "gpt-6-sol");
+        assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
         assert_eq!(
             output["data"]["refresh_command"],
             "codeterm agent models codex"
