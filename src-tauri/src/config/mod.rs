@@ -746,16 +746,43 @@ pub fn save_config_pub(config: &AppConfig) -> Result<(), String> {
 
 fn save_config(config: &AppConfig) -> Result<(), String> {
     let path = config_path()?;
+    save_config_at(&path, config)
+}
+
+fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
     let toml_str = serialize_config(config)?;
-    load::config_file(&path)
+    load::config_file(path)
         .save(&toml_str)
         .map_err(|e| format!("Failed to write config: {}", e))?;
     log::info!("Config saved to {}", path.display());
     Ok(())
+}
+
+pub(crate) fn save_hook_reconciliation_config(config: &AppConfig) -> Result<(), String> {
+    let path = config_path()?;
+    save_hook_reconciliation_config_at(&path, config)
+}
+
+fn save_hook_reconciliation_config_at(
+    path: &std::path::Path,
+    config: &AppConfig,
+) -> Result<(), String> {
+    let file = load::config_file(path);
+    let Some(hold) = file.held() else {
+        return save_config_at(path, config);
+    };
+    let current = std::fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read held config: {error}"))?;
+    if !load::is_salvaged_config(&current) {
+        return Err(hold.refusal());
+    }
+    let contents = load::mark_salvaged_config(&serialize_config(config)?);
+    file.replace_held_recovery(&contents)
+        .map_err(|error| format!("Failed to write held config: {error}"))
 }
 
 fn serialize_config(config: &AppConfig) -> Result<String, String> {
