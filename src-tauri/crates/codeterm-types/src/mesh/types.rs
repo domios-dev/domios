@@ -394,7 +394,7 @@ pub struct RelayResponse {
 
 // ── Introduction (auto-pair via mediator) ───────────────────────────
 
-/// Peer introduction — sent by a paired mediator to auto-pair two peers.
+/// Peer introduction — sent by a paired mediator to create a pending pair request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerIntroduction {
     /// The peer being introduced.
