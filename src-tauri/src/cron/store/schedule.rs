@@ -6,6 +6,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+const MAX_SCHEDULE_LOOKAHEAD_MS: u64 = 5 * 366 * 24 * 60 * 60 * 1000;
+const MAX_AUTO_JITTER_MS: u64 = 30 * 60 * 1000;
 
 fn system_now_ms() -> u64 {
     SystemTime::now()
@@ -44,6 +46,53 @@ fn first_two_fires_after(
     }
 }
 
+fn parse_schedule(schedule: &str) -> Result<cron::Schedule, String> {
+    use std::str::FromStr;
+    if schedule.trim().starts_with("in ") {
+        return Err("schedule: relative times require oneshot=true".into());
+    }
+    let fields: Vec<&str> = schedule.split_whitespace().collect();
+    if fields.len() != 5 {
+        return Err(format!(
+            "schedule: expected 5 fields (minute hour day-of-month month day-of-week), got {}",
+            fields.len()
+        ));
+    }
+    cron::Schedule::from_str(&to_6field(schedule))
+        .map_err(|error| format!("schedule: invalid 5-field cron expression: {error}"))
+}
+
+fn upcoming_fires(
+    schedule: &str,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<(u64, Option<u64>), String> {
+    let sched = parse_schedule(schedule)?;
+    let parsed_tz = parse_tz(tz)?;
+    let (next, following) = first_two_fires_after(&sched, parsed_tz, now_ms);
+    let horizon = now_ms.saturating_add(MAX_SCHEDULE_LOOKAHEAD_MS);
+    let next = next
+        .filter(|fire| *fire <= horizon)
+        .ok_or_else(|| "schedule: no fire time within the next 5 years".to_string())?;
+    Ok((next, following))
+}
+
+pub fn cap_jitter_max_ms_at(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+    tz: Option<&str>,
+    now_ms: u64,
+) -> Result<Option<u64>, String> {
+    let Some(requested) = jitter_max_ms else {
+        return Ok(None);
+    };
+    let (next, following) = upcoming_fires(schedule, tz, now_ms)?;
+    let cap = following
+        .map(|fire| fire.saturating_sub(next) / 2)
+        .unwrap_or_default();
+    Ok(Some(requested.min(cap)))
+}
+
 pub fn to_6field(expr: &str) -> String {
     let fields: Vec<&str> = expr.trim().split_whitespace().collect();
     if fields.len() == 5 {
@@ -60,7 +109,7 @@ pub fn parse_tz(tz: Option<&str>) -> Result<Option<chrono_tz::Tz>, String> {
         Some(s) => s
             .parse::<chrono_tz::Tz>()
             .map(Some)
-            .map_err(|e| format!("Invalid timezone '{}': {}", s, e)),
+            .map_err(|e| format!("tz: invalid timezone '{}': {}", s, e)),
     }
 }
 
@@ -77,11 +126,7 @@ pub fn compute_next_run_at(
     tz: Option<&str>,
     now_ms: u64,
 ) -> Result<Option<u64>, String> {
-    use std::str::FromStr;
-    let expr = to_6field(schedule);
-    let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
-    let parsed_tz = parse_tz(tz)?;
-    Ok(first_two_fires_after(&sched, parsed_tz, now_ms).0)
+    upcoming_fires(schedule, tz, now_ms).map(|(next, _)| Some(next))
 }
 
 pub fn compute_next_run_jittered(
@@ -105,31 +150,22 @@ pub fn compute_next_run_jittered_at(
     tz: Option<&str>,
     now_ms: u64,
 ) -> Result<Option<u64>, String> {
-    use std::str::FromStr;
-    let expr = to_6field(schedule);
-    let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
-    let parsed_tz = parse_tz(tz)?;
-    let (first, second) = first_two_fires_after(&sched, parsed_tz, now_ms);
-    let next = match first {
-        Some(n) => n,
-        None => return Ok(None),
-    };
+    let (next, second) = upcoming_fires(schedule, tz, now_ms)?;
+    let interval_ms = second.map(|following| following.saturating_sub(next));
 
     let max = match jitter_max_ms {
         Some(0) => return Ok(Some(next)),
-        Some(n) => n,
-        None => {
-            let interval_ms = second.map(|s| s.saturating_sub(next)).unwrap_or(0);
-            let raw = interval_ms / 10;
-            raw.clamp(60_000, 1_800_000)
-        }
+        Some(n) => n.min(interval_ms.unwrap_or_default() / 2),
+        None => interval_ms
+            .map(|interval| (interval / 10).min(MAX_AUTO_JITTER_MS))
+            .unwrap_or_default(),
     };
     if max == 0 {
         return Ok(Some(next));
     }
     use rand::Rng;
     let offset = rand::thread_rng().gen_range(0..=max);
-    Ok(Some(next + offset))
+    Ok(Some(next.saturating_add(offset)))
 }
 
 pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
@@ -144,10 +180,7 @@ pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
 }
 
 pub fn validate_schedule(schedule: &str) -> Result<(), String> {
-    use std::str::FromStr;
-    let expr = to_6field(schedule);
-    cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
-    Ok(())
+    upcoming_fires(schedule, None, system_now_ms()).map(|_| ())
 }
 
 pub fn validate_tz(tz: &str) -> Result<(), String> {
@@ -238,13 +271,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn jitter_default_is_within_clamp() {
-        let plain = compute_next_run("0 * * * *").unwrap().unwrap();
-        let jittered = compute_next_run_jittered("0 * * * *", None)
+    fn jitter_default_is_ten_percent_of_period() {
+        use chrono::TimeZone;
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis() as u64;
+        let schedule = "* * * * *";
+        let plain = compute_next_run_at(schedule, None, now).unwrap().unwrap();
+        let jittered = compute_next_run_jittered_at(schedule, None, None, now)
             .unwrap()
             .unwrap();
-        assert!(jittered >= plain, "jitter never goes backwards");
-        assert!(jittered <= plain + 1_800_000, "jitter capped at 30 min");
+
+        assert!(jittered >= plain);
+        assert!(jittered <= plain + 6_000);
     }
 
     #[test]
@@ -293,7 +334,6 @@ mod tests {
     fn test_5field_to_6field() {
         assert_eq!(to_6field("*/5 * * * *"), "0 */5 * * * *");
         assert_eq!(to_6field("0 9 * * 1"), "0 0 9 * * 1");
-        assert_eq!(to_6field("30 */5 * * * *"), "30 */5 * * * *");
     }
 
     #[test]
@@ -301,6 +341,50 @@ mod tests {
         assert!(validate_schedule("not a cron").is_err());
         assert!(validate_schedule("* * *").is_err());
         assert!(validate_schedule("0 9 * * *").is_ok());
+    }
+
+    #[test]
+    fn cron_schedule_validation_table() {
+        use chrono::TimeZone;
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis() as u64;
+        let cases = [
+            ("every minute", "* * * * *", true),
+            ("annual", "0 0 1 1 *", true),
+            ("leap day", "0 0 29 2 *", true),
+            ("seconds field", "*/1 * * * * *", false),
+            ("impossible date", "0 0 30 2 *", false),
+            ("oneshot without mode", "in 2h", false),
+        ];
+
+        for (label, schedule, accepted) in cases {
+            let result = compute_next_run_at(schedule, None, now);
+            assert_eq!(result.is_ok(), accepted, "{label}: {result:?}");
+            if !accepted {
+                assert!(result.unwrap_err().starts_with("schedule:"), "{label}");
+            }
+        }
+    }
+
+    #[test]
+    fn cron_jitter_is_capped_to_half_the_schedule_period() {
+        use chrono::TimeZone;
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis() as u64;
+        let schedule = "* * * * *";
+        let scheduled = compute_next_run_at(schedule, None, now).unwrap().unwrap();
+        let maximum = compute_next_run_jittered_at(schedule, Some(u64::MAX), None, now)
+            .unwrap()
+            .unwrap();
+
+        assert!(maximum >= scheduled);
+        assert!(maximum <= scheduled + 30_000);
     }
 
     #[test]
