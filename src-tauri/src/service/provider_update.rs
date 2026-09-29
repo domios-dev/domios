@@ -3,7 +3,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
+#[cfg(any(windows, test))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
