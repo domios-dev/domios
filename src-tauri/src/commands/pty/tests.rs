@@ -205,6 +205,7 @@ mod restored_fresh_launch_tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn restored_fresh_launch_command_carries_the_supplied_instruction() {
         let fixture = crate::service::test_fixture::ServiceFixture::new(
             crate::multiplexer::state::MultiplexerState::new().0,
@@ -242,6 +243,7 @@ mod restored_fresh_launch_tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn restored_fresh_launch_passes_a_minted_marker_and_resume_passes_none() {
         use crate::service::launch_session_detection::registered_launch_marker;
 

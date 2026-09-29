@@ -149,6 +149,7 @@ fn arm(readiness: &ReadinessRegistry, tab_id: &str, attempt: LaunchAttempt) {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = Arc::new(ReadinessRegistry::default());
@@ -206,6 +207,7 @@ fn public_send_between_launch_and_readiness_becomes_one_turn_after_bootstrap() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn public_send_before_readiness_never_reports_success_without_a_turn() {
     let (fixture, tab_id, _attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -228,6 +230,7 @@ fn public_send_before_readiness_never_reports_success_without_a_turn() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn public_send_to_an_already_running_tab_has_no_wait() {
     let (fixture, tab_id, _) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -237,6 +240,7 @@ fn public_send_to_an_already_running_tab_has_no_wait() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn ordinary_unauthenticated_tab_has_no_public_send_gate() {
     let (fixture, tab_id, _) = launch_fixture();
     {
@@ -253,6 +257,7 @@ fn ordinary_unauthenticated_tab_has_no_public_send_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn launch_without_startup_turn_retires_previous_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -264,6 +269,7 @@ fn launch_without_startup_turn_retires_previous_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn old_launch_guard_cannot_retire_new_launch_gate() {
     let (fixture, tab_id, _) = launch_fixture();
     let old_key = fixture
@@ -288,6 +294,7 @@ fn old_launch_guard_cannot_retire_new_launch_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn nonmatching_user_turn_does_not_satisfy_armed_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -311,6 +318,7 @@ fn nonmatching_user_turn_does_not_satisfy_armed_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn failed_launch_retires_armed_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -328,6 +336,7 @@ fn failed_launch_retires_armed_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn session_rotation_retires_armed_gate() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
@@ -346,6 +355,7 @@ fn session_rotation_retires_armed_gate() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn headless_launch_confirms_from_bound_session_evidence() {
     let (mut mux, parent_tab_id) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
@@ -412,6 +422,7 @@ fn headless_launch_confirms_from_bound_session_evidence() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn opencode_capability_holds_public_send_until_startup_turn_idle() {
     let (fixture, tab_id, attempt) = launch_fixture();
     let root = fixture.temp.path().to_path_buf();

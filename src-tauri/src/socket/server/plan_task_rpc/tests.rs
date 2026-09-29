@@ -97,6 +97,7 @@ fn update_fixture() -> (ServiceFixture, String, String, String, String, String) 
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn local_rpc_cannot_claim_authenticated_mesh_peer_for_remote_ack() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
     let params = Some(json!({

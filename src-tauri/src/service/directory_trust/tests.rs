@@ -244,6 +244,7 @@ fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
     let (mut mux, tab_id) = agent_tab(None, false);
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -425,6 +426,7 @@ fn provisioned_directory_answers_one_key_per_observed_frame() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-provisioned-trust".into());
@@ -453,6 +455,7 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provenance_never_answers_trust_for_a_repository_the_provider_reports_untrusted() {
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/untrusted"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());

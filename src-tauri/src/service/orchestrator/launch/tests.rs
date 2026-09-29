@@ -147,6 +147,7 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn has_startup_task_turn_reflects_the_actual_launch_command() {
     use crate::agent::provider::{
         AgentProvider, StarterPrompt, SystemPromptDelivery, TaskDelivery,
@@ -329,6 +330,7 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_first_turn() {
     use crate::agent::provider::ProviderReadinessStrategy;
     use crate::agent::test_provider::MockProvider;
@@ -405,6 +407,7 @@ fn owner_prompt_cleared_on_lazy_session_launch_moves_to_agent_ready_without_firs
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
     use crate::agent::provider::StarterPrompt;
     use crate::agent::test_provider::MockProvider;
@@ -439,6 +442,7 @@ fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
     use crate::agent::provider::{StarterPrompt, TaskDelivery};
     use crate::agent::test_provider::MockProvider;

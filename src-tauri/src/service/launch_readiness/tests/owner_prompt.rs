@@ -52,6 +52,7 @@ fn owner_prompt_readiness_round_trip(prefix: &str) {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn auto_answered_prompt_does_not_suspend_readiness() {
     use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
