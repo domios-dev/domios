@@ -806,6 +806,7 @@ pub fn run() {
 
             let svc_ctx = ServiceContext {
                 agent_pad_data_dir: crate::paths::data_dir(),
+                launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),

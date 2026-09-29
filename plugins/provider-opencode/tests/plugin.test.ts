@@ -371,8 +371,8 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   eq(parsedFresh.permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX fresh config grants only the tab pad and asks for all other paths");
   eq(posixConfig(restored).permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX restore config grants only the tab pad and asks for all other paths");
   const parsedResume = posixConfig(resumed);
-  eq(parsedResume.instructions, [".codeterm/context.md"], "POSIX resume config retains its instruction path");
-  assert(resumed.includes("cp -- '/tmp/context.md' '.codeterm/context.md' && opencode --session 'ses_resume'"), "POSIX resume executes opencode after staging instructions");
+  eq(parsedResume.instructions, ["/tmp/context.md"], "POSIX resume config references the host task file directly");
+  assert(resumed.includes("opencode --session 'ses_resume'") && !resumed.includes("cp --"), "POSIX resume launches without staging instructions into the project");
   assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
   const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md", fileExists: () => false } }));
   const windowsFresh = windows.buildLaunchCommand({});
@@ -397,8 +397,8 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   }
   const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
   const parsedWindows = JSON.parse(windowsConfigText || "{}") as { instructions?: string[] };
-  eq(parsedWindows.instructions, [".codeterm/context.md"], "Windows resume config retains its instruction path");
-  assert(windowsResume.includes("Copy-Item -LiteralPath 'C:\\Temp\\context.md' -Destination '.codeterm/context.md' -Force; opencode"), "Windows resume executes opencode after staging instructions");
+  eq(parsedWindows.instructions, ["C:\\Temp\\context.md"], "Windows resume config references the host task file directly");
+  assert(windowsResume.includes("opencode --session 'ses_resume'") && !windowsResume.includes("Copy-Item"), "Windows resume launches without staging instructions into the project");
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
     const embedded = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
     assert(!!embedded, `Windows ${name} embeds a quoted config`);
@@ -465,12 +465,12 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
     systemPrompt: "opaque-context-fragment",
   });
   assert(
-    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item"),
-    "resume stops if it cannot enter the saved project directory before staging configuration",
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop;") && !configured.includes("New-Item"),
+    "resume stops if it cannot enter the saved project directory and does not stage task files",
   );
   assert(
-    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item") &&
-      configured.includes("Copy-Item -LiteralPath Q(windows:C:\\Temp\\restored-context.md) -Destination Q(windows:.codeterm/restored-context.md) -Force; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)") &&
+      configured.includes("Q(windows:C:\\Temp\\restored-context.md)") && !configured.includes("Copy-Item"),
     "session-config wrapper preserves the explicit full-TUI resume argv",
   );
   assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
@@ -496,16 +496,13 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const launch = p.buildLaunchCommand({ task: hostileTask });
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
-  assert(launch.includes("Copy-Item -LiteralPath 'C:\\Temp\\opencode task.md'"), "OpenCode copies the host task into its workspace");
-  assert(launch.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode config references only the workspace-local task file");
-  assert(launch.includes("finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes its inline config and workspace-local task file on exit");
-  assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
-  assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
+  assert(launch.includes("'C:\\Temp\\opencode task.md'"), "OpenCode config references the host task file");
+  assert(!launch.includes("Copy-Item") && !launch.includes("mkdir -p .codeterm") && !launch.includes("New-Item -ItemType Directory -Force -Path '.codeterm'"), "OpenCode does not create task files in the project");
+  assert(launch.includes("--prompt "), "OpenCode submits the host-selected starter turn");
+  assert(!launch.includes(hostileTask), "OpenCode task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
-  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "OpenCode uses the non-actionable idle wake-up starter");
-  assert(!idle.includes("Execute the assigned task."), "OpenCode idle launch never uses the task starter");
+  assert(!idle.includes("--prompt "), "OpenCode idle launch does not submit a starter turn");
   const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
-  assert(silent.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode silent launch keeps configured instructions");
   assert(!silent.includes("--prompt"), "OpenCode silent launch has no starter turn");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });

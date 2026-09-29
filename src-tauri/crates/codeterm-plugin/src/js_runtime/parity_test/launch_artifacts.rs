@@ -16,8 +16,12 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         "Artifact Fixture"
     }
 
-    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-        String::new()
+    fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        params
+            .task
+            .as_deref()
+            .and_then(|task| codeterm_util::task_files::write(task, Some(".ct-task.md")))
+            .unwrap_or_default()
     }
 
     fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
@@ -114,6 +118,42 @@ impl AgentProvider for LaunchArtifactsNativeStub {
     fn detect_from_output(&self, _: &str) -> bool {
         false
     }
+}
+
+#[test]
+fn launch_task_file_capture_native_js_parity() {
+    let native = LaunchArtifactsNativeStub;
+    let js = load_inline_js(
+        "artifact-fixture",
+        r#"
+        module.exports.default = {
+            buildLaunchCommand(params) {
+                return host.writeTempFile(params.task, ".ct-task.md");
+            }
+        };
+        "#,
+    );
+    let params = AgentLaunchParams {
+        task: Some("opaque-task-fragment".into()),
+        ..Default::default()
+    };
+    let (native_path, native_files) =
+        codeterm_util::task_files::capture("parity-tab", || native.build_launch_command(&params));
+    let (js_path, js_files) =
+        codeterm_util::task_files::capture("parity-tab", || js.build_launch_command(&params));
+
+    assert_eq!(native_files.len(), 1);
+    assert_eq!(js_files.len(), 1);
+    assert!(std::path::Path::new(&native_path).starts_with(codeterm_util::task_files::task_dir()));
+    assert!(std::path::Path::new(&js_path).starts_with(codeterm_util::task_files::task_dir()));
+    assert_eq!(std::fs::read_to_string(&native_path).unwrap(), "opaque-task-fragment");
+    assert_eq!(std::fs::read_to_string(&js_path).unwrap(), "opaque-task-fragment");
+    let paths = [native_files, js_files].concat();
+    codeterm_util::task_files::release_tab(
+        &codeterm_util::task_files::task_dir(),
+        "parity-tab",
+        &paths,
+    );
 }
 
 #[test]

@@ -53,16 +53,16 @@ impl ShellSyntax {
 
     fn write_task_temp(task: &str) -> (String, String) {
         let short_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-        let path = Self::temp_path(&format!(".ct-task-{}", short_id));
         if Self::IS_WINDOWS {
-            let mut content = Vec::with_capacity(3 + task.len());
-            content.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
-            content.extend_from_slice(task.as_bytes());
-            std::fs::write(&path, content).expect("write Claude task temp file");
+            let content = format!("\u{feff}{task}");
+            let path = crate::task_files::write(&content, Some(&format!(".ct-task-{short_id}")))
+                .expect("write Claude task file");
+            (path, short_id)
         } else {
-            std::fs::write(&path, task).expect("write Claude task temp file");
+            let path = crate::task_files::write(task, Some(&format!(".ct-task-{short_id}")))
+                .expect("write Claude task file");
+            (path, short_id)
         }
-        (path, short_id)
     }
 
     /// Quote a string for the current shell.
@@ -74,18 +74,6 @@ impl ShellSyntax {
         }
     }
 
-    /// Platform temp file path (no trailing separator issues).
-    fn temp_path(name: &str) -> String {
-        let tmp = std::env::temp_dir();
-        let base = tmp.to_string_lossy();
-        if Self::IS_WINDOWS {
-            let base = base.trim_end_matches('\\');
-            format!("{}\\{}", base, name)
-        } else {
-            let base = base.trim_end_matches('/');
-            format!("{}/{}", base, name)
-        }
-    }
 }
 
 #[cfg(test)]
