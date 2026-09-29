@@ -187,7 +187,7 @@ mod tests {
         fs::write(&foreign, "foreign").unwrap();
 
         assert_eq!(release_tab(&root, "tab-closed", &[closed.clone()]), vec![closed.clone()]);
-        assert_eq!(sweep(&root, &HashSet::from(["tab-live".to_string()])), vec![]);
+        assert!(sweep(&root, &HashSet::from(["tab-live".to_string()])).is_empty());
         assert!(live.exists());
         assert!(foreign.exists());
         let orphan = root.join(format!("{}orphan-ghi.ct-task", file_prefix(&marker, "tab-orphan")));
