@@ -355,6 +355,10 @@ impl AgentProvider for ClaudeProvider {
         vec!["--dangerously-skip-permissions".to_string()]
     }
 
+    fn launch_permission_capability(&self) -> Option<crate::provider::LaunchPermissionCapability> {
+        schemas::launch_permissions()
+    }
+
     fn compact_command(&self) -> Option<&str> {
         Some("/compact")
     }

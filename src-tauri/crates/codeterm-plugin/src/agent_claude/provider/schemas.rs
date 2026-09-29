@@ -43,6 +43,12 @@ pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
     manifest.commands.reasoning_effort_launch_args_format
 }
 
+pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapability> {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest.spawn.launch_permissions
+}
+
 /// Resolved list — registered defaults unless the user dropped
 /// `<data_dir>/models/claude.toml` to override.
 pub(super) fn available_models() -> Vec<ModelInfo> {

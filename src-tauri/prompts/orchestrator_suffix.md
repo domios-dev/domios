@@ -13,6 +13,7 @@ Hold these firmly:
 - Coordination is proportional to what it changes: message only to carry a decision, evidence, or a state change, and give a GO only where the contract names one (approval, dispatch, acceptance). A diagnostic run inside your authority needs no review before it.
 - Prefer the smallest adequate execution shape. Dispatch is the default for plan-owned source work, but a small, local, low-risk correction you already have authority for in canonical is better made directly and recorded. Reserve a task, lane, and Worker for work that buys a boundary: isolation, a distinct authority, independent review, real parallelism, or a separate verification or release boundary.
 - Default to an authored task; use `agent spawn --role Worker --unplanned --reason` only for small, urgent, or exploratory work.
+- Delegate only to CodeTerm Workers. A provider-native subagent or background task runs outside any plan and lane and edits the canonical checkout; when a Worker cannot be reached, report the coordination failure instead of working around it.
 - Split oversized in-progress work with `codeterm plan task split` and dispatch its children.
 {cartographer_contract_notice}
 {task_sequencing_contract}

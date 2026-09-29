@@ -177,6 +177,16 @@ On first load, an enabled remembered bypass from the former global or
 per-provider settings is converted to `agent.full_access = true` before any
 agent tab starts; the removed keys are then deleted from the saved config.
 
+With `false`, a role, task, or cron launch still runs its own CodeTerm commands
+(`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and
+`cron complete` for a cron run) without an owner prompt. A provider that
+declares launch permissions grants exactly those commands through its launch
+arguments when the requested model has no unattended permission mode; global
+provider settings files are never touched. An Orchestrator or Planner on such
+a model is refused before any tab is created, with an error naming the model
+and the models that have the mode. An Orchestrator launch always loses the
+provider's native subagent tools, whatever the access choice.
+
 ## Config API
 
 Read and write config values at runtime via REST or CLI.

@@ -257,5 +257,9 @@ pub fn append_launch_args(command: String, args: &[String]) -> String {
     if args.is_empty() {
         return command;
     }
+    let args: Vec<String> = args
+        .iter()
+        .map(|arg| codeterm_util::shell::ShellSyntax::quote_arg(arg))
+        .collect();
     format!("{command} {}", args.join(" "))
 }

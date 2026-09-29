@@ -32,7 +32,27 @@
     "supportsLazySkills": true,
     "supportsDirectoryTrustPromptParsing": true,
     "hasHooks": true,
-    "usageProbeCommand": "/usage"
+    "usageProbeCommand": "/usage",
+    "launchPermissions": {
+      "unattendedModeModels": [
+        "opus",
+        "sonnet",
+        "fable"
+      ],
+      "commandRuleFormat": "Bash({command}:*)",
+      "allowRuleArgsFormat": [
+        "--allowedTools",
+        "{rule}"
+      ],
+      "denyToolArgsFormat": [
+        "--disallowedTools",
+        "{tool}"
+      ],
+      "nativeSubagentTools": [
+        "Agent",
+        "Task"
+      ]
+    }
   },
   "sessions": {
     "rootDir": "~/.claude/projects",
