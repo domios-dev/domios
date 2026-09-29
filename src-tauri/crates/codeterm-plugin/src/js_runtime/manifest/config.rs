@@ -30,6 +30,8 @@ pub struct SpawnConfig {
     #[serde(default)]
     pub sandboxed_linux_launch: Option<SandboxedLinuxLaunchCapability>,
     #[serde(default)]
+    pub launch_permissions: Option<crate::provider::LaunchPermissionCapability>,
+    #[serde(default)]
     pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,

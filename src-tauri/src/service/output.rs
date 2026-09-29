@@ -932,6 +932,9 @@ impl ServiceContext {
                 {
                     return;
                 }
+                if self.is_second_prompt_rendering(tab_id, prompt, prompt_kind) {
+                    return;
+                }
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
@@ -954,6 +957,7 @@ impl ServiceContext {
                 };
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
+                self.hold_boot_for_owner_prompt(tab_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",

@@ -9,6 +9,7 @@ mod catalog;
 mod commands;
 mod core;
 mod folder_trust;
+mod launch_permissions;
 mod launch_session;
 mod onboarding;
 mod permission_prompt;

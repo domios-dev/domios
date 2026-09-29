@@ -61,6 +61,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.sandboxed_linux_launch.clone()
     }
 
+    fn launch_permission_capability(&self) -> Option<provider::LaunchPermissionCapability> {
+        self.manifest.spawn.launch_permissions.clone()
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         if !self.has_js("buildLaunchCommand") {
             if let Some(command) = launch_command_from_template(&self.manifest, params) {
