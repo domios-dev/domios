@@ -7,6 +7,7 @@ use crate::service::plan::interruption::checkpoint_digest;
 use tauri::Emitter;
 
 const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
+const CHECKPOINT_UNTRACKED_FILE_READ_LIMIT: u64 = CHECKPOINT_ARTIFACT_MAX_BYTES as u64;
 
 fn attempt_is_active_for_interruption(
     task_status: &crate::plan::TaskStatus,
@@ -576,10 +577,20 @@ pub fn seal_git_checkpoint(
                         .to_vec(),
                 )
             } else {
+                if metadata.len() > CHECKPOINT_UNTRACKED_FILE_READ_LIMIT {
+                    return Err("checkpoint diff artifact exceeds 4 MiB bound".into());
+                }
+                let mut bytes = Vec::with_capacity(metadata.len() as usize);
+                std::fs::File::open(&path)
+                    .and_then(|file| {
+                        use std::io::Read;
+                        file.take(CHECKPOINT_UNTRACKED_FILE_READ_LIMIT)
+                            .read_to_end(&mut bytes)
+                    })
+                    .map_err(|error| format!("read untracked {relative}: {error}"))?;
                 (
                     "file",
-                    std::fs::read(&path)
-                        .map_err(|error| format!("read untracked {relative}: {error}"))?,
+                    bytes,
                 )
             };
             if diff_artifact
