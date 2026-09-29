@@ -169,6 +169,7 @@ fn assignment_captures_model_already_detected_on_its_bound_tab() {
     target.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
         session_id: "verified-session".into(),
         session_binding_nonce: "test-nonce".into(),
+        launch_report: None,
     });
 
     assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();
@@ -197,6 +198,7 @@ fn assignment_ignores_restored_model_evidence_from_a_foreign_session_or_nonce() 
             Some(crate::multiplexer::types::SessionModelIdentity {
                 session_id: session_id.into(),
                 session_binding_nonce: nonce.into(),
+                launch_report: None,
             });
 
         assign_existing_task(&store, &mux, &plan, &task, &tab, None, None, 3).unwrap();

@@ -3,7 +3,8 @@ import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
-import { formatModelSwitch } from "../../lib/modelSwitch";
+import { supportsLiveModelSwitch } from "../../lib/modelSwitch";
+import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -354,14 +355,14 @@ function ChatComposerImpl({
   }, [firstLine]);
   const filteredModelOptions = useMemo(() => {
     if (modelCommandQuery === null) return [];
-    if (!providerDescriptor?.model_switch_format) return [];
+    if (!supportsLiveModelSwitch(providerDescriptor)) return [];
     const needle = modelCommandQuery;
     if (!needle) return modelOptions;
     return modelOptions.filter((model) => {
       const haystack = `${model.id} ${model.display_name} ${model.description ?? ""}`.toLowerCase();
       return haystack.includes(needle);
     });
-  }, [modelCommandQuery, modelOptions, providerDescriptor?.model_switch_format]);
+  }, [modelCommandQuery, modelOptions, providerDescriptor]);
   const modelSuggestionRequested = modelCommandQuery !== null
     && !modelPickerOpen
     && modelSuggestionDismissedFor !== firstLine;
@@ -484,14 +485,6 @@ function ChatComposerImpl({
     refocusComposer();
   }
 
-  const sendRawToPty = useCallback(
-    async (data: string) => {
-      if (!currentPtyId) throw new Error("Tab has no PTY");
-      await invoke("write_pty_string", { ptyId: currentPtyId, data, raw: false });
-    },
-    [currentPtyId],
-  );
-
   const chooseModel = useCallback(
     async (model: ModelInfo) => {
       if (!isModelSelectable(model)) {
@@ -501,22 +494,21 @@ function ChatComposerImpl({
       setModelPickerOpen(false);
       setInput("");
       try {
-        const format = providerDescriptor?.model_switch_format;
-        if (!format) {
+        if (!supportsLiveModelSwitch(providerDescriptor)) {
           throw new Error(
             providerDescriptor
               ? `${providerDescriptor.display_name} does not support live model switching.`
               : "This provider does not support live model switching.",
           );
         }
-        await sendRawToPty(`${formatModelSwitch(format, model.id)}\r`);
+        await getTabModelApi().switchModel(tabId, model.id);
       } catch (e) {
         flagComposerError(e instanceof Error ? e.message : String(e));
       } finally {
         refocusComposer();
       }
     },
-    [flagComposerError, providerDescriptor, refocusComposer, sendRawToPty, setInput],
+    [flagComposerError, providerDescriptor, refocusComposer, setInput, tabId],
   );
 
   function completeModelDraft(model: ModelInfo) {
@@ -599,7 +591,7 @@ function ChatComposerImpl({
     if (
       allAttachments.length === 0
       && modelCommandQuery !== null
-      && providerDescriptor?.model_switch_format
+      && supportsLiveModelSwitch(providerDescriptor)
       && filteredModelOptions.length > 0
     ) {
       const model = filteredModelOptions[Math.min(modelHighlight, filteredModelOptions.length - 1)];
@@ -610,7 +602,7 @@ function ChatComposerImpl({
     }
     if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
-      if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
+      if (modelOptions.length === 0 || !supportsLiveModelSwitch(providerDescriptor)) {
         flagComposerError(
           providerDescriptor && modelOptions.length === 0
             ? `${providerDescriptor.display_name} does not publish switchable models.`

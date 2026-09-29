@@ -980,6 +980,14 @@ pub(crate) async fn finish_session_binding(
     }
     // while it runs — not only after completion.
     run_session::propagate(svc, tab_id, sid);
+    if let (true, Some(model)) = (claim.nonce_verified, session_start_string(body, &["model"])) {
+        let (service, tab, provider) = (svc.clone(), tab_id.to_string(), provider_id.to_string());
+        let session = sid.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            service.record_launch_reported_model(&tab, &provider, &session, &model)
+        })
+        .await;
+    }
     if let Some(reported_transcript) = reported_transcript_path(body) {
         let evidence_sid = sid.to_string();
         let persisted = tokio::task::spawn_blocking(move || {

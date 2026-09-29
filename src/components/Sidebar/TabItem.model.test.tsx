@@ -66,19 +66,18 @@ async function main() {
       notifications_schema: [],
       supports_lazy_skills: false,
       has_hooks: false,
-      model_switch_format: "/switch {model}",
+      model_switch: "restart_resume",
       ...overrides,
     } as ProviderDescriptor;
   }
 
-  function generalAgentTab(overrides: Partial<Tab> = {}): Tab {
+  function agentTab(overrides: Partial<Tab> = {}): Tab {
     return {
-      id: "tab-main",
-      pty_id: "pty-main",
+      id: "tab-agent",
+      pty_id: "pty-agent",
       tab_type: "Terminal",
-      title: "Main",
+      title: "Agent",
       cwd: null,
-      protected: true,
       agent_type: "fixture-provider",
       agent_session_model: SESSION_MODEL.id,
       ...overrides,
@@ -142,13 +141,13 @@ async function main() {
     return entry;
   }
 
-  // The protected General Agent row offers the entry, named from the descriptor.
+  // An agent row offers the entry, named from the descriptor.
   {
     setAgentDescriptors([descriptor()]);
-    const view = await mount(generalAgentTab());
+    const view = await mount(agentTab());
     const menu = await openMenu(view.host);
     const entry = menu.querySelector('[data-testid="tab-menu-model"]');
-    assert(entry, "the protected General Agent row offers no model entry");
+    assert(entry, "the agent row offers no model entry");
     assert(
       entry.textContent?.includes(SESSION_MODEL.display_name),
       `model entry is not named from the descriptor: ${entry.textContent}`,
@@ -164,16 +163,16 @@ async function main() {
     await view.dispose();
   }
 
-  // A provider that publishes no in-agent switch command gets no entry — and the
-  // rest of the chain is untouched.
-  {
-    setAgentDescriptors([descriptor({ model_switch_format: null })]);
-    const view = await mount(generalAgentTab());
+  // A provider that declares no live switch gets no entry, nor does the protected
+  // General Agent row — and the rest of the chain is untouched.
+  for (const [tab, provider, why] of [
+    [agentTab(), descriptor({ model_switch: "unsupported" }), "a provider without a live switch"],
+    [agentTab({ protected: true }), descriptor(), "the protected General Agent row"],
+  ] as const) {
+    setAgentDescriptors([provider]);
+    const view = await mount(tab);
     const menu = await openMenu(view.host);
-    assert(
-      !menu.querySelector('[data-testid="tab-menu-model"]'),
-      "model entry appeared for a provider that publishes no in-agent switch command",
-    );
+    assert(!menu.querySelector('[data-testid="tab-menu-model"]'), `model entry appeared for ${why}`);
     assert(
       menu.querySelector('[data-testid="tab-menu-restart-session"]'),
       "the rest of the menu chain disappeared with the model entry",
@@ -184,7 +183,7 @@ async function main() {
   // The picker exposes one choice per published model and marks the current one.
   {
     setAgentDescriptors([descriptor()]);
-    const view = await mount(generalAgentTab());
+    const view = await mount(agentTab());
     await openModelPicker(view.host);
     const options = document.querySelectorAll('[data-testid^="tab-menu-model-"]');
     assert(
@@ -215,13 +214,13 @@ async function main() {
   {
     const calls: Array<[string, string]> = [];
     __setTabModelApiForTest({
-      switchModel: async (ptyId, payload) => {
-        calls.push([ptyId, payload]);
+      switchModel: async (tabId, modelId) => {
+        calls.push([tabId, modelId]);
       },
     });
     try {
       setAgentDescriptors([descriptor()]);
-      const view = await mount(generalAgentTab({ pty_id: "pty-fixture" }));
+      const view = await mount(agentTab({ id: "tab-fixture" }));
       await openModelPicker(view.host);
       const target = MODELS[0];
       await click(
@@ -229,10 +228,10 @@ async function main() {
         `option ${target.id}`,
       );
       assert(calls.length === 1, `expected one switch, got ${calls.length}`);
-      assert(calls[0][0] === "pty-fixture", `switch went to ${calls[0][0]}`);
+      assert(calls[0][0] === "tab-fixture", `switch went to ${calls[0][0]}`);
       assert(
-        calls[0][1] === `/switch ${target.id}\r`,
-        `switch payload did not round-trip the supplied id: ${JSON.stringify(calls[0][1])}`,
+        calls[0][1] === target.id,
+        `switch did not round-trip the supplied id: ${JSON.stringify(calls[0][1])}`,
       );
       await view.dispose();
     } finally {
@@ -243,7 +242,7 @@ async function main() {
   // An in-flight turn is not interrupted, and the user is told why.
   {
     setAgentDescriptors([descriptor()]);
-    const view = await mount(generalAgentTab(), "Working");
+    const view = await mount(agentTab(), "Working");
     const menu = await openMenu(view.host);
     const entry = menu.querySelector('[data-testid="tab-menu-model"]');
     assert(entry, "model entry vanished while the agent was working");
@@ -268,7 +267,7 @@ async function main() {
   {
     const longModel = "deepseek-v4-flash";
     const view = await mount(
-      generalAgentTab({
+      agentTab({
         id: "tab-opencode",
         agent_type: "opencode",
         agent_session_model: longModel,

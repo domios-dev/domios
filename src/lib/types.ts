@@ -942,6 +942,8 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
+export type ModelSwitchMode = "restart_resume" | "unsupported";
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -994,10 +996,9 @@ export interface ProviderDescriptor {
   badge?: string | null;
   /** Provider-declared shell command that updates the CLI on this platform. */
   update_command?: string | null;
-  /// Provider-declared in-agent model switch template. `{model}` is replaced
-  /// with the selected ModelInfo id. Missing means the provider does not
-  /// support arg-based live model switching.
-  model_switch_format?: string | null;
+  /// How a live tab switches model: `restart_resume` relaunches the tab on its
+  /// own session. Missing or `unsupported` means the model is chosen at spawn.
+  model_switch?: ModelSwitchMode;
   /// Provider-declared in-agent context-compaction command. Consumed
   /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
   compact_command?: string | null;

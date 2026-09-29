@@ -570,17 +570,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// In-agent command that switches the underlying model, if supported.
-    fn model_switch_command(&self, _model: &str) -> Option<String> {
-        self.model_switch_format()
-            .map(|fmt| fmt.replace("{model}", _model))
-    }
-
-    /// In-agent model switch command template. Frontend consumers use the
-    /// template to render provider-agnostic model pickers without hardcoding
-    /// provider slash commands.
-    fn model_switch_format(&self) -> Option<&str> {
-        None
+    /// How a live tab switches model. An in-agent command is never offered:
+    /// provider slash commands persist the choice as the machine-global default.
+    fn model_switch(&self) -> ModelSwitchMode {
+        ModelSwitchMode::Unsupported
     }
 
     /// In-agent command that exits the REPL cleanly, if supported.
@@ -851,7 +844,7 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
             badge: self.badge().map(|s| s.to_string()),
             update_command: self.update_command(platform),
-            model_switch_format: self.model_switch_format().map(|s| s.to_string()),
+            model_switch: self.model_switch(),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
             integration_trust_grant: self.integration_trust_grant_capability(),

@@ -169,7 +169,7 @@ All fields optional.
 | `freshContext` | string? | In-agent fresh-context command. |
 | `exit` | string? | In-agent clean-exit command. |
 | `stopKey` | string? | Raw key bytes the host writes into the PTY to **interrupt** the current generation (not a clean exit). All four bundled providers declare Esc (`"\u001b"`) — see "The stop key" below. Absent ⇒ the UI hides the Stop affordance (`supports_stop` is derived from this field). |
-| `modelSwitchFormat` | string? | In-agent model-switch template with `{model}` placeholder (e.g. `/model {model}`). |
+| `modelSwitch` | `"restart_resume"` \| `"unsupported"` | How `agent model` changes a live tab's model. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`, and requires the provider's session-start report to carry a top-level `model`; that report is the switch's evidence. Default `unsupported` refuses the switch without writing to the tab. Never declare an in-agent slash command: provider model pickers persist the choice as the machine-global default. |
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`. Absent ⇒ provider has no scriptable effort flag even if it lists effort levels. |

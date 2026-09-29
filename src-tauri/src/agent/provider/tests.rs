@@ -112,7 +112,7 @@ fn provider_descriptor_round_trip() {
             install_command: Some("npm i -g testcli".into()),
             badge: Some("free tokens".into()),
             update_command: Some("testcli update".into()),
-            model_switch_format: Some("/model {model}".into()),
+            model_switch: ModelSwitchMode::RestartResume,
             fresh_context_command: Some("/new".into()),
             compact_command: Some("/compact".into()),
             integration_trust_grant: Some(IntegrationTrustGrantCapability {
@@ -154,7 +154,7 @@ fn provider_descriptor_rejects_unknown_fields() {
             "notifications_schema": [],
             "supports_lazy_skills": false,
             "has_hooks": false,
-            "model_switch_format": "/model {model}",
+            "model_switch": "restart_resume",
             "extra_unknown_field": "boom"
         }"#;
     let result: Result<ProviderDescriptor, _> = serde_json::from_str(bad);

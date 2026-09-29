@@ -92,7 +92,7 @@ fn commands_read_off_manifest() {
 }
 
 #[test]
-fn model_switch_command_substitutes_template() {
+fn model_switch_mode_comes_from_the_manifest() {
     let json = r#"{
             "id": "m",
             "version": "0.1.0",
@@ -103,13 +103,13 @@ fn model_switch_command_substitutes_template() {
                 "verifySubmit": { "kind": "none" }
             },
             "commands": {
-                "modelSwitchFormat": "/model {model}"
+                "modelSwitch": "restart_resume"
             }
         }"#;
     let p = load(json, "module.exports.default = {};");
     assert_eq!(
-        p.model_switch_command("opus").as_deref(),
-        Some("/model opus")
+        p.model_switch(),
+        crate::provider::ModelSwitchMode::RestartResume
     );
 }
 

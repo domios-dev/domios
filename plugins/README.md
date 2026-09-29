@@ -288,7 +288,7 @@ Declarative config the host reads without running JS. Key fields:
   },
   "models": [{ "id": "…", "displayName": "…" }], "defaultModel": "…",
   "commands": { "compact": "/compact", "exit": "/exit", "stopKey": "",
-                "modelSwitchFormat": "/model {model}",
+                "modelSwitch": "restart_resume",   // or "unsupported" (default)
                 "autoApproveFlags": ["--dangerously-…"] },
   "installer": { "macos": "npm i -g …", "windows": "npm i -g …" }
 }
