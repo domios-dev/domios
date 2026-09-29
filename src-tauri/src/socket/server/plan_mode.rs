@@ -151,12 +151,7 @@ pub(super) fn authorize_plan_mutation(
     params: &Option<Value>,
 ) -> Result<(), JsonRpcError> {
     let caller = caller(params);
-    let confirmed_human = params
-        .as_ref()
-        .and_then(|value| value.get("human_confirmation"))
-        .and_then(Value::as_bool)
-        == Some(true)
-        && caller.tab_id.is_none();
+    let confirmed_human = has_human_confirmation(caller.tab_id.as_deref(), params);
     if confirmed_human
         || (caller.tab_id.is_some()
             && matches!(
@@ -171,6 +166,15 @@ pub(super) fn authorize_plan_mutation(
         message: "the caller is not the Plan Orchestrator or Planner".into(),
         data: Some(json!({ "type": "plan_mutation_authorization_required" })),
     })
+}
+
+fn has_human_confirmation(caller_tab_id: Option<&str>, params: &Option<Value>) -> bool {
+    caller_tab_id.is_none()
+        && params
+            .as_ref()
+            .and_then(|value| value.get("human_confirmation"))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 fn authority_error(message: String) -> JsonRpcError {
@@ -216,4 +220,18 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_human_confirmation;
+    use serde_json::json;
+
+    #[test]
+    fn plan_mutation_human_confirmation_requires_no_tab_identity() {
+        let confirmed = Some(json!({ "human_confirmation": true }));
+        assert!(has_human_confirmation(None, &confirmed));
+        assert!(!has_human_confirmation(Some("planner-tab"), &confirmed));
+        assert!(!has_human_confirmation(None, &Some(json!({ "human_confirmation": false }))));
+    }
 }

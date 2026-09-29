@@ -470,6 +470,40 @@ mod tests {
     const PEER_ID: &str = "31c7cff6-4bd2-43b0-a5cd-b5db9bfbb673";
     const PEER_NAME: &str = "peer";
 
+    #[test]
+    fn mesh_reject_http_route_returns_not_found_without_blocking_processed_ids() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.insert(
+            "accepted".into(),
+            crate::mesh::types::PairingRequest {
+                request_id: "accepted".into(),
+                from_instance_id: "paired-peer".into(),
+                from_instance_name: "paired-peer".into(),
+                from_address: "100.64.0.2".into(),
+                from_port: 7685,
+                from_addresses: vec![crate::mesh::types::PeerAddress::from_ip("100.64.0.2")],
+                public_key: "key".into(),
+                timestamp: 0,
+                status: crate::mesh::types::PairingStatus::Accepted,
+                introduced_by: None,
+            },
+        );
+
+        for request_id in ["never-existed", "accepted"] {
+            let error = reject_pending_request_http(&mut mesh, request_id)
+                .expect_err("only a pending request can be rejected");
+            assert_eq!(error.0, StatusCode::NOT_FOUND);
+        }
+
+        assert!(mesh.revocation_list.blocked.is_empty());
+        assert_eq!(
+            mesh.pending_requests["accepted"].status,
+            crate::mesh::types::PairingStatus::Accepted
+        );
+    }
+
     fn mesh_state() -> crate::MeshStateHandle {
         let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
         manager.ready_listeners = vec!["100.64.0.1:7685".parse().unwrap()];
@@ -957,18 +991,7 @@ pub async fn mesh_reject_peer(
         .to_string();
 
     let mut mesh = state.mesh.lock();
-    let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
-        req.status = crate::mesh::types::PairingStatus::Rejected;
-        Some(req.from_instance_id.clone())
-    } else {
-        None
-    };
-    if let Some(id) = block_id {
-        if !mesh.revocation_list.blocked.contains(&id) {
-            mesh.revocation_list.blocked.push(id);
-        }
-        let _ = mesh.save();
-    }
+    reject_pending_request_http(&mut mesh, &request_id)?;
     drop(mesh);
 
     crate::api::events::emit_everywhere(
@@ -977,6 +1000,14 @@ pub async fn mesh_reject_peer(
         serde_json::Value::Null,
     );
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+fn reject_pending_request_http(
+    mesh: &mut crate::mesh::MeshManager,
+    request_id: &str,
+) -> Result<(), (StatusCode, String)> {
+    crate::api::mesh_routes::pairing::reject_pending_request(mesh, request_id)
+        .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))
 }
 
 /// Disconnect (unpair) from a paired peer (same logic as Tauri mesh_disconnect).
