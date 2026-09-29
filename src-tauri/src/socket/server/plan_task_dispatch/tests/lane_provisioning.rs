@@ -125,11 +125,13 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
     fixture
         .store
         .with_plan(&fixture.plan.id, 5, |plan| {
-            plan.tasks
+            let task = plan
+                .tasks
                 .iter_mut()
                 .find(|task| task.id == fixture.mine)
-                .expect("fixture task")
-                .execution_attempts
+                .expect("fixture task");
+            task.status = TaskStatus::InProgress;
+            task.execution_attempts
                 .push(TaskExecutionAttempt {
                     actual_reasoning_effort: None,
                     id: "attempt-preserved".into(),
