@@ -1052,9 +1052,13 @@ pub async fn mesh_relay_asset(
 }
 
 mod path_guard;
-mod peer_resolution;
 mod peer_authorization;
+mod peer_resolution;
 use path_guard::validate_relay_path;
+use peer_authorization::{
+    authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
+    PeerRelayAuthorization,
+};
 use peer_resolution::{
     peer_not_paired_error, peer_unroutable_error, resolve_relay_peer, AnsweringPeer,
     PeerRelayResponse,
@@ -1063,10 +1067,6 @@ use peer_resolution::{
 use peer_resolution::{
     PEER_NAME_AMBIGUOUS_REASON, PEER_NAME_NO_ONLINE_RECORD_REASON, PEER_NOT_PAIRED_REASON,
     PEER_UNROUTABLE_REASON,
-};
-use peer_authorization::{
-    authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
-    PeerRelayAuthorization,
 };
 
 #[cfg(test)]

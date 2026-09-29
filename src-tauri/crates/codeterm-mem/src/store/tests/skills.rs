@@ -28,8 +28,12 @@ fn write_skill(root: &std::path::Path, slug: &str, title: &str) -> String {
 }
 
 fn skill_count(conn: &Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM mem_items WHERE kind = 'skill'", [], |r| r.get(0))
-        .unwrap()
+    conn.query_row(
+        "SELECT COUNT(*) FROM mem_items WHERE kind = 'skill'",
+        [],
+        |r| r.get(0),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -47,7 +51,10 @@ fn skill_delete_tombstone_survives_sync() {
     assert_eq!(after_delete.skipped_tombstoned.len(), 1);
     assert_eq!(skill_count(&conn), 0);
 
-    let source = format!("file:{}", root.path().join("alpha").join("SKILL.md").display());
+    let source = format!(
+        "file:{}",
+        root.path().join("alpha").join("SKILL.md").display()
+    );
     insert(&conn, &skill_item("Alpha Skill", &source, vec![]), &blobs).unwrap();
     assert!(delete(&conn, "skill_alpha_skill").unwrap());
     insert(&conn, &skill_item("Alpha Skill", &source, vec![]), &blobs).unwrap();
@@ -64,10 +71,20 @@ fn skill_folder_single_registration() {
     let canonical = write_skill(root.path(), "x", "Bad Name x");
     let unnormalized = format!(
         "file:{}",
-        root.path().join("Bad Name").join("..").join("x").join("SKILL.md").display()
+        root.path()
+            .join("Bad Name")
+            .join("..")
+            .join("x")
+            .join("SKILL.md")
+            .display()
     );
 
-    insert(&conn, &skill_item("Bad Name x", &unnormalized, vec![]), &blobs).unwrap();
+    insert(
+        &conn,
+        &skill_item("Bad Name x", &unnormalized, vec![]),
+        &blobs,
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, body_inline, importance, \
          created_at, updated_at, source_path) VALUES ('skill_bad_name____x', 'u-dup', 'skill', \

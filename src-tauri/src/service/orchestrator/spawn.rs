@@ -453,13 +453,12 @@ impl ServiceContext {
             });
         }
 
-        let clearance =
-            crate::service::spawn::provider_launch_preflight(
-                &self.agent_registry,
-                &agent_cmd,
-                params.permission_bypass_requested(&agent_cmd),
-            )
-            .map_err(|e| e.to_string())?;
+        let clearance = crate::service::spawn::provider_launch_preflight(
+            &self.agent_registry,
+            &agent_cmd,
+            params.permission_bypass_requested(&agent_cmd),
+        )
+        .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
@@ -1159,8 +1158,8 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
 }
 
 mod remote_binding;
-pub(crate) use remote_binding::remote_task_binding_matches_authority;
 use remote_binding::remote_task_binding_matches;
+pub(crate) use remote_binding::remote_task_binding_matches_authority;
 
 #[cfg(test)]
 mod tests;

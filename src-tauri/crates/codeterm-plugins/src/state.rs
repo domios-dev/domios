@@ -53,15 +53,25 @@ pub(super) fn plugin_dir(id: &PluginId) -> PathBuf {
 
 pub(super) fn ensure_plugin_path_inside(path: &Path) -> Result<(), String> {
     let root = plugins_root();
-    fs::create_dir_all(&root).map_err(|e| format!("create plugins root {}: {e}", root.display()))?;
-    let root = root.canonicalize().map_err(|e| format!("canonicalize plugins root: {e}"))?;
+    fs::create_dir_all(&root)
+        .map_err(|e| format!("create plugins root {}: {e}", root.display()))?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("canonicalize plugins root: {e}"))?;
     let resolved = if path.exists() {
-        path.canonicalize().map_err(|e| format!("canonicalize plugin path {}: {e}", path.display()))?
+        path.canonicalize()
+            .map_err(|e| format!("canonicalize plugin path {}: {e}", path.display()))?
     } else {
-        root.join(path.file_name().ok_or("plugin path has no final component")?)
+        root.join(
+            path.file_name()
+                .ok_or("plugin path has no final component")?,
+        )
     };
     if resolved == root || !resolved.starts_with(&root) {
-        return Err(format!("plugin path {} is outside the plugins root", path.display()));
+        return Err(format!(
+            "plugin path {} is outside the plugins root",
+            path.display()
+        ));
     }
     Ok(())
 }

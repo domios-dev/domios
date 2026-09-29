@@ -15,12 +15,12 @@ use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 mod model_error;
 mod pair_headers;
-mod spawn_rejection;
 pub(crate) mod spawn_ownership;
+mod spawn_rejection;
 
 pub(super) use pair_headers::create_orchestration_pair;
-pub(crate) use spawn_rejection::SpawnRejection;
 use spawn_ownership::ownership_for_spawning_peer;
+pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 

@@ -37,7 +37,11 @@ pub(crate) fn refusal(peer: &str, longest: usize) -> MeshSpawnFailure {
 pub(super) fn enforce(target: &str, body: Option<&str>, json_mode: bool) {
     let Some(text) = body
         .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
-        .and_then(|body| body.get("text").and_then(|t| t.as_str()).map(str::to_string))
+        .and_then(|body| {
+            body.get("text")
+                .and_then(|t| t.as_str())
+                .map(str::to_string)
+        })
     else {
         return;
     };

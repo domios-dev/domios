@@ -6,7 +6,10 @@ pub(crate) fn notify(service: &crate::service::ServiceState) -> std::thread::Joi
         .spawn(move || {
             let started = std::time::Instant::now();
             sweep(&service);
-            log::info!("[startup] launch artifact sweep took {:?}", started.elapsed());
+            log::info!(
+                "[startup] launch artifact sweep took {:?}",
+                started.elapsed()
+            );
         })
         .expect("spawn launch artifact sweep thread")
 }

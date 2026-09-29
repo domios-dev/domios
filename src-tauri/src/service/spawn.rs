@@ -280,8 +280,9 @@ impl ServiceContext {
         let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
-        let clearance = provider_launch_preflight(&self.agent_registry, &agent_cmd, permission_bypass)
-            .map_err(|e| e.to_string())?;
+        let clearance =
+            provider_launch_preflight(&self.agent_registry, &agent_cmd, permission_bypass)
+                .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
@@ -759,8 +760,9 @@ impl ServiceContext {
                 &agent.provider,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
-        let clearance = provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
-            .map_err(|e| e.to_string())?;
+        let clearance =
+            provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
+                .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);

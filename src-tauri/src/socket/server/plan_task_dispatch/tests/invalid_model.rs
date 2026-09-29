@@ -11,8 +11,9 @@ fn plan_task_dispatch_refuses_unknown_model_before_spawn() {
     let refused = crate::service::spawn::validate_agent_model(&registry, "claude", Some("opuss"))
         .map_err(|error| error.to_string())
         .and_then(|_| {
-            let clearance = crate::service::spawn::provider_launch_preflight(&registry, "claude", false)
-                .map_err(|error| error.to_string())?;
+            let clearance =
+                crate::service::spawn::provider_launch_preflight(&registry, "claude", false)
+                    .map_err(|error| error.to_string())?;
             crate::service::spawn::create_cleared_agent_tab(&mut mux, &workspace_id, &clearance)
                 .map_err(|error| error.to_string())
         });

@@ -150,9 +150,9 @@ impl TabLifecycleJournal {
             .and_modify(|last| *last = (*last).max(epoch))
             .or_insert(epoch);
         let unbounded = cursor.records >= COMPACT_AT_RECORDS
-            && cursor
-                .refused_at_records
-                .map_or(true, |refused| cursor.records >= refused + COMPACT_AT_RECORDS);
+            && cursor.refused_at_records.map_or(true, |refused| {
+                cursor.records >= refused + COMPACT_AT_RECORDS
+            });
         drop(cursor);
         if unbounded {
             if let Err(error) = self.compact() {

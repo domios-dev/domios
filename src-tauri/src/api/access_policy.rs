@@ -61,9 +61,16 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
                 return true;
             }
             *method == Method::POST
-                && ["/send", "/attachments", "/exec", "/respond", "/report", "/clear"]
-                    .iter()
-                    .any(|suffix| path.ends_with(suffix))
+                && [
+                    "/send",
+                    "/attachments",
+                    "/exec",
+                    "/respond",
+                    "/report",
+                    "/clear",
+                ]
+                .iter()
+                .any(|suffix| path.ends_with(suffix))
         }
         AccessLevel::Custom(perms) => {
             if perms.contains(&Permission::Admin) {
@@ -135,7 +142,11 @@ mod tests {
         assert!(check_access(&access, &Method::GET, "/api/tabs/abc/text"));
         assert!(check_access(&access, &Method::POST, "/api/tabs/abc/send"));
         assert!(check_access(&access, &Method::POST, "/api/tabs/abc/exec"));
-        assert!(check_access(&access, &Method::POST, "/api/tabs/abc/respond"));
+        assert!(check_access(
+            &access,
+            &Method::POST,
+            "/api/tabs/abc/respond"
+        ));
         assert!(check_access(&access, &Method::POST, "/api/tabs/abc/report"));
         assert!(check_access(&access, &Method::POST, "/api/tabs/abc/clear"));
         assert!(check_access(&access, &Method::POST, "/api/agents/spawn"));

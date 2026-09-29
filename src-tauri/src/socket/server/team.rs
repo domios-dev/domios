@@ -197,7 +197,11 @@ fn lifecycle_for_team(
                 )
             }))
     });
-    if has_execution { TeamLifecycle::Active } else { team.lifecycle }
+    if has_execution {
+        TeamLifecycle::Active
+    } else {
+        team.lifecycle
+    }
 }
 
 /// Member tabs of a Team, ordered by tab id so the listing is stable.

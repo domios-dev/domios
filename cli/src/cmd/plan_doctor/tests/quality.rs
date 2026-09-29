@@ -1046,9 +1046,11 @@ fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
     let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
     write_v2_plan(&plan_dir, &roleless_task_plan());
 
-    let report =
-        super::authoritative_report(&roleless_task_plan(), "pl_1", dir.path(), "quality");
-    assert!(!report["ok"].as_bool().unwrap(), "doctor and approval must agree: {report}");
+    let report = super::authoritative_report(&roleless_task_plan(), "pl_1", dir.path(), "quality");
+    assert!(
+        !report["ok"].as_bool().unwrap(),
+        "doctor and approval must agree: {report}"
+    );
     assert!(report["findings"]
         .as_array()
         .unwrap()

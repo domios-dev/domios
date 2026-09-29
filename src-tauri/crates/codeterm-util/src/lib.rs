@@ -4,7 +4,7 @@ pub mod lock_hold;
 pub mod persisted_state;
 pub mod process_util;
 pub mod shell;
-pub mod terminal;
 pub mod task_files;
+pub mod terminal;
 pub mod test_env;
 pub mod windows_env;

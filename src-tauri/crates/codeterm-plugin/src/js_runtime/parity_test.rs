@@ -562,7 +562,9 @@ struct NativeCodexReadiness;
 
 #[async_trait::async_trait]
 impl AgentProvider for NativeCodexReadiness {
-    fn sandboxed_linux_launch_capability(&self) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
         Some(crate::provider::SandboxedLinuxLaunchCapability {
             network_access_args: vec![
                 "-c".into(),

@@ -333,7 +333,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("shared.db");
         let mut file = std::fs::File::create(&path).unwrap();
-        file.write_all(b"SQLite format 3\0# CodeTerm General Agent").unwrap();
+        file.write_all(b"SQLite format 3\0# CodeTerm General Agent")
+            .unwrap();
         let mut candidates: Vec<_> = (0..5)
             .map(|index| SessionCandidate {
                 session_id: format!("session-{index}"),

@@ -526,7 +526,10 @@ impl PlanStore {
                 | AcceptanceCriteriaUpdate::Replace(values) => values,
             };
             for value in values {
-                crate::service_plan::text_bounds::validate_plan_text("acceptance criterion", value)?;
+                crate::service_plan::text_bounds::validate_plan_text(
+                    "acceptance criterion",
+                    value,
+                )?;
             }
         }
         for (field, value) in [

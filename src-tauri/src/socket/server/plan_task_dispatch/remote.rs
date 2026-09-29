@@ -113,7 +113,10 @@ pub(super) fn dispatch(
     }
     let attempt_id = crate::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(app, &peer_target)?;
-    if let Some(client) = peer_client.as_ref().filter(|_| peer_state == PeerState::Online) {
+    if let Some(client) = peer_client
+        .as_ref()
+        .filter(|_| peer_state == PeerState::Online)
+    {
         require_remote_dispatch_capability(client, &peer_name)?;
     }
     svc.plan_store
@@ -581,11 +584,13 @@ fn require_remote_dispatch_capability(
     client: &crate::mesh::transport::PeerClient,
     peer_name: &str,
 ) -> Result<(), JsonRpcError> {
-    let Ok(identify) = tauri::async_runtime::block_on(client.auth_get_json("/api/identify"))
-    else {
+    let Ok(identify) = tauri::async_runtime::block_on(client.auth_get_json("/api/identify")) else {
         return Ok(());
     };
-    if identify_advertises(&identify, crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE) {
+    if identify_advertises(
+        &identify,
+        crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE,
+    ) {
         return Ok(());
     }
     let version = identify

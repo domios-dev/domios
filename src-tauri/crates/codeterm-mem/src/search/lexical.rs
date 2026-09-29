@@ -140,16 +140,52 @@ mod tests {
         let blobs = std::env::temp_dir().join(format!("memlex-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&blobs).unwrap();
 
-        seed(&conn, &blobs, MemKind::Fact, "NAS nightly backup", "restic nightly at 02:00 to Backblaze B2 bucket archivist-b2-night");
-        seed(&conn, &blobs, MemKind::Fact, "Laptop backup", "Time Machine weekly backup");
-        seed(&conn, &blobs, MemKind::Fact, "Phone photos", "Immich hourly photo upload");
-        seed(&conn, &blobs, MemKind::Skill, "codeterm ai terminal control", "run commands in a tab, set the tab name, run agents");
-        seed(&conn, &blobs, MemKind::Skill, "verify before claim", "run the check, read the name of the failing test, run it again");
+        seed(
+            &conn,
+            &blobs,
+            MemKind::Fact,
+            "NAS nightly backup",
+            "restic nightly at 02:00 to Backblaze B2 bucket archivist-b2-night",
+        );
+        seed(
+            &conn,
+            &blobs,
+            MemKind::Fact,
+            "Laptop backup",
+            "Time Machine weekly backup",
+        );
+        seed(
+            &conn,
+            &blobs,
+            MemKind::Fact,
+            "Phone photos",
+            "Immich hourly photo upload",
+        );
+        seed(
+            &conn,
+            &blobs,
+            MemKind::Skill,
+            "codeterm ai terminal control",
+            "run commands in a tab, set the tab name, run agents",
+        );
+        seed(
+            &conn,
+            &blobs,
+            MemKind::Skill,
+            "verify before claim",
+            "run the check, read the name of the failing test, run it again",
+        );
 
         assert_eq!(top(&conn, &blobs, "restic run"), "NAS nightly backup");
-        assert_eq!(top(&conn, &blobs, "when does restic run"), "NAS nightly backup");
+        assert_eq!(
+            top(&conn, &blobs, "when does restic run"),
+            "NAS nightly backup"
+        );
         assert_eq!(top(&conn, &blobs, "bucket name"), "NAS nightly backup");
         assert_eq!(top(&conn, &blobs, "Laptop backup"), "Laptop backup");
-        assert_eq!(top(&conn, &blobs, "verify before claim"), "verify before claim");
+        assert_eq!(
+            top(&conn, &blobs, "verify before claim"),
+            "verify before claim"
+        );
     }
 }

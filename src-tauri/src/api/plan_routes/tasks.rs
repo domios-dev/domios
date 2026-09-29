@@ -833,7 +833,10 @@ pub(super) async fn verify_task_mutation_owner(
         return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
     }
     if recovery == TaskMutationKind::Recovery
-        && caller.tab_id.as_deref().is_some_and(|tab_id| !tab_id.is_empty())
+        && caller
+            .tab_id
+            .as_deref()
+            .is_some_and(|tab_id| !tab_id.is_empty())
         && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
     {
         match svc

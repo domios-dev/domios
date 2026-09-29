@@ -92,7 +92,10 @@ fn validate(raw: &str) -> Result<(), String> {
 /// every binding change until it loads again.
 fn load(path: &Path) -> Bindings {
     match state_file(path).load(parse) {
-        Loaded::Parsed(bindings) | Loaded::Recovered { value: bindings, .. } => bindings,
+        Loaded::Parsed(bindings)
+        | Loaded::Recovered {
+            value: bindings, ..
+        } => bindings,
         Loaded::Missing | Loaded::Unrecoverable { .. } => Bindings::new(),
     }
 }

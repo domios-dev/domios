@@ -71,7 +71,10 @@ impl ThreadRegistry {
 
     pub fn load(path: PathBuf) -> Self {
         let snapshot = match state_file(&path).load(parse_snapshot) {
-            Loaded::Parsed(snapshot) | Loaded::Recovered { value: snapshot, .. } => snapshot,
+            Loaded::Parsed(snapshot)
+            | Loaded::Recovered {
+                value: snapshot, ..
+            } => snapshot,
             Loaded::Missing | Loaded::Unrecoverable { .. } => Snapshot::default(),
         };
         Self {
@@ -311,7 +314,10 @@ mod persistence_tests {
         held.bind(binding());
         assert!(!path.exists());
         let copies = state_file(&path).corrupt_copies();
-        assert_eq!(std::fs::read_to_string(copies.last().unwrap()).unwrap(), "{\"bindings\": [");
+        assert_eq!(
+            std::fs::read_to_string(copies.last().unwrap()).unwrap(),
+            "{\"bindings\": ["
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

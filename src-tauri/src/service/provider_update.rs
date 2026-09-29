@@ -270,10 +270,12 @@ fn update_consent(label: &str) -> UpdateConsent {
 }
 
 fn update_gate(statuses: &[Option<TabStatus>]) -> UpdateGate {
-    if statuses
-        .iter()
-        .any(|status| !matches!(status, Some(TabStatus::Idle | TabStatus::Error | TabStatus::Dead)))
-    {
+    if statuses.iter().any(|status| {
+        !matches!(
+            status,
+            Some(TabStatus::Idle | TabStatus::Error | TabStatus::Dead)
+        )
+    }) {
         return UpdateGate::WaitForIdle;
     }
     UpdateGate::Ready

@@ -59,7 +59,9 @@ pub fn write_at(
 }
 
 pub fn task_dir() -> PathBuf {
-    codeterm_paths::data_dir().join("runtime").join("task-files")
+    codeterm_paths::data_dir()
+        .join("runtime")
+        .join("task-files")
 }
 
 pub fn release_tab(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -74,7 +76,11 @@ pub fn release_tab(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> 
     }
     let mut removed = Vec::new();
     for path in candidates {
-        if path.parent() != Some(root) || !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(&prefix)) {
+        if path.parent() != Some(root)
+            || !path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+        {
             continue;
         }
         if std::fs::remove_file(&path).is_ok() {
@@ -90,7 +96,10 @@ pub fn sweep(root: &Path, live_owners: &HashSet<String>) -> Vec<PathBuf> {
     };
     let marker = instance_marker_for_task_dir(root);
     let own_prefix = format!("codeterm-plugin-{marker}-");
-    let live: HashSet<_> = live_owners.iter().map(|owner| encode(owner.as_bytes())).collect();
+    let live: HashSet<_> = live_owners
+        .iter()
+        .map(|owner| encode(owner.as_bytes()))
+        .collect();
     let mut removed = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -124,7 +133,13 @@ pub fn instance_marker_for(data_dir: &Path) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or("codeterm")
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -169,7 +184,11 @@ mod tests {
         let path = path;
         assert_eq!(path.parent(), Some(root.as_path()));
         assert_eq!(paths, vec![path.clone()]);
-        assert!(path.file_name().unwrap().to_string_lossy().contains(&encode(b"tab-A")));
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(&encode(b"tab-A")));
         assert_eq!(fs::read_to_string(path).unwrap(), "payload");
     }
 
@@ -179,20 +198,35 @@ mod tests {
         let root = temp.path().join("runtime").join("task-files");
         fs::create_dir_all(&root).unwrap();
         let marker = instance_marker_for(temp.path());
-        let live = root.join(format!("{}live-abc.ct-task", file_prefix(&marker, "tab-live")));
-        let closed = root.join(format!("{}closed-def.ct-task", file_prefix(&marker, "tab-closed")));
+        let live = root.join(format!(
+            "{}live-abc.ct-task",
+            file_prefix(&marker, "tab-live")
+        ));
+        let closed = root.join(format!(
+            "{}closed-def.ct-task",
+            file_prefix(&marker, "tab-closed")
+        ));
         let foreign = root.join("codeterm-plugin-another-instance-66-foreign.ct-task");
         fs::write(&live, "live").unwrap();
         fs::write(&closed, "closed").unwrap();
         fs::write(&foreign, "foreign").unwrap();
 
-        assert_eq!(release_tab(&root, "tab-closed", &[closed.clone()]), vec![closed.clone()]);
+        assert_eq!(
+            release_tab(&root, "tab-closed", &[closed.clone()]),
+            vec![closed.clone()]
+        );
         assert!(sweep(&root, &HashSet::from(["tab-live".to_string()])).is_empty());
         assert!(live.exists());
         assert!(foreign.exists());
-        let orphan = root.join(format!("{}orphan-ghi.ct-task", file_prefix(&marker, "tab-orphan")));
+        let orphan = root.join(format!(
+            "{}orphan-ghi.ct-task",
+            file_prefix(&marker, "tab-orphan")
+        ));
         fs::write(&orphan, "orphan").unwrap();
-        assert_eq!(sweep(&root, &HashSet::from(["tab-live".to_string()])), vec![orphan.clone()]);
+        assert_eq!(
+            sweep(&root, &HashSet::from(["tab-live".to_string()])),
+            vec![orphan.clone()]
+        );
         assert!(foreign.exists());
     }
 }

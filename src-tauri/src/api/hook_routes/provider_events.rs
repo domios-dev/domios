@@ -4,8 +4,8 @@ use axum::{
     Json,
 };
 
-use crate::api::routes::AppState;
 use super::{header_str, resolve_hook_tab};
+use crate::api::routes::AppState;
 
 #[derive(serde::Deserialize)]
 pub(crate) struct ProviderEventBody {
@@ -20,10 +20,14 @@ pub(crate) async fn hook_provider_event(
     Json(body): Json<ProviderEventBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "provider_event")?;
-    let provider = header_str(&headers, "x-codeterm-agent-provider")
-        .ok_or((StatusCode::UNAUTHORIZED, "provider identity missing".to_string()))?;
-    let nonce = header_str(&headers, "x-codeterm-binding-nonce")
-        .ok_or((StatusCode::UNAUTHORIZED, "binding nonce missing".to_string()))?;
+    let provider = header_str(&headers, "x-codeterm-agent-provider").ok_or((
+        StatusCode::UNAUTHORIZED,
+        "provider identity missing".to_string(),
+    ))?;
+    let nonce = header_str(&headers, "x-codeterm-binding-nonce").ok_or((
+        StatusCode::UNAUTHORIZED,
+        "binding nonce missing".to_string(),
+    ))?;
     let (tab_provider, session_id, expected_nonce, acknowledged_nonce, pty_id) = state
         .svc
         .mux
@@ -49,13 +53,18 @@ pub(crate) async fn hook_provider_event(
             "provider event does not match the tab's claimed session".to_string(),
         ));
     }
-    let event_json = serde_json::to_string(&body.event)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "provider event is not valid JSON".to_string()))?;
+    let event_json = serde_json::to_string(&body.event).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "provider event is not valid JSON".to_string(),
+        )
+    })?;
     let registry = state.svc.agent_registry.clone();
     let provider_id = provider.to_string();
-    let events = tokio::task::spawn_blocking(move || registry.detect_events(&provider_id, &event_json))
-        .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let events =
+        tokio::task::spawn_blocking(move || registry.detect_events(&provider_id, &event_json))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     let turn_error = events.contains(&crate::agent::detector::AgentEvent::TurnError);
     let turn_complete = events.contains(&crate::agent::detector::AgentEvent::TaskComplete);
     let turn_started = events.contains(&crate::agent::detector::AgentEvent::TurnStarted);

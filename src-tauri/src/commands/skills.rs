@@ -278,7 +278,11 @@ fn provider_entry_owned(path: &std::path::Path) -> bool {
 }
 
 fn provider_entry_prunable(path: &std::path::Path) -> bool {
-    let source_channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    let source_channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "prod"
+    };
     provider_metadata(path).is_some_and(|(_, installed_channel, _)| {
         installed_channel != "prod" || source_channel == "prod"
     })
@@ -308,15 +312,24 @@ fn provider_metadata(path: &std::path::Path) -> Option<(u32, String, String)> {
     Some((revision, channel, hash))
 }
 
-fn should_write_provider_entry(src: &std::path::Path, dst: &std::path::Path, revision: u32) -> bool {
+fn should_write_provider_entry(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    revision: u32,
+) -> bool {
     if !dst.exists() {
         return true;
     }
     let source_hash = provider_skill_hash(src, true);
-    let Some((installed_revision, installed_channel, installed_hash)) = provider_metadata(dst) else {
+    let Some((installed_revision, installed_channel, installed_hash)) = provider_metadata(dst)
+    else {
         return false;
     };
-    let source_channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    let source_channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "prod"
+    };
     if installed_channel == "prod" && source_channel == "dev" {
         return false;
     }
@@ -338,12 +351,17 @@ fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
         render: bool,
         files: &mut Vec<(String, Vec<u8>)>,
     ) {
-        let Ok(entries) = std::fs::read_dir(path) else { return };
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
         for entry in entries.flatten() {
             let item = entry.path();
             if item.is_dir() {
                 collect(&item, root, render, files);
-            } else if item.file_name().is_some_and(|name| name != PROVIDER_OWNERSHIP_FILE) {
+            } else if item
+                .file_name()
+                .is_some_and(|name| name != PROVIDER_OWNERSHIP_FILE)
+            {
                 if let Ok(mut bytes) = std::fs::read(&item) {
                     if render && item == root.join("SKILL.md") {
                         if let Ok(text) = String::from_utf8(bytes.clone()) {
@@ -354,7 +372,13 @@ fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
                             .into_bytes();
                         }
                     }
-                    files.push((item.strip_prefix(root).unwrap_or(&item).display().to_string(), bytes));
+                    files.push((
+                        item.strip_prefix(root)
+                            .unwrap_or(&item)
+                            .display()
+                            .to_string(),
+                        bytes,
+                    ));
                 }
             }
         }
@@ -394,10 +418,17 @@ fn remove_unbundled_entries(src: &std::path::Path, dst: &std::path::Path, root: 
 }
 
 fn write_provider_ownership(path: &std::path::Path, revision: u32) -> Result<(), String> {
-    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    let channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "prod"
+    };
     std::fs::write(
         path.join(PROVIDER_OWNERSHIP_FILE),
-        format!("codeterm\n{revision}\n{channel}\n{}\n", provider_skill_hash(path, false)),
+        format!(
+            "codeterm\n{revision}\n{channel}\n{}\n",
+            provider_skill_hash(path, false)
+        ),
     )
     .map_err(|error| error.to_string())
 }
@@ -574,7 +605,11 @@ mod skills_seed_tests {
 
         let src_dir = canonical.join(CODETERM_SKILL_ID);
         let dst_dir = provider.join(CODETERM_SKILL_ID);
-        let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+        let channel = if cfg!(debug_assertions) {
+            "dev"
+        } else {
+            "prod"
+        };
         let hash = provider_skill_hash(&dst_dir, false);
         std::fs::write(
             dst_dir.join(PROVIDER_OWNERSHIP_FILE),
@@ -689,7 +724,9 @@ mod mirror_tests {
         write_skill(&provider.join("qa-foreign"), "foreign");
         write_skill(&provider.join("codeterm-owned-old"), "obsolete");
         std::fs::write(
-            provider.join("codeterm-owned-old").join(PROVIDER_OWNERSHIP_FILE),
+            provider
+                .join("codeterm-owned-old")
+                .join(PROVIDER_OWNERSHIP_FILE),
             "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
         )
         .unwrap();
@@ -710,7 +747,10 @@ mod mirror_tests {
         assert!(provider.join("qa-foreign").exists());
         assert!(!provider.join("codeterm-owned-old").exists());
         assert!(
-            provider.join("codeterm").join(PROVIDER_OWNERSHIP_FILE).exists(),
+            provider
+                .join("codeterm")
+                .join(PROVIDER_OWNERSHIP_FILE)
+                .exists(),
             "owned marker must remain inside the mirrored entry"
         );
         assert!(
@@ -743,7 +783,11 @@ mod mirror_tests {
         let target = tmp.path().join("target");
         write_skill(&source, "body\n<!-- revision: 5 -->");
         write_skill(&target, "body\n<!-- revision: 5 -->");
-        let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+        let channel = if cfg!(debug_assertions) {
+            "dev"
+        } else {
+            "prod"
+        };
         let hash = provider_skill_hash(&target, false);
         std::fs::write(
             target.join(PROVIDER_OWNERSHIP_FILE),

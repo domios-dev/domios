@@ -310,8 +310,12 @@ fn require_plan_role_for_unowned_task(
 ) -> Result<(), JsonRpcError> {
     if !matches!(
         method,
-        "plan.task.update" | "plan.task.close" | "plan.task.assign" | "plan.task.dispatch"
-            | "plan.task.respawn" | "plan.task.cancel"
+        "plan.task.update"
+            | "plan.task.close"
+            | "plan.task.assign"
+            | "plan.task.dispatch"
+            | "plan.task.respawn"
+            | "plan.task.cancel"
     ) {
         return Ok(());
     }

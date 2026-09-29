@@ -125,7 +125,9 @@ impl ServiceContext {
     }
 
     fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
-        for (tab_id, plan_id) in complete_wrapup_targets(&self.plan_store.list_full_reminder_candidates()) {
+        for (tab_id, plan_id) in
+            complete_wrapup_targets(&self.plan_store.list_full_reminder_candidates())
+        {
             if !self.plan_turn_counter.complete_wrapup_due(&plan_id) {
                 continue;
             }

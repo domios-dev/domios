@@ -231,7 +231,11 @@ pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
 }
 
 fn owned_rule_content(payload: &str) -> String {
-    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    let channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "prod"
+    };
     owned_rule_content_for(payload, channel)
 }
 
@@ -254,11 +258,17 @@ fn should_write_rule(installed: &str, proposed: &str, source_debug: bool) -> boo
 }
 
 fn extract_revision(content: &str) -> u32 {
-    content.lines().find_map(|line| {
-        let trimmed = line.trim();
-        let value = trimmed.strip_prefix("<!-- revision:")?.strip_suffix("-->")?.trim();
-        value.parse().ok()
-    }).unwrap_or_default()
+    content
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            let value = trimmed
+                .strip_prefix("<!-- revision:")?
+                .strip_suffix("-->")?
+                .trim();
+            value.parse().ok()
+        })
+        .unwrap_or_default()
 }
 
 pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
@@ -303,11 +313,29 @@ mod tests {
     #[test]
     fn rule_global_write_only_on_content_change() {
         let body = "fixture\n<!-- revision: 7 -->\n";
-        let installed = owned_rule_content_for(body, if cfg!(debug_assertions) { "dev" } else { "prod" });
-        assert!(!should_write_rule(&installed, &installed, cfg!(debug_assertions)));
+        let installed = owned_rule_content_for(
+            body,
+            if cfg!(debug_assertions) {
+                "dev"
+            } else {
+                "prod"
+            },
+        );
+        assert!(!should_write_rule(
+            &installed,
+            &installed,
+            cfg!(debug_assertions)
+        ));
         assert!(should_write_rule(
             &installed,
-            &owned_rule_content_for("changed\n<!-- revision: 7 -->\n", if cfg!(debug_assertions) { "dev" } else { "prod" }),
+            &owned_rule_content_for(
+                "changed\n<!-- revision: 7 -->\n",
+                if cfg!(debug_assertions) {
+                    "dev"
+                } else {
+                    "prod"
+                }
+            ),
             cfg!(debug_assertions)
         ));
         let production = owned_rule_content_for(body, "prod");

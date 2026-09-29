@@ -251,7 +251,9 @@ fn delayed_failure_kept_not_deleted() {
         )
         .unwrap();
     queue.claim_due(u64::MAX).unwrap();
-    queue.mark_failed(&msg.id, "AgentReady deadline elapsed".into()).unwrap();
+    queue
+        .mark_failed(&msg.id, "AgentReady deadline elapsed".into())
+        .unwrap();
     let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
     let failed = reopened.list(None).pop().unwrap();
     assert_eq!(failed.state, DelayedMessageState::Failed);
@@ -279,13 +281,21 @@ fn failed_recurring_tick_keeps_future_ticks() {
         .unwrap();
     queue.claim_due(100_000).unwrap();
     queue
-        .finish_tick(&msg.id, 100_000, Some("AgentReady deadline elapsed".into()), false)
+        .finish_tick(
+            &msg.id,
+            100_000,
+            Some("AgentReady deadline elapsed".into()),
+            false,
+        )
         .unwrap();
     let remaining = queue.list(None).pop().unwrap();
     assert_eq!(remaining.state, DelayedMessageState::Queued);
     assert_eq!(remaining.scheduled_at_ms, 160_000);
     assert_eq!(remaining.tick_index, 1);
-    assert_eq!(remaining.error.as_deref(), Some("AgentReady deadline elapsed"));
+    assert_eq!(
+        remaining.error.as_deref(),
+        Some("AgentReady deadline elapsed")
+    );
 }
 
 #[test]

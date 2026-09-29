@@ -614,7 +614,8 @@ async fn send_media(
                 return Err("media file exceeds 50 MiB upload limit".into());
             }
             let mut file_bytes2 = Vec::new();
-            file2.take(BRIDGE_MEDIA_READ_LIMIT)
+            file2
+                .take(BRIDGE_MEDIA_READ_LIMIT)
                 .read_to_end(&mut file_bytes2)
                 .await
                 .map_err(|error| format!("Re-read failed: {}", error))?;

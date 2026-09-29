@@ -577,15 +577,13 @@ mod tests {
     fn agent_isolated_limited_to_spawned_tabs() {
         let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let tab_id = mux.snapshot().workspaces[0].tabs[0].clone();
-        mux.get_tab_mut(&tab_id).unwrap().ownership = Some(
-            codeterm_types::pty::RemoteOwnership {
-                controller_title: "remote".into(),
-                controller_tab_id: None,
-                peer_id: "peer-a".into(),
-                peer_name: "Peer A".into(),
-                team: None,
-            },
-        );
+        mux.get_tab_mut(&tab_id).unwrap().ownership = Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "remote".into(),
+            controller_tab_id: None,
+            peer_id: "peer-a".into(),
+            peer_name: "Peer A".into(),
+            team: None,
+        });
         let level = AccessLevel::AgentIsolated;
         for (method, path) in [
             (Method::GET, "/api/tabs/abc/text"),

@@ -83,18 +83,15 @@ fn host_read_file_refuses_past_cap() {
     .unwrap();
     let small = small_path.to_string_lossy().into_owned();
     let native = super::super::host_api::read_plugin_file(&small).unwrap();
-    let javascript: String = super::super::vm::call_json(&vm, "read", &[serde_json::json!(small)])
-        .unwrap();
+    let javascript: String =
+        super::super::vm::call_json(&vm, "read", &[serde_json::json!(small)]).unwrap();
     assert_eq!(javascript, native);
 
     let large = large_path.to_string_lossy().into_owned();
     let native_error = super::super::host_api::read_plugin_file(&large).unwrap_err();
-    let javascript_error = super::super::vm::call_json::<String>(
-        &vm,
-        "read",
-        &[serde_json::json!(large)],
-    )
-    .unwrap_err();
+    let javascript_error =
+        super::super::vm::call_json::<String>(&vm, "read", &[serde_json::json!(large)])
+            .unwrap_err();
     assert!(native_error.contains("1048576"));
     assert!(javascript_error.to_string().contains("1048576"));
 }

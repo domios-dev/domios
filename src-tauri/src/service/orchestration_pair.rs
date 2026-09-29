@@ -642,7 +642,12 @@ impl ServiceContext {
                 claimed_orchestrator_pad_existed,
                 &membership_shape,
             )?;
-            if let Some(title) = params.title.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            if let Some(title) = params
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
                 apply_team_title(&mut mux, &reserved.team.id, Some(title))?;
             }
             reserved

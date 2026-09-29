@@ -387,14 +387,12 @@ mod model_refresh_tests {
         tab.reported_session_binding_nonce = Some("binding-live".into());
         tab.agent_requested_model = Some("sonnet".into());
         tab.agent_provider_resolved_model = Some("sonnet".into());
-        tab.pending_model_switch_observation = Some(
-            crate::multiplexer::types::PendingModelSwitchObservation {
+        tab.pending_model_switch_observation =
+            Some(crate::multiplexer::types::PendingModelSwitchObservation {
                 session_id: "session-live".into(),
                 launched_model: "sonnet".into(),
-            },
-        );
-        let (provider, models) =
-            SessionModelProvider::with_provider(AGENT, &["session-live"]);
+            });
+        let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);
         models
             .lock()
             .unwrap()
@@ -414,9 +412,7 @@ mod model_refresh_tests {
             .lock()
             .unwrap()
             .insert("session-live".into(), "sonnet".into());
-        assert!(fixture
-            .service
-            .observe_post_launch_turn_after_stop(&tab_id));
+        assert!(fixture.service.observe_post_launch_turn_after_stop(&tab_id));
         let reached_new_model = crate::service::boot_wait::wait_until(
             std::time::Instant::now() + Duration::from_secs(2),
             || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("sonnet"),

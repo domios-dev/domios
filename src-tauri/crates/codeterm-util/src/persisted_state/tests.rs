@@ -31,7 +31,11 @@ fn persisted_state_loader_rotates_backups() {
     assert_eq!(oldest, "v=3");
 
     file.save(&newest).unwrap();
-    assert_eq!(file.backups().len(), DEFAULT_BACKUPS, "an identical save adds no backup");
+    assert_eq!(
+        file.backups().len(),
+        DEFAULT_BACKUPS,
+        "an identical save adds no backup"
+    );
 }
 
 #[test]
@@ -97,7 +101,10 @@ fn corrupt_file_without_backup_holds_every_write_until_it_loads_again() {
         }
         other => panic!("expected unrecoverable, got {other:?}"),
     }
-    assert!(!file.path().exists(), "defaults are never written in its place");
+    assert!(
+        !file.path().exists(),
+        "defaults are never written in its place"
+    );
     let copies = file.corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read(&copies[0]).unwrap(), broken);
@@ -111,7 +118,11 @@ fn corrupt_file_without_backup_holds_every_write_until_it_loads_again() {
     assert!(matches!(file.load(parse_state), Loaded::Parsed(_)));
     assert!(file.held().is_none(), "a clean load releases the hold");
     file.save("v=8").unwrap();
-    assert_eq!(std::fs::read(&copies[0]).unwrap(), broken, "the kept copy is untouched");
+    assert_eq!(
+        std::fs::read(&copies[0]).unwrap(),
+        broken,
+        "the kept copy is untouched"
+    );
 }
 
 #[test]

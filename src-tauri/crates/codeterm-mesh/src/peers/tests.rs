@@ -69,14 +69,20 @@ fn corrupt_revocation_list_keeps_revoked_peers() {
     save_revocation_list_at(&path, &list).unwrap();
     std::fs::write(&path, "{\"revoked\": [").unwrap();
 
-    assert_eq!(load_revocation_list_at(&path).revoked, vec!["peer-a".to_string()]);
+    assert_eq!(
+        load_revocation_list_at(&path).revoked,
+        vec!["peer-a".to_string()]
+    );
 
     std::fs::remove_dir_all(revocation_file(&path).backup_dir()).unwrap();
     std::fs::write(&path, "{\"revoked\": [").unwrap();
     let held = load_revocation_list_at(&path);
     assert!(held.revoked.is_empty());
     assert!(save_revocation_list_at(&path, &held).is_err());
-    assert!(!path.exists(), "an empty list is never saved over the revoked peers");
+    assert!(
+        !path.exists(),
+        "an empty list is never saved over the revoked peers"
+    );
 }
 
 #[test]

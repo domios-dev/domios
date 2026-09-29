@@ -597,10 +597,7 @@ pub fn seal_git_checkpoint(
                             .read_to_end(&mut bytes)
                     })
                     .map_err(|error| format!("read untracked {relative}: {error}"))?;
-                (
-                    "file",
-                    bytes,
-                )
+                ("file", bytes)
             };
             if diff_artifact
                 .len()
