@@ -1,6 +1,29 @@
 use super::*;
-use crate::agent::provider::AgentProvider;
+use crate::agent::provider::{AgentProvider, ComposerCursorPosition};
 use crate::agent::test_provider::MockProvider;
+
+#[test]
+fn trust_frame_is_never_composer_evidence() {
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: true,
+        cursor_visible: true,
+        cursor_row: 24,
+        rows: 30,
+        cols: 100,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(24),
+    };
+    assert!(launch_composer_input_ready(&input, ComposerCursorPosition::BottomRegion, None, 0));
+    assert!(!launch_composer_input_ready_for_frame(
+        &input,
+        ComposerCursorPosition::BottomRegion,
+        None,
+        0,
+        true,
+    ));
+}
 
 #[test]
 fn claude_onboarding_prompt_follows_declared_policy() {

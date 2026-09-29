@@ -343,12 +343,24 @@ impl ServiceContext {
                 } else {
                     crate::agent::provider::ComposerCursorPosition::BottomRegion
                 };
+                let classification = provider.classify_tab_state(&snapshot);
+                let classified_modal = classification.as_ref().is_some_and(|value| {
+                    matches!(
+                        value.state,
+                        codeterm_plugin::tab_state::TabState::WaitingOnAuth
+                            | codeterm_plugin::tab_state::TabState::UpdatePrompt
+                            | codeterm_plugin::tab_state::TabState::ClarifyingQuestion
+                    ) && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                });
+                let directory_trust_prompt =
+                    provider.directory_trust_prompt_response(&screen).is_some();
                 let terminal_input_ready = input.as_ref().is_some_and(|state| {
-                    launch_composer_input_ready(
+                    launch_composer_input_ready_for_frame(
                         state,
                         input_position,
                         uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
                         status_bar_rows,
+                        directory_trust_prompt || classified_modal,
                     )
                 });
                 let provider_tui = provider.screen_has_tui(&screen);
@@ -366,8 +378,6 @@ impl ServiceContext {
                     terminal_input_ready,
                     tui_evidence,
                 );
-                let directory_trust_prompt =
-                    provider.directory_trust_prompt_response(&screen).is_some();
                 let directory_trust_state = trust_lookup_path.as_deref().map_or(
                     codeterm_plugin::provider::DirectoryTrustState::Unknown,
                     |path| {
@@ -376,7 +386,6 @@ impl ServiceContext {
                             .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
                     },
                 );
-                let classification = provider.classify_tab_state(&snapshot);
                 let provider_busy =
                     provider_is_busy(mode, composer_cursor_position, classification.as_ref());
                 let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
@@ -483,15 +492,37 @@ fn launch_composer_input_ready(
     screen_rows: Option<&[String]>,
     status_bar_rows: u16,
 ) -> bool {
+    launch_composer_input_ready_for_frame(
+        input,
+        cursor_position,
+        screen_rows,
+        status_bar_rows,
+        false,
+    )
+}
+
+fn launch_composer_input_ready_for_frame(
+    input: &codeterm_pty::pty::screen_state::ComposerInputState,
+    cursor_position: crate::agent::provider::ComposerCursorPosition,
+    screen_rows: Option<&[String]>,
+    status_bar_rows: u16,
+    classified_modal_or_trust_frame: bool,
+) -> bool {
+    if crate::agent::offline_state_classifier::composer_evidence_excluded(
+        classified_modal_or_trust_frame,
+    ) {
+        return false;
+    }
     if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
         return input.alternate_screen && input.cursor_visible;
     }
     if let Some(screen_rows) = screen_rows {
-        return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready(
+        return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready_for_frame(
             screen_rows,
             input.cursor_visible,
             input.cursor_row,
             status_bar_rows,
+            classified_modal_or_trust_frame,
         );
     }
     crate::agent::offline_state_classifier::composer_cursor_ready(

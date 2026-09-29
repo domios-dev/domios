@@ -110,6 +110,10 @@ pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -
     cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
 }
 
+pub fn composer_evidence_excluded(classified_modal_or_trust_frame: bool) -> bool {
+    classified_modal_or_trust_frame
+}
+
 /// A prompt row is composer evidence only when the visible cursor is on that
 /// row. Provider chrome is skipped from the bottom; intervening rows are not
 /// assumed to have a fixed count.
@@ -119,7 +123,24 @@ pub fn prompt_glyph_cursor_ready(
     cursor_row: u16,
     status_bar_rows: u16,
 ) -> bool {
-    cursor_visible
+    prompt_glyph_cursor_ready_for_frame(
+        screen_lines,
+        cursor_visible,
+        cursor_row,
+        status_bar_rows,
+        false,
+    )
+}
+
+pub fn prompt_glyph_cursor_ready_for_frame(
+    screen_lines: &[String],
+    cursor_visible: bool,
+    cursor_row: u16,
+    status_bar_rows: u16,
+    classified_modal_or_trust_frame: bool,
+) -> bool {
+    !composer_evidence_excluded(classified_modal_or_trust_frame)
+        && cursor_visible
         && screen_lines
             .iter()
             .enumerate()
@@ -213,7 +234,8 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         };
     }
 
-    if ready_prompt_visible {
+    let composer_evidence_excluded = composer_evidence_excluded(input.picker_question.is_some());
+    if ready_prompt_visible && !composer_evidence_excluded {
         return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
@@ -221,7 +243,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
     }
 
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
-    if input.composer_ready {
+    if input.composer_ready && !composer_evidence_excluded {
         return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
