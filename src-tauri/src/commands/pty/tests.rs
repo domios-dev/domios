@@ -303,13 +303,13 @@ mod spawn_pty_restore_tests {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some(PROVIDER.into());
         tab.agent_session_id = Some(SESSION.into());
-        tab.cwd = Some("restore-cwd".into());
         tab.restored_from_snapshot = true;
         tab.protected = false;
         tab.pty_id = Some("restore-pty-not-yet-materialized".into());
         tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
 
         let fixture = ServiceFixture::new(mux);
+        use_fixture_dir_as_tab_cwd(&fixture, &tab_id);
         let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
         fixture.service.agent_registry.register_provider(Box::new(
             MockProvider::with_session(PROVIDER, SESSION)
@@ -319,6 +319,13 @@ mod spawn_pty_restore_tests {
         (fixture, tab_id, resume_context)
     }
 
+    /// A restored launch refuses a cwd that is not a directory, so the fixture's
+    /// own directory stands in for the saved project.
+    fn use_fixture_dir_as_tab_cwd(fixture: &ServiceFixture, tab_id: &str) {
+        fixture.service.mux.write().get_tab_mut(tab_id).unwrap().cwd =
+            Some(fixture.temp.path().display().to_string());
+    }
+
     #[tokio::test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     async fn spawn_pty_core_restore_branch_builds_record_and_selects_first_turn_readiness() {
@@ -326,7 +333,6 @@ mod spawn_pty_restore_tests {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some(PROVIDER.into());
         tab.agent_session_id = Some(SESSION.into());
-        tab.cwd = Some("restore-cwd".into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
             captured: true,
@@ -341,6 +347,7 @@ mod spawn_pty_restore_tests {
         };
 
         let fixture = ServiceFixture::new(mux);
+        use_fixture_dir_as_tab_cwd(&fixture, &tab_id);
         let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
         fixture.service.agent_registry.register_provider(Box::new(
             MockProvider::with_session(PROVIDER, SESSION)

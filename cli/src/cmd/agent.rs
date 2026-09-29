@@ -25,6 +25,17 @@ fn absolute_spawn_base(
     }
 }
 
+/// A local spawn's `--cwd` as the daemon must receive it: absolute, resolved
+/// against the caller's own directory, which the daemon cannot know.
+pub(crate) fn caller_resolved_spawn_cwd(cwd: &str, caller_cwd: Option<&std::path::Path>) -> String {
+    match caller_cwd {
+        Some(caller_cwd) => absolute_spawn_base(Some(cwd), caller_cwd)
+            .to_string_lossy()
+            .into_owned(),
+        None => cwd.to_string(),
+    }
+}
+
 /// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
 /// reads the file verbatim (or stdin when the value is `-`), so the body never
 /// passes through the caller's shell — backticks and $(...) survive byte-exact.

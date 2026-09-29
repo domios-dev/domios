@@ -13,27 +13,33 @@ pub(crate) fn validate_agent_reasoning_effort(
     match registry.with_provider(provider_id, |p| {
         if let Some(model) = model {
             let supported = p.reasoning_efforts_for_model(Some(model));
-            if supported.iter().any(|level| level.id == effort) {
-                return Ok(());
+            if !supported.iter().any(|level| level.id == effort) {
+                let levels = supported
+                    .iter()
+                    .map(|level| level.id.as_str())
+                    .collect::<Vec<_>>();
+                let levels = if levels.is_empty() {
+                    "none".to_string()
+                } else {
+                    levels.join(", ")
+                };
+                return Err(format!(
+                    "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
+                ));
             }
-            let levels = supported
-                .iter()
-                .map(|level| level.id.as_str())
-                .collect::<Vec<_>>();
-            let levels = if levels.is_empty() {
-                "none".to_string()
-            } else {
-                levels.join(", ")
-            };
+        } else {
+            p.validate_reasoning_effort(Some(effort))
+                .map_err(|rejection| rejection.to_string())?;
+        }
+        // An advertised level the provider cannot put on its command line would be dropped at launch.
+        if p.reasoning_effort_launch_args(effort).is_empty() {
             return Err(format!(
-                "model '{model}' does not support reasoning effort '{effort}'; supported: {levels}"
+                "provider '{provider_id}' declares no launch flag for reasoning effort '{effort}'; omit --reasoning-effort"
             ));
         }
-        p.validate_reasoning_effort(Some(effort))
-            .map_err(|rejection| rejection.to_string())
+        Ok(())
     }) {
-        Some(Ok(())) => Ok(()),
-        Some(Err(rejection)) => Err(rejection.to_string()),
+        Some(result) => result,
         None => Err(format!(
             "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
         )),
