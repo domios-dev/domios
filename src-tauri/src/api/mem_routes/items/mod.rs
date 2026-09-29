@@ -95,6 +95,15 @@ pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 mod delete;
 pub use delete::{mem_delete, mem_forget_area};
+
+pub(crate) fn save_schedules_extraction(
+    outcome: &str,
+    skip: bool,
+    auto_extracted: bool,
+    enabled: bool,
+) -> bool {
+    outcome != "unchanged" && !skip && !auto_extracted && enabled
+}
 #[cfg(test)]
 mod tests;
 
@@ -170,20 +179,23 @@ pub async fn mem_save(
     let kind_for_extract = item.kind;
     let changed_by = changed_by_from_headers(&headers);
     let worker_id = super::worker_id_from_headers(&headers);
-    let id = crate::mem::store::with_write_worker(worker_id, || {
+    let result = crate::mem::store::with_write_worker(worker_id, || {
         crate::mem::store::with_changed_by(&changed_by, || {
-            if body.replace {
-                state.svc.mem.save_replace(item)
-            } else {
-                state.svc.mem.save(item)
-            }
+            state.svc.mem.save_with_outcome(item, body.replace)
         })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let id = result.id;
+    let outcome = result.outcome;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
-    let should_extract = !body.skip_extract && !is_auto_extracted && auto_extract_enabled;
+    let should_extract = save_schedules_extraction(
+        &outcome,
+        body.skip_extract,
+        is_auto_extracted,
+        auto_extract_enabled,
+    );
     if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
@@ -202,7 +214,7 @@ pub async fn mem_save(
         });
     }
 
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(Json(serde_json::json!({ "id": id, "outcome": outcome })))
 }
 
 #[derive(Deserialize, Default)]
@@ -298,7 +310,16 @@ pub async fn mem_update(
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
-        return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
+        if state
+            .svc
+            .mem
+            .get(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+            .is_none()
+        {
+            return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
+        }
+        return Ok(Json(serde_json::json!({ "unchanged": id })));
     }
     emit_activity(&state, &headers, "update", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "updated": id })))

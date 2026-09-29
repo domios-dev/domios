@@ -5,6 +5,19 @@ use super::{
 use crate::mem::store::HistoryEntry;
 use rusqlite::Connection;
 
+#[test]
+fn save_same_body_skips_extraction_schedule() {
+    assert!(!super::save_schedules_extraction(
+        "unchanged",
+        false,
+        false,
+        true
+    ));
+    assert!(super::save_schedules_extraction(
+        "updated", false, false, true
+    ));
+}
+
 fn hist(id: i64, old: Option<&str>, new: Option<&str>) -> HistoryEntry {
     HistoryEntry {
         id,
@@ -12,6 +25,7 @@ fn hist(id: i64, old: Option<&str>, new: Option<&str>) -> HistoryEntry {
         changed_at: "t".into(),
         changed_by: "user".into(),
         change_type: "update".into(),
+        changed_fields: Vec::new(),
         old_title: None,
         new_title: None,
         old_body: old.map(String::from),
