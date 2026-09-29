@@ -10,6 +10,7 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     add_pin_column(conn)?;
     add_active_relations_unique_index(conn)?;
     add_seed_fingerprint_column(conn)?;
+    crate::skill_folders::create_tombstone_table(conn)?;
     Ok(())
 }
 
