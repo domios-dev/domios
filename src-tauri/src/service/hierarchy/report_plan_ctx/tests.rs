@@ -1076,6 +1076,30 @@ fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_root_orchestrator_report_persists_as_plan_stride_without_parent() {
+    let h = plan_evidence_harness();
+    let token = "root-report-stride-proof";
+
+    let result = h
+        .fx
+        .service
+        .submit_report(
+            &h.root,
+            token,
+            h.details(&h.root, "owner-session", "owner-nonce"),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.persisted_plan_evidence.is_some());
+    assert!(h.plan().strides.iter().any(|stride| stride.text == token));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn ordinary_taskless_tab_is_refused_without_plan_or_delivery_mutation() {
     let h = plan_evidence_harness();
     let token = "ordinary-refused-36d4b0f8";

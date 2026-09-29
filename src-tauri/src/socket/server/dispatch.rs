@@ -289,6 +289,14 @@ pub(super) fn dispatch(
     {
         plan_task_authority::verify_owner_epoch_for_task_mutation(method, &params, svc)?;
     }
+    if matches!(
+        method,
+        "plan.archive" | "plan.unarchive" | "plan.delete" | "plan.disown" | "plan.claim"
+            | "plan.update"
+    ) {
+        let plan_id = plan_refs::resolve_plan(&svc.plan_store, params.as_ref())?;
+        plan_mode::authorize_plan_mutation(svc, &plan_id, &params)?;
+    }
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "team" => team::dispatch(method, &params, mux, svc),

@@ -323,7 +323,39 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         .plan_store
         .show_task(&task_id)
         .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
+    if matches!(
+        method,
+        "plan.task.update" | "plan.task.close" | "plan.task.assign" | "plan.task.dispatch"
+            | "plan.task.respawn" | "plan.task.cancel"
+    ) {
+        let caller = plan_caller(params);
+        let confirmed_human = params
+            .as_ref()
+            .and_then(|value| value.get("human_confirmation"))
+            .and_then(Value::as_bool)
+            == Some(true)
+            && caller.tab_id.is_none();
+        if !confirmed_human
+            && (caller.tab_id.is_none()
+                || !matches!(
+                    svc.classify_planning_caller(&detail.plan_id, &caller),
+                    Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+                ))
+        {
+            return Err(JsonRpcError {
+                code: -32003,
+                message: "the caller is not the Plan Orchestrator or Planner".into(),
+                data: Some(serde_json::json!({ "type": "plan_mutation_authorization_required" })),
+            });
+        }
+    }
     if plan_orchestrator_close_override(method, params, svc, &detail.plan_id) {
+        return Ok(());
+    }
+    if matches!(
+        svc.classify_planning_caller(&detail.plan_id, &plan_caller(params)),
+        Ok(crate::plan::PlanningAuthor::Planner { .. })
+    ) {
         return Ok(());
     }
     if detail.task.interruption.owner_epoch == 0 {

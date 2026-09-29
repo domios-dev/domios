@@ -27,6 +27,7 @@ pub(super) fn dispatch(
     match method {
         "plan.mode.set" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let mode = get_string_param(params, "mode")?;
             let mode = serde_json::from_value::<PlanMode>(Value::String(mode))
                 .map_err(|_| plan_rpc_err(PlanError::BadMode))?;
@@ -63,6 +64,7 @@ pub(super) fn dispatch(
         }
         "plan.pause" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let reason = get_string_param(params, "reason")?;
             let from = params
                 .as_ref()
@@ -83,6 +85,7 @@ pub(super) fn dispatch(
         }
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let mode = svc
                 .resume_team_plan(&id, epoch_ms())
                 .map_err(super::team::team_plan_rpc_err)?;
@@ -140,6 +143,34 @@ fn caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
         session_id: field("session_id"),
         binding_nonce: field("session_binding_nonce"),
     }
+}
+
+pub(super) fn authorize_plan_mutation(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: &Option<Value>,
+) -> Result<(), JsonRpcError> {
+    let caller = caller(params);
+    let confirmed_human = params
+        .as_ref()
+        .and_then(|value| value.get("human_confirmation"))
+        .and_then(Value::as_bool)
+        == Some(true)
+        && caller.tab_id.is_none();
+    if confirmed_human
+        || (caller.tab_id.is_some()
+            && matches!(
+            svc.classify_planning_caller(plan_id, &caller),
+            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+        ))
+    {
+        return Ok(());
+    }
+    Err(JsonRpcError {
+        code: -32003,
+        message: "the caller is not the Plan Orchestrator or Planner".into(),
+        data: Some(json!({ "type": "plan_mutation_authorization_required" })),
+    })
 }
 
 fn authority_error(message: String) -> JsonRpcError {

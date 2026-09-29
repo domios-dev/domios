@@ -791,6 +791,28 @@ pub(super) async fn verify_task_mutation_owner(
     task_id: &str,
     recovery: TaskMutationKind,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
+    let confirmed_human = headers
+        .get("X-CodeTerm-Plan-Confirmation")
+        .and_then(|value| value.to_str().ok())
+        == Some(plan_id);
+    if caller.tab_id.as_deref().is_none_or(str::is_empty) && !confirmed_human {
+        return Err(text_err(
+            axum::http::StatusCode::FORBIDDEN,
+            "task mutation requires a Plan role or explicit human confirmation",
+        ));
+    }
+    if !confirmed_human
+        && !matches!(
+            svc.classify_planning_caller_async(plan_id, &caller).await,
+            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+        )
+    {
+        return Err(text_err(
+            axum::http::StatusCode::FORBIDDEN,
+            "the caller is not the Plan Orchestrator or Planner",
+        ));
+    }
     let detail = svc
         .plan_store
         .show_task(task_id)

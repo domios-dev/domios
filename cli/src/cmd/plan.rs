@@ -346,7 +346,8 @@ fn run_plan(
                 params["plan_id"] = json!(plan_id);
             }
             maybe_inject_caller_tab(&mut params);
-            let val = call(client, "plan.get", params)?;
+            let mut val = call(client, "plan.get", params)?;
+            strip_display_paths(&mut val);
             if json {
                 return Ok(Some(val));
             }
@@ -1173,6 +1174,14 @@ fn run_plan(
     };
 
     result.map(Some)
+}
+
+pub(crate) fn strip_display_paths(value: &mut Value) {
+    for key in ["project_path", "canonical_project_path"] {
+        if let Some(path) = value.get(key).and_then(Value::as_str) {
+            value[key] = json!(codeterm_paths::strip_verbatim_prefix(path));
+        }
+    }
 }
 
 #[cfg(test)]
