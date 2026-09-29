@@ -176,6 +176,7 @@ fn build_agent_command_inner(
         skip_permissions,
         params.cwd.as_deref(),
         canonical_project.as_deref(),
+        notice_context.map(|(_, tab_id)| tab_id).unwrap_or("unknown"),
         &mut args,
     );
     if let Some((service, tab_id)) = notice_context {

@@ -157,6 +157,7 @@ pub(crate) fn marked_provider_launch_command(
         params.skip_permissions,
         cwd,
         canonical_project,
+        tab_id,
         &mut args,
     );
     append_sandbox_agent_pad_arg(
@@ -215,6 +216,7 @@ pub(crate) fn append_sandbox_agent_pad_arg(
     };
     args.push(flag);
     args.push(path.to_string_lossy().into_owned());
+    log_sandbox_additional_roots_included(tab_id, 1);
 }
 
 pub(crate) fn append_sandbox_git_metadata_args(
@@ -223,6 +225,7 @@ pub(crate) fn append_sandbox_git_metadata_args(
     skip_permissions: bool,
     cwd: Option<&str>,
     canonical_project: Option<&str>,
+    tab_id: &str,
     args: &mut Vec<String>,
 ) {
     if skip_permissions || canonical_project.is_none() {
@@ -249,9 +252,23 @@ pub(crate) fn append_sandbox_git_metadata_args(
             return;
         }
     };
+    let root_count = paths.len();
     for path in paths {
         args.push(flag.clone());
         args.push(path.to_string_lossy().into_owned());
+    }
+    log_sandbox_additional_roots_included(tab_id, root_count);
+}
+
+fn sandbox_additional_roots_log(tab_id: &str, root_count: usize) -> Option<String> {
+    (root_count > 0).then(|| {
+        format!("[sandbox-additional-roots] included {root_count} roots for tab {tab_id}")
+    })
+}
+
+fn log_sandbox_additional_roots_included(tab_id: &str, root_count: usize) {
+    if let Some(message) = sandbox_additional_roots_log(tab_id, root_count) {
+        log::info!("{message}");
     }
 }
 
@@ -908,6 +925,7 @@ mod tests {
             false,
             Some(lane.to_str().unwrap()),
             Some(repo.to_str().unwrap()),
+            "metadata-test-tab",
             &mut args,
         );
         assert_eq!(
@@ -936,6 +954,7 @@ mod tests {
             true,
             Some(lane.to_str().unwrap()),
             Some(repo.to_str().unwrap()),
+            "metadata-test-tab",
             &mut full_access_args,
         );
         assert_eq!(full_access_args, vec!["--existing".to_string()]);
@@ -950,6 +969,7 @@ mod tests {
             false,
             Some(ordinary.to_str().unwrap()),
             Some(ordinary.to_str().unwrap()),
+            "metadata-test-tab",
             &mut ordinary_args,
         );
         assert_eq!(ordinary_args, vec!["--existing".to_string()]);
@@ -1024,6 +1044,7 @@ mod tests {
                 false,
                 Some(lane.to_str().unwrap()),
                 Some(repo.to_str().unwrap()),
+                "trust-state-tab",
                 &mut args,
             );
             assert_eq!(args.len(), expected_count);
@@ -1126,5 +1147,14 @@ mod tests {
         let marker = registered_launch_marker("tab-mark-only").expect("registered marker");
         assert!(!marker.is_empty());
         assert_eq!(params.launch_marker, Some(marker));
+    }
+
+    #[test]
+    fn sandbox_additional_roots_logged_when_included() {
+        assert_eq!(
+            sandbox_additional_roots_log("tab-1", 3).as_deref(),
+            Some("[sandbox-additional-roots] included 3 roots for tab tab-1")
+        );
+        assert_eq!(sandbox_additional_roots_log("tab-1", 0), None);
     }
 }

@@ -876,6 +876,7 @@ fn build_relaunch_command_with_registry(
                 auto_approve,
                 cwd,
                 canonical_project,
+                tab_id,
                 &mut args,
             );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
@@ -920,6 +921,7 @@ fn build_relaunch_command_with_registry(
                 auto_approve,
                 cwd,
                 canonical_project,
+                tab_id,
                 &mut args,
             );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
@@ -966,6 +968,7 @@ fn build_relaunch_command_with_registry(
             auto_approve,
             Some(cwd),
             canonical_project,
+            tab_id,
             &mut args,
         );
         crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
