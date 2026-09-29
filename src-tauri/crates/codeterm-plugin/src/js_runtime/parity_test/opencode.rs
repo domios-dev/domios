@@ -155,9 +155,10 @@ fn resume_with_context_restages_the_session_config() {
         1,
         "exactly one staged prompt file copy: {command}"
     );
+    let invocation = opencode_invocation(&command);
     assert!(
-        opencode_invocation(&command)
-            .contains("opencode --session 'ses_abc' -m 'big-pickle' --variant 'high'"),
+        invocation.starts_with("opencode ")
+            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --variant 'high'"),
         "{command}"
     );
     assert!(
