@@ -2,9 +2,13 @@
 
 pub mod activity;
 pub mod auto_extract;
+#[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
+mod chunking;
 pub mod dream_status;
 pub mod dreaming;
 pub mod embed_queue;
+#[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
+mod embed_schedule;
 pub mod embeddings;
 pub mod extraction_authority;
 pub mod file_sync;
@@ -105,6 +109,30 @@ impl MemManager {
 
 impl MemManager {
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
+        let manager = Self::open_with_queue(data_dir, embed_queue::EmbedQueue::start)?;
+        spawn_entity_embedding_backfill(manager.db_path.clone());
+        Ok(manager)
+    }
+
+    /// `open` with a caller-supplied embedder and no entity backfill.
+    #[cfg(test)]
+    pub(crate) fn open_with_embedder(
+        data_dir: &std::path::Path,
+        embedder: embed_queue::Embedder,
+    ) -> Result<Arc<Self>, String> {
+        Self::open_with_queue(data_dir, |db_path, permits, layout| {
+            embed_queue::EmbedQueue::start_with(db_path, permits, layout, embedder)
+        })
+    }
+
+    fn open_with_queue(
+        data_dir: &std::path::Path,
+        start_queue: impl FnOnce(
+            PathBuf,
+            Arc<Semaphore>,
+            Arc<graph_layout::cache::LayoutCache>,
+        ) -> embed_queue::EmbedQueue,
+    ) -> Result<Arc<Self>, String> {
         let mem_dir = data_dir.join("mem");
         std::fs::create_dir_all(&mem_dir).map_err(|e| format!("create mem dir: {}", e))?;
         let blobs_dir = mem_dir.join("blobs");
@@ -130,12 +158,11 @@ impl MemManager {
 
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
         let layout = graph_layout::LayoutState::load(&mem_dir);
-        let embed_queue = embed_queue::EmbedQueue::start(
+        let embed_queue = start_queue(
             db_path.clone(),
             heavy_ops_permits.clone(),
             layout.cache.clone(),
         );
-        spawn_entity_embedding_backfill(db_path.clone());
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),

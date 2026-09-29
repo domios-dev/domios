@@ -171,10 +171,12 @@ The mem flush API (`POST /api/mem/flush`) is the entry point providers call from
 | `PreCompact` (opt-in) | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
 | `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
+A flush obeys the same 1 MB body cap as `mem save`: scrollback beyond it keeps its most recent tail, and the item gets the `truncated` tag with the kept and original sizes in its summary. Vector indexing embeds at most 128 chunks per item, spread across the whole body, and serves items round-robin, so a large flush never delays a small item's vectors. Deleting or replacing an item cancels its pending chunks, and a chunk still in flight is refused once its row is gone.
+
 Hooks are installed through the provider integration action into `~/.claude/settings.json`. The action shows the target and proposed changes, records consent, makes a recoverable backup, and preserves foreign hooks.
 
 ## Related documents
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

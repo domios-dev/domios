@@ -258,77 +258,9 @@ pub mod inner {
         }
     }
 
-    const CHUNK_SIZE: usize = 800;
-    const CHUNK_OVERLAP: usize = 100;
-    const MIN_CHUNK_LEN: usize = 50;
-
-    /// Split long text into overlapping chunks for better embedding granularity.
-    /// Prefers paragraph boundaries (\n\n), then sentence boundaries (. ), then word boundaries.
-    fn chunk_text(text: &str) -> Vec<String> {
-        let preprocessed = preprocess(text);
-        if preprocessed.len() <= CHUNK_SIZE {
-            return vec![preprocessed];
-        }
-
-        let paragraphs: Vec<&str> = preprocessed
-            .split("\n\n")
-            .map(|p| p.trim())
-            .filter(|p| p.len() >= MIN_CHUNK_LEN)
-            .collect();
-
-        if paragraphs.len() > 1 && paragraphs.iter().all(|p| p.len() <= CHUNK_SIZE) {
-            return paragraphs.into_iter().map(String::from).collect();
-        }
-
-        // Otherwise: sliding window with smart boundary detection. Works on char indices (not bytes) to safely handle multi-byte UTF-8.
-        let chars: Vec<char> = preprocessed.chars().collect();
-        let total_chars = chars.len();
-        let chunk_chars = CHUNK_SIZE; // chars, not bytes
-        let overlap_chars = CHUNK_OVERLAP;
-        let mut chunks = Vec::new();
-        let mut start = 0;
-
-        while start < total_chars {
-            let end = (start + chunk_chars).min(total_chars);
-            let actual_end = if end < total_chars {
-                let window: String = chars[start..end].iter().collect();
-                if let Some(pos) = window.rfind("\n\n") {
-                    start + pos + 2
-                } else if let Some(pos) = window.rfind(". ") {
-                    start + pos + 2
-                } else if let Some(pos) = window.rfind(' ') {
-                    start + pos
-                } else {
-                    end
-                }
-            } else {
-                end
-            };
-            let actual_end = actual_end.max(start + 1);
-            let chunk: String = chars[start..actual_end].iter().collect();
-            let trimmed = chunk.trim();
-            if trimmed.len() >= MIN_CHUNK_LEN {
-                chunks.push(trimmed.to_string());
-            }
-            // End of input — last chunk pushed, stop.
-            if actual_end >= total_chars {
-                break;
-            }
-            let next_start = if actual_end > overlap_chars {
-                actual_end - overlap_chars
-            } else {
-                actual_end
-            };
-            // Guard against zero-advance loops: require strict progress.
-            if next_start <= start {
-                break;
-            }
-            start = next_start;
-        }
-        if chunks.is_empty() {
-            chunks.push(preprocessed);
-        }
-        chunks
+    /// Preprocess and split `text` into the chunks `index` embeds, one vector each.
+    pub fn chunk_text(text: &str) -> Vec<String> {
+        crate::chunking::split_chunks(&preprocess(text))
     }
 
     /// Build the embeddable text for a graph entity. Concatenates id + type
@@ -362,45 +294,74 @@ pub mod inner {
     /// Uses DELETE + INSERT because vec0 virtual tables don't support
     /// `INSERT OR REPLACE` semantics.
     pub fn index(conn: &Connection, mem_id: &str, body: &str) -> Result<(), String> {
-        let deleted = conn
-            .execute(
-                "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-                params![mem_id, format!("{}_chunk_%", mem_id)],
-            )
-            .unwrap_or(0);
-        log::info!("[mem.index] {} DELETE affected {} rows", mem_id, deleted);
-
+        clear_vectors(conn, mem_id);
         let chunks = chunk_text(body);
         log::info!("[mem.index] {} chunks={}", mem_id, chunks.len());
         for (i, chunk) in chunks.iter().enumerate() {
-            let t0 = std::time::Instant::now();
             let vec = embed(chunk)?;
-            log::info!(
-                "[mem.index] {} chunk {} embed={}ms",
-                mem_id,
-                i,
-                t0.elapsed().as_millis()
-            );
-            let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
-            let chunk_id = if i == 0 {
-                mem_id.to_string()
-            } else {
-                format!("{}_chunk_{}", mem_id, i)
-            };
-            let t1 = std::time::Instant::now();
             conn.execute(
                 "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
-                params![chunk_id, bytes],
+                params![vector_id(mem_id, i), encode_vector(&vec)],
             )
             .map_err(|e| format!("insert vector chunk {}: {}", i, e))?;
-            log::info!(
-                "[mem.index] {} chunk {} insert={}ms",
-                mem_id,
-                i,
-                t1.elapsed().as_millis()
-            );
         }
         Ok(())
+    }
+
+    /// Remove every vector (whole item and chunks) stored for `mem_id`.
+    pub fn clear_vectors(conn: &Connection, mem_id: &str) -> usize {
+        conn.execute(
+            "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+            params![mem_id, format!("{}_chunk_%", mem_id)],
+        )
+        .unwrap_or(0)
+    }
+
+    pub fn vector_id(mem_id: &str, chunk_index: usize) -> String {
+        if chunk_index == 0 {
+            mem_id.to_string()
+        } else {
+            format!("{}_chunk_{}", mem_id, chunk_index)
+        }
+    }
+
+    pub fn encode_vector(vec: &[f32]) -> Vec<u8> {
+        vec.iter().flat_map(|f| f.to_le_bytes()).collect()
+    }
+
+    /// Insert one chunk vector only while its mem_item row exists. Chunk 0 opens
+    /// a new generation and first clears the item's older vectors. The check and
+    /// the writes share one write transaction, so a concurrent delete either
+    /// commits first and the insert is skipped, or removes the inserted vector.
+    pub fn insert_vector_if_item_live(
+        conn: &Connection,
+        mem_id: &str,
+        chunk_index: usize,
+        vec: &[f32],
+    ) -> Result<bool, String> {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
+                .map_err(|e| format!("begin vector insert: {}", e))?;
+        let live: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM mem_items WHERE id = ?1)",
+                params![mem_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("check item {}: {}", mem_id, e))?;
+        if live {
+            if chunk_index == 0 {
+                clear_vectors(&tx, mem_id);
+            }
+            tx.execute(
+                "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
+                params![vector_id(mem_id, chunk_index), encode_vector(vec)],
+            )
+            .map_err(|e| format!("insert vector chunk {}: {}", chunk_index, e))?;
+        }
+        tx.commit()
+            .map_err(|e| format!("commit vector insert: {}", e))?;
+        Ok(live)
     }
 
     /// Strip chunk suffix from vector mem_id to get the canonical mem_item id.
@@ -476,6 +437,8 @@ pub mod inner {
     }
 }
 
+#[cfg(feature = "embeddings")]
+pub use inner::{chunk_text, clear_vectors, insert_vector_if_item_live};
 pub use inner::{
     embed, embeddable_text_for_entity, ensure_extension_registered, index, init_extension, recall,
 };
