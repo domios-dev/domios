@@ -14,7 +14,14 @@ fn opencode() -> JsProvider {
 }
 
 fn opencode_invocation(command: &str) -> &str {
-    let start = command.find("opencode ").expect("opencode invocation");
+    let start = command
+        .match_indices("opencode")
+        .map(|(index, _)| index)
+        .find(|index| {
+            let rest = &command[index + "opencode".len()..];
+            rest.is_empty() || rest.starts_with([' ', ';'])
+        })
+        .expect("opencode invocation");
     let invocation = &command[start..];
     let end = [
         " } finally",
