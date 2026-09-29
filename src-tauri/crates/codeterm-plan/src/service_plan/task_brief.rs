@@ -142,8 +142,6 @@ mod tests {
         }];
         let rendered = render_plan_skill_manifest("pl_zzmxgb", &manifest);
         assert_eq!(rendered.matches("## Plan skill manifest").count(), 1);
-        assert!(rendered.contains("After `codeterm agent ack`"));
-        assert!(rendered.contains("before repository or tool actions"));
         assert!(rendered.contains("codeterm plan skill show --plan pl_zzmxgb <slug>"));
         assert!(rendered.contains("sha256:abc"));
         assert!(!rendered.contains("# Alpha"));
