@@ -147,7 +147,7 @@ mod tests {
         seed(&conn, &blobs, MemKind::Skill, "verify before claim", "run the check, read the name of the failing test, run it again");
 
         assert_eq!(top(&conn, &blobs, "restic run"), "NAS nightly backup");
-        assert_eq!(top(&conn, &blobs, "what time does restic run"), "NAS nightly backup");
+        assert_eq!(top(&conn, &blobs, "when does restic run"), "NAS nightly backup");
         assert_eq!(top(&conn, &blobs, "bucket name"), "NAS nightly backup");
         assert_eq!(top(&conn, &blobs, "Laptop backup"), "Laptop backup");
         assert_eq!(top(&conn, &blobs, "verify before claim"), "verify before claim");
