@@ -282,8 +282,7 @@ mod tests {
     fn unreadable_user_file_is_never_rebuilt_from_empty() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("CLAUDE.md");
-        let unreadable = vec![b'#', 0xff, 0xfe, b'
-'];
+        let unreadable = vec![b'#', 0xff, 0xfe, b'\n'];
         std::fs::write(&path, &unreadable).unwrap();
 
         rewrite_user_file(&path, |existing| format!("{existing}generated"));
