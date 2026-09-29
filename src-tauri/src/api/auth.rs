@@ -6,7 +6,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-use super::access_policy::check_access;
+use super::access_policy::peer_access_allowed;
 use super::routes::AppState;
 use crate::mesh::types::AccessLevel;
 
@@ -192,30 +192,33 @@ pub(crate) fn isolated_caller_peer_id(
     }
 }
 
-fn tab_id_from_scoped_path(path: &str) -> Option<&str> {
-    let rest = path.strip_prefix("/api/tabs/")?;
-    let (tab_id, _) = rest.split_once('/')?;
-    (!tab_id.is_empty()).then_some(tab_id)
-}
-
 pub(crate) fn peer_owns_tab(peer_id: &str, tab: &crate::multiplexer::types::Tab) -> bool {
     tab.ownership
         .as_ref()
         .is_some_and(|ownership| ownership.peer_id == peer_id)
 }
 
-fn peer_access_allowed(
+pub(crate) fn tab_owner_peer_id(state: &AppState, tab_id: &str) -> Option<String> {
+    let mux = state.svc.mux.read();
+    // Resolve exactly as the tab handlers do, so an alias cannot name a different tab.
+    let resolved = mux.resolve_tab_id(tab_id)?;
+    mux.get_tab(&resolved)
+        .and_then(|tab| tab.ownership.as_ref())
+        .map(|ownership| ownership.peer_id.clone())
+}
+
+/// Authorizes an authenticated peer request against live tab ownership; shared by
+/// the signed-request middleware and the inbound mesh relay.
+pub(crate) fn authorize_peer_request(
+    state: &AppState,
     access: &AccessLevel,
     peer_id: &str,
     method: &Method,
     path: &str,
-    tab_owner_id: Option<&str>,
 ) -> bool {
-    if !check_access(access, method, path) {
-        return false;
-    }
-    *access != AccessLevel::AgentIsolated
-        || tab_id_from_scoped_path(path).is_none_or(|_| tab_owner_id == Some(peer_id))
+    peer_access_allowed(access, peer_id, method, path, |tab_id| {
+        tab_owner_peer_id(state, tab_id)
+    })
 }
 
 pub(crate) fn caller_access_level(
@@ -347,26 +350,7 @@ pub async fn auth_middleware(
                 )
                     .into_response();
             }
-            let tab_owner_id = if *access_level == AccessLevel::AgentIsolated {
-                tab_id_from_scoped_path(&path).and_then(|tab_id| {
-                    let mux = state.svc.mux.read();
-                    mux.get_tab(tab_id)
-                        .and_then(|tab| {
-                            tab.ownership
-                                .as_ref()
-                                .map(|ownership| ownership.peer_id.clone())
-                        })
-                })
-            } else {
-                None
-            };
-            if peer_access_allowed(
-                access_level,
-                instance_id,
-                &method,
-                &path,
-                tab_owner_id.as_deref(),
-            ) {
+            if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
                 next.run(req).await
             } else {
                 log::warn!(
@@ -420,6 +404,7 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
+    use super::super::access_policy::check_access;
     use super::*;
 
     #[test]
@@ -607,27 +592,18 @@ mod tests {
             (Method::POST, "/api/tabs/abc/prompt/clear"),
             (Method::POST, "/api/tabs/abc/attachments"),
         ] {
-            assert!(peer_access_allowed(
-                &level,
-                "peer-a",
-                &method,
-                path,
-                Some("peer-a")
-            ));
-            assert!(!peer_access_allowed(
-                &level,
-                "peer-a",
-                &method,
-                path,
-                Some("peer-b")
-            ));
+            let owner_is = |owner: &'static str| {
+                peer_access_allowed(&level, "peer-a", &method, path, |_| Some(owner.into()))
+            };
+            assert!(owner_is("peer-a"));
+            assert!(!owner_is("peer-b"));
         }
         assert!(!peer_access_allowed(
             &level,
             "peer-a",
             &Method::POST,
             "/api/tabs/abc/send",
-            None
+            |_| None
         ));
         assert!(peer_owns_tab("peer-a", mux.get_tab(&tab_id).unwrap()));
     }

@@ -1,4 +1,4 @@
-use crate::api::access_policy::check_access;
+use crate::api::access_policy::{peer_access_allowed, request_path};
 use crate::api::routes::AppState;
 use axum::http::{Method, StatusCode};
 
@@ -22,10 +22,12 @@ pub(super) fn authorize_peer_relay<'a>(
     method: &Method,
     path: &'a str,
     body: &serde_json::Value,
+    tab_owner: impl FnOnce(&str) -> Option<String>,
 ) -> PeerRelayAuthorization<'a> {
-    if !check_access(access, method, path) {
+    if !peer_access_allowed(access, peer_id, method, path, tab_owner) {
         return PeerRelayAuthorization::Rejected;
     }
+    let path = request_path(path);
     if *method == Method::POST && path == "/api/mesh/rpc" {
         return PeerRelayAuthorization::MeshRpc { peer_id };
     }
