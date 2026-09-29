@@ -532,13 +532,7 @@ pub fn check_rule_status() -> Json {
 }
 
 pub fn install_rule() -> Result<(), String> {
-    let dest = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".claude")
-        .join("rules");
-    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-    std::fs::write(dest.join("codeterm.md"), CODETERM_RULE).map_err(|e| e.to_string())?;
-    Ok(())
+    super::schemas::install_bridge_rule(CODETERM_RULE)
 }
 
 #[cfg(test)]
