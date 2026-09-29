@@ -102,6 +102,7 @@ mod tests {
             &JournalLoad {
                 records,
                 tail: TailStatus::Intact,
+                duplicate_seqs: 0,
             },
         );
 

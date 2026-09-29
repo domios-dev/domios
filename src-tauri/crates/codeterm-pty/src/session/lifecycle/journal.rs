@@ -37,6 +37,8 @@ impl TailStatus {
 pub struct JournalLoad {
     pub records: Vec<JournalRecord>,
     pub tail: TailStatus,
+    /// Records dropped because a later record reused their sequence number.
+    pub duplicate_seqs: usize,
 }
 
 impl JournalLoad {
@@ -44,6 +46,7 @@ impl JournalLoad {
         Self {
             records: Vec::new(),
             tail: TailStatus::Intact,
+            duplicate_seqs: 0,
         }
     }
 
@@ -56,6 +59,8 @@ impl JournalLoad {
 struct WriteCursor {
     last_seq: JournalSeq,
     records: usize,
+    /// Record count at the last refused compaction; the next attempt waits for growth past it.
+    refused_at_records: Option<usize>,
     last_epoch_by_tab: HashMap<String, LifecycleEpoch>,
 }
 
@@ -90,6 +95,7 @@ impl TabLifecycleJournal {
             cursor: Mutex::new(WriteCursor {
                 last_seq: load.last_seq(),
                 records: load.records.len(),
+                refused_at_records: None,
                 last_epoch_by_tab,
             }),
         }
@@ -140,7 +146,10 @@ impl TabLifecycleJournal {
             .entry(tab_id)
             .and_modify(|last| *last = (*last).max(epoch))
             .or_insert(epoch);
-        let unbounded = cursor.records >= COMPACT_AT_RECORDS;
+        let unbounded = cursor.records >= COMPACT_AT_RECORDS
+            && cursor
+                .refused_at_records
+                .map_or(true, |refused| cursor.records >= refused + COMPACT_AT_RECORDS);
         drop(cursor);
         if unbounded {
             if let Err(error) = self.compact() {
@@ -163,6 +172,7 @@ impl TabLifecycleJournal {
             .map_err(|_| "lifecycle journal lock poisoned".to_string())?;
         let load = read_journal(&self.path);
         if let TailStatus::Refused { line, reason } = &load.tail {
+            cursor.refused_at_records = Some(cursor.records);
             return Err(format!(
                 "refusing to compact a journal whose tail is unreadable (line {line}: {reason})"
             ));
@@ -170,7 +180,14 @@ impl TabLifecycleJournal {
         let compacted = super::reduce::compact_records(&load.records);
         let written = compacted.len();
         write_all_records(&self.path, &compacted)?;
+        if load.duplicate_seqs > 0 {
+            log::warn!(
+                "[tab-lifecycle] repaired {} duplicate sequence number(s) while compacting",
+                load.duplicate_seqs
+            );
+        }
         cursor.records = written;
+        cursor.refused_at_records = None;
         Ok(written)
     }
 }
@@ -205,6 +222,7 @@ fn read_journal(path: &Path) -> JournalLoad {
     };
     let mut records: Vec<JournalRecord> = Vec::new();
     let mut last_seq: JournalSeq = 0;
+    let mut duplicate_seqs = 0usize;
     for (index, line) in body.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -218,17 +236,25 @@ fn read_journal(path: &Path) -> JournalLoad {
                         line: index + 1,
                         reason: format!("unparseable record: {error}"),
                     },
+                    duplicate_seqs,
                 }
             }
         };
         let seq = record.seq();
-        if seq <= last_seq {
+        if seq == last_seq && !records.is_empty() {
+            records.pop();
+            duplicate_seqs += 1;
+            records.push(record);
+            continue;
+        }
+        if seq < last_seq {
             return JournalLoad {
                 records,
                 tail: TailStatus::Refused {
                     line: index + 1,
                     reason: format!("sequence {seq} does not advance past {last_seq}"),
                 },
+                duplicate_seqs,
             };
         }
         last_seq = seq;
@@ -237,6 +263,7 @@ fn read_journal(path: &Path) -> JournalLoad {
     JournalLoad {
         records,
         tail: TailStatus::Intact,
+        duplicate_seqs,
     }
 }
 
