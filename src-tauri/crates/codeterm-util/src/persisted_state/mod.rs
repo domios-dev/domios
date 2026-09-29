@@ -38,8 +38,8 @@ pub enum Loaded<T> {
         value: T,
         backup: PathBuf,
     },
-    /// No valid backup: the caller runs on in-memory defaults and the path is
-    /// held. `raw` is the unparseable text when it could be read.
+    /// No valid backup: the path is held while the caller recovers in memory.
+    /// `raw` is the unparseable text when it could be read.
     Unrecoverable {
         raw: Option<String>,
     },
@@ -77,6 +77,10 @@ impl StateFile {
 
     pub fn held(&self) -> Option<Hold> {
         incidents::held(&self.path)
+    }
+
+    pub fn hold_for_repair(&self) {
+        incidents::hold_for_repair(&self.path, self.corrupt_copies().last().cloned());
     }
 
     fn file_name(&self) -> String {
@@ -155,6 +159,45 @@ impl StateFile {
         Ok(())
     }
 
+    pub fn create_held_recovery(&self, contents: &str) -> Result<(), String> {
+        self.require_held()?;
+        if self.path.exists() {
+            return Err(format!("{} already exists", self.path.display()));
+        }
+        self.write_held_recovery(contents)
+    }
+
+    pub fn replace_held_recovery(&self, contents: &str) -> Result<(), String> {
+        self.require_held()?;
+        let existing = std::fs::read_to_string(&self.path)
+            .map_err(|error| format!("read {}: {error}", self.path.display()))?;
+        self.validate_contents(&existing)?;
+        self.write_held_recovery(contents)
+    }
+
+    fn require_held(&self) -> Result<(), String> {
+        self.held()
+            .map(|_| ())
+            .ok_or_else(|| format!("{} is not held", self.path.display()))
+    }
+
+    fn write_held_recovery(&self, contents: &str) -> Result<(), String> {
+        self.validate_contents(contents)?;
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("create {}: {error}", parent.display()))?;
+        }
+        write_atomic(&self.path, contents.as_bytes())
+            .map_err(|error| format!("write {}: {error}", self.path.display()))
+    }
+
+    fn validate_contents(&self, contents: &str) -> Result<(), String> {
+        if let Some(validate) = self.validate {
+            validate(contents)?;
+        }
+        Ok(())
+    }
+
     fn preserve_invalid_existing(&self) -> Result<(), String> {
         let Some(validate) = self.validate else {
             return Ok(());
@@ -170,16 +213,14 @@ impl StateFile {
         let preserved = self.quarantine();
         let hold = preserved.is_err();
         let refusal = preserved.as_ref().err().cloned();
-        incidents::report(
-            Incident {
-                path: self.path.clone(),
-                error,
-                preserved: preserved.as_ref().ok().cloned(),
-                preserve_error: refusal.clone(),
-                recovered_from: None,
-                held: hold,
-            },
-        );
+        incidents::report(Incident {
+            path: self.path.clone(),
+            error,
+            preserved: preserved.as_ref().ok().cloned(),
+            preserve_error: refusal.clone(),
+            recovered_from: None,
+            held: hold,
+        });
         match refusal {
             Some(reason) => Err(format!(
                 "refusing to overwrite {}: it fails to load and could not be preserved ({reason})",
@@ -237,7 +278,10 @@ impl StateFile {
             match parse(&text) {
                 Ok(value) => Some((value, backup, text.into_bytes())),
                 Err(error) => {
-                    log::warn!("[state] skipping invalid backup {}: {error}", backup.display());
+                    log::warn!(
+                        "[state] skipping invalid backup {}: {error}",
+                        backup.display()
+                    );
                     None
                 }
             }
@@ -296,11 +340,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "state".to_string());
-    let tmp = path.with_file_name(format!(
-        "{name}.tmp.{}.{}",
-        std::process::id(),
-        next_seq()
-    ));
+    let tmp = path.with_file_name(format!("{name}.tmp.{}.{}", std::process::id(), next_seq()));
     std::fs::write(&tmp, bytes)?;
     if let Err(error) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
