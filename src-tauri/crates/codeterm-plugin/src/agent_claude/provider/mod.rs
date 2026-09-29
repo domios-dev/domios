@@ -302,6 +302,18 @@ impl AgentProvider for ClaudeProvider {
         folder_trust::response(screen)
     }
 
+    fn parse_directory_trust_prompt(
+        &self,
+        screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        folder_trust::parse_prompt(screen)
+            .map(|(question, options)| crate::prompt::build_prompt(question, options))
+    }
+
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
+        true
+    }
+
     fn launch_onboarding_response(
         &self,
         screen: &str,

@@ -298,8 +298,10 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 
   const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
   const parsed = hostPlugin.parsePrompt(unnumbered);
+  const trustPrompt = hostPlugin.parseDirectoryTrustPrompt(unnumbered);
   assert(Boolean(parsed?.question.trim()), "folder trust exposes a parsed prompt question");
   eq(parsed?.options?.map(([, value]) => value), ["1", "2"], "folder trust options retain screen order");
+  eq(trustPrompt, parsed, "dedicated trust parser exposes the same classified choices");
   eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
   eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
