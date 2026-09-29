@@ -26,6 +26,9 @@ impl SpawnRejection {
     }
 }
 
+/// The refusal reason was flattened to text upstream, so the daemon cannot promise a retry helps.
+pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
+
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
         Self {
@@ -35,7 +38,8 @@ impl From<String> for SpawnRejection {
                 "error": {
                     "code": "spawn_failed",
                     "message": message,
-                    "retry_hint": "transient — retry once; if it persists, fix the spawn request (--role/--plan-task/--cwd) or check the target's health with `codeterm mesh peers`",
+                    "class": SPAWN_REFUSAL_CLASS_UNCLASSIFIED,
+                    "retry_hint": "the spawn was refused and the daemon could not tell whether a retry can help — fix the spawn request (--role/--plan-task/--cwd) first, then check the target with `codeterm mesh peers`",
                 },
             }),
         }

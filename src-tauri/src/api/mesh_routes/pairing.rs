@@ -324,6 +324,32 @@ pub async fn mesh_pair_confirm(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// Reject and block the requester; only a request still awaiting a decision
+/// qualifies, so an unknown or already-processed id changes nothing and fails.
+pub(crate) fn reject_pending_request(
+    mesh: &mut crate::mesh::MeshManager,
+    request_id: &str,
+) -> Result<(), ApproveError> {
+    let request = mesh
+        .pending_requests
+        .get_mut(request_id)
+        .filter(|req| {
+            matches!(
+                req.status,
+                crate::mesh::types::PairingStatus::Pending
+                    | crate::mesh::types::PairingStatus::Expired
+            )
+        })
+        .ok_or(ApproveError::NotFound)?;
+    request.status = crate::mesh::types::PairingStatus::Rejected;
+    let blocked_id = request.from_instance_id.clone();
+    if !mesh.revocation_list.blocked.contains(&blocked_id) {
+        mesh.revocation_list.blocked.push(blocked_id);
+    }
+    let _ = mesh.save();
+    Ok(())
+}
+
 pub async fn mesh_pair_reject(
     AxumState(state): AxumState<AppState>,
     Json(body): Json<serde_json::Value>,
@@ -334,18 +360,8 @@ pub async fn mesh_pair_reject(
         .to_string();
 
     let mut mesh = state.mesh.lock();
-    let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
-        req.status = crate::mesh::types::PairingStatus::Rejected;
-        Some(req.from_instance_id.clone())
-    } else {
-        None
-    };
-    if let Some(id) = block_id {
-        if !mesh.revocation_list.blocked.contains(&id) {
-            mesh.revocation_list.blocked.push(id);
-        }
-        let _ = mesh.save();
-    }
+    reject_pending_request(&mut mesh, &request_id)
+        .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
     drop(mesh);
 
     crate::api::events::emit_everywhere(
@@ -504,6 +520,58 @@ mod tests {
             PairingStatus::Pending
         );
         assert!(!mesh.paired_peers.contains_key("introduced"));
+    }
+
+    fn pending_request(id: &str, from: &str, status: PairingStatus) -> PairingRequest {
+        PairingRequest {
+            request_id: id.into(),
+            from_instance_id: from.into(),
+            from_instance_name: from.into(),
+            from_address: "100.64.0.2".into(),
+            from_port: 7685,
+            from_addresses: vec![PeerAddress::from_ip("100.64.0.2")],
+            public_key: "key".into(),
+            timestamp: 0,
+            status,
+            introduced_by: None,
+        }
+    }
+
+    #[test]
+    fn mesh_reject_unknown_or_processed_request_fails_and_blocks_nobody() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.clear();
+        mesh.pending_requests.insert(
+            "accepted".into(),
+            pending_request("accepted", "paired-peer", PairingStatus::Accepted),
+        );
+        for id in ["never-existed", "accepted"] {
+            let error = super::reject_pending_request(&mut mesh, id)
+                .expect_err("nothing awaits a decision under this id");
+            assert!(matches!(error, super::ApproveError::NotFound), "{id}");
+        }
+        assert!(mesh.revocation_list.blocked.is_empty());
+        assert_eq!(mesh.pending_requests["accepted"].status, PairingStatus::Accepted);
+    }
+
+    #[test]
+    fn mesh_reject_pending_request_blocks_the_requester_once() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.clear();
+        mesh.pending_requests.insert(
+            "open".into(),
+            pending_request("open", "stranger", PairingStatus::Pending),
+        );
+        super::reject_pending_request(&mut mesh, "open").expect("pending request rejects");
+        assert_eq!(mesh.pending_requests["open"].status, PairingStatus::Rejected);
+        assert_eq!(mesh.revocation_list.blocked, vec!["stranger".to_string()]);
+        super::reject_pending_request(&mut mesh, "open")
+            .expect_err("a second reject is a processed request");
+        assert_eq!(mesh.revocation_list.blocked.len(), 1);
     }
 
     #[test]

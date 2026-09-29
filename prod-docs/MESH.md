@@ -141,6 +141,12 @@ every feature is available on an older application version.
 
 A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are the constants in `codeterm-types` (`mesh::delivery`); `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline. The sender's own leg is classified the same way rather than collapsing to a bare `502` — `send_relay` returns a `TransportError` carrying a `mesh_transport_*` constant onto that same envelope, and only a connect-phase failure claims `bytes_written=false`.
 
+`--mesh PEER` accepts, in order: an exact instance id, a unique instance-id prefix (the short id `mesh status` prints, 6+ hex characters), the advertised name, or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
+
+The CLI reports a relayed send from the peer's own verdict, the same way a local send does: bytes that reached the target PTY (`bytes_written=true`) print as accepted with `delivery: pending` even when the peer's submit confirmation outlived the relay, and only `bytes_written=false` or unknown is a failure. Failures carry `error.class` — `deterministic` (the same request will be refused again: authorization, protocol mismatch, unknown tab, 4xx), `transient` (retry can help: busy tab, saturated window, 429/502-504) or `unknown` (a peer refusal that did not say). The retry hint follows the class, and only `transient` says retry. `send --mesh` prints only the result — the payload is never echoed. A `--to-shell` payload with a line over 4095 bytes to a non-Windows peer is refused before sending (`line_exceeds_tty_limit`, nothing written), because a canonical-mode tty truncates such a line while the write reports success.
+
+A rename or address change announced while a paired peer is unreachable is remembered and re-announced when that peer next comes online.
+
 The serving browser origin remains its gateway. During an outage an already-loaded page can render,
 but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
@@ -168,7 +174,7 @@ runs against the peer's plan store.
 The peer requires the same repository identity and base commit, provisions its
 lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base,
 offline peers, and lost relays are explicit attempt states; failed attempts
-close so dispatch can retry. ACK/report relays authenticate the origin peer
+close so dispatch can retry. The origin checks that the peer advertises `remote_task_dispatch` (`/api/identify` features) before creating an attempt, and an HTTP refusal from the peer is `peer_refused`, not `relay_lost`. ACK/report relays authenticate the origin peer
 and persist idempotently on its attempt.
 
 After origin review accepts the report, run
@@ -251,4 +257,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

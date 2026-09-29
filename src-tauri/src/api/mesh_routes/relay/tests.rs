@@ -271,7 +271,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     );
 
     for _ in 0..50 {
-        let (_, name, _) =
+        let (_, _, name, _) =
             resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
         assert_eq!(name, "BLACKSTAR");
     }
@@ -279,7 +279,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
     // Id lookup returns the EXACT record for that id, bypassing the name
     // ambiguity — but not the protocol gate: the dead id is still protocol 0.
-    let (_, live_id_name, _) =
+    let (_, _, live_id_name, _) =
         resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
     assert_eq!(live_id_name, "BLACKSTAR");
     match resolve_relay_peer(&mesh, "a4db6f3d-dead") {

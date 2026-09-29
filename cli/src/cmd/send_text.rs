@@ -629,7 +629,7 @@ fn send_composite_over_mesh(
     );
     let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
     let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
-    handle_send_text_result(json, Ok(data), Some(&resolved_text));
+    handle_send_text_result(json, Ok(data), None);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

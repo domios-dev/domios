@@ -95,12 +95,9 @@ fn nothing_landed_and_landed_unconfirmed_stay_distinguishable() {
         SEND,
         accepted_envelope_with_peer_refusal(delivery::SUBMIT_UNCONFIRMED, Some(true)),
     )
-    .expect_err("an unconfirmed submit fails");
-    assert_eq!(landed.bytes_written, Some(true));
-    assert_eq!(
-        landed.to_json()["error"]["bytes_written"].as_bool(),
-        Some(true)
-    );
+    .expect("bytes that reached the PTY are an accepted, pending send — the local path's verdict");
+    assert_eq!(landed["bytes_written"].as_bool(), Some(true));
+    assert_eq!(landed["delivery"].as_str(), Some("pending"));
 }
 
 /// Symptom B's shape: the relay abandoned its own loopback call, so nobody knows
@@ -149,19 +146,19 @@ fn a_domain_level_ok_false_on_a_non_send_route_is_still_data() {
 }
 
 #[test]
-fn an_unconfirmed_outcome_is_never_hinted_as_a_free_retry() {
-    let landed = classify(
+fn an_unknown_outcome_is_never_hinted_as_a_free_retry() {
+    let unknown = classify(
         SEND,
-        accepted_envelope_with_peer_refusal(delivery::SUBMIT_UNCONFIRMED, Some(true)),
+        accepted_envelope_with_peer_refusal(delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED, None),
     )
-    .expect_err("an unconfirmed submit fails");
+    .expect_err("an outcome nobody knows fails");
     let safe = classify(
         SEND,
-        accepted_envelope_with_peer_refusal(delivery::TAB_NOT_REACHABLE_ON_PEER, Some(false)),
+        accepted_envelope_with_peer_refusal(delivery::TAB_BUSY_REFUSED, Some(false)),
     )
     .expect_err("a refused send fails");
     assert_ne!(
-        landed.retry_hint, safe.retry_hint,
+        unknown.retry_hint, safe.retry_hint,
         "a payload that may already have landed cannot share the safe-retry hint"
     );
 }

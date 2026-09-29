@@ -178,7 +178,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request; returns `{ok, instance_id}` so a manual target is promoted before acceptance |
 | POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
 | POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
-| POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection |
+| POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection and block; `404` when the id is unknown or already processed |
 | POST | `/api/mesh/introduce` | `{...}` | Introduce a discovered peer; creates a pending owner-approved pairing request |
 | POST | `/api/mesh/sync` | `MeshSyncPayload` | Exchange mesh gossip/discovery state |
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
@@ -230,4 +230,4 @@ The daemon records the authenticated spawning peer on each spawned tab and check
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

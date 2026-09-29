@@ -130,12 +130,26 @@ pub struct MeshManager {
     gossip_generations: HashMap<String, u64>,
     gossip_tombstones: HashMap<(String, String), u64>,
     local_gossip_generation: u64,
+    /// Paired peers whose latest announce was never acknowledged; flushed when they reconnect.
+    unacked_announce: std::collections::HashSet<String>,
     last_gossip_claim_ids: Vec<String>,
     pub peer_services: peer_services::PeerServicesCache,
     pub last_activity: Arc<dyn LastActivityProvider>,
 }
 
 impl MeshManager {
+    pub fn record_announce_outcome(&mut self, peer_id: &str, acknowledged: bool) {
+        if acknowledged {
+            self.unacked_announce.remove(peer_id);
+        } else {
+            self.unacked_announce.insert(peer_id.to_string());
+        }
+    }
+
+    pub fn has_unacked_announce(&self, peer_id: &str) -> bool {
+        self.unacked_announce.contains(peer_id)
+    }
+
     pub fn confirm_pairing_target_identity(
         &mut self,
         request_id: &str,
@@ -264,6 +278,7 @@ impl MeshManager {
             gossip_generations: HashMap::new(),
             gossip_tombstones: HashMap::new(),
             local_gossip_generation: 0,
+            unacked_announce: std::collections::HashSet::new(),
             last_gossip_claim_ids: Vec::new(),
             peer_services: peer_services::PeerServicesCache::default(),
             last_activity: default_last_activity(),
