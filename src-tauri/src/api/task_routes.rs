@@ -58,6 +58,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::ActivePlanRequiresTeam { .. }
         | PlanError::PlanActivationRequiresUnarchive { .. }
         | PlanError::InvalidPlanSkillSlug
+        | PlanError::InvalidPlanText(_)
         | PlanError::InvalidExecutorName(_)
         | PlanError::InvalidExternalRef(_)
         | PlanError::UnauthorizedGateClaim { .. }

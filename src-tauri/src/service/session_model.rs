@@ -436,9 +436,10 @@ impl ServiceContext {
             (observation.clone(), binding_nonce.clone())
         };
         let svc = self.clone();
+        let tab_id = tab_id.to_string();
         if let Err(error) = std::thread::Builder::new()
             .name("post-launch-session-model-refresh".into())
-            .spawn(move || svc.record_post_launch_turn_model(tab_id, observation, &binding_nonce))
+            .spawn(move || svc.record_post_launch_turn_model(&tab_id, observation, &binding_nonce))
         {
             log::warn!("[session-model] failed to start post-launch turn refresh: {error}");
             return false;

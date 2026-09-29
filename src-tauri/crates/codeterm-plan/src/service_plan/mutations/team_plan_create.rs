@@ -36,7 +36,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        super::super::text_bounds::validate_plan_label("plan title", &title)?;
+        crate::service_plan::text_bounds::validate_plan_label("plan title", &title)?;
         let _writer_turn = self.mutation_writer.enter();
         let team_id = team_id.trim().to_string();
         if team_id.is_empty() {

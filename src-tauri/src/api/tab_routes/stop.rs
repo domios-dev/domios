@@ -106,7 +106,7 @@ pub async fn stop_tab(
         if let Some(Ok(())) = structured_abort {
             if let (Some(signal), Some(generation)) = (signal.clone(), generation) {
                 let stopped = stopped_after_status_event(
-                    state.svc.clone(),
+                    (*state.svc).clone(),
                     tab_id.clone(),
                     signal,
                     generation,
@@ -149,7 +149,7 @@ pub async fn stop_tab(
         })));
     };
     let stopped =
-        stopped_after_status_event(state.svc.clone(), tab_id, signal, generation).await;
+        stopped_after_status_event((*state.svc).clone(), tab_id, signal, generation).await;
     Ok(Json(serde_json::json!({
         "ok": true,
         "stopped": stopped,

@@ -88,12 +88,13 @@ impl Default for RestoreReport {
 }
 
 impl RestoreReport {
+    #[cfg(test)]
     pub fn dropped_panes(&self) -> impl Iterator<Item = &PaneOutcome> {
         self.panes.iter().filter(|p| !p.restored)
     }
 
     /// True only when every bound pane came back with an agent observed live.
-    /// The success summary is gated on this and nothing else.
+    #[cfg(test)]
     pub fn every_pane_has_a_live_agent(&self) -> bool {
         self.bound > 0 && self.restored == self.bound
     }

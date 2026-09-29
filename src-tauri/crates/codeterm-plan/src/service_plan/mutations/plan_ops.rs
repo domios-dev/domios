@@ -20,7 +20,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(title) = title {
-            super::super::text_bounds::validate_plan_label("plan title", title)?;
+            crate::service_plan::text_bounds::validate_plan_label("plan title", title)?;
         }
         let status_for_write = status.clone();
         let write = self.with_plan(plan_id, now_ms, |p| {
@@ -197,16 +197,16 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        super::super::text_bounds::validate_plan_label("section title", title)?;
-        super::super::text_bounds::validate_plan_text("section body", body)?;
+        crate::service_plan::text_bounds::validate_plan_label("section title", title)?;
+        crate::service_plan::text_bounds::validate_plan_text("section body", body)?;
         for tag in tags {
-            super::super::text_bounds::validate_plan_label("section tag", tag)?;
+            crate::service_plan::text_bounds::validate_plan_label("section tag", tag)?;
         }
         if let Some(primary) = primary {
-            super::super::text_bounds::validate_plan_label("section primary tag", primary)?;
+            crate::service_plan::text_bounds::validate_plan_label("section primary tag", primary)?;
         }
         if let Some(handle) = handle {
-            super::super::text_bounds::validate_plan_label("section handle", handle)?;
+            crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
         }
         let sid = self.mint_id("sec");
         let mut section_tags = tags.to_vec();
@@ -246,7 +246,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<String, PlanError> {
         let mut new = new;
-        super::super::text_bounds::validate_new_task_text(&new)?;
+        crate::service_plan::text_bounds::validate_new_task_text(&new)?;
         new.personality = new
             .personality
             .as_deref()
@@ -255,7 +255,7 @@ impl PlanStore {
             .map_err(PlanError::InvalidExecutorName)?;
         let external_refs =
             crate::service_plan::external_refs::canonicalize_external_refs(external_refs)?;
-        super::super::text_bounds::validate_external_refs(&external_refs)?;
+        crate::service_plan::text_bounds::validate_external_refs(&external_refs)?;
         let tid = self.mint_id("task");
         let assigned_tab_id = new
             .assigned_tab_id
@@ -316,7 +316,7 @@ impl PlanStore {
             interruption: Default::default(),
             attachments: vec![],
         };
-        super::super::text_bounds::validate_task_text(&task)?;
+        crate::service_plan::text_bounds::validate_task_text(&task)?;
         let verify_sections = !task.section_ids.is_empty();
         let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
@@ -372,7 +372,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(result) = result {
-            super::super::text_bounds::validate_plan_text("task result", result)?;
+            crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
         }
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
@@ -431,7 +431,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(result) = result {
-            super::super::text_bounds::validate_plan_text("task result", result)?;
+            crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
         }
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
@@ -492,8 +492,8 @@ impl PlanStore {
         add_kind: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        super::super::text_bounds::validate_plan_label("milestone kind", kind)?;
-        super::super::text_bounds::validate_plan_text("milestone text", text)?;
+        crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
+        crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
         let mid = self.mint_id("ms");
         let write = self.with_plan(plan_id, now_ms, |p| {
             let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
@@ -546,8 +546,8 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        super::super::text_bounds::validate_plan_label("stride kind", kind)?;
-        super::super::text_bounds::validate_plan_text("stride text", text)?;
+        crate::service_plan::text_bounds::validate_plan_label("stride kind", kind)?;
+        crate::service_plan::text_bounds::validate_plan_text("stride text", text)?;
         let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
             p.strides.push(Milestone {
@@ -578,7 +578,7 @@ impl PlanStore {
         if text.is_empty() {
             return Err(PlanError::GateRequiresQuestion);
         }
-        super::super::text_bounds::validate_plan_text("retrospective", text)?;
+        crate::service_plan::text_bounds::validate_plan_text("retrospective", text)?;
         let mid = self.mint_id("ms");
         let supersede_id = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
@@ -768,19 +768,19 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         if let Some(title) = title {
-            super::super::text_bounds::validate_plan_label("section title", title)?;
+            crate::service_plan::text_bounds::validate_plan_label("section title", title)?;
         }
         if let Some(body) = body {
-            super::super::text_bounds::validate_plan_text("section body", body)?;
+            crate::service_plan::text_bounds::validate_plan_text("section body", body)?;
         }
         for tag in tags {
-            super::super::text_bounds::validate_plan_label("section tag", tag)?;
+            crate::service_plan::text_bounds::validate_plan_label("section tag", tag)?;
         }
         if let Some(primary) = primary {
-            super::super::text_bounds::validate_plan_label("section primary tag", primary)?;
+            crate::service_plan::text_bounds::validate_plan_label("section primary tag", primary)?;
         }
         if let Some(handle) = handle {
-            super::super::text_bounds::validate_plan_label("section handle", handle)?;
+            crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
         }
         self.with_plan(plan_id, now_ms, |p| {
             if update_section_fields(&mut p.sections, section_id, title, body) {

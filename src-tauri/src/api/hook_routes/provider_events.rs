@@ -8,7 +8,7 @@ use crate::api::routes::AppState;
 use super::{header_str, resolve_hook_tab};
 
 #[derive(serde::Deserialize)]
-struct ProviderEventBody {
+pub(crate) struct ProviderEventBody {
     session_id: String,
     event: serde_json::Value,
 }
