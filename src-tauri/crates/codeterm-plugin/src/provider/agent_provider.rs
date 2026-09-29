@@ -426,6 +426,23 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn session_model_transcript_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        None
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+        _boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        None
+    }
+
     /// Runtime-confirmed reasoning effort from this exact claimed session.
     /// Providers must not consult a global/latest record when implementing it.
     fn detect_session_reasoning_effort(&self, _cwd: &str, _session_id: &str) -> Option<String> {

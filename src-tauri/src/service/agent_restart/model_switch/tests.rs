@@ -195,6 +195,7 @@ fn agent_model_switch_observes_only_the_current_binding_report() {
             model: NEXT_MODEL.into(),
             transcript_model_at_launch: None,
         }),
+        model_switch_turn_confirmed: false,
     });
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
@@ -241,6 +242,9 @@ fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn()
         Some(crate::multiplexer::types::PendingModelSwitchObservation {
             session_id: SESSION.into(),
             launched_model: NEXT_MODEL.into(),
+            transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: None,
+            },
         });
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
@@ -275,6 +279,7 @@ fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn()
             session_id: SESSION.into(),
             session_binding_nonce: NONCE.into(),
             launch_report: None,
+            model_switch_turn_confirmed: true,
         });
         tab.pending_model_switch_observation = None;
     }
@@ -300,6 +305,9 @@ fn model_switch_without_model_evidence_returns_pending_confirmation() {
         Some(crate::multiplexer::types::PendingModelSwitchObservation {
             session_id: SESSION.into(),
             launched_model: NEXT_MODEL.into(),
+            transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: None,
+            },
         });
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(

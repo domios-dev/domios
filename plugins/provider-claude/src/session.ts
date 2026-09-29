@@ -39,6 +39,10 @@ export interface ClaudeEntry {
   agentId?: unknown;
 }
 
+export interface SessionModelTranscriptBoundary {
+  lastEntryUuid: string | null;
+}
+
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
   system: true,
   user: true,
@@ -77,6 +81,55 @@ export function claudeSessionFilePath(cwd: string, sessionId: string): string | 
   const encoded = encodeCwdDashed(cwd);
   const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+
+export function sessionModelTranscriptBoundary(
+  cwd: string,
+  sessionId: string,
+): SessionModelTranscriptBoundary | null {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) return { lastEntryUuid: null };
+  if (!contents.endsWith("\n")) return null;
+  const lines = contents.split("\n");
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  if (!lines.length) return { lastEntryUuid: null };
+  let entry: ClaudeEntry;
+  try { entry = JSON.parse(lines[lines.length - 1]); } catch (_) { return null; }
+  return typeof entry.uuid === "string" && entry.uuid
+    ? { lastEntryUuid: entry.uuid }
+    : null;
+}
+
+export function detectSessionModelAfterBoundary(
+  cwd: string,
+  sessionId: string,
+  boundary: SessionModelTranscriptBoundary,
+): string | null {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  const entries: ClaudeEntry[] = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try { entries.push(JSON.parse(line) as ClaudeEntry); } catch (_) { continue; }
+  }
+  const boundaryIndex = boundary.lastEntryUuid === null
+    ? -1
+    : entries.findIndex(entry => entry.uuid === boundary.lastEntryUuid);
+  if (boundary.lastEntryUuid !== null && boundaryIndex < 0) return null;
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
 }
 
 function encodeCwdDashed(cwd: string): string {

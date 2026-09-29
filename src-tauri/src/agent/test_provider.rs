@@ -516,6 +516,26 @@ impl AgentProvider for MockProvider {
     fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_models.get(session_id).cloned()
     }
+
+    fn session_model_transcript_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        Some(codeterm_types::agent::SessionModelTranscriptBoundary {
+            last_entry_uuid: None,
+        })
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        _boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        self.detect_session_model(cwd, session_id)
+    }
+
     fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_reasoning_efforts.get(session_id).cloned()
     }

@@ -216,6 +216,25 @@ impl AgentProvider for ClaudeProvider {
         })
     }
 
+    fn session_model_transcript_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        sessions::session_model_transcript_boundary(cwd, session_id)
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        sessions::detect_session_model_after_boundary(cwd, session_id, boundary).map(|family| {
+            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
+        })
+    }
+
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
         sessions::detect_session_reasoning_effort(cwd, session_id)
     }
