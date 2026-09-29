@@ -2095,7 +2095,21 @@ function codexTrustRoots(host2, cwd, markers) {
   const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host2, normalizedCwd, markers, windows);
   const gitRoot = findRoot(host2, normalizedCwd, [".git"], windows);
   if (projectRoot === null || gitRoot === null) return null;
-  return uniquePaths([normalizedCwd, projectRoot, gitRoot].filter((path) => path !== void 0), windows);
+  const mainRepoRoot = gitRoot === void 0 ? void 0 : worktreeMainRoot(host2, gitRoot, windows);
+  return uniquePaths(
+    [normalizedCwd, projectRoot, gitRoot, mainRepoRoot].filter((path) => path !== void 0),
+    windows
+  );
+}
+function worktreeMainRoot(host2, gitRoot, windows) {
+  const separator = windows ? "\\" : "/";
+  const pointer = host2.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
+  const gitdir = pointer?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+  if (!gitdir) return void 0;
+  const absolute = isAbsolutePath(host2, gitdir) ? gitdir : `${gitRoot}${separator}${gitdir}`;
+  const normalized = normalizeAbsolutePath(absolute, windows);
+  const main = normalized?.match(/^(.*?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/i)?.[1];
+  return main || void 0;
 }
 function findRoot(host2, cwd, markers, windows) {
   const separator = windows ? "\\" : "/";
