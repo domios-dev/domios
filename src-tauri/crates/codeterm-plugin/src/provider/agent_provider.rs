@@ -29,7 +29,7 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    fn sandboxed_launch_restriction(&self) -> Option<SandboxedLaunchRestriction> {
+    fn sandboxed_linux_launch_capability(&self) -> Option<SandboxedLinuxLaunchCapability> {
         None
     }
 

@@ -163,6 +163,13 @@ fn build_agent_command_inner(
         crate::service::launch_delivery::command_task(provider, task)
     });
     let skip_permissions = params.permission_bypass_requested(agent_cmd);
+    crate::service::launch_session_detection::append_sandbox_linux_network_args(
+        registry,
+        agent_cmd,
+        skip_permissions,
+        crate::agent::provider::current_platform_tag(),
+        &mut args,
+    );
     let canonical_project = notice_context.and_then(|(service, tab_id)| {
         params.cwd.as_deref().and_then(|cwd| {
             crate::service::launch_session_detection::canonical_project_for_launch(

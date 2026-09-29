@@ -394,45 +394,42 @@ fn provider_cli_availability_rejects_invalid_binary_name() {
 }
 
 #[test]
-fn sandbox_restriction_refuses_linux_before_tab_creation() {
-    use codeterm_plugin::provider::SandboxedLaunchRestriction::RequiresUnsandboxedLinux;
-
-    let restriction = Some(RequiresUnsandboxedLinux);
-    assert!(crate::service::spawn_cli::sandbox_launch_restriction_applies(
-        restriction,
-        true,
-        "linux"
-    ));
-    assert!(!crate::service::spawn_cli::sandbox_launch_restriction_applies(
-        restriction,
-        false,
-        "linux"
-    ));
-    assert!(!crate::service::spawn_cli::sandbox_launch_restriction_applies(
-        restriction,
-        true,
-        "windows"
-    ));
+fn sandboxed_linux_launch_args_are_capability_and_platform_scoped() {
+    use codeterm_plugin::provider::SandboxedLinuxLaunchCapability;
 
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("sandbox-fixture")
-            .with_sandboxed_launch_restriction(RequiresUnsandboxedLinux),
+        crate::agent::test_provider::MockProvider::new("provider-fixture")
+            .with_sandboxed_linux_launch(SandboxedLinuxLaunchCapability {
+                network_access_args: vec![
+                    "-c".into(),
+                    "sandbox_workspace_write.network_access=true".into(),
+                ],
+                network_access_config_path: "~/.codeterm-fixture-no-config/config.toml".into(),
+                network_access_setting: "sandbox_workspace_write.network_access".into(),
+            }),
     ));
-    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
-    let workspace_id = mux.list_workspaces()[0].id.clone();
-    let before = mux.snapshot().tabs.len();
-    let refusal = crate::service::spawn_cli::provider_launch_preflight_for_platform(
-        &registry,
-        "sandbox-fixture",
-        true,
-        "linux",
-    )
-    .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
-    let error = refusal.expect_err("restricted sandbox must be refused before creating a tab");
-    assert_eq!(error.code(), "sandboxed_launch_unsupported");
-    assert!(error.to_string().contains("Enable full access"));
-    assert_eq!(mux.snapshot().tabs.len(), before);
+    let make = |skip, platform| {
+        let mut args = Vec::new();
+        crate::service::launch_session_detection::append_sandbox_linux_network_args(
+            &registry,
+            "provider-fixture",
+            skip,
+            platform,
+            &mut args,
+        );
+        args
+    };
+    assert_eq!(
+        make(false, "linux"),
+        vec![
+            "-c".to_string(),
+            "sandbox_workspace_write.network_access=true".to_string()
+        ]
+    );
+    assert!(make(true, "linux").is_empty());
+    assert!(make(false, "windows").is_empty());
+    assert!(make(false, "macos").is_empty());
 }
 
 /// The defect this replaces: an unresolvable provider produced a live tab whose

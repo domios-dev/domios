@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
     ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
-    ReadinessStrategy, ReasoningEffortInfo, SandboxedLaunchRestriction, SessionIdInjection,
+    ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability, SessionIdInjection,
     SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
 };
 
@@ -28,7 +28,7 @@ pub struct SubprocessPermission {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
     #[serde(default)]
-    pub sandboxed_launch_restriction: Option<SandboxedLaunchRestriction>,
+    pub sandboxed_linux_launch: Option<SandboxedLinuxLaunchCapability>,
     #[serde(default)]
     pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,

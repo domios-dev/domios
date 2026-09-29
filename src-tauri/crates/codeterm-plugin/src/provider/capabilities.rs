@@ -4,10 +4,12 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SandboxedLaunchRestriction {
-    RequiresUnsandboxedLinux,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct SandboxedLinuxLaunchCapability {
+    pub network_access_args: Vec<String>,
+    pub network_access_config_path: String,
+    pub network_access_setting: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -46,7 +46,7 @@ pub struct MockProvider {
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
-    sandboxed_launch_restriction: Option<codeterm_plugin::provider::SandboxedLaunchRestriction>,
+    sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
 }
 
 impl MockProvider {
@@ -82,7 +82,7 @@ impl MockProvider {
             resume_context_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
-            sandboxed_launch_restriction: None,
+            sandboxed_linux_launch: None,
         }
     }
 
@@ -111,11 +111,11 @@ impl MockProvider {
         self
     }
 
-    pub fn with_sandboxed_launch_restriction(
+    pub fn with_sandboxed_linux_launch(
         mut self,
-        restriction: codeterm_plugin::provider::SandboxedLaunchRestriction,
+        capability: codeterm_plugin::provider::SandboxedLinuxLaunchCapability,
     ) -> Self {
-        self.sandboxed_launch_restriction = Some(restriction);
+        self.sandboxed_linux_launch = Some(capability);
         self
     }
 
@@ -325,10 +325,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
-    fn sandboxed_launch_restriction(
+    fn sandboxed_linux_launch_capability(
         &self,
-    ) -> Option<codeterm_plugin::provider::SandboxedLaunchRestriction> {
-        self.sandboxed_launch_restriction
+    ) -> Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability> {
+        self.sandboxed_linux_launch.clone()
     }
 
     fn additional_writable_dir_flag(&self) -> Option<String> {
