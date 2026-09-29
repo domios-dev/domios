@@ -4,6 +4,16 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::CronState;
 use crate::CronWake;
 
+fn cron_report_delivery_label(result: Result<(), String>) -> String {
+    match result {
+        Ok(()) => "delivered".to_string(),
+        Err(error) if error.starts_with("submit_unconfirmed:") => {
+            "delivered_unconfirmed".to_string()
+        }
+        Err(error) => format!("failed: {error}"),
+    }
+}
+
 /// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
 pub(crate) struct CronRunEnd<'a> {
     pub(crate) job_id: &'a str,
@@ -226,10 +236,7 @@ impl ServiceContext {
                 let report = format!(
                     "Cron run {run_id} completed with status {status:?}. Summary: {summary}"
                 );
-                match deliver(&report_target, &report) {
-                    Ok(()) => "delivered".to_string(),
-                    Err(error) => format!("failed: {error}"),
-                }
+                cron_report_delivery_label(deliver(&report_target, &report))
             }
             None => "no report target".to_string(),
         };
@@ -802,6 +809,20 @@ mod tests {
             },
         );
         delivered
+    }
+
+    #[test]
+    fn submit_unconfirmed_report_delivery_is_not_classified_as_failed() {
+        assert_eq!(
+            super::cron_report_delivery_label(Err(
+                "submit_unconfirmed: submit key was not acknowledged".into()
+            )),
+            "delivered_unconfirmed"
+        );
+        assert_eq!(
+            super::cron_report_delivery_label(Err("target gone".into())),
+            "failed: target gone"
+        );
     }
 
     #[test]
