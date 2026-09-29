@@ -147,7 +147,7 @@ pub(super) fn dispatch(
     let manifest =
         crate::service::plan::plan_skills::plan_skill_manifest(&svc.plan_store, &plan_id)
             .map_err(super::super::plan::plan_rpc_err)?;
-    let mut brief = super::brief::build_brief_with_manifest(
+    let brief = super::brief::build_brief_with_manifest(
         &detail.task,
         &detail.sections,
         &plan_id,
@@ -161,14 +161,7 @@ pub(super) fn dispatch(
         .identity
         .instance_id
         .clone();
-    brief.push_str(&format!(
-        "\n\nRemote assignment ACK:\ncodeterm plan task remote-ack {} {} {} --mesh {}\n",
-        plan_id, task_id, attempt_id, origin_id
-    ));
-    brief.push_str(&format!(
-        "Remote final report: run `codeterm plan task remote-report {} {} {} --message-file <report-path> --sha <lane-head> --mesh {}`. It persists your report on the origin attempt and moves the task to in_review.\n",
-        plan_id, task_id, attempt_id, origin_id
-    ));
+    let brief = remote_worker_brief(brief, &plan_id, &task_id, &attempt_id, &origin_id);
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
@@ -481,18 +474,16 @@ pub(crate) fn merge_lane(
     let attempt_ref = attempt_id.clone();
     let base_ref = base.clone();
     let expected_tip = lane_tip.to_string();
-    let merged = tauri::async_runtime::block_on(tokio::task::spawn_blocking(move || {
-        crate::service::worker_lane::integrate_remote_lane_bundle(
-            &cwd,
-            &bundle,
-            &branch_name,
-            &attempt_ref,
-            &base_ref,
-            &expected_tip,
-            &destination,
-        )
-    }))
-    .map_err(|error| invalid_dispatch(&format!("remote lane merge task failed: {error}")))?
+    // The socket dispatch thread is synchronous and outside any Tokio context.
+    let merged = crate::service::worker_lane::integrate_remote_lane_bundle(
+        &cwd,
+        &bundle,
+        &branch_name,
+        &attempt_ref,
+        &base_ref,
+        &expected_tip,
+        &destination,
+    )
     .map_err(|error| invalid_dispatch(&error))?;
     svc.plan_store
         .mark_remote_dispatch_integrated(
@@ -606,6 +597,37 @@ fn git_head(cwd: &str) -> Result<String, String> {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// A peer has no local plan, so the local ACK and report instructions are replaced
+/// by commands that reach the origin attempt through the mesh.
+pub(super) fn remote_worker_brief(
+    brief: String,
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    origin_id: &str,
+) -> String {
+    let remote_ack = format!(
+        "Highest-priority startup action: run `codeterm plan task remote-ack {plan_id} {task_id} {attempt_id} --mesh {origin_id}` before any work. Do not continue until it prints the task id. This peer has no local plan, so `codeterm agent ack` and `codeterm agent report` do not apply here."
+    );
+    let ack = codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
+    let mut brief = if brief.contains(ack) {
+        brief.replacen(ack, &remote_ack, 1)
+    } else {
+        format!(
+            "{remote_ack}
+
+{brief}"
+        )
+    };
+    brief.push_str(&format!(
+        "
+
+Remote final report: write the report to a file, then run `codeterm plan task remote-report {plan_id} {task_id} {attempt_id} --message-file <report-path> --sha <lane-head> --mesh {origin_id}`. It persists your report on the origin attempt and moves the task to in_review.
+"
+    ));
+    brief
 }
 
 #[cfg(test)]
