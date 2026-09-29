@@ -36,6 +36,17 @@ fn plan_create_uses_team_workspace_project_path() {
 
     let params = json!({ "caller_tab_id": tab_id.clone() });
     assert_eq!(plan_project_path(&params, &mux), "C:/team/workspace");
+    let hinted = json!({ "caller_tab_id": tab_id.clone(), "caller_cwd": "C:/elsewhere" });
+    assert_eq!(
+        plan_project_path(&hinted, &mux),
+        "C:/team/workspace",
+        "a Team caller's own cwd never outranks its Team workspace"
+    );
+    assert_eq!(
+        plan_project_path(&json!({ "caller_cwd": "C:/elsewhere" }), &mux),
+        "C:/elsewhere",
+        "a caller outside any Team keeps its cwd"
+    );
     assert_eq!(
         plan_project_path(
             &json!({ "caller_tab_id": tab_id, "project_path": "C:/override" }),

@@ -289,14 +289,10 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            let project = project.or_else(|| {
-                std::env::var_os("CODETERM_TEAM_ID")
-                    .is_none()
-                    .then(|| default_project_path(client))
-                    .flatten()
-            });
             if let Some(project) = project {
                 params["project_path"] = json!(project);
+            } else if let Some(cwd) = default_project_path(client) {
+                params["caller_cwd"] = json!(cwd);
             }
             if let Some(spec_id) = from_spec {
                 params["from_spec"] = json!(spec_id);

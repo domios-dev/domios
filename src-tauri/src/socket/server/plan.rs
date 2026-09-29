@@ -25,11 +25,18 @@ fn plan_project_path(params: &Value, mux: &crate::multiplexer::state::Multiplexe
         .and_then(|tab| mux.find_workspace_for_tab(&tab.id))
         .and_then(|workspace_id| mux.get_workspace(&workspace_id))
         .and_then(|workspace| workspace.cwd.clone());
-    requested.or(team_workspace).unwrap_or_else(|| {
-        std::env::current_dir()
-            .map(|dir| dir.display().to_string())
-            .unwrap_or_default()
-    })
+    let caller_cwd = params
+        .get("caller_cwd")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    requested
+        .or(team_workspace)
+        .or(caller_cwd)
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default()
+        })
 }
 
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
