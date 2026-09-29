@@ -11,7 +11,7 @@ CodeTerm keeps one append-only journal of every authoritative tab lifecycle tran
 3. If a claimed session has no unique provider record, the tab comes back as a shell with a null provider label. A snapshot with no claimed session may still fresh-launch its explicitly persisted provider. Restore never chooses a claimed session's provider from another tab, the newest session for a cwd, or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are optional telemetry, not an admission ticket.
 5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a pane as restored only once an agent process is observed live behind it, and the "all N restored" summary is emitted only when every pane is. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
-6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The shutdown killed that process, so the snapshot written at exit still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
+6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The shutdown killed that process, so the snapshot written at exit still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place with the launch arguments its spawn recorded (model, effort, arguments, identity instructions). A provider started by hand in that surviving shell inherits the exited launch's nonce; when its session-start hook reports that newest retired nonce and no launch owns the tab, the tab adopts it as a verified binding and reaches `agent_ready`.
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it (`.agents/skills/agent-restart/SKILL.md`).
 
 ## Restore reporting and observed liveness
@@ -81,7 +81,7 @@ A tab's own persisted lineage (`agent_identity.lifecycle_epoch` and `agent_ident
 
 `seq` is a single monotonic sequence across the whole file. It is the **only** ordering authority. `recorded_at` and `sealed_at` are UTC stamps for reading the journal by eye — they are never consulted for ordering, checkpoint selection, or conflict resolution.
 
-A line that fails to parse, or whose `seq` does not advance, refuses itself and everything after it: `JournalLoad::tail` reports the refused line and reason so the corruption is visible instead of silently becoming history. A refused tail affects only what the journal itself can report — it has no effect on restore.
+A line that fails to parse, or whose `seq` does not advance, refuses itself and everything after it: `JournalLoad::tail` reports the refused line and reason so the corruption is visible instead of silently becoming history. Opening the journal at daemon start, or compacting it, moves a refused tail verbatim into `tab-lifecycle.refused.jsonl` beside it and rewrites the intact prefix, so later appends replay again; quarantined lines are never replayed. Restore never reads the journal, but exit recovery proves a session only from replayable `session_bound` or checkpoint records.
 
 ### Transitions
 
@@ -111,7 +111,7 @@ An operation becomes a **checkpoint** when `launch_ready` sealed it, `provider_i
 The journal is bounded by explicit compaction, never by age:
 
 - Compaction triggers automatically past 4096 records, and can be performed directly through `TabLifecycleJournal::compact`.
-- It rewrites the file as one checkpoint per tab, a bounded 16-entry lineage of prior identity checkpoints, the latest provider-label attempt, and the transitions belonging to operations no checkpoint covers.
+- It rewrites the file as one checkpoint per tab, a bounded 16-entry lineage of prior identity checkpoints, the latest provider-label attempt, each live tab's newest verified binding that no emitted checkpoint carries (a rolled-back checkpoint included), and the transitions belonging to operations no checkpoint covers. Every `seq` in the result is unique.
 - Closed tabs leave nothing behind.
 - Replaying a compacted journal reaches exactly the checkpoints replaying the full history reaches.
 
@@ -150,4 +150,4 @@ The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 28 -->
+<!-- revision: 29 -->

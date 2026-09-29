@@ -32,6 +32,18 @@ pub(crate) enum AgentLaunchOrigin {
 }
 
 impl AgentLaunchOrigin {
+    /// Relaunches a tab whose agent was already dispatched; no startup waiter is owed.
+    pub(crate) fn relaunches_existing_agent(self) -> bool {
+        matches!(
+            self,
+            Self::AutomaticExitRecovery
+                | Self::ExitRecovery
+                | Self::Restart
+                | Self::Resume
+                | Self::RestoredSnapshot
+        )
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::AtomicSpawn => "atomic_spawn",
