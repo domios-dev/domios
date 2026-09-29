@@ -121,6 +121,10 @@ fn assert_retired_with_report(
     assert_eq!(history[0].status, status);
     assert_eq!(history[0].summary.as_deref(), Some(summary));
     assert_eq!(history[0].report_delivery.as_deref(), Some("delivered"));
+    let log = store
+        .read_log(&run.job_id, &run.run_id)
+        .expect("ended run log remains available");
+    assert!(log.contains(summary));
 
     let deliveries = deliveries.lock();
     assert_eq!(deliveries.len(), 1, "exactly one status report");
@@ -133,7 +137,7 @@ fn assert_retired_with_report(
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn oneshot_timeout_end_keeps_history_and_reports() {
+fn cron_failed_oneshot_keeps_history() {
     let run = oneshot_run(Some(REPORT_TAB));
     let deliveries = Deliveries::default();
     let summary = "timeout-summary-token";

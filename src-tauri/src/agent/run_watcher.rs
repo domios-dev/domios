@@ -16,8 +16,6 @@ mod cron_end;
 const IDLE_COMPLETE_SECS: u64 = 30;
 const SCANNER_BUFFER_CAP: usize = 64 * 1024;
 
-const NUDGE_AFTER_IDLE_SECS: u64 = 18;
-const MAX_NUDGES: u32 = 3;
 const RESTART_GRACE_SECS: u64 = 25;
 const RESTART_SETTLE_SECS: u64 = 20;
 const MAX_RESTARTS: u32 = 2;
@@ -56,7 +54,6 @@ struct RunState {
     armed: AtomicBool,
     saw_working: AtomicBool,
     saw_post_session_progress: AtomicBool,
-    nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
     resume_system_prompt: Option<String>,
@@ -99,7 +96,6 @@ impl RunWatcherRegistry {
             armed: AtomicBool::new(false),
             saw_working: AtomicBool::new(false),
             saw_post_session_progress: AtomicBool::new(false),
-            nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt,
@@ -140,6 +136,30 @@ impl RunWatcherRegistry {
         );
         finish_run(svc, &state, false, reason);
         self.runs.lock().remove(pty_id);
+    }
+
+    pub fn fail_cron_on_process_exit(
+        &self,
+        svc: &ServiceContext,
+        pty_id: &str,
+        reason: String,
+    ) -> bool {
+        let state = self.runs.lock().get(pty_id).cloned();
+        let Some(state) = state.filter(|state| matches!(&state.kind, AgentRunKind::Cron { .. }))
+        else {
+            return false;
+        };
+        let finish = !state.completed.swap(true, Ordering::AcqRel);
+        self.runs.lock().remove(pty_id);
+        if finish {
+            log::warn!(
+                "[run-watcher] cron agent exited: tab={} reason={}",
+                state.tab_id,
+                reason
+            );
+            finish_run(svc, &state, false, reason);
+        }
+        true
     }
 
     pub fn arm(&self, pty_id: &str) {
@@ -280,7 +300,6 @@ impl RunWatcherRegistry {
             armed: AtomicBool::new(false),
             saw_working: AtomicBool::new(false),
             saw_post_session_progress: AtomicBool::new(false),
-            nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt: None,
@@ -327,10 +346,13 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
         let elapsed_total = state.started_at.elapsed().as_secs();
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
+        let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
+            && surface_idle_provider_prompt(&svc, &state.tab_id, &state.pty_id);
 
         // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
         if elapsed_total >= RESTART_GRACE_SECS
             && state.last_restart_at.lock().elapsed().as_secs() >= RESTART_SETTLE_SECS
+            && !provider_prompt_pending
             && agent_dropped_to_shell(&svc, &state.pty_id)
         {
             let restarts = state.restart_count.load(Ordering::Acquire);
@@ -368,7 +390,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             state.restart_count.fetch_add(1, Ordering::AcqRel);
             *state.last_restart_at.lock() = Instant::now();
             *state.last_byte_at.lock() = Instant::now();
-            state.nudge_count.store(0, Ordering::Release);
             let raw = svc
                 .output_buf
                 .lock()
@@ -397,20 +418,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             continue;
         }
 
-        // Nudge: when idle past the threshold, send Enter to clear any prompt auto_approve didn't recognize. Bounded so a finished run still reaches idle-complete. Never nudge an agent that's visibly working.
-        if idle_secs >= NUDGE_AFTER_IDLE_SECS
-            && state.nudge_count.load(Ordering::Acquire) < MAX_NUDGES
-            && !agent_screen_busy(&svc, &state.pty_id)
-        {
-            state.nudge_count.fetch_add(1, Ordering::AcqRel);
-            log::debug!(
-                "[run-watcher] nudge Enter (idle {}s) tab={}",
-                idle_secs,
-                state.tab_id
-            );
-            let _ = svc.pty.lock().write(&state.pty_id, b"\r");
-        }
-
         if idle_secs >= IDLE_COMPLETE_SECS {
             let session_bound = tab_completion_state(&svc, &state.tab_id).1;
             let ready_for_success = can_complete_on_semantic_idle(
@@ -420,7 +427,9 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 idle_status_is_terminal_success(&svc, &state.pty_id),
                 session_bound,
             );
-            let busy = !ready_for_success || agent_screen_busy(&svc, &state.pty_id);
+            let busy = provider_prompt_pending
+                || !ready_for_success
+                || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
                     "[run-watcher] idle {}s but agent remains active — deferring reap: tab={}",
@@ -466,6 +475,48 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             return;
         }
     }
+}
+
+fn surface_idle_provider_prompt(svc: &ServiceContext, tab_id: &str, pty_id: &str) -> bool {
+    let (agent_type, pending) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return false;
+        };
+        (tab.agent_type.clone(), tab.pending_prompt.is_some())
+    };
+    if pending {
+        return true;
+    }
+    let Some(agent_type) = agent_type else {
+        return false;
+    };
+    let Some(screen) = svc.screen_state.lock().get_screen_text(pty_id) else {
+        return false;
+    };
+    let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+        svc.agent_registry
+            .parse_interactive_prompt(&agent_type, &screen)
+    });
+    let Some((prompt, kind)) = parsed.filter(|(prompt, _)| {
+        !crate::agent::state_reactor::prompt_is_composer_text(&screen, prompt)
+    }) else {
+        return false;
+    };
+    if !crate::agent::state_reactor::has_structural_prompt_evidence(&screen, &prompt) {
+        return false;
+    }
+    let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+        tab_id,
+        true,
+        true,
+        Some(crate::agent::native_prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    svc.apply_prompt_decision_with_kind(&decision, Some(&screen), kind, true);
+    true
 }
 
 /// True when the tab's screen shows a bare shell prompt and none of the agent's
@@ -794,316 +845,5 @@ fn find_balanced_end(s: &str, start: usize) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_util::lock_hold::TimedRwLock;
-
-    type TestMux = crate::multiplexer::commands::MuxState;
-
-    fn mux_with_nonce(nonce: Option<&str>) -> (TestMux, String) {
-        let (state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let mux: TestMux = Arc::new(TimedRwLock::new("mux-test", state));
-        if let Some(nonce) = nonce {
-            mux.write()
-                .get_tab_mut(&tab_id)
-                .unwrap()
-                .session_binding_nonce = Some(nonce.into());
-        }
-        (mux, tab_id)
-    }
-
-    fn add_tab_with_nonce(mux: &TestMux, sibling_tab: &str, nonce: &str) -> String {
-        let workspace_id = mux.read().find_workspace_for_tab(sibling_tab).unwrap();
-        let tab_id = mux.write().create_tab(&workspace_id).unwrap();
-        mux.write()
-            .get_tab_mut(&tab_id)
-            .unwrap()
-            .session_binding_nonce = Some(nonce.into());
-        tab_id
-    }
-
-    #[test]
-    fn codex_stop_report_completes_only_the_nonce_matching_tab_run() {
-        let (mux, tab_a) = mux_with_nonce(Some("nonce-a"));
-        let tab_b = add_tab_with_nonce(&mux, &tab_a, "nonce-b");
-        let registry = RunWatcherRegistry::new();
-        let run_a = registry.insert_run_for_test("pty-a", &tab_a);
-        let run_b = registry.insert_run_for_test("pty-b", &tab_b);
-
-        let claimed = registry
-            .claim_stop_report_run(&mux, &tab_a, "nonce-a")
-            .expect("nonce-matching stop report claims the tab's run");
-        assert_eq!(claimed.tab_id, tab_a);
-        assert!(run_a.completed.load(Ordering::Acquire));
-        assert!(
-            !run_b.completed.load(Ordering::Acquire),
-            "another tab's run must stay untouched"
-        );
-        assert!(
-            registry
-                .claim_stop_report_run(&mux, &tab_a, "nonce-a")
-                .is_none(),
-            "a claimed run is complete — a duplicate report claims nothing"
-        );
-    }
-
-    #[test]
-    fn codex_stop_foreign_nonce_is_rejected_and_completes_nothing() {
-        let (mux, tab_a) = mux_with_nonce(Some("nonce-a"));
-        let tab_b = add_tab_with_nonce(&mux, &tab_a, "nonce-b");
-        let registry = RunWatcherRegistry::new();
-        let run_a = registry.insert_run_for_test("pty-a", &tab_a);
-        let run_b = registry.insert_run_for_test("pty-b", &tab_b);
-
-        // Another tab's nonce, an unknown nonce: neither claims anything.
-        assert!(registry
-            .claim_stop_report_run(&mux, &tab_a, "nonce-b")
-            .is_none());
-        assert!(registry
-            .claim_stop_report_run(&mux, &tab_a, "nonce-unknown")
-            .is_none());
-        assert!(!run_a.completed.load(Ordering::Acquire));
-        assert!(!run_b.completed.load(Ordering::Acquire));
-
-        // A tab that never armed a nonce can't be completed via report at all.
-        let (nonceless_mux, nonceless_tab) = mux_with_nonce(None);
-        let run = registry.insert_run_for_test("pty-c", &nonceless_tab);
-        assert!(registry
-            .claim_stop_report_run(&nonceless_mux, &nonceless_tab, "nonce-a")
-            .is_none());
-        assert!(!run.completed.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn codex_stop_hook_channel_loss_leaves_classifier_fallback_completion_intact() {
-        // DNC-12: the report path upgrades the signal, it never removes the safety net.
-        let (mux, tab_id) = mux_with_nonce(Some("nonce-a"));
-        let registry = RunWatcherRegistry::new();
-        let run = registry.insert_run_for_test("pty-a", &tab_id);
-
-        assert!(registry
-            .claim_stop_report_run(&mux, &tab_id, "nonce-foreign")
-            .is_none());
-        assert!(
-            !run.completed.load(Ordering::Acquire),
-            "a rejected report must leave the run claimable by the fallback"
-        );
-        assert!(
-            registry.runs.lock().contains_key("pty-a"),
-            "the run stays registered for the classifier-driven watchdog"
-        );
-        // The classifier-fallback completion gate takes no hook input at all:
-        // armed + saw_working + durable progress + classifier idle + bound.
-        assert!(can_complete_on_semantic_idle(true, true, true, true, true));
-        // Channel restored later: the same run is still completable by report.
-        assert!(registry
-            .claim_stop_report_run(&mux, &tab_id, "nonce-a")
-            .is_some());
-    }
-
-    #[test]
-    fn screen_working_defers_idle_reap() {
-        // The real frozen-spinner status line that used to get reaped mid-work.
-        assert!(screen_shows_working(
-            "✢ Propagating… (3m 18s · ↑ 9.8k tokens)\n❯ "
-        ));
-        assert!(screen_shows_working("✻ Schlepping… (12s · ↓ 2.1k tokens)"));
-        assert!(screen_shows_working("working… esc to interrupt"));
-    }
-
-    #[test]
-    fn screen_working_false_on_idle_prompt() {
-        assert!(!screen_shows_working(
-            "╭─ Claude ─╮\n│ > │\n╰───╯  ? for shortcuts"
-        ));
-        assert!(!screen_shows_working("user@host:~$ "));
-    }
-
-    #[test]
-    fn bare_shell_detected_when_agent_gone() {
-        assert!(screen_is_bare_shell("user@host:~/proj$ "));
-        assert!(screen_is_bare_shell("PS C:\\Users\\foo> "));
-    }
-
-    #[test]
-    fn bare_shell_false_when_agent_visible() {
-        assert!(!screen_is_bare_shell(
-            "Welcome to Claude Code\nuser@host:~$ "
-        ));
-        assert!(!screen_is_bare_shell("thinking…  esc to interrupt"));
-    }
-
-    #[test]
-    fn bare_shell_false_on_empty_or_non_prompt() {
-        assert!(!screen_is_bare_shell(""));
-        assert!(!screen_is_bare_shell("   \n  "));
-        assert!(!screen_is_bare_shell("still working on it\nno prompt here"));
-    }
-
-    #[test]
-    fn scanner_finds_result_event_inline() {
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"some noise {"type":"system","x":1} more {"type":"result","subtype":"success","is_error":false,"result":"hello"}"#;
-        let r = s.feed(chunk).expect("completion");
-        assert_eq!(r.subtype.as_deref(), Some("success"));
-        assert_eq!(r.is_error, false);
-        assert_eq!(r.result.as_deref(), Some("hello"));
-    }
-
-    #[test]
-    fn scanner_ignores_mid_stream_message_stop() {
-        // kills the tab before claude can process tool results.
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
-{"type":"stream_event","event":{"type":"message_stop"},"session_id":"a","uuid":"b"}"#;
-        assert!(
-            s.feed(chunk).is_none(),
-            "must not complete on nested message_stop"
-        );
-    }
-
-    #[test]
-    fn scanner_handles_split_across_chunks() {
-        let mut s = ResultEventScanner::new();
-        assert!(s.feed(r#"{"type":"result","is_error":false,"#).is_none());
-        let r = s.feed(r#""result":"привет"}"#).expect("completion");
-        assert_eq!(r.result.as_deref(), Some("привет"));
-    }
-
-    #[test]
-    fn scanner_strips_ansi() {
-        let mut s = ResultEventScanner::new();
-        let chunk =
-            "\x1b[32m\x1b]0;title\x07{\"type\":\"result\",\"is_error\":true,\"result\":\"err\"}";
-        let r = s.feed(chunk).expect("completion");
-        assert!(r.is_error);
-        assert_eq!(r.result.as_deref(), Some("err"));
-    }
-
-    #[test]
-    fn scanner_ignores_non_completion_events() {
-        let mut s = ResultEventScanner::new();
-        assert!(s
-            .feed(r#"{"type":"assistant","message":{"id":"x"}}"#)
-            .is_none());
-        assert!(s
-            .feed(r#"{"type":"stream_event","event":{"type":"content_block_delta"}}"#)
-            .is_none());
-    }
-
-    #[test]
-    fn scanner_handles_braces_inside_strings() {
-        let mut s = ResultEventScanner::new();
-        let chunk =
-            r#"{"type":"result","is_error":false,"result":"text with {nested} {{braces}} ok"}"#;
-        let r = s.feed(chunk).expect("completion");
-        assert_eq!(
-            r.result.as_deref(),
-            Some("text with {nested} {{braces}} ok")
-        );
-    }
-
-    #[test]
-    fn scanner_caps_buffer_growth() {
-        let mut s = ResultEventScanner::new();
-        let big = "x".repeat(SCANNER_BUFFER_CAP * 2);
-        let _ = s.feed(&big);
-        assert!(s.buffer.len() <= SCANNER_BUFFER_CAP);
-    }
-
-    #[test]
-    fn scanner_caps_unicode_buffer_without_panic() {
-        let mut s = ResultEventScanner::new();
-        let big = "✶✳✻… ".repeat(SCANNER_BUFFER_CAP); // far over cap, all multibyte
-        let _ = s.feed(&big);
-        assert!(s.buffer.len() <= SCANNER_BUFFER_CAP);
-        // Feeding more must keep working (no panic on the retained multibyte tail).
-        let _ = s.feed("✢✽ more ✶");
-        assert!(s.buffer.is_char_boundary(0));
-    }
-
-    #[test]
-    fn idle_status_is_terminal_for_any_provider() {
-        assert!(status_is_idle(crate::agent::status::TabStatus::Idle));
-        assert!(!status_is_idle(crate::agent::status::TabStatus::Working));
-        assert!(!status_is_idle(crate::agent::status::TabStatus::Waiting));
-    }
-
-    #[test]
-    fn semantic_idle_requires_post_session_progress() {
-        assert!(!can_complete_on_semantic_idle(
-            false, false, false, true, true
-        ));
-        assert!(!can_complete_on_semantic_idle(
-            true, false, false, true, true
-        ));
-        assert!(!can_complete_on_semantic_idle(
-            true, true, false, true, true
-        ));
-        assert!(!can_complete_on_semantic_idle(
-            true, true, true, false, true
-        ));
-        assert!(!can_complete_on_semantic_idle(
-            true, true, true, true, false
-        ));
-        assert!(can_complete_on_semantic_idle(true, true, true, true, true));
-    }
-
-    #[test]
-    fn empty_assistant_metadata_is_not_durable_progress() {
-        let empty = crate::agent::chat_types::StructuredChat {
-            messages: vec![crate::agent::chat_types::ChatMsg {
-                kind: "assistant".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(!has_nonempty_assistant_transcript(&empty));
-
-        let completed = crate::agent::chat_types::StructuredChat {
-            messages: vec![crate::agent::chat_types::ChatMsg {
-                kind: "assistant".into(),
-                content: "done".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        assert!(has_nonempty_assistant_transcript(&completed));
-    }
-
-    #[test]
-    fn hidden_agent_crash_recovery_uses_global_access_choice() {
-        let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-
-        let full_access =
-            hidden_recovery_resume_command(&registry, "claude", "session-1", true, None)
-                .expect("resume command");
-        let restricted =
-            hidden_recovery_resume_command(&registry, "claude", "session-1", false, None)
-                .expect("resume command");
-
-        assert!(full_access.contains("--dangerously-skip-permissions"));
-        assert!(!restricted.contains("--dangerously-skip-permissions"));
-    }
-
-    #[test]
-    fn hidden_agent_crash_recovery_reapplies_the_registered_launch_context() {
-        let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        let context = "opaque-relaunch-context-3d9c";
-
-        let command =
-            hidden_recovery_resume_command(&registry, "claude", "session-1", false, Some(context))
-                .expect("resume command with context");
-        let path = command
-            .split("--append-system-prompt-file ")
-            .nth(1)
-            .expect("system prompt file flag")
-            .trim()
-            .trim_matches('\'');
-        let written = std::fs::read_to_string(path).expect("written relaunch context");
-
-        assert_eq!(written.trim_start_matches('\u{feff}'), context);
-    }
-}
+#[path = "run_watcher/tests.rs"]
+mod tests;

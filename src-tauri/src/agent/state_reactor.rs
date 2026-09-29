@@ -239,7 +239,7 @@ fn route_classified_prompt(
     true
 }
 
-fn has_structural_prompt_evidence(
+pub(crate) fn has_structural_prompt_evidence(
     screen: &str,
     prompt: &crate::multiplexer::types::PendingPrompt,
 ) -> bool {
