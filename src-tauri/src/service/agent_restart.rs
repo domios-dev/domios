@@ -307,6 +307,7 @@ impl ServiceContext {
         }
 
         let restart_claim = self.claim_restart(&snap.tab_id, false)?;
+        crate::service::task_files::release_tab(self, &snap.tab_id);
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -330,6 +331,7 @@ impl ServiceContext {
             build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
                 .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
         else {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 outcome,
                 reason: format!("provider {} returned no launch command", snap.provider),
@@ -339,6 +341,7 @@ impl ServiceContext {
 
         self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 outcome,
                 reason,
@@ -374,7 +377,14 @@ impl ServiceContext {
             outcome,
             Some(snap.pty_id.as_str()),
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )?;
+        );
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(error);
+            }
+        };
         self.settle_restored_binding(ready, &snap)
     }
 
@@ -404,11 +414,14 @@ impl ServiceContext {
                 }
                 Ok(outcome)
             }
-            Err(error) => Err(RestartAttemptError::Failed {
-                outcome,
-                reason: error.to_string(),
-                timed_out: false,
-            }),
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                Err(RestartAttemptError::Failed {
+                    outcome,
+                    reason: error.to_string(),
+                    timed_out: false,
+                })
+            }
         }
     }
 
@@ -434,6 +447,7 @@ impl ServiceContext {
                 "General Agent launch already in progress".to_string(),
             ));
         }
+        crate::service::task_files::release_tab(self, &target.tab_id);
 
         let session_was_stale = !self.session_file_present(&target);
         let outcome = RestartOutcome::accepted(&target, session_was_stale, force);
@@ -481,6 +495,7 @@ impl ServiceContext {
                 reason,
                 timed_out,
             }) => {
+                crate::service::task_files::release_tab(self, &target.tab_id);
                 outcome.old_pty_torn_down = old_pty_torn_down;
                 Err(RestartAttemptError::Failed {
                     outcome,
@@ -840,18 +855,20 @@ fn build_relaunch_command(
             crate::service::structured_prompt::ensure_for_spawn(svc, provider, &snap.tab_id, cwd)
         })
         .flatten();
-    build_relaunch_command_with_registry(
-        &svc.agent_registry,
-        provider,
-        session_id,
-        auto_approve,
-        session_present,
-        structured_prompt_server,
-        launch_task,
-        &snap.tab_id,
-        snap.cwd.as_deref(),
-        canonical_project.as_deref(),
-    )
+    crate::service::task_files::capture(svc, &snap.tab_id, || {
+        build_relaunch_command_with_registry(
+            &svc.agent_registry,
+            provider,
+            session_id,
+            auto_approve,
+            session_present,
+            structured_prompt_server,
+            launch_task,
+            &snap.tab_id,
+            snap.cwd.as_deref(),
+            canonical_project.as_deref(),
+        )
+    })
 }
 
 fn build_relaunch_command_with_registry(

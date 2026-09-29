@@ -63,6 +63,10 @@ fn has_live_provider_process_evidence(
 }
 
 pub(crate) fn sweep_after_restore(service: &ServiceContext) {
+    let task_files = super::task_files::sweep_after_restore(service);
+    if !task_files.is_empty() {
+        log::info!("[startup] removed orphaned task files: {:?}", task_files);
+    }
     let request = LaunchArtifactSweepRequest {
         instance_id: crate::paths::codeterm_instance_id().to_string(),
         live_tab_ids: startup_live_tab_ids(service),

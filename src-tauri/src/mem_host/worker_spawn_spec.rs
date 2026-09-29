@@ -31,6 +31,7 @@ pub(crate) struct MemWorkerSpawnInputs {
 
 pub(crate) fn build_mem_worker_spawn_spec(
     chatbackends: &ChatBackendRegistry,
+    worker_cwd: std::path::PathBuf,
     inputs: MemWorkerSpawnInputs,
 ) -> Result<SpawnTabSpec, SpawnRejection> {
     let params = SpawnAgentParams {
@@ -38,6 +39,7 @@ pub(crate) fn build_mem_worker_spawn_spec(
         model: (!inputs.model.is_empty()).then_some(inputs.model),
         task: Some(inputs.task),
         title: Some(format!("mem:{}", inputs.intent)),
+        cwd: Some(worker_cwd.to_string_lossy().into_owned()),
         audience: TabAudience::Automation,
         ..Default::default()
     };
