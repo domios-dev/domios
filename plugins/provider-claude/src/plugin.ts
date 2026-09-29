@@ -261,6 +261,14 @@ const plugin: PluginModule = {
       || parseClaudeLetteredPrompt(text);
   },
 
+  parseDirectoryTrustPrompt(text: string): ParsedPrompt | null {
+    const prompt = claudeFolderTrustPrompt(String(text || ""));
+    return prompt && {
+      question: prompt.question,
+      options: prompt.options.map(([label], index): [string, string] => [label, String(index + 1)]),
+    };
+  },
+
   buildPromptResponse(optionIndex: number, screen?: string): string[] {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
