@@ -211,7 +211,7 @@ fn session_file_path_uses_manifest_root() {
 fn session_search_file_enumeration_avoids_per_file_vm_calls() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("codex");
-    let sessions = root.join("sessions/2026/09/29");
+    let sessions = root.join("sessions").join("2026").join("09").join("29");
     std::fs::create_dir_all(&sessions).unwrap();
     let mut expected = Vec::new();
     for index in 0..24 {
