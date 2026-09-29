@@ -372,6 +372,15 @@ impl ServiceContext {
         });
     }
 
+    fn provider_reports_folder_untrusted(&self, agent_type: &str, cwd: &str) -> bool {
+        self.agent_registry
+            .with_provider(agent_type, |provider| {
+                provider.directory_trust_state(&codeterm_paths::strip_verbatim_prefix(cwd), false)
+            })
+            .flatten()
+            == Some(codeterm_plugin::provider::DirectoryTrustState::Untrusted)
+    }
+
     fn schedule_cached_shared_responder(&self, tab_id: &str, cwd: &str) {
         let service = self.clone();
         let tab = tab_id.to_string();
@@ -520,6 +529,11 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
+        if provisioned && self.provider_reports_folder_untrusted(&agent_type, &cwd) {
+            // Provenance never grants a repository the owner has not trusted; the owner answers it.
+            self.note_directory_trust(tab_id, "repository is not owner-trusted", Some(&screen));
+            return TrustDecision::NotApplicable;
+        }
         if !provisioned {
             self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
             let cache = SHARED_TRUST.lock();

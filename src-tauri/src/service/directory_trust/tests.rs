@@ -455,6 +455,31 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
 }
 
 #[test]
+fn provenance_never_answers_trust_for_a_repository_the_provider_reports_untrusted() {
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/untrusted"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        )
+        .with_directory_trust_state(codeterm_plugin::provider::DirectoryTrustState::Untrusted),
+    ));
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
+    assert_eq!(decision, TrustDecision::NotApplicable);
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-untrusted-repo"),
+        0,
+        "the owner answers an untrusted repository's trust dialog"
+    );
+}
+
+#[test]
 fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
     let capture = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
