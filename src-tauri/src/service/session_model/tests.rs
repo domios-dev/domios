@@ -210,6 +210,7 @@ mod model_refresh_tests {
     struct SessionModelProvider {
         provider_id: String,
         models: Arc<std::sync::Mutex<HashMap<String, String>>>,
+        post_boundary_models: Arc<std::sync::Mutex<HashMap<String, String>>>,
         sessions: HashSet<String>,
         during_detect: Option<Box<dyn Fn() + Send + Sync>>,
         session_detection_calls: Option<Arc<AtomicUsize>>,
@@ -225,6 +226,7 @@ mod model_refresh_tests {
                         .map(|(sid, model)| ((*sid).to_string(), (*model).to_string()))
                         .collect(),
                 )),
+                post_boundary_models: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sessions: models.iter().map(|(sid, _)| (*sid).to_string()).collect(),
                 during_detect: None,
                 session_detection_calls: None,
@@ -246,6 +248,7 @@ mod model_refresh_tests {
             let provider = Self {
                 provider_id: provider_id.into(),
                 models: models.clone(),
+                post_boundary_models: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sessions: session_ids.iter().map(|sid| (*sid).into()).collect(),
                 during_detect: None,
                 session_detection_calls: None,
@@ -308,6 +311,25 @@ mod model_refresh_tests {
                 during_detect();
             }
             self.models.lock().unwrap().get(session_id).cloned()
+        }
+        fn session_model_transcript_boundary(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+            Some(codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: Some("before-relaunch".into()),
+            })
+        }
+        fn detect_session_model_after_boundary(
+            &self,
+            _: &str,
+            session_id: &str,
+            boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+        ) -> Option<String> {
+            (boundary.last_entry_uuid.as_deref() == Some("before-relaunch"))
+                .then(|| self.post_boundary_models.lock().unwrap().get(session_id).cloned())
+                .flatten()
         }
         fn detect_session_reasoning_effort(&self, _: &str, _: &str) -> Option<String> {
             self.record_session_detection();
@@ -374,6 +396,7 @@ mod model_refresh_tests {
                 session_id: "session-live".into(),
                 session_binding_nonce: "binding-live".into(),
                 launch_report: None,
+                model_switch_turn_confirmed: false,
             })
         );
     }
@@ -391,12 +414,16 @@ mod model_refresh_tests {
             Some(crate::multiplexer::types::PendingModelSwitchObservation {
                 session_id: "session-live".into(),
                 launched_model: "sonnet".into(),
+                transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                    last_entry_uuid: Some("before-relaunch".into()),
+                },
             });
         let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);
         models
             .lock()
             .unwrap()
             .insert("session-live".into(), "haiku".into());
+        let post_boundary_models = provider.post_boundary_models.clone();
         let fixture = ServiceFixture::new(mux);
         fixture
             .service
@@ -405,13 +432,18 @@ mod model_refresh_tests {
 
         fixture
             .service
+            .record_launch_reported_model(&tab_id, AGENT, "session-live", "haiku");
+
+        fixture
+            .service
             .refresh_session_model_for_current_tab(&tab_id);
         assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
 
-        models
+        post_boundary_models
             .lock()
             .unwrap()
-            .insert("session-live".into(), "sonnet".into());
+            .insert("session-live".into(), "claude-sonnet-5-5".into());
         assert!(fixture.service.observe_post_launch_turn_after_stop(&tab_id));
         let reached_new_model = crate::service::boot_wait::wait_until(
             std::time::Instant::now() + Duration::from_secs(2),
@@ -422,7 +454,11 @@ mod model_refresh_tests {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert_eq!(tab.agent_session_model.as_deref(), Some("sonnet"));
+        assert!(tab.model_identity_mismatch.is_none());
+        assert!(tab.model_fallback.is_none());
         assert!(tab.pending_model_switch_observation.is_none());
+        drop(mux);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -494,6 +530,7 @@ mod model_refresh_tests {
             session_id: "session-known".into(),
             session_binding_nonce: "nonce-known".into(),
             launch_report: None,
+            model_switch_turn_confirmed: false,
         });
         let (provider, detection_calls) =
             SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
@@ -777,6 +814,7 @@ mod model_refresh_tests {
             session_id: "session-replay".into(),
             session_binding_nonce: "nonce-replay".into(),
             launch_report: None,
+            model_switch_turn_confirmed: false,
         });
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(

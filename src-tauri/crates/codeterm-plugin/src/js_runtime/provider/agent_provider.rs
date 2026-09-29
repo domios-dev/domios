@@ -32,6 +32,21 @@ struct WireUsageSource {
     session_id: Option<String>,
 }
 
+impl JsProvider {
+    fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
+        self.try_call::<Option<String>>(method, args)
+            .flatten()
+            .map(|model| {
+                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
+                if resolved.fell_back {
+                    model
+                } else {
+                    resolved.id
+                }
+            })
+    }
+}
+
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
@@ -444,16 +459,31 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
-            .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
+        self.detect_session_model_wire("detectSessionModel", &[json!(cwd), json!(session_id)])
+    }
+
+    fn session_model_transcript_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        self.try_call::<Option<codeterm_types::agent::SessionModelTranscriptBoundary>>(
+            "sessionModelTranscriptBoundary",
+            &[json!(cwd), json!(session_id)],
+        )
+        .flatten()
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        self.detect_session_model_wire(
+            "detectSessionModelAfterBoundary",
+            &[json!(cwd), json!(session_id), json!(boundary)],
+        )
     }
 
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {

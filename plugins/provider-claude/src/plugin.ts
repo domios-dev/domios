@@ -22,10 +22,12 @@ import {
   ClaudeToolUseResult,
   claudeSessionFilePath,
   contentToText,
+  detectSessionModelAfterBoundary,
   editedTextFilePath,
   extractSetModelFamily,
   familyFromModelId,
   isValidClaudeSessionMessage,
+  sessionModelTranscriptBoundary,
   validateEntry,
 } from "./session";
 import { discoverAnthropicModels } from "./models";
@@ -383,6 +385,9 @@ const plugin: PluginModule = {
     }
     return null;
   },
+
+  sessionModelTranscriptBoundary,
+  detectSessionModelAfterBoundary,
 
   detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
     const path = claudeSessionFilePath(cwd, sessionId);

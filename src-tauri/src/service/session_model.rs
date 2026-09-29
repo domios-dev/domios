@@ -260,8 +260,37 @@ impl ServiceContext {
                     .cloned()
             })
         });
-        if pending_switch.is_some() && (launch_report.is_none() || pending_binding_nonce.is_none())
-        {
+        if let Some(pending) = pending_switch.as_ref() {
+            let Some(binding_nonce) = pending_binding_nonce.as_deref() else {
+                return;
+            };
+            let model = self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.detect_session_model_after_boundary(
+                        cwd,
+                        &sid,
+                        &pending.transcript_boundary,
+                    )
+                })
+                .flatten()
+                .map(|model| crate::service::spawn::normalize_session_model(&model))
+                .filter(|model| !model.is_empty());
+            let Some(model) = model else {
+                return;
+            };
+            self.apply_session_model(
+                tab_id,
+                agent_id,
+                &sid,
+                model,
+                None,
+                Some(binding_nonce),
+                true,
+            );
+            if self.clear_pending_model_switch(tab_id, pending, binding_nonce) {
+                super::boot_wait::notify_boot_changed();
+            }
             return;
         }
         let transcript_model = self
@@ -270,39 +299,19 @@ impl ServiceContext {
             .flatten()
             .map(|model| crate::service::spawn::normalize_session_model(&model));
         // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
-        let pending_report_without_baseline = pending_switch.is_some()
-            && launch_report
-                .as_ref()
-                .is_some_and(|report| report.transcript_model_at_launch.is_none());
-        let evidence = if pending_report_without_baseline {
-            launch_report
-                .as_ref()
-                .map(|report| (report.model.clone(), Some(report.clone())))
-        } else {
-            session_model_evidence(launch_report.clone(), transcript_model.clone())
-        };
+        let evidence = session_model_evidence(launch_report.clone(), transcript_model.clone());
         let Some((model, launch_report)) = evidence else {
             return;
         };
-        let first_turn_observed =
-            pending_switch.is_some() && transcript_model.is_some() && launch_report.is_none();
         self.apply_session_model(
             tab_id,
             agent_id,
             &sid,
             model,
             launch_report,
-            pending_binding_nonce.as_deref(),
+            None,
+            false,
         );
-        if let (true, Some(pending), Some(nonce)) = (
-            first_turn_observed,
-            pending_switch.as_ref(),
-            pending_binding_nonce.as_deref(),
-        ) {
-            if self.clear_pending_model_switch(tab_id, pending, nonce) {
-                super::boot_wait::notify_boot_changed();
-            }
-        }
     }
 
     /// The provider named the model this binding runs at session start. That
@@ -320,9 +329,30 @@ impl ServiceContext {
         }
         let cwd = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .filter(|tab| runtime_model_update_matches_session(tab, agent_id, session_id))
-                .and_then(|tab| tab.cwd.clone())
+            let Some(tab) = mux.get_tab(tab_id).filter(|tab| {
+                runtime_model_update_matches_session(tab, agent_id, session_id)
+            }) else {
+                return;
+            };
+            let switch_turn_confirmed = tab
+                .agent_session_model_identity
+                .as_ref()
+                .is_some_and(|identity| {
+                    identity.session_id == session_id
+                        && tab.session_binding_nonce.as_deref()
+                            == Some(identity.session_binding_nonce.as_str())
+                        && tab.reported_session_binding_nonce.as_deref()
+                            == Some(identity.session_binding_nonce.as_str())
+                        && identity.model_switch_turn_confirmed
+                });
+            if switch_turn_confirmed
+                || tab.pending_model_switch_observation.as_ref().is_some_and(|pending| {
+                    pending.session_id == session_id
+                })
+            {
+                return;
+            }
+            tab.cwd.clone()
         };
         let Some(cwd) = cwd else { return };
         let transcript_model_at_launch = self
@@ -334,7 +364,7 @@ impl ServiceContext {
             model: model.clone(),
             transcript_model_at_launch,
         };
-        self.apply_session_model(tab_id, agent_id, session_id, model, Some(report), None);
+        self.apply_session_model(tab_id, agent_id, session_id, model, Some(report), None, false);
         super::boot_wait::notify_boot_changed();
     }
 
@@ -366,7 +396,11 @@ impl ServiceContext {
         let Some(model) = self
             .agent_registry
             .with_provider(&agent_id, |provider| {
-                provider.detect_session_model(&cwd, &observation.session_id)
+                provider.detect_session_model_after_boundary(
+                    &cwd,
+                    &observation.session_id,
+                    &observation.transcript_boundary,
+                )
             })
             .flatten()
             .map(|model| crate::service::spawn::normalize_session_model(&model))
@@ -381,6 +415,7 @@ impl ServiceContext {
             model,
             None,
             Some(binding_nonce),
+            true,
         );
         if self.clear_pending_model_switch(tab_id, &observation, binding_nonce) {
             super::boot_wait::notify_boot_changed();
@@ -452,6 +487,7 @@ impl ServiceContext {
         model: String,
         launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
         binding_nonce: Option<&str>,
+        post_relaunch_turn: bool,
     ) {
         let (
             current_model,
@@ -495,7 +531,12 @@ impl ServiceContext {
                 let mut mux = self.mux.write();
                 if let Some(tab) = mux.get_tab_mut(tab_id) {
                     if runtime_model_update_matches_binding(tab, agent_id, sid, binding_nonce) {
-                        let identity = session_model_identity(tab, sid, launch_report.clone());
+                        let identity = session_model_identity(
+                            tab,
+                            sid,
+                            launch_report.clone(),
+                            post_relaunch_turn,
+                        );
                         tab.agent_session_model_identity = identity;
                         true
                     } else {
@@ -561,7 +602,12 @@ impl ServiceContext {
                     }
                     tab.agent_session_model = model.clone();
                     tab.agent_provider_resolved_model = model.clone();
-                    let model_identity = session_model_identity(tab, sid, launch_report);
+                    let model_identity = session_model_identity(
+                        tab,
+                        sid,
+                        launch_report,
+                        post_relaunch_turn,
+                    );
                     tab.agent_session_model_identity = model_identity;
                     tab.model_fallback = identity_update.fallback;
                     tab.model_identity_mismatch = identity_update.mismatch;
@@ -756,7 +802,7 @@ pub(crate) fn current_launch_report(
     session_id: &str,
 ) -> Option<crate::multiplexer::types::LaunchModelReport> {
     let identity = tab.agent_session_model_identity.as_ref()?;
-    let current = session_model_identity(tab, session_id, None)?;
+    let current = session_model_identity(tab, session_id, None, false)?;
     (current.session_id == identity.session_id
         && current.session_binding_nonce == identity.session_binding_nonce)
         .then(|| identity.launch_report.clone())
@@ -839,14 +885,24 @@ fn session_model_identity(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
     launch_report: Option<crate::multiplexer::types::LaunchModelReport>,
+    post_relaunch_turn: bool,
 ) -> Option<crate::multiplexer::types::SessionModelIdentity> {
     let nonce = tab.session_binding_nonce.as_ref()?;
+    let already_confirmed = tab
+        .agent_session_model_identity
+        .as_ref()
+        .is_some_and(|identity| {
+            identity.session_id == session_id
+                && identity.session_binding_nonce == *nonce
+                && identity.model_switch_turn_confirmed
+        });
     (tab.agent_session_id.as_deref() == Some(session_id)
         && tab.reported_session_binding_nonce.as_ref() == Some(nonce))
     .then(|| crate::multiplexer::types::SessionModelIdentity {
         session_id: session_id.into(),
         session_binding_nonce: nonce.clone(),
         launch_report,
+        model_switch_turn_confirmed: post_relaunch_turn || already_confirmed,
     })
 }
 
@@ -854,7 +910,8 @@ pub(crate) fn has_current_session_model(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
 ) -> bool {
-    session_model_identity(tab, session_id, None).is_some() && tab.agent_session_model.is_some()
+    session_model_identity(tab, session_id, None, false).is_some()
+        && tab.agent_session_model.is_some()
 }
 
 fn runtime_model_update_matches_session(
