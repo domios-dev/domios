@@ -294,7 +294,7 @@ pub(super) fn dispatch(
         "plan.archive" | "plan.unarchive" | "plan.delete" | "plan.disown" | "plan.claim"
             | "plan.update"
     ) {
-        let plan_id = plan_refs::resolve_plan(&svc.plan_store, params.as_ref())?;
+        let plan_id = plan_refs::resolve_plan(&svc.plan_store, &params)?;
         plan_mode::authorize_plan_mutation(svc, &plan_id, &params)?;
     }
     match prefix {
