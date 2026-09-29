@@ -93,7 +93,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
 
 const SEARCH_PREVIEW_CHARS: usize = 120;
 
-fn render_search_hits(value: &serde_json::Value) -> String {
+pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
     let Some(hits) = value
         .get("hits")
         .and_then(serde_json::Value::as_array)

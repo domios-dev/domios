@@ -42,13 +42,15 @@ pub(super) fn print(
     rendering: TabListRendering,
     relayed: &serde_json::Value,
     requested_workspace: Option<&str>,
+    answered_by: Option<&super::relay::AnsweringPeer>,
 ) {
     match rendering {
         TabListRendering::JsonEnvelope => {
-            print_json(&tab_list_json_envelope_with_request(
+            let envelope = tab_list_json_envelope_with_request(
                 relayed.as_array().cloned().unwrap_or_default(),
                 requested_workspace,
-            ));
+            );
+            print_json(&super::relay::with_answering_peer(envelope, answered_by));
         }
         TabListRendering::Tree => {
             let tabs = relayed.as_array().cloned().unwrap_or_default();

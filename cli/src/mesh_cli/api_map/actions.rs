@@ -117,12 +117,6 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
     }
-    if !body_text.trim().is_empty() {
-        println!(
-            "{}",
-            crate::cmd::resolved_text::resolved_text_echo(&body_text)
-        );
-    }
     let mut body = serde_json::json!({"source_tab": source});
     if !body_text.is_empty() {
         body["text"] = serde_json::json!(body_text);
