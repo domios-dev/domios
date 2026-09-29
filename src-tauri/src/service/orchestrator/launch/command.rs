@@ -204,12 +204,22 @@ fn build_agent_command_inner(
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             args: args.clone(),
         };
-        if let Some(command) = registry
-            .with_provider(agent_cmd, |provider| {
-                provider.build_resume_command_with_context(&resume)
+        let command = if let Some((service, tab_id)) = notice_context {
+            crate::service::task_files::capture(service, tab_id, || {
+                registry
+                    .with_provider(agent_cmd, |provider| {
+                        provider.build_resume_command_with_context(&resume)
+                    })
+                    .flatten()
             })
-            .flatten()
-        {
+        } else {
+            registry
+                .with_provider(agent_cmd, |provider| {
+                    provider.build_resume_command_with_context(&resume)
+                })
+                .flatten()
+        };
+        if let Some(command) = command {
             return command;
         }
     }
@@ -230,9 +240,14 @@ fn build_agent_command_inner(
         launch_marker: launch_marker.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
-    match registry.with_provider(agent_cmd, |provider| {
-        provider.build_launch_command(&launch_params)
-    }) {
+    let command = if let Some((service, tab_id)) = notice_context {
+        crate::service::task_files::capture(service, tab_id, || {
+            registry.with_provider(agent_cmd, |provider| provider.build_launch_command(&launch_params))
+        })
+    } else {
+        registry.with_provider(agent_cmd, |provider| provider.build_launch_command(&launch_params))
+    };
+    match command {
         Some(command) if command.trim().is_empty() => String::new(),
         Some(command) => crate::agent::stub_launch::apply(agent_cmd, command),
         None => {

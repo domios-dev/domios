@@ -4,6 +4,7 @@ version = "1.6.2"
 edition = "2021"
 
 [dependencies]
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
 parking_lot = "0.12"
 log = "0.4"
 uuid = { version = "1", features = ["v4"] }

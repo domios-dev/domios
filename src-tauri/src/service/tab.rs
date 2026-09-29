@@ -122,6 +122,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
         self.clear_dead_planner_binding(tab_id);
