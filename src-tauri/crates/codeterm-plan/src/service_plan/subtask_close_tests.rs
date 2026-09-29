@@ -73,7 +73,7 @@ fn close_task_with_open_subtask_errors() {
 }
 
 #[test]
-fn closing_pending_task_is_refused_before_done() {
+fn close_unstarted_task_refused_or_cancelled() {
     let (store, plan_id, task_id) = store_with_task();
     let error = store
         .close_task(&plan_id, &task_id, None, AgentRef::from_tab("owner"), 30)

@@ -19,7 +19,8 @@ pub fn state(
     json: bool,
     plan_id: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let val = plan_state_value(client, plan_id)?;
+    let mut val = plan_state_value(client, plan_id)?;
+    super::strip_display_paths(&mut val);
     if json {
         return Ok(Some(val));
     }

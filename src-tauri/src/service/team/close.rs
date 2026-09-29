@@ -376,6 +376,9 @@ where
             closed_roots.push(tab_id.clone());
         }
     }
+    transaction
+        .state_mut()
+        .set_team_lifecycle(team_id, codeterm_types::team::TeamLifecycle::Closing)?;
     let team = transaction
         .state_mut()
         .remove_team(team_id)

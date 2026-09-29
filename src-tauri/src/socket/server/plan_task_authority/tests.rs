@@ -67,7 +67,7 @@ fn startup_recovery_guard_only_applies_to_lane_metadata_updates() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn plan_mutation_roles_are_required_even_before_task_assignment() {
+fn plan_mutation_requires_plan_role() {
     let harness = authority_fixture();
     let foreign = live_tab(&harness.fixture, "foreign-session", "foreign-nonce");
     for (tab_id, session, nonce) in [

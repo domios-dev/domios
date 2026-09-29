@@ -12,6 +12,11 @@ use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+fn archived_next_response(plan_id: &str, status: PlanStatus) -> Option<Value> {
+    (status == PlanStatus::Archived)
+        .then(|| json!({ "plan_id": plan_id, "next_actions": [], "blocked_or_gated_count": 0 }))
+}
+
 fn plan_project_path(params: &Value, mux: &crate::multiplexer::state::MultiplexerState) -> String {
     let requested = params
         .get("project_path")
@@ -614,6 +619,10 @@ pub(super) fn dispatch(
 
         "plan.next" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            let plan = store.get(&id).ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            if let Some(response) = archived_next_response(&id, plan.status) {
+                return Ok(response);
+            }
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
             Ok(json!({
                 "plan_id": id,
