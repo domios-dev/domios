@@ -318,7 +318,7 @@ fn has_terminal_prompt_footer(lines: &[&str], last_option_row: usize) -> bool {
                     .any(|action| line.contains(action))
         })
         .map(|(index, _)| index)
-        .last();
+        .next_back();
     let Some(footer_row) = footer_row else {
         return false;
     };

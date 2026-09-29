@@ -302,7 +302,6 @@ pub(super) fn finish_team_lane_cleanup(
                         .map(|(lane, reason)| lane_hint(lane, reason))
                         .collect(),
                 ),
-                ..Default::default()
             }
         } else {
             TaskLaneUpdate {
@@ -315,7 +314,6 @@ pub(super) fn finish_team_lane_cleanup(
                 destination: Some(None),
                 cleanup_status: Some(Some("done".into())),
                 cleanup_hints: Some(Vec::new()),
-                ..Default::default()
             }
         };
         if let Err(error) = plan_store.update_task_lane(&plan_id, &task_id, update, now_ms) {
