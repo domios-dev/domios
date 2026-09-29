@@ -39,15 +39,16 @@ pub(super) fn config_file(path: &Path) -> StateFile {
 }
 
 fn validate_config(text: &str) -> Result<(), String> {
-    toml::from_str::<AppConfig>(text)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    super::bounds::validate_config_text(text).map_err(|error| {
+        log::warn!("[config] rejecting invalid config: {error}");
+        error
+    })
 }
 
 fn parse_config(text: &str) -> Result<(AppConfig, String), String> {
-    toml::from_str::<AppConfig>(text)
-        .map(|config| (config, text.to_string()))
-        .map_err(|error| error.to_string())
+    let config = toml::from_str::<AppConfig>(text).map_err(|error| error.to_string())?;
+    super::bounds::validate_app_config(&config)?;
+    Ok((config, text.to_string()))
 }
 
 pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig {

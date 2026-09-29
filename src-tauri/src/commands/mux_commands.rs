@@ -57,7 +57,7 @@ pub fn mux_create_workspace(
     cwd: Option<String>,
     activate: Option<bool>,
 ) -> Result<WorkspaceInfo, String> {
-    Ok(svc.create_workspace(name, cwd, activate.unwrap_or(false)))
+    svc.create_workspace(name, cwd, activate.unwrap_or(false))
 }
 
 /// Switch the active workspace.

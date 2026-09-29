@@ -61,7 +61,9 @@ pub async fn create_workspace(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| {
-            let status = if error == crate::dispatch::WORKSPACE_PROVISION_CWD_CONFLICT {
+            let status = if error == crate::dispatch::WORKSPACE_PROVISION_CWD_CONFLICT
+                || error.starts_with("workspace name")
+            {
                 StatusCode::BAD_REQUEST
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -92,6 +94,8 @@ pub(crate) struct RenameWorkspaceBody {
 fn map_rename_error(e: String) -> (StatusCode, String) {
     if e.contains("not found") {
         (StatusCode::NOT_FOUND, e)
+    } else if e.starts_with("workspace name") {
+        (StatusCode::BAD_REQUEST, e)
     } else {
         (StatusCode::INTERNAL_SERVER_ERROR, e)
     }
@@ -240,12 +244,19 @@ pub async fn move_tab(
     headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<MoveTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     state
         .svc
         .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to move tab"))?;
+        .map_err(|message| {
+            let status = if message.starts_with("Workspace not found:") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, message)
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

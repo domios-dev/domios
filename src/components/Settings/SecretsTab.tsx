@@ -197,7 +197,7 @@ export function SecretsTab({
         backend: cfg.backend,
         default_organization: cfg.default_organization,
         default_collection: cfg.default_collection,
-        bitwarden: cfg.bitwarden ?? { server_url: bitwardenServerUrl, persist_master_password: false },
+        bitwarden: cfg.bitwarden ?? { server_url: bitwardenServerUrl },
         ...patch,
       };
       onUpdate("integrations", { secrets: merged });
@@ -254,7 +254,7 @@ export function SecretsTab({
       return;
     }
     patchSecrets({
-      bitwarden: { ...(cfg.bitwarden ?? { persist_master_password: false }), server_url: url },
+      bitwarden: { ...(cfg.bitwarden ?? { server_url: bitwardenServerUrl }), server_url: url },
     });
     try {
       const r = await fetch(`${apiBase}/api/secrets/backend`, {

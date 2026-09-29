@@ -189,8 +189,7 @@ fn bootstrap_refuses_an_edit_between_read_and_write() {
     assert_eq!(find(&mem, "codeterm").body, "a concurrent user edit");
 }
 
-/// An unrecognized `scope` value must be treated as unreadable, never
-/// silently coerced to Global by `MemScope::from_str`'s fallback.
+/// An unrecognized `scope` value must be treated as unreadable.
 #[test]
 fn unknown_scope_is_unreadable() {
     let mem = MemManager::open_in_memory().unwrap();

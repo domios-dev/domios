@@ -7,7 +7,7 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
 | GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5 + vector RRF fusion). `vector_first_rerank` uses vector recall plus keyword/temporal reranking; `weight` is `0.0..=1.0` (default `0.30`). `rerank=true` adds an LLM second pass. |
-| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save an item. `scope` is `global` or `workspace:<id>`. `pinned: true` sets the wake-up pin atomically. `skip_extract: true` suppresses automatic extraction. |
+| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save an item. `scope` is `global` or `workspace:<id>`; other values are refused. `pinned: true` sets the wake-up pin atomically. `skip_extract: true` suppresses automatic extraction. |
 | GET | `/api/mem/items/{id}` | — | Get one item with its full body. Real reads bump `evidence_count` for skills, lessons, rules, facts, and preferences; worker reads do not. |
 | PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partially update an item. Pin changes are audited. A nonblank `changed_by` overrides the actor header after sanitization. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item. |
@@ -97,4 +97,4 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

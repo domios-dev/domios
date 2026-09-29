@@ -129,6 +129,7 @@ pub enum PlanError {
         slug: String,
     },
     InvalidPlanSkillSlug,
+    InvalidPlanText(String),
     InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
@@ -402,6 +403,7 @@ impl fmt::Display for PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 write!(f, "plan skill slug is empty after normalization")
             }
+            PlanError::InvalidPlanText(message) => write!(f, "invalid plan text: {message}"),
             PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
                 f,
                 "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
@@ -425,7 +427,7 @@ impl PlanError {
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
-            PlanError::InvalidExecutorName(_) => -32602,
+            PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
@@ -635,6 +637,10 @@ impl PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 serde_json::json!({ "type": "invalid_plan_skill_slug" })
             }
+            PlanError::InvalidPlanText(message) => serde_json::json!({
+                "type": "invalid_plan_text",
+                "message": message,
+            }),
             PlanError::UnauthorizedGateClaim {
                 claimed,
                 authorized,

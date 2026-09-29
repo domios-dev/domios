@@ -24,7 +24,11 @@ impl PlanStore {
         values: &[String],
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        for value in values {
+            super::text_bounds::validate_plan_text("external reference", value)?;
+        }
         let additions = crate::service_plan::external_refs::canonicalize_external_refs(values)?;
+        super::text_bounds::validate_external_refs(&additions)?;
         if additions.is_empty() {
             return Ok(());
         }
@@ -115,6 +119,37 @@ impl PlanStore {
         lane: Option<super::TaskLaneUpdate>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(name) = name {
+            super::text_bounds::validate_plan_label("task name", name)?;
+        }
+        for (field, value) in [
+            ("task type", kind),
+            ("model", model.flatten()),
+            ("routing rationale", model_rationale.flatten()),
+            ("status label", status_label.flatten()),
+            ("task body", body),
+            ("intent", intent.flatten()),
+            ("executor role", executor_role.flatten()),
+            ("parent task id", parent_task_id.flatten()),
+            ("task group", group.flatten()),
+            ("primary tag", primary),
+            ("task handle", handle),
+        ] {
+            if let Some(value) = value {
+                super::text_bounds::validate_plan_text(field, value)?;
+            }
+        }
+        for (field, values) in [
+            ("task tag", tags),
+            ("section id", section_ids.as_deref().unwrap_or_default()),
+        ] {
+            for value in values {
+                super::text_bounds::validate_plan_text(field, value)?;
+            }
+        }
+        if let Some(lane) = lane.as_ref() {
+            super::text_bounds::validate_lane_update(lane)?;
+        }
         // Presence, not vocabulary: any lexical floor is satisfiable by a longer
         // shrug, and what makes a role real is not machine-checkable.
         if executor_role.is_some_and(|role| role.is_none_or(|s| s.trim().is_empty())) {
@@ -226,6 +261,7 @@ impl PlanStore {
                 task.handle = Some(handle.into());
             }
             task.updated_at = now_ms;
+            super::text_bounds::validate_task_text(task)?;
             Ok(())
         });
         let verified = self.verify_task_updated(
@@ -290,6 +326,9 @@ impl PlanStore {
         role_guidance: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(Some(guidance)) = role_guidance {
+            super::text_bounds::validate_plan_text("role guidance", guidance)?;
+        }
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -297,6 +336,7 @@ impl PlanStore {
                 task.role_guidance = guidance.map(str::to_string);
             }
             task.updated_at = now_ms;
+            super::text_bounds::validate_task_text(task)?;
             Ok(())
         })
     }
@@ -316,6 +356,9 @@ impl PlanStore {
             })
             .transpose()
             .map_err(PlanError::InvalidExecutorName)?;
+        if let Some(Some(name)) = personality.as_ref() {
+            super::text_bounds::validate_plan_label("personality", name)?;
+        }
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -326,6 +369,7 @@ impl PlanStore {
                 task.personality_provenance = provenance;
             }
             task.updated_at = now_ms;
+            super::text_bounds::validate_task_text(task)?;
             Ok(())
         })
     }
@@ -435,6 +479,7 @@ impl PlanStore {
         lane: super::TaskLaneUpdate,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        super::text_bounds::validate_lane_update(&lane)?;
         let expected = lane.clone();
         // Explicit --tab overwrites the executor binding.
         let tab_explicit = lane.tab_id.is_some();
@@ -455,6 +500,7 @@ impl PlanStore {
                 task.assigned_tab_id = task.lane.tab_id.clone();
             }
             task.updated_at = now_ms;
+            super::text_bounds::validate_task_text(task)?;
             Ok(())
         });
         pending_after_verified(
@@ -474,6 +520,27 @@ impl PlanStore {
         correctness: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<Option<AcceptanceCriteriaCounts>, PlanError> {
+        if let Some(update) = &acceptance_criteria {
+            let values = match update {
+                AcceptanceCriteriaUpdate::Append(values)
+                | AcceptanceCriteriaUpdate::Replace(values) => values,
+            };
+            for value in values {
+                super::text_bounds::validate_plan_text("acceptance criterion", value)?;
+            }
+        }
+        for (field, value) in [
+            ("test plan", test_plan.as_ref().and_then(Option::as_deref)),
+            ("QA plan", qa_plan.as_ref().and_then(Option::as_deref)),
+            (
+                "correctness",
+                correctness.as_ref().and_then(Option::as_deref),
+            ),
+        ] {
+            if let Some(value) = value {
+                super::text_bounds::validate_plan_text(field, value)?;
+            }
+        }
         self.with_plan(plan_id, now_ms, |p| {
             let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -502,6 +569,7 @@ impl PlanStore {
                 task.correctness = vector.map(str::to_string);
             }
             task.updated_at = now_ms;
+            super::text_bounds::validate_task_text(task)?;
             Ok(criteria_counts)
         })
     }
