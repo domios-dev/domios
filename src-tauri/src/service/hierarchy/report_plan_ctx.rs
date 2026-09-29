@@ -30,6 +30,7 @@ pub(crate) const PLAN_EVIDENCE_AUTHORITY_REFUSAL: &str = "PLAN EVIDENCE AUTHORIT
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlanOnlyReportAuthority {
     Planner,
+    PlanOwner,
     EvidenceReporter(PlanEvidenceClass),
 }
 
@@ -264,6 +265,9 @@ pub(crate) fn classify_plan_only_report_authority(
         return Err(format!(
             "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: plan '{plan_id}' owner is not a live authenticated Orchestrator"
         ));
+    }
+    if current_owner == tab_id && owner.agent_session_id.as_deref() == supplied_session {
+        return Ok(PlanOnlyReportAuthority::PlanOwner);
     }
     let grant = plan
         .evidence_reporters

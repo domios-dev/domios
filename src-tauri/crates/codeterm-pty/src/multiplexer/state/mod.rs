@@ -260,6 +260,19 @@ impl MultiplexerState {
         Ok(team.clone())
     }
 
+    pub fn set_team_lifecycle(
+        &mut self,
+        id: &str,
+        lifecycle: codeterm_types::team::TeamLifecycle,
+    ) -> Result<Team, String> {
+        let team = self
+            .teams
+            .get_mut(id)
+            .ok_or_else(|| format!("Team {id} not found"))?;
+        team.lifecycle = lifecycle;
+        Ok(team.clone())
+    }
+
     /// Number of registered teams.
     pub fn team_count(&self) -> usize {
         self.teams.len()

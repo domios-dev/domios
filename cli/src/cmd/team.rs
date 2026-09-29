@@ -531,6 +531,12 @@ mod tests {
     }
 
     #[test]
+    fn pair_params_preserve_requested_team_title() {
+        let params = pair_params("alpha", "beta", None, Some("Research Team".into()), false);
+        assert_eq!(params["title"], "Research Team");
+    }
+
+    #[test]
     fn splits_provider_and_model() {
         assert_eq!(
             split_provider_model("claude:fable"),

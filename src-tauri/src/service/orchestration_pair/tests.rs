@@ -11,6 +11,20 @@ fn store_for_test() -> (tempfile::TempDir, PlanStore) {
 }
 
 #[test]
+fn pair_title_is_persisted_on_the_team_record() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let owner = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&owner).unwrap();
+    let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+
+    apply_team_title(&mut mux, &team_id, Some("Release crew")).unwrap();
+
+    assert_eq!(mux.get_team(&team_id).unwrap().name.as_deref(), Some("Release crew"));
+    assert_eq!(mux.list_teams()[0].name.as_deref(), Some("Release crew"));
+}
+
+#[test]
 fn pair_spawn_creates_no_plan_until_first_goal() {
     let (_root, store) = store_for_test();
     assert!(
@@ -56,7 +70,7 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "ServiceFixture requires a desktop runtime")]
-fn fresh_pair_planner_can_mutate_without_rebind() {
+fn team_planner_bound_at_plan_create() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let orchestrator_tab_id = mux.create_tab(&workspace_id).unwrap();
@@ -95,15 +109,15 @@ fn fresh_pair_planner_can_mutate_without_rebind() {
             fixture.temp.path().display().to_string(),
             OrchestratorRef::from_tab(&orchestrator_tab_id),
             crate::service::TeamPlanCaller {
-                tab_id: Some(orchestrator_tab_id.clone()),
-                session_id: None,
-                binding_nonce: None,
+                tab_id: Some(planner_tab_id.clone()),
+                session_id: Some("planner-session".into()),
+                binding_nonce: Some("planner-nonce".into()),
             },
             Vec::new(),
             None,
             1,
         )
-        .expect("Orchestrator first goal creates its Plan");
+        .expect("paired Planner creates its Plan");
     let expected_planner = Some(PlannerRef::Tab {
         tab_id: planner_tab_id.clone(),
         session_id: Some("planner-session".into()),

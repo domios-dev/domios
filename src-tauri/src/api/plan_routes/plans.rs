@@ -799,6 +799,7 @@ pub async fn mode_set(
     Json(body): Json<ModeBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
     let now = epoch_ms();
@@ -871,6 +872,7 @@ pub async fn delete_plan(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     state
         .svc
         .plan_store
@@ -886,6 +888,7 @@ pub async fn archive(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     state
         .svc
         .plan_store
@@ -911,6 +914,7 @@ pub async fn unarchive(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     state
         .svc
         .unarchive_team_plan(&id, epoch_ms())
@@ -932,6 +936,7 @@ pub async fn pause(
     Json(body): Json<PauseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let outcome = state
         .svc
         .pause_plan_operation(&id, &body.reason, body.from, epoch_ms())
@@ -948,6 +953,7 @@ pub async fn resume(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let outcome = state
         .svc
         .resume_plan_operation(&id, epoch_ms())
@@ -955,6 +961,36 @@ pub async fn resume(
     let mut response = serde_json::to_value(&outcome).unwrap_or_default();
     response["ok"] = serde_json::json!(true);
     Ok(Json(response))
+}
+
+async fn authorize_plan_mutation_http(
+    svc: &crate::service::ServiceState,
+    headers: &HeaderMap,
+    plan_id: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
+    let confirmed_human = headers
+        .get("X-CodeTerm-Plan-Confirmation")
+        .and_then(|value| value.to_str().ok())
+        == Some(plan_id);
+    if caller.tab_id.as_deref().is_none_or(str::is_empty) && !confirmed_human {
+        return Err(text_err(
+            StatusCode::FORBIDDEN,
+            "plan mutation requires a Plan role or explicit human confirmation",
+        ));
+    }
+    if !confirmed_human
+        && !matches!(
+            svc.classify_planning_caller_async(plan_id, &caller).await,
+            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+        )
+    {
+        return Err(text_err(
+            StatusCode::FORBIDDEN,
+            "the caller is not the Plan Orchestrator or Planner",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn pause_preview(

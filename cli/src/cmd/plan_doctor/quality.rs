@@ -60,11 +60,11 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     // so they never trip the approval gate; only non-planning tasks do.
     let non_planning_tasks = tasks.iter().filter(|t| !task_kind_is_planning(t)).count();
     if !unlocked && non_planning_tasks > 0 {
-        findings.push(plan_quality_error(
+        findings.push(plan_warning(
             path,
             plan,
             "tasks_before_approval",
-            "unapproved plan already has execution tasks",
+            "execution tasks are drafted before plan approval",
             "run the approval gate and `codeterm plan approve <plan>`, or remove draft tasks with `codeterm plan task rm <plan> --all --yes`",
         ));
     }
@@ -406,7 +406,7 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             .is_none_or(|s| s.trim().is_empty())
     {
         findings.push(Finding {
-            severity: "warning",
+            severity: "error",
             kind: "missing_executor_role",
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),
@@ -525,13 +525,13 @@ fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
         return None;
     }
     let plan_id_str = plan_id(plan, path).unwrap_or_else(|| "<plan>".into());
-    Some(plan_warning(
+    Some(plan_quality_error(
         path,
         plan,
         "planner_unpaired",
         "orchestrator has no attached Planner",
         &format!(
-            "choose an available provider and model for planning, then spawn: codeterm agent spawn <provider> [--model <model>] --parent-tab <orch-tab> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
+            "inspect the paired Team with `codeterm team show <team-id>` and bind its existing Planner: codeterm plan update {plan_id_str} --planner <planner-tab>; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
         ),
     ))
 }
