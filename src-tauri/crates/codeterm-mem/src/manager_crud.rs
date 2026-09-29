@@ -146,6 +146,7 @@ impl MemManager {
         // Replace destroys the row the in-flight generation copied its text from, so that generation is superseded exactly like a delete.
         if replace {
             self.revoke_extraction(&id);
+            self.embed_queue.cancel(&id);
         }
 
         #[cfg(feature = "embeddings")]
@@ -178,6 +179,7 @@ impl MemManager {
     }
 
     fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
+        self.embed_queue.cancel(id);
         #[cfg(feature = "embeddings")]
         if super::body_is_embeddable(&item.body) {
             let embed_text = compose_embed_text(
@@ -213,6 +215,7 @@ impl MemManager {
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
+        self.embed_queue.cancel(id);
         let removed = {
             let conn = self.conn.lock();
             store::delete(&conn, id)?
@@ -239,6 +242,7 @@ impl MemManager {
         };
         let mut deleted = Vec::new();
         for id in &ids {
+            self.embed_queue.cancel(id);
             if store::delete(&conn, id)? {
                 deleted.push(id.clone());
             }
@@ -307,6 +311,7 @@ impl MemManager {
             store::update(&conn, id, &patch, &self.blobs_dir)?
         };
         if updated && body_changed {
+            self.embed_queue.cancel(id);
             #[cfg(feature = "embeddings")]
             {
                 let conn = self.conn.lock();
