@@ -476,9 +476,7 @@ fn declared_leaf_and_every_non_leaf_are_never_refused() {
     assert!(pair_creation_refusal_for_leaf(false, true).is_none());
 }
 
-// WHAT: pair service validation refuses a supplied caller id that is blank or unresolved.
-// WHY: A bad caller id must not silently turn a scoped call into a root call.
-// ORACLE: the service returns an error naming the unresolved caller tab.
+// A bad caller id must not silently turn a scoped call into a root call.
 #[test]
 fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -487,9 +485,7 @@ fn pair_creation_refuses_unresolvable_supplied_creator_ids() {
     assert!(error.contains("missing-caller"), "{error}");
 }
 
-// WHAT: Worker and Manager callers need explicit leaf acknowledgement.
-// WHY: Valid providers must not let a Team leaf reach pair reservation.
-// ORACLE: each call returns the acknowledgement refusal without changing Tabs, Teams, or Plans.
+// Valid providers must not let a Team leaf reach pair reservation.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
@@ -544,9 +540,7 @@ fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
-// WHAT: both pair providers are checked before reserving pair state.
-// WHY: an unknown Planner must not strand the otherwise valid Orchestrator Tab.
-// ORACLE: no new Tabs, Teams, or Plans remain after the provider refusal.
+// an unknown Planner must not strand the otherwise valid Orchestrator Tab.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn team_pair_with_unknown_provider_creates_no_tab() {
@@ -583,9 +577,7 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
-// WHAT: a pair can preflight providers routed to the chatBackend transport.
-// WHY: provider readiness for PTY launch commands does not apply to chat backends.
-// ORACLE: the registered spawnable backend passes pair preflight without reserving Tabs.
+// provider readiness for PTY launch commands does not apply to chat backends.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_preflight_accepts_spawnable_chat_backend_providers() {
@@ -628,9 +620,7 @@ fn pair_preflight_accepts_spawnable_chat_backend_providers() {
     assert_eq!(fixture.service.mux.read().team_count(), teams_before);
 }
 
-// WHAT: a failed pair launch removes every Tab and its newly minted Team.
-// WHY: either role failing to launch must not leave a half-pair behind.
-// ORACLE: rollback returns no errors and both reserved Tab ids and Team id are absent.
+// either role failing to launch must not leave a half-pair behind.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
@@ -659,9 +649,7 @@ fn pair_rollback_removes_both_reserved_tabs_and_minted_team() {
     assert!(mux.get_team(&team_id).is_none());
 }
 
-// WHAT: an Orchestrator launch error removes every Tab and Team reserved by the pair.
-// WHY: spawn_agent may return before it owns cleanup of the existing pair Tab ids.
-// ORACLE: after the failed call, the workspace has no additional Tabs or Teams.
+// spawn_agent may return before it owns cleanup of the existing pair Tab ids.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
@@ -704,9 +692,7 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
-// WHAT: an Orchestrator launch failure preserves the caller's claimed picker Tab.
-// WHY: the pair rollback owns restoring the pre-claim state after spawn returns an error.
-// ORACLE: the claimed Tab is unchanged and the pair-created Planner Tab, Team, and Plan are gone.
+// the pair rollback owns restoring the pre-claim state after spawn returns an error.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
@@ -763,9 +749,7 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
     assert!(fixture.service.plan_store.list_index().is_empty());
 }
 
-// WHAT: Planner launch failure restores a claimed picker Tab and removes the created Planner Tab.
-// WHY: rollback owns the new pair member but must preserve a Tab supplied by the user.
-// ORACLE: the original Tab remains blank and no pair-created Tab or Team remains.
+// rollback owns the new pair member but must preserve a Tab supplied by the user.
 #[test]
 #[ignore = "ServiceFixture has no Tauri-managed SessionState, so a real Orchestrator spawn cannot complete; covered by the orchestrator-creation bench"]
 fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
