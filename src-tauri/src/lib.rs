@@ -33,6 +33,7 @@ mod native_resize;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
+pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
 pub mod process_util;
