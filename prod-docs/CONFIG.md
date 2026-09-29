@@ -165,6 +165,11 @@ codeterm config get                            # no key → dump the whole redac
 
 Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Changes are saved to disk immediately and trigger a `config-changed` event.
 
+If the config file is held after a failed load, writes fail and leave the live
+settings unchanged. Review and repair the salvaged file, remove its CodeTerm
+salvage marker, and restart CodeTerm; a known-good config backup can also be
+restored before restarting.
+
 ## Value limits
 
 Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load. Config strings are limited to 65536 UTF-8 bytes, control characters are refused except line breaks and tabs, collections are limited to 4096 entries, and the full config is limited to 4 MiB. Invalid file values are rejected with a warning and CodeTerm uses the last valid config or defaults.
@@ -207,4 +212,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->

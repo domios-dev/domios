@@ -244,10 +244,8 @@ pub async fn patch_config_api(
     let renamed = !new_name.is_empty() && new_name != prev_name;
     let mesh_disabled = prev_mesh_enabled && !new_mesh_enabled;
 
-    *state.config.lock() = new_cfg.clone();
-    if let Err(e) = crate::config::save_config_pub(&new_cfg) {
-        log::error!("Config save failed: {}", e);
-    }
+    crate::config::save_config_and_apply(&state.config, new_cfg.clone())
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     // this, browser clients save the config but never see it applied.
     crate::api::events::emit_everywhere(

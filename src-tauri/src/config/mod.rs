@@ -738,6 +738,28 @@ enabled = true
         assert!(p.to_string_lossy().contains("codeterm"));
         assert!(p.to_string_lossy().contains("config.toml"));
     }
+
+    #[test]
+    fn held_config_refuses_update_without_changing_memory_or_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        let initial = AppConfig::default();
+        let disk_before = load::mark_salvaged_config(&serialize_config(&initial).unwrap());
+        std::fs::write(&path, &disk_before).unwrap();
+        load::config_file(&path).hold_for_repair();
+
+        let state = Mutex::new(initial);
+        let mut update = AppConfig::default();
+        update.terminal.scrollback = 10001;
+        let error = save_config_and_apply_at(&path, &state, update).unwrap_err();
+
+        assert!(error.contains("Config is held"));
+        assert!(error.contains("remove"));
+        assert!(error.contains("restore"));
+        assert_eq!(state.lock().terminal.scrollback, 10000);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), disk_before);
+        crate::persisted_state::release_hold(&path);
+    }
 }
 
 /// Save the current config to disk.
@@ -756,11 +778,35 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
     }
     let toml_str = serialize_config(config)?;
-    load::config_file(path)
-        .save(&toml_str)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    let file = load::config_file(path);
+    file.save(&toml_str).map_err(|error| match file.held() {
+        Some(hold) => format!(
+            concat!(
+                "Config is held: {}. Review or repair the salvaged config, remove its ",
+                "CodeTerm salvage marker, or restore a known-good config backup. Restart ",
+                "CodeTerm to reload it and release the hold."
+            ),
+            hold.refusal()
+        ),
+        None => format!("Failed to write config: {error}"),
+    })?;
     log::info!("Config saved to {}", path.display());
     Ok(())
+}
+
+fn save_config_and_apply_at(
+    path: &std::path::Path,
+    state: &Mutex<AppConfig>,
+    config: AppConfig,
+) -> Result<(), String> {
+    save_config_at(path, &config)?;
+    *state.lock() = config;
+    Ok(())
+}
+
+pub(crate) fn save_config_and_apply(state: &ConfigState, config: AppConfig) -> Result<(), String> {
+    let path = config_path()?;
+    save_config_and_apply_at(&path, state, config)
 }
 
 pub(crate) fn save_hook_reconciliation_config(config: &AppConfig) -> Result<(), String> {
@@ -830,8 +876,7 @@ pub async fn update_config(
     let new_name = resolved.mesh.instance_name.clone();
     let renamed = !new_name.is_empty() && new_name != prev_name;
 
-    save_config(&resolved)?;
-    *state.lock() = resolved.clone();
+    save_config_and_apply(state.inner(), resolved.clone())?;
 
     if renamed {
         let mesh_arc = mesh_state.inner().clone();
