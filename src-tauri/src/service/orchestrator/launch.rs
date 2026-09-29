@@ -17,6 +17,8 @@ pub(crate) struct LaunchRegistry {
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 mod command;
+#[path = "launch/cwd_guard.rs"]
+mod cwd_guard;
 #[path = "launch/exit_recovery_shell.rs"]
 mod exit_recovery_shell;
 #[cfg(test)]
@@ -431,6 +433,12 @@ pub(crate) fn launch_agent_in_background_with_env(
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
+    if let Some(reason) = cwd_guard::refuse_launch_without_cwd(&svc, &tab_id) {
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(Err(reason));
+        }
+        return;
+    }
     let registry = svc.agent_registry.clone();
     let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
     let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(

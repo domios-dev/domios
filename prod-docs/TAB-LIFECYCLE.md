@@ -13,6 +13,7 @@ CodeTerm keeps one append-only journal of every authoritative tab lifecycle tran
 5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a pane as restored only once an agent process is observed live behind it, and the "all N restored" summary is emitted only when every pane is. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
 6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The shutdown killed that process, so the snapshot written at exit still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place.
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it (`.agents/skills/agent-restart/SKILL.md`).
+8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
 
 ## Restore reporting and observed liveness
 
@@ -150,4 +151,4 @@ The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 28 -->
+<!-- revision: 29 -->

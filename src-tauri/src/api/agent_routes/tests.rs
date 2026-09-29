@@ -176,7 +176,7 @@ async fn unknown_authoritative_model_returns_structured_422_without_retry_hint()
         error["refresh_command"],
         "codeterm agent models rest-catalogue"
     );
-    assert!(error["closest_model_ids"]
+    assert!(error["valid_model_ids"]
         .as_array()
         .is_some_and(|ids| !ids.is_empty()));
     assert!(error.get("retry_hint").is_none());

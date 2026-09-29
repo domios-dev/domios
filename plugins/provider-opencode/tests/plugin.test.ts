@@ -440,11 +440,11 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
   }));
   const plainResume = p.buildResumeCommandWithContext({
       sessionId: savedSession,
-      args: ["-m", "big-pickle", "--variant", "high"],
+      args: ["-m", "big-pickle", "--agent", "build"],
     });
   eq(
     plainResume.match(/try \{ (opencode .+?) \} finally/)?.[1],
-    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --variant Q(windows:high) -m Q(windows:opencode/big-pickle)",
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --agent Q(windows:build) -m Q(windows:opencode/big-pickle)",
     "resume selects the saved project and exact session in the full TUI inside the config wrapper",
   );
   eq(

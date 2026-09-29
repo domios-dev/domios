@@ -42,7 +42,17 @@ impl DispatchStartup {
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
             deadline,
-            |deadline| await_agent_ready(ready_rx, deadline),
+            |deadline| {
+                await_agent_ready(ready_rx, deadline).map_err(|failure| match failure {
+                    DispatchWaitFailure::Definitive(reason) => DispatchWaitFailure::Definitive(
+                        match self.svc.launch_output_tail(&self.tab_id) {
+                            Some(tail) => format!("{reason}\nprovider output (tail):\n{tail}"),
+                            None => reason,
+                        },
+                    ),
+                    uncertain => uncertain,
+                })
+            },
             |deadline| wait_for_tab_session(&self.svc, &self.tab_id, deadline),
             || match self.provenance.as_ref() {
                 Some(provenance) => verify_worker_lane(
