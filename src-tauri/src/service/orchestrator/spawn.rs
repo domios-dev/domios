@@ -1,7 +1,7 @@
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
-use super::launch::{launch_agent_in_background, skip_local_worker_role};
+use super::launch::{launch_agent_in_background_with_task_turn, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
@@ -95,7 +95,8 @@ fn build_or_refuse_orchestrated_launch_command(
     bg_task: Option<&str>,
     launch_session_id: Option<&str>,
 ) -> Result<String, String> {
-    let launch_cmd = crate::service::launch_session_detection::marked_agent_command(
+    let launch_cmd = crate::service::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,
@@ -104,7 +105,11 @@ fn build_or_refuse_orchestrated_launch_command(
         &service.agent_registry,
     );
     if launch_cmd.trim().is_empty() {
-        return Err(service.rollback_empty_agent_launch(tab_id, agent_cmd));
+        return Err(service.rollback_empty_agent_launch_if_created(
+            tab_id,
+            agent_cmd,
+            params.existing_tab_id.is_none(),
+        ));
     }
     Ok(launch_cmd)
 }
@@ -152,7 +157,11 @@ fn create_pending_delivery_or_rollback_dispatch(
         return Ok(());
     };
     let failure = revert_task_dispatch_after_launch_failure(service, params, &error.to_string());
-    Err(service.rollback_failed_agent_spawn(tab_id, &failure))
+    Err(service.rollback_failed_agent_spawn_if_created(
+        tab_id,
+        &failure,
+        params.existing_tab_id.is_none(),
+    ))
 }
 
 fn planner_startup_payload(
@@ -391,6 +400,7 @@ impl ServiceContext {
             .unwrap_or_else(|| default_provider.clone());
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
         let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
+        let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
             let role = params.role.clone();
             let role_profile = params.role_profile.clone();
@@ -450,6 +460,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &agent_cmd,
+            params.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
@@ -461,14 +477,10 @@ impl ServiceContext {
             params.planned_model.as_deref(),
         );
         params.model = model_resolution.model.clone();
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
-            &agent_cmd,
-            params.model.as_deref(),
-        )?;
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            params.model.as_deref(),
             params.reasoning_effort.as_deref(),
         )?;
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
@@ -489,12 +501,10 @@ impl ServiceContext {
         };
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
-        let warning = match (cwd_warning, cli_warning) {
-            (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
+        let warning = crate::service::spawn::merge_spawn_warnings(
+            crate::service::spawn::merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
         params.cwd = resolved_cwd;
 
         let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
@@ -591,7 +601,9 @@ impl ServiceContext {
                 emit_state_change,
             ) {
                 // A post-creation hierarchy failure must not leave an orphan tab.
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 return Err(error);
             }
         }
@@ -611,7 +623,9 @@ impl ServiceContext {
             );
             if let Err(refusal) = guard {
                 drop(mux);
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 return Err(refusal.to_string());
             }
             if mux.get_team(team_id).is_some() {
@@ -670,18 +684,25 @@ impl ServiceContext {
                 attempt_id: authority.attempt_id.clone(),
             }
         });
-        let startup_supervised = self.prepare_agent_startup_supervision(
-            &tab_id,
-            params
-                .parent_tab_id
-                .as_deref()
-                .or(params.spawned_by_tab_id.as_deref())
-                .or(params.creator_tab_id.as_deref()),
-            task_identity.clone(),
+        let remote_task_bound = remote_task_binding_matches(
+            params.remote_task_binding.as_ref(),
+            task_identity.as_ref(),
         );
-        if params.task_launch_authority.is_some() && !startup_supervised {
-            self.cancel_agent_startup_supervision(&tab_id);
-            let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+        let startup_supervised = !remote_task_bound
+            && self.prepare_agent_startup_supervision(
+                &tab_id,
+                params
+                    .parent_tab_id
+                    .as_deref()
+                    .or(params.spawned_by_tab_id.as_deref())
+                    .or(params.creator_tab_id.as_deref()),
+                task_identity.clone(),
+            );
+        if params.task_launch_authority.is_some() && !startup_supervised && !remote_task_bound {
+            if tab_created_by_spawn {
+                self.cancel_agent_startup_supervision(&tab_id);
+                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+            }
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
             ));
@@ -793,6 +814,23 @@ impl ServiceContext {
                 None => t,
             })
         };
+        crate::service::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            crate::service::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: params.model.clone(),
+                reasoning_effort: params.reasoning_effort.clone(),
+                args: params.args.clone(),
+                agent_name: params.agent_name.clone(),
+                task: params.task.as_deref(),
+                role: params.role.as_deref(),
+                role_profile: params.role_profile.as_deref(),
+                permission_bypass_requested: params.permission_bypass_requested(&agent_cmd),
+            },
+        );
         let launch_cmd = build_or_refuse_orchestrated_launch_command(
             self,
             &tab_id,
@@ -835,12 +873,23 @@ impl ServiceContext {
         if let Some(spec) = fallback_spec.as_ref() {
             create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
-        launch_agent_in_background(
+        let startup_turn = crate::service::startup_turn::resolve(
+            &self.agent_registry,
+            &agent_cmd,
+            params.starter_prompt,
+            fallback_spec.as_ref(),
+            bg_task.as_deref(),
+            true,
+            None,
+        );
+        launch_agent_in_background_with_task_turn(
             self.clone(),
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
+            startup_turn.first_turn_will_be_delivered,
+            startup_turn.expected_turn,
             bg_task,
             fallback_spec,
             task_identity,
@@ -869,7 +918,7 @@ impl ServiceContext {
             model: model_resolution.model.clone(),
             planned_model: params.planned_model,
             requested_model: model_resolution.requested_model,
-            provider_resolved_model: model_resolution.model,
+            provider_resolved_model: model_resolution.provider_resolved_model,
             actual_model: None,
             reasoning_effort: reasoning_effort.clone(),
             reasoning_effort_provenance: resolved_effort_provenance(
@@ -926,9 +975,6 @@ impl ServiceContext {
             }
             drop(mux);
             self.record_role_transition(tab_id);
-            if let Some(parent) = parent_tab_id {
-                self.record_role_transition(parent);
-            }
         }
         if let Some(parent) = parent_tab_id {
             self.expect_spawn_parent_link(tab_id, parent)?;
@@ -1043,6 +1089,32 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+pub(crate) fn remote_task_binding_matches_authority(
+    remote: Option<&super::types::RemoteTaskBinding>,
+    authority: Option<&super::types::TaskLaunchAuthority>,
+) -> bool {
+    let identity = authority.map(
+        |authority| crate::service::startup_lease::StartupTaskIdentity {
+            plan_id: authority.plan_id.clone(),
+            task_id: authority.task_id.clone(),
+            attempt_id: authority.attempt_id.clone(),
+        },
+    );
+    remote_task_binding_matches(remote, identity.as_ref())
+}
+
+fn remote_task_binding_matches(
+    remote: Option<&super::types::RemoteTaskBinding>,
+    identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
+) -> bool {
+    remote.zip(identity).is_some_and(|(remote, identity)| {
+        !remote.origin_peer_id.trim().is_empty()
+            && remote.plan_id == identity.plan_id
+            && remote.task_id == identity.task_id
+            && remote.attempt_id == identity.attempt_id
+    })
 }
 
 /// A chat backend has no interactive turn to paste a task into, so the launch

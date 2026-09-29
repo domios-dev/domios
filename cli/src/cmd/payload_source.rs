@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 pub fn current_pad() -> Result<PathBuf, String> {
@@ -6,8 +7,14 @@ pub fn current_pad() -> Result<PathBuf, String> {
         .ok()
         .filter(|v| !v.trim().is_empty())
         .ok_or("AgentPad requires CODETERM_TAB_ID; focused-tab fallback is not allowed")?;
-    let socket = crate::client::discover_socket()?;
-    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let (mut client, _) = crate::client::SocketClient::connect_local()?;
+    resolve_current_pad(&tab_id, &mut client)
+}
+
+pub(crate) fn resolve_current_pad(
+    tab_id: &str,
+    client: &mut dyn crate::client::RpcClient,
+) -> Result<PathBuf, String> {
     let resolved = client.call(
         "tab.agent_pad",
         Some(serde_json::json!({ "tab_id": tab_id })),
@@ -18,7 +25,7 @@ pub fn current_pad() -> Result<PathBuf, String> {
             .and_then(|value| value.as_str())
             .ok_or("tab.agent_pad returned no path")?,
     );
-    if !path.is_absolute() || path.file_name().and_then(|v| v.to_str()) != Some(tab_id.as_str()) {
+    if !path.is_absolute() || path.file_name().and_then(|v| v.to_str()) != Some(tab_id) {
         return Err("resolved AgentPad does not belong to the current full tab id".into());
     }
     let canonical = path
@@ -41,7 +48,30 @@ pub fn display_pad_path(path: &Path) -> String {
 }
 
 pub fn read_from_pad(relative: &str) -> Result<String, String> {
+    if relative == "-" {
+        return read_file_or_stdin("-", "--from-pad");
+    }
     read_from_pad_root(&current_pad()?, relative)
+}
+
+pub(crate) fn read_file_or_stdin(path: &str, option: &str) -> Result<String, String> {
+    read_file_or_stdin_with(path, option, &mut std::io::stdin())
+}
+
+fn read_file_or_stdin_with(
+    path: &str,
+    option: &str,
+    stdin: &mut impl Read,
+) -> Result<String, String> {
+    if path == "-" {
+        let mut body = String::new();
+        stdin
+            .read_to_string(&mut body)
+            .map_err(|e| format!("failed to read {option} from stdin: {e}"))?;
+        Ok(body)
+    } else {
+        fs::read_to_string(path).map_err(|e| format!("failed to read {option} {path}: {e}"))
+    }
 }
 
 pub(crate) fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
@@ -224,6 +254,15 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains(pad.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn message_file_dash_reads_stdin() {
+        let mut stdin = std::io::Cursor::new("quoted `body` $value\nsecond line\n");
+        assert_eq!(
+            read_file_or_stdin_with("-", "--message-file", &mut stdin).unwrap(),
+            "quoted `body` $value\nsecond line\n"
+        );
     }
 
     #[test]

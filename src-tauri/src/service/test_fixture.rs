@@ -107,6 +107,7 @@ impl ServiceFixture {
         );
         let usage_store = crate::usage::UsageStore::open(temp.path()).unwrap();
         let service = ServiceContext {
+            agent_pad_data_dir: temp.path().to_path_buf(),
             mux: Arc::new(TimedRwLock::new("mux", mux)),
             pty: Arc::new(TimedMutex::new(
                 "pty",
@@ -126,6 +127,7 @@ impl ServiceFixture {
             events: Arc::new(crate::api::events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
             cartographer_attach_locks: Default::default(),
+            orchestrator_attach_locks: Default::default(),
             agent_tracker: Arc::new(TimedMutex::new(
                 "agent_tracker",
                 crate::agent::status::TabStatusTracker::new(),
@@ -144,6 +146,7 @@ impl ServiceFixture {
             worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(1)),
             prompt_detector: Arc::new(Mutex::new(crate::agent::prompt::PromptDetector::new())),
             pty_ownership: Default::default(),
+            provider_tree_witnesses: Arc::new(Default::default()),
             agent_run_pty_map: Arc::new(Mutex::new(HashMap::new())),
             run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
             remote_workers: Arc::new(crate::service::remote_workers::RemoteWorkerRegistry::new()),
@@ -154,7 +157,6 @@ impl ServiceFixture {
                 codeterm_bridge::bridge::threads::ThreadRegistry::in_memory(),
             )),
             restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-            provider_updates: Default::default(),
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             delayed_send: crate::delayed_send::DelayedSendQueue::open(
                 temp.path().join("delayed-send.json"),
@@ -183,6 +185,7 @@ impl ServiceFixture {
             )),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+            output_stream_activity: super::output_stream_activity::channel(),
             session_persist_pending: Arc::new(AtomicBool::new(false)),
             services_store,
             tokens: Arc::new(crate::service::tokens::TokenStore::new_with_root(
@@ -209,20 +212,11 @@ impl ServiceFixture {
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         };
         let owner = Arc::new(service.clone());
-        service.provider_updates.bind_execution_owner(&owner);
         Self {
             service,
             _owner: owner,
             _app: app,
             temp,
         }
-    }
-}
-
-impl Drop for ServiceFixture {
-    /// Fixture teardown owns the waiter lifecycle: cancel and join before the
-    /// service, mock app and temp dir go away underneath a live thread.
-    fn drop(&mut self) {
-        self.service.shutdown_provider_update_waiters();
     }
 }

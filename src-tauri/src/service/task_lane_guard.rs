@@ -141,6 +141,11 @@ impl ServiceContext {
         if params.execution_intent != Some(ExecutionIntent::Mutating) {
             return Ok(());
         }
+        if params.task_launch_authority.is_some()
+            && crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params).is_none()
+        {
+            return Ok(());
+        }
         let Some(task_ref) = task_bound_spawn_ref(params) else {
             return Ok(());
         };

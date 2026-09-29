@@ -10,11 +10,18 @@ use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
 use crate::api::{
     optional_json::OptionalJson,
-    routes::{resolve_tab, AppState},
+    routes::{check_auth, resolve_tab, AppState},
 };
 
 mod run_session;
+mod session_ack;
 mod session_claim;
+#[cfg(test)]
+use session_ack::acknowledge_authenticated_launch;
+use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
+#[cfg(test)]
+#[path = "hook_routes/review_regressions.rs"]
+mod review_regressions;
 
 #[cfg(test)]
 pub(crate) use session_claim::bind_validated_rebind_session;
@@ -27,6 +34,7 @@ pub(crate) struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
     nonce_verified: bool,
+    nonce_already_acknowledged: bool,
     identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
@@ -62,6 +70,35 @@ fn escaped_hook_log_field(value: &str) -> String {
     format!("{value:?}")
 }
 
+pub async fn release_launch_artifacts_api(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let provider_id = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.agent_type.clone());
+    let Some(provider_id) = provider_id else {
+        return Ok(Json(serde_json::json!({ "ok": true, "released": false })));
+    };
+    let registry = state.svc.agent_registry.clone();
+    let released = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::release_tab(&registry, &tab_id, &provider_id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(
+        serde_json::json!({ "ok": true, "released": released }),
+    ))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SessionBindingSource {
     Hook,
@@ -70,11 +107,24 @@ enum SessionBindingSource {
 }
 
 impl SessionStartClaim {
+    fn is_unchanged_acknowledged_report(&self) -> bool {
+        !self.changed && self.nonce_verified && self.nonce_already_acknowledged
+    }
+
     pub(crate) fn identity_evidence(
         &self,
     ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
         &self.identity_evidence
     }
+}
+
+fn can_short_circuit_session_start(
+    claim: &SessionStartClaim,
+    fallback_pending: bool,
+    fallback_retry_available: bool,
+) -> bool {
+    claim.is_unchanged_acknowledged_report()
+        && !(fallback_pending && claim.nonce_verified && fallback_retry_available)
 }
 
 fn epoch_ms() -> u64 {
@@ -110,6 +160,14 @@ fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute)
 
 /// SessionStart identity ladder: report > tab > the store owning the reported
 /// session > the route's sole declarer. Unknown stays unknown, never a default.
+pub(crate) fn foreign_provider_session_owner<'a>(
+    tab_provider: Option<&'a str>,
+    reported_provider: &str,
+    live_owner: bool,
+) -> Option<&'a str> {
+    tab_provider.filter(|owner| live_owner && *owner != reported_provider)
+}
+
 fn session_start_provider(
     registry: &AgentRegistry,
     reported: Option<String>,
@@ -391,11 +449,8 @@ pub async fn hook_stop(
 
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&tab_id);
-    {
-        let mut mux = state.svc.mux.write();
-        if let Some(tab) = mux.get_tab_mut(&tab_id) {
-            tab.pending_prompt = None;
-        }
+    if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
+        state.svc.resolve_prompt_notifications(&tab_id, &identity);
     }
     state.svc.emit_state_changed();
 
@@ -415,6 +470,7 @@ pub async fn hook_stop(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
     );
+    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -450,6 +506,13 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
         .map(|s| s.to_string());
+    log::debug!(
+        "[hook_session_start] received tab={} source={} session_id_present={} nonce_present={}",
+        tab_id,
+        source,
+        session_id.is_some(),
+        report_nonce.is_some(),
+    );
 
     let Some(sid) = session_id else {
         log::warn!(
@@ -463,7 +526,7 @@ pub async fn hook_session_start(
         ));
     };
 
-    let (existing, cwd, current_session_id) = state
+    let (existing, cwd, current_session_id, live_owner) = state
         .svc
         .mux
         .read()
@@ -473,13 +536,14 @@ pub async fn hook_session_start(
                 tab.agent_type.clone(),
                 tab.cwd.clone(),
                 tab.agent_session_id.clone(),
+                crate::service::tab_has_live_agent(tab),
             )
         })
         .unwrap_or_default();
     let Some(provider_id) = session_start_provider(
         &state.svc.agent_registry,
         provider_id,
-        existing,
+        existing.clone(),
         cwd.as_deref(),
         &sid,
     ) else {
@@ -496,7 +560,18 @@ pub async fn hook_session_start(
         state.svc.emit_session_binding_state(&tab_id);
         return Err((StatusCode::CONFLICT, message));
     };
+    if let Some(owner) =
+        foreign_provider_session_owner(existing.as_deref(), &provider_id, live_owner)
+    {
+        // A child process started from this tab's shell inherits CODETERM_TAB_ID; it is not the tab's agent.
+        let message = format!(
+            "session_id '{sid}' belongs to provider {provider_id}, but Tab {tab_id} runs a verified {owner} agent"
+        );
+        log::warn!("[hook_session_start] ignoring foreign-provider session: {message}");
+        return Err((StatusCode::CONFLICT, message));
+    }
 
+    let mut fallback_retry = None;
     let claim = match bind_reported_session(
         &state.svc.mux,
         state.svc.agent_registry.as_ref(),
@@ -505,7 +580,33 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     ) {
-        Ok(claim) => claim,
+        Ok(claim) => {
+            let fallback_pending =
+                crate::service::integration_silence::has_hook_binding_fallback(&provider_id, &sid);
+            let fallback_retry_available =
+                if claim.is_unchanged_acknowledged_report() && fallback_pending {
+                    fallback_retry =
+                        crate::service::integration_silence::reserve_hook_binding_fallback_retry(
+                            &provider_id,
+                            &sid,
+                        );
+                    fallback_retry.is_some()
+                } else {
+                    false
+                };
+            if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
+                return Ok(unchanged_acknowledged_hook_report(
+                    &state.svc,
+                    &tab_id,
+                    &provider_id,
+                    &sid,
+                    &source,
+                    &claim,
+                    report_nonce.as_deref(),
+                ));
+            }
+            claim
+        }
         Err((status, message, Some(premise))) => {
             let transcript_path = reported_transcript_path(&body)
                 .map(std::path::PathBuf::from)
@@ -582,7 +683,7 @@ pub async fn hook_session_start(
             return Err((status, message));
         }
     };
-    finish_session_binding(
+    let result = finish_session_binding(
         &state.svc,
         &tab_id,
         &provider_id,
@@ -593,8 +694,15 @@ pub async fn hook_session_start(
         &body,
         claim,
         crate::session::lifecycle::BindingSource::Hook,
+        true,
     )
-    .await
+    .await;
+    if result.is_ok() {
+        if let Some(retry) = fallback_retry.take() {
+            retry.commit();
+        }
+    }
+    result
 }
 
 pub(crate) fn defer_session_binding(
@@ -713,6 +821,7 @@ async fn complete_deferred_session_binding(
                 &body,
                 claim,
                 crate::session::lifecycle::BindingSource::Hook,
+                true,
             )
             .await;
         }
@@ -757,13 +866,29 @@ pub(crate) async fn finish_session_binding(
     body: &serde_json::Value,
     claim: SessionStartClaim,
     binding_source: crate::session::lifecycle::BindingSource,
+    session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
+        if let Some(previous_session_id) = claim.prev.as_deref() {
+            crate::service::integration_silence::clear_hook_binding_fallback_session(
+                provider_id,
+                previous_session_id,
+            );
+        }
         svc.deferred_session_bindings.clear(tab_id);
     } else {
         svc.deferred_session_bindings.clear_session(tab_id, sid);
     }
     svc.emit_session_binding_state(tab_id);
+    if claim.nonce_verified && (claim.changed || session_binding_hook_succeeded) {
+        crate::service::integration_silence::record_hook_binding_source(
+            svc.agent_registry.as_ref(),
+            provider_id,
+            sid,
+            binding_source,
+            session_binding_hook_succeeded,
+        );
+    }
     let (current_nonce, reported_nonce) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(&tab_id);
@@ -773,11 +898,13 @@ pub(crate) async fn finish_session_binding(
         )
     };
     log::info!(
-        "[delivery-timeline] event=session-binding tab={} provider={} session={} \
+        "[delivery-timeline] event=session-binding tab={} provider={} session={} source={} binding_source={} \
          report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
         tab_id,
         provider_id,
         sid,
+        source,
+        crate::service::integration_silence::binding_source_label(binding_source),
         report_nonce.unwrap_or("-"),
         current_nonce.as_deref().unwrap_or("-"),
         reported_nonce.as_deref().unwrap_or("-"),
@@ -832,19 +959,25 @@ pub(crate) async fn finish_session_binding(
             },
         );
     }
-    crate::service::general_agent::binding_wait::notify_session_bound();
-    let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, &claim, report_nonce);
-    acknowledge_authenticated_launch(&svc.mux, tab_id, &claim, report_nonce);
-    if claim.nonce_verified {
-        svc.rearm_authenticated_agent_input(&tab_id);
-        svc.reconcile_boot_stage_with_session_binding(&tab_id);
+    crate::service::general_agent::binding_wait::notify_binding_state_changed();
+    let launch_identity =
+        acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
+    if let Some(nonce) = report_nonce {
+        let service = svc.clone();
+        let tab = tab_id.to_string();
+        let session = sid.to_string();
+        let nonce = nonce.to_string();
+        drop(tokio::task::spawn_blocking(move || {
+            crate::service::public_send_readiness::observe_session_binding(
+                &service, &tab, &session, &nonce,
+            )
+        }));
     }
     // Ordering: the identity above is read from state the nonce check already
     // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
     }
-
     // while it runs — not only after completion.
     run_session::propagate(svc, tab_id, sid);
     if let Some(reported_transcript) = reported_transcript_path(body) {
@@ -909,7 +1042,7 @@ pub(crate) async fn finish_session_binding(
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
         // The commit cleared this tab's runtime model and effort evidence for
         // the retired session; the binding is the event that re-reads it.
-        persist_svc.refresh_session_model_after_binding(&bound_tab_id);
+        persist_svc.refresh_session_model_for_current_tab(&bound_tab_id);
         crate::service::session_persist::persist_session_after_mutation(
             &persist_svc,
             crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -948,48 +1081,6 @@ async fn durable_transcript_progress(
     })
     .await
     .unwrap_or(false)
-}
-
-/// The authoritative launch identity of a session-start report: the tab's own
-/// live PTY paired with the launch nonce its agent echoed and the commit above
-/// already verified against this tab's current launch.
-fn authenticated_launch_identity(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> Option<crate::service::ProviderSessionBinding> {
-    if !claim.nonce_verified {
-        return None;
-    }
-    let binding_nonce = report_nonce?;
-    let mux = mux.read();
-    mux.get_tab(tab_id).and_then(|tab| {
-        (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
-            .then(|| tab.pty_id.clone())
-            .flatten()
-            .map(|pty_id| crate::service::ProviderSessionBinding {
-                pty_id,
-                binding_nonce: binding_nonce.to_string(),
-            })
-    })
-}
-
-fn acknowledge_authenticated_launch(
-    mux: &crate::multiplexer::commands::MuxState,
-    tab_id: &str,
-    claim: &SessionStartClaim,
-    report_nonce: Option<&str>,
-) -> bool {
-    authenticated_launch_identity(mux, tab_id, claim, report_nonce).is_some_and(|binding| {
-        let launch_acknowledged = crate::service::record_provider_session(tab_id, &binding);
-        let readiness_acknowledged = crate::service::launch_readiness::note_acknowledged(
-            tab_id,
-            &binding.pty_id,
-            &binding.binding_nonce,
-        );
-        launch_acknowledged || readiness_acknowledged
-    })
 }
 
 /// A report carrying a binding nonce that disagrees with the tab's own launch

@@ -141,19 +141,65 @@ pub async fn check_hooks_api(
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = state
+    let (status, has_hooks) = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.check_integration())
+        .with_provider(&q.provider, |provider| {
+            (provider.check_integration(), provider.has_hooks())
+        })
         .ok_or((StatusCode::NOT_FOUND, "Unknown provider"))?;
-    Ok(Json(status))
+    let live_session_ids = state
+        .svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(q.provider.as_str()))
+        .filter_map(|tab| tab.agent_session_id.clone())
+        .collect::<Vec<_>>();
+    Ok(Json(
+        crate::service::integration_silence::integration_status_with_binding_fallback(
+            status,
+            &q.provider,
+            has_hooks,
+            &live_session_ids,
+        ),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct SweepProfilesQuery {
+    pub provider: String,
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default)]
+    pub include_legacy: bool,
+}
+
+pub async fn sweep_profiles_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<SweepProfilesQuery>,
+) -> Result<Json<crate::agent::provider::LaunchArtifactSweepReport>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let service = state.svc.clone();
+    let report = tokio::task::spawn_blocking(move || {
+        crate::service::launch_artifacts::sweep_for_owner(
+            &service,
+            &query.provider,
+            query.confirm,
+            query.include_legacy,
+        )
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(Json(report))
 }
 
 #[derive(serde::Deserialize)]
 pub struct InstallHooksQuery {
     pub provider: String,
-    #[serde(default)]
-    pub precompact_memory_export: bool,
+    pub precompact_memory_export: Option<bool>,
 }
 
 /// An authenticated install request is the user's consent: it is recorded like
@@ -189,11 +235,27 @@ pub async fn install_hooks_api(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    let status = state
+    let (status, has_hooks) = state
         .svc
         .agent_registry
-        .with_provider(&q.provider, |p| p.check_integration())
-        .unwrap_or(serde_json::Value::Null);
+        .with_provider(&q.provider, |provider| {
+            (provider.check_integration(), provider.has_hooks())
+        })
+        .unwrap_or((serde_json::Value::Null, false));
+    let live_session_ids = state
+        .svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(q.provider.as_str()))
+        .filter_map(|tab| tab.agent_session_id.clone())
+        .collect::<Vec<_>>();
+    let status = crate::service::integration_silence::integration_status_with_binding_fallback(
+        status,
+        &q.provider,
+        has_hooks,
+        &live_session_ids,
+    );
     Ok(Json(serde_json::json!({
         "ok": true,
         "provider": q.provider,

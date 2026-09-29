@@ -68,6 +68,13 @@ pub(crate) enum Verdict {
     Refused(Refusal),
 }
 
+fn manual_update_prompt_verdict(
+    classification: Option<&codeterm_plugin::tab_state::TabStateClassification>,
+) -> Option<Verdict> {
+    crate::agent::state_reactor::is_manual_update_prompt(classification)
+        .then_some(Verdict::Refused(Refusal::NotRecognized))
+}
+
 impl Verdict {
     pub(crate) fn owns_prompt(self) -> bool {
         matches!(self, Self::Confirmed | Self::Settling)
@@ -394,6 +401,26 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
+        let snapshot = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id);
+            codeterm_plugin::tab_state::TabStateSnapshot {
+                tab_id: tab_id.to_string(),
+                agent_type: agent_type.clone(),
+                session_id: facts.session_id.clone(),
+                cwd: tab.and_then(|tab| tab.cwd.clone()),
+                screen_text: screen.clone(),
+            }
+        };
+        let state = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| {
+                provider.classify_tab_state(&snapshot)
+            })
+            .flatten();
+        if let Some(verdict) = manual_update_prompt_verdict(state.as_ref()) {
+            return verdict;
+        }
         let Some(prompt) = crate::agent::prompt::parse_prompt_safely(|| {
             self.agent_registry.parse_prompt(&agent_type, &screen)
         }) else {
@@ -604,13 +631,21 @@ impl ServiceContext {
         Verdict::Refused(refusal)
     }
 
-    fn retract_surfaced_prompt(&self, tab_id: &str) {
-        let retracted = self
-            .mux
-            .write()
-            .get_tab_mut(tab_id)
-            .and_then(|tab| tab.pending_prompt.take())
-            .is_some();
+    pub(crate) fn retract_surfaced_prompt(&self, tab_id: &str) {
+        let (retracted, identity) = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id).map_or((false, None), |tab| {
+                let retracted = tab.pending_prompt.is_some();
+                let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
+                (retracted, identity)
+            })
+        };
+        if retracted {
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        }
+        if let Some(identity) = identity {
+            self.resolve_prompt_notifications(tab_id, &identity);
+        }
         if retracted {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
@@ -625,6 +660,7 @@ impl ServiceContext {
         let surfaced = match self.mux.write().get_tab_mut(tab_id) {
             Some(tab) => {
                 tab.pending_prompt = Some(prompt.clone());
+                tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
                 true
             }
             None => false,

@@ -60,20 +60,28 @@ pub fn placements(notifications: &[Notification], id: &str) -> Vec<ChannelPlacem
 pub struct SpentQuestion {
     pub placements: Vec<ChannelPlacement>,
     content: push::PushContent,
-    label: String,
+    label: Option<String>,
+    resolved: bool,
     record: String,
 }
 
 impl SpentQuestion {
-    /// The rewrite one channel receives, bounded by that channel. The answer
-    /// line is reserved out of the budget so appending it cannot overrun.
+    /// The rewrite one channel receives, bounded by that channel. Its final
+    /// status line is reserved out of the budget so appending it cannot overrun.
     pub fn message_for(&self, bounds: push::PushBounds) -> PushMessage {
-        let reserved = spent_text("", &self.label).chars().count();
+        let status = self
+            .label
+            .as_deref()
+            .map(|label| format!("Answered: {}", label.trim()))
+            .unwrap_or_else(|| "Resolved in tab".to_string());
+        let reserved = status.chars().count() + 2;
+        let carried = self.content.render(bounds.reserving(reserved));
         PushMessage {
-            text: spent_text(
-                &self.content.render(bounds.reserving(reserved)),
-                &self.label,
-            ),
+            text: if self.resolved {
+                resolved_text(&carried)
+            } else {
+                spent_text(&carried, self.label.as_deref().unwrap_or_default())
+            },
             choices: Vec::new(),
             record: self.record.clone(),
             origin_tab: None,
@@ -81,15 +89,18 @@ impl SpentQuestion {
     }
 }
 
-/// What one record owes the channels that carried it, now that it holds an
-/// answer. `None` when nothing was placed or no answer stands, so a question
-/// still open is never rewritten.
+/// What one record owes the channels that carried it once answered or cleared.
+/// `None` while open or when no channel placement exists.
 pub fn spent_question(notifications: &[Notification], id: &str) -> Option<SpentQuestion> {
     let target = notifications.iter().find(|n| n.id == id)?;
     if target.placements.is_empty() {
         return None;
     }
-    let label = target.answer.as_ref()?.answered.as_deref()?;
+    let answer = target.answer.as_ref()?;
+    let resolved = target.resolved;
+    if answer.answered.is_none() && !resolved {
+        return None;
+    }
     Some(SpentQuestion {
         placements: target.placements.clone(),
         content: push::PushContent {
@@ -103,7 +114,8 @@ pub fn spent_question(notifications: &[Notification], id: &str) -> Option<SpentQ
                 peer_name: target.peer_name.clone(),
             },
         },
-        label: label.to_string(),
+        label: answer.answered.clone(),
+        resolved,
         record: target.id.clone(),
     })
 }
@@ -113,6 +125,10 @@ pub fn spent_question(notifications: &[Notification], id: &str) -> Option<SpentQ
 /// the two surfaces do not describe one answer in two vocabularies.
 pub fn spent_text(carried: &str, label: &str) -> String {
     format!("{}\n\nAnswered: {}", carried.trim_end(), label.trim())
+}
+
+pub fn resolved_text(carried: &str) -> String {
+    format!("{}\n\nResolved in tab", carried.trim_end())
 }
 
 #[cfg(test)]

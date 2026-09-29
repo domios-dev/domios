@@ -7,6 +7,7 @@ use crate::service_plan::{NewTask, PlanError, PlanStore};
 
 fn attempt(id: &str, group: &str) -> TaskExecutionAttempt {
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: id.into(),
         executor_tab_id: format!("tab-{id}"),
         competition_group_id: Some(group.into()),

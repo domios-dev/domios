@@ -54,6 +54,7 @@ pub(super) fn dispatch(
                 "agent.list",
                 "agent.hierarchy",
                 "agent.spawn",
+                "agent.diagnostic",
                 "agent.set_role",
                 "agent.clear_role",
                 "agent.status",
@@ -105,6 +106,7 @@ pub(super) fn dispatch(
                 "plan.kinds.set",
                 "plan.tag_facets.set",
                 "plan.task.add",
+                "plan.task.split",
                 "plan.review.authorize-reporter",
                 "plan.task.update",
                 "plan.task.attach",
@@ -317,6 +319,32 @@ pub(super) fn dispatch(
 }
 
 pub(crate) fn dispatch_service_rpc(
+    method: &str,
+    mut params: Option<serde_json::Value>,
+    svc: &ServiceState,
+) -> Result<serde_json::Value, JsonRpcError> {
+    if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
+        object.remove("authenticated_mesh_peer_id");
+    }
+    dispatch_service_rpc_inner(method, params, svc)
+}
+
+pub(crate) fn dispatch_mesh_rpc(
+    method: &str,
+    mut params: Option<serde_json::Value>,
+    svc: &ServiceState,
+    peer_id: &str,
+) -> Result<serde_json::Value, JsonRpcError> {
+    if let Some(object) = params.as_mut().and_then(serde_json::Value::as_object_mut) {
+        object.insert(
+            "authenticated_mesh_peer_id".into(),
+            serde_json::Value::String(peer_id.into()),
+        );
+    }
+    dispatch_service_rpc_inner(method, params, svc)
+}
+
+fn dispatch_service_rpc_inner(
     method: &str,
     params: Option<serde_json::Value>,
     svc: &ServiceState,

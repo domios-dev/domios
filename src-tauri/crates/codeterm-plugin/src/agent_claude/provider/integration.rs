@@ -9,7 +9,8 @@
 //! provider doesn't require touching `commands/`.
 
 use super::hook_ownership::{
-    entries_carry_marker, is_codeterm_hook, marker_header_arg, CODETERM_HOOK_MARKER,
+    entries_carry_marker, entry_carries_marker, is_codeterm_hook, marker_header_arg,
+    CODETERM_HOOK_MARKER,
 };
 use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
@@ -99,6 +100,20 @@ fn owned_hooks_carry_marker(json: &Json) -> bool {
     })
 }
 
+fn integration_owned(json: &Json) -> bool {
+    hook_event_roster().iter().any(|binding| {
+        json.pointer(&format!("/hooks/{}", binding.event))
+            .and_then(Json::as_array)
+            .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+    })
+}
+
+fn owned_precompact_hook(json: &Json) -> bool {
+    json.pointer("/hooks/PreCompact")
+        .and_then(Json::as_array)
+        .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+}
+
 /// Returns JSON shaped like the legacy `ClaudeHooksStatus` struct so the
 /// frontend SchemaRenderer's Badge mapper picks up `hooks_installed`
 /// unchanged. New consumers can also look at the per-hook fields.
@@ -107,6 +122,7 @@ pub fn check_integration() -> Json {
         return serde_json::json!({
             "settings_exists": false,
             "hooks_installed": false,
+            "integration_owned": false,
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
@@ -117,26 +133,41 @@ pub fn check_integration() -> Json {
             "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
         });
     };
+    check_integration_at(&path)
+}
+
+pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
     if !path.exists() {
         return serde_json::json!({
             "settings_exists": false,
             "hooks_installed": false,
+            "integration_owned": false,
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
             "precompact_hook": false,
             "session_start_hook": false,
             "target": path,
-            "backup_exists": backup_path(&path).exists(),
+            "backup_exists": backup_path(path).exists(),
             "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
         });
     }
 
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return serde_json::json!({ "settings_exists": true, "hooks_installed": false });
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return serde_json::json!({
+            "settings_exists": true,
+            "hooks_installed": false,
+            "integration_state": "unreadable",
+            "target": path,
+        });
     };
     let Ok(json): Result<Json, _> = serde_json::from_str(&content) else {
-        return serde_json::json!({ "settings_exists": true, "hooks_installed": false });
+        return serde_json::json!({
+            "settings_exists": true,
+            "hooks_installed": false,
+            "integration_state": "unreadable",
+            "target": path,
+        });
     };
 
     let notification_hook = json
@@ -154,11 +185,7 @@ pub fn check_integration() -> Json {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
-    let precompact_hook = json
-        .pointer("/hooks/PreCompact")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
+    let precompact_hook = owned_precompact_hook(&json);
     let session_start_hook = json
         .pointer("/hooks/SessionStart")
         .and_then(|v| v.as_array())
@@ -171,6 +198,7 @@ pub fn check_integration() -> Json {
     serde_json::json!({
         "settings_exists": true,
         "hooks_installed": hooks_installed,
+        "integration_owned": integration_owned(&json),
         "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json),
         "notification_hook": notification_hook,
         "permission_request_hook": permission_request_hook,
@@ -178,7 +206,7 @@ pub fn check_integration() -> Json {
         "precompact_hook": precompact_hook,
         "session_start_hook": session_start_hook,
         "target": path,
-        "backup_exists": backup_path(&path).exists(),
+        "backup_exists": backup_path(path).exists(),
         "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
     })
 }

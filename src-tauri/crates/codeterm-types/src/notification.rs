@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::pty::PromptIdentity;
+
 /// What a notification is, on the single axis a caller may name. Progress is a
 /// nameable level here rather than an unnameable absence; whether a level
 /// interrupts is destination configuration, not membership in this set.
@@ -53,35 +55,6 @@ impl NotifyLevel {
     }
 }
 
-/// The fixed set of commands the daemon may put behind a notification button.
-/// This is the allowlist, expressed as a type: an `Invoke` action names one of
-/// these and nothing else, and no wire payload anywhere deserializes into it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DaemonCommand {
-    /// Accept or decline an offered provider update.
-    RespondProviderUpdatePrompt,
-}
-
-impl DaemonCommand {
-    /// The whole set, in wire order. Every list of daemon commands derives from
-    /// this constant instead of restating it.
-    pub const ALL: [Self; 1] = [Self::RespondProviderUpdatePrompt];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::RespondProviderUpdatePrompt => "respond_provider_update_prompt",
-        }
-    }
-
-    /// Read a daemon-written command name back. Unknown input is a rejection,
-    /// so this can only ever yield a member of the set above.
-    pub fn parse(raw: &str) -> Option<Self> {
-        let raw = raw.trim();
-        Self::ALL.into_iter().find(|known| known.as_str() == raw)
-    }
-}
-
 /// Anything that may or may not be an offered choice. Implemented by both the
 /// caller-facing and the daemon-facing action type so the choice-set rules are
 /// stated once for both.
@@ -90,21 +63,9 @@ pub trait OfferedChoice {
 }
 
 /// What one notification button does, as the daemon stores and emits it.
-///
-/// `Invoke` is the daemon's alone: it names a [`DaemonCommand`] rather than a
-/// string, and this type has no `Deserialize` impl at all, so no payload on any
-/// transport can produce one. Caller input parses into [`CallerAction`], which
-/// has no invoke variant to begin with.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NotificationAction {
-    /// Calls one allowlisted Tauri command. Daemon-constructed only.
-    Invoke {
-        label: String,
-        command: DaemonCommand,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        args: Option<serde_json::Value>,
-    },
     /// Opens a URL.
     Url { label: String, value: String },
     /// Closes the card and does nothing else.
@@ -112,6 +73,13 @@ pub enum NotificationAction {
     /// One offered choice. The label is its entire payload, so answering can
     /// only ever carry the label back to the tab recorded on the notification.
     Answer { label: String },
+    /// A structured prompt choice resolved against the current prompt on the
+    /// captured asking tab, without routing text through the agent's chat.
+    RespondPromptOption {
+        label: String,
+        value: String,
+        identity: PromptIdentity,
+    },
 }
 
 /// What a CALLER may ask a notification button to do.
@@ -120,9 +88,7 @@ pub enum NotificationAction {
 /// nowhere to put a command name, so a caller-supplied action does not name a
 /// command that some later surface has to refuse - it cannot name one at all.
 /// This is the provenance seam: every transport that accepts an action set
-/// parses into this type, and the only way from here into
-/// [`NotificationAction`] is the total conversion below, which has no `Invoke`
-/// arm to reach.
+/// parses into this type and can name only user-facing actions.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CallerAction {
@@ -152,8 +118,7 @@ impl OfferedChoice for CallerAction {
     }
 }
 
-/// Total, and exhaustive over the caller set: there is no arm that produces
-/// `Invoke`, so no caller-supplied action can become one.
+/// Total, and exhaustive over the caller set.
 impl From<CallerAction> for NotificationAction {
     fn from(action: CallerAction) -> Self {
         match action {
@@ -254,17 +219,17 @@ impl<'de> Deserialize<'de> for CallerAction {
 impl NotificationAction {
     pub fn label(&self) -> &str {
         match self {
-            Self::Invoke { label, .. }
-            | Self::Url { label, .. }
+            Self::Url { label, .. }
             | Self::Dismiss { label }
-            | Self::Answer { label } => label,
+            | Self::Answer { label }
+            | Self::RespondPromptOption { label, .. } => label,
         }
     }
 
     /// The label of an offered choice, and nothing for any other kind.
     pub fn answer_label(&self) -> Option<&str> {
         match self {
-            Self::Answer { label } => Some(label),
+            Self::Answer { label } | Self::RespondPromptOption { label, .. } => Some(label),
             _ => None,
         }
     }
@@ -315,6 +280,8 @@ pub struct AnswerSlot {
     pub asked_from_tab: Option<String>,
     /// The one chosen label. Set once and never overwritten.
     pub answered: Option<String>,
+    #[serde(default)]
+    pub answered_via: Option<String>,
     /// Whether the standing answer reached the asking tab. Recording an answer
     /// and carrying it back are separate facts, so a refused send cannot render
     /// as answered-and-delivered.
@@ -327,6 +294,7 @@ impl AnswerSlot {
         Self {
             asked_from_tab: tab_id.map(str::to_string),
             answered: None,
+            answered_via: None,
             delivered: false,
         }
     }
@@ -402,6 +370,19 @@ impl<'a> NotifyDestination<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn answer_slot_reads_legacy_rows_without_answer_channel() {
+        let slot: AnswerSlot = serde_json::from_value(serde_json::json!({
+            "asked_from_tab": "tab",
+            "answered": "Proceed",
+            "delivered": true
+        }))
+        .unwrap();
+
+        assert_eq!(slot.answered.as_deref(), Some("Proceed"));
+        assert_eq!(slot.answered_via, None);
+    }
 
     #[test]
     fn notify_level_all_is_the_single_source_of_the_set() {

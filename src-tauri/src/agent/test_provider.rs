@@ -4,11 +4,15 @@
 #![cfg(test)]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
+
 use super::provider::{
-    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, ReadinessStrategy,
-    ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
+    usage_sources_from_session_file, AgentLaunchParams, AgentProvider, AgentResumeParams,
+    LaunchArtifactSweepReport, LaunchArtifactSweepRequest, ModelInfo, ProviderReadinessStrategy,
+    ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery, TaskDelivery, UsageSourceSpec,
 };
 
 pub struct MockProvider {
@@ -16,16 +20,35 @@ pub struct MockProvider {
     launch_binary: Option<String>,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
+    models: Vec<ModelInfo>,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
+    directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    directory_trusted_path: Option<String>,
+    directory_trust_state: Option<codeterm_plugin::provider::DirectoryTrustState>,
+    trusted_directory: Option<String>,
+    classified_prompt_auto_response: Option<codeterm_plugin::provider::ClassifiedPromptOptionRole>,
+    tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
+    parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
+    parsed_directory_trust_prompt: Option<codeterm_types::pty::PendingPrompt>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
+    session_reasoning_efforts: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
     empty_launch_command: bool,
     empty_launch_command_when_task_present: bool,
     task_delivery: TaskDelivery,
+    starter_prompt_text: Option<String>,
+    has_hooks: bool,
+    session_starts_on_first_user_turn: bool,
+    provider_readiness_strategy: ProviderReadinessStrategy,
+    launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
+    launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
+    resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
+    paste_limit_bytes: Option<usize>,
+    additional_writable_dir_flag: Option<String>,
 }
 
 impl MockProvider {
@@ -35,17 +58,75 @@ impl MockProvider {
             launch_binary: None,
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
+            models: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
+            directory_trust_response: None,
+            directory_trusted_path: None,
+            directory_trust_state: None,
+            trusted_directory: None,
+            classified_prompt_auto_response: None,
+            tab_state_classification: None,
+            parsed_prompt: None,
+            parsed_directory_trust_prompt: None,
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
+            session_reasoning_efforts: Default::default(),
             usage_source: None,
             empty_launch_command: false,
             empty_launch_command_when_task_present: false,
             task_delivery: TaskDelivery::PtyInput,
+            starter_prompt_text: None,
+            has_hooks: false,
+            session_starts_on_first_user_turn: false,
+            provider_readiness_strategy: ProviderReadinessStrategy::default(),
+            launch_artifact_sweep_log: None,
+            launch_artifact_release_log: None,
+            resume_context_log: None,
+            paste_limit_bytes: None,
+            additional_writable_dir_flag: None,
         }
+    }
+
+    pub fn with_launch_artifact_logs(
+        mut self,
+        sweep_log: Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>,
+        release_log: Arc<Mutex<Vec<(String, String)>>>,
+    ) -> Self {
+        self.launch_artifact_sweep_log = Some(sweep_log);
+        self.launch_artifact_release_log = Some(release_log);
+        self
+    }
+
+    pub fn with_resume_context_log(mut self, log: Arc<Mutex<Vec<AgentResumeParams>>>) -> Self {
+        self.resume_context_log = Some(log);
+        self
+    }
+
+    pub fn with_paste_limit_bytes(mut self, limit: usize) -> Self {
+        self.paste_limit_bytes = Some(limit);
+        self
+    }
+
+    pub fn with_additional_writable_dir_flag(mut self, flag: &str) -> Self {
+        self.additional_writable_dir_flag = Some(flag.to_string());
+        self
+    }
+
+    /// Trusted for exactly this plain path, untrusted for every other spelling.
+    pub fn with_trusted_directory(mut self, path: &str) -> Self {
+        self.trusted_directory = Some(path.to_string());
+        self
+    }
+
+    pub fn with_directory_trust_state(
+        mut self,
+        state: codeterm_plugin::provider::DirectoryTrustState,
+    ) -> Self {
+        self.directory_trust_state = Some(state);
+        self
     }
 
     /// Declares a usage log the provider owns for one session, so a test can drive
@@ -64,6 +145,12 @@ impl MockProvider {
     pub fn with_session_model(mut self, session_id: &str, model: &str) -> Self {
         self.session_models
             .insert(session_id.to_string(), model.to_string());
+        self
+    }
+
+    pub fn with_session_reasoning_effort(mut self, session_id: &str, effort: &str) -> Self {
+        self.session_reasoning_efforts
+            .insert(session_id.to_string(), effort.to_string());
         self
     }
 
@@ -101,6 +188,26 @@ impl MockProvider {
         }
     }
 
+    pub fn with_session_config_delivery(mut self) -> Self {
+        self.system_prompt_delivery = SystemPromptDelivery::SessionConfig;
+        self
+    }
+
+    pub fn with_task_delivery(mut self, task_delivery: TaskDelivery) -> Self {
+        self.task_delivery = task_delivery;
+        self
+    }
+
+    pub fn with_starter_prompt_text(mut self, text: &str) -> Self {
+        self.starter_prompt_text = Some(text.to_string());
+        self
+    }
+
+    pub fn with_hooks(mut self) -> Self {
+        self.has_hooks = true;
+        self
+    }
+
     /// Fixture with declared reasoning-effort levels and a scriptable launch flag.
     pub fn with_reasoning_efforts(id: &str, levels: &[&str]) -> Self {
         Self {
@@ -116,11 +223,81 @@ impl MockProvider {
         }
     }
 
+    pub fn with_model_reasoning_efforts(id: &str, model: &str, levels: &[&str]) -> Self {
+        let mut provider = Self::with_reasoning_efforts(id, &["low", "medium", "high", "xhigh"]);
+        provider.models = vec![ModelInfo {
+            default_reasoning_effort: None,
+            id: model.to_string(),
+            display_name: model.to_string(),
+            reasoning_efforts: Some(
+                levels
+                    .iter()
+                    .map(|level| ReasoningEffortInfo {
+                        id: (*level).to_string(),
+                        display_name: (*level).to_string(),
+                        description: None,
+                    })
+                    .collect(),
+            ),
+            ..ModelInfo::default()
+        }];
+        provider
+    }
+
+    pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
+        self.models.extend(models);
+        self
+    }
+
     pub fn with_update_command(id: &str, command: &str) -> Self {
         Self {
             update_command: Some(command.to_string()),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_directory_trust_response(
+        id: &str,
+        response: codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    ) -> Self {
+        Self {
+            directory_trust_response: Some(response),
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_directory_trusted_path(mut self, path: &str) -> Self {
+        self.directory_trusted_path = Some(path.to_string());
+        self
+    }
+
+    pub fn with_tab_state(
+        mut self,
+        classification: codeterm_plugin::tab_state::TabStateClassification,
+    ) -> Self {
+        self.tab_state_classification = Some(classification);
+        self
+    }
+
+    pub fn with_parsed_prompt(mut self, prompt: codeterm_types::pty::PendingPrompt) -> Self {
+        self.parsed_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_classified_prompt_auto_response(
+        mut self,
+        role: codeterm_plugin::provider::ClassifiedPromptOptionRole,
+    ) -> Self {
+        self.classified_prompt_auto_response = Some(role);
+        self
+    }
+
+    pub fn with_directory_trust_prompt(
+        mut self,
+        prompt: codeterm_types::pty::PendingPrompt,
+    ) -> Self {
+        self.parsed_directory_trust_prompt = Some(prompt);
+        self
     }
 
     pub fn with_empty_launch_command(id: &str) -> Self {
@@ -150,9 +327,27 @@ impl MockProvider {
             ..Self::new(id)
         }
     }
+
+    pub fn with_session_starts_on_first_user_turn(mut self) -> Self {
+        self.session_starts_on_first_user_turn = true;
+        self
+    }
+
+    pub fn with_provider_readiness_strategy(mut self, strategy: ProviderReadinessStrategy) -> Self {
+        self.provider_readiness_strategy = strategy;
+        self
+    }
 }
 
 impl AgentProvider for MockProvider {
+    fn additional_writable_dir_flag(&self) -> Option<String> {
+        self.additional_writable_dir_flag.clone()
+    }
+
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        self.paste_limit_bytes
+    }
+
     fn id(&self) -> &str {
         &self.id
     }
@@ -181,6 +376,28 @@ impl AgentProvider for MockProvider {
         }
         cmd
     }
+    fn release_tab_launch_artifacts(
+        &self,
+        tab_id: &str,
+        instance_id: &str,
+    ) -> Result<bool, String> {
+        if let Some(log) = &self.launch_artifact_release_log {
+            log.lock()
+                .push((tab_id.to_string(), instance_id.to_string()));
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    fn sweep_launch_artifacts(
+        &self,
+        request: &LaunchArtifactSweepRequest,
+    ) -> Result<Option<LaunchArtifactSweepReport>, String> {
+        let Some(log) = &self.launch_artifact_sweep_log else {
+            return Ok(None);
+        };
+        log.lock().push(request.clone());
+        Ok(Some(LaunchArtifactSweepReport::default()))
+    }
     fn readiness_strategy(&self) -> ReadinessStrategy {
         ReadinessStrategy::FixedDelay {
             duration: Duration::from_millis(0),
@@ -195,6 +412,9 @@ impl AgentProvider for MockProvider {
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
         self.reasoning_efforts.clone()
     }
+    fn available_models(&self) -> Vec<ModelInfo> {
+        self.models.clone()
+    }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {
             return Vec::new();
@@ -203,6 +423,21 @@ impl AgentProvider for MockProvider {
     }
     fn task_delivery(&self) -> TaskDelivery {
         self.task_delivery.clone()
+    }
+    fn starter_prompt_text(
+        &self,
+        _prompt: crate::agent::provider::StarterPrompt,
+    ) -> Option<String> {
+        self.starter_prompt_text.clone()
+    }
+    fn has_hooks(&self) -> bool {
+        self.has_hooks
+    }
+    fn session_starts_on_first_user_turn(&self) -> bool {
+        self.session_starts_on_first_user_turn
+    }
+    fn provider_readiness_strategy(&self) -> ProviderReadinessStrategy {
+        self.provider_readiness_strategy.clone()
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()
@@ -228,11 +463,24 @@ impl AgentProvider for MockProvider {
     fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_models.get(session_id).cloned()
     }
+    fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        self.session_reasoning_efforts.get(session_id).cloned()
+    }
     fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
         self.sessions.contains(session_id)
     }
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))
+    }
+    fn build_resume_command_with_context(&self, params: &AgentResumeParams) -> Option<String> {
+        if let Some(log) = &self.resume_context_log {
+            log.lock().push(params.clone());
+        }
+        let base = self.build_resume_command(&params.session_id, params.skip_permissions)?;
+        Some(codeterm_plugin::provider::append_launch_args(
+            base,
+            &params.args,
+        ))
     }
     fn detect_session_id(
         &self,
@@ -241,5 +489,64 @@ impl AgentProvider for MockProvider {
         _max_age: Option<Duration>,
     ) -> Option<String> {
         None
+    }
+    fn directory_trust_prompt_response(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_plugin::provider::DirectoryTrustPromptResponse> {
+        self.directory_trust_response.clone()
+    }
+    fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
+        Ok(self.directory_trusted_path.as_deref() == Some(path))
+    }
+
+    fn directory_trust_state(
+        &self,
+        path: &str,
+        _skip_permissions: bool,
+    ) -> Option<codeterm_plugin::provider::DirectoryTrustState> {
+        if let Some(trusted) = &self.trusted_directory {
+            return Some(if path == trusted {
+                codeterm_plugin::provider::DirectoryTrustState::Trusted
+            } else {
+                codeterm_plugin::provider::DirectoryTrustState::Untrusted
+            });
+        }
+        self.directory_trust_state
+    }
+    fn classify_tab_state(
+        &self,
+        _snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+    ) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
+        self.tab_state_classification.clone()
+    }
+    fn supports_classified_prompt_auto_response(&self) -> bool {
+        self.classified_prompt_auto_response.is_some()
+    }
+    fn classified_prompt_auto_response(
+        &self,
+        state: codeterm_plugin::tab_state::TabState,
+        _screen: &str,
+    ) -> Option<codeterm_plugin::provider::ClassifiedPromptOptionRole> {
+        (state == codeterm_plugin::tab_state::TabState::UpdatePrompt)
+            .then_some(self.classified_prompt_auto_response)
+            .flatten()
+    }
+    fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
+        self.parsed_prompt.clone()
+    }
+    fn parse_directory_trust_prompt(
+        &self,
+        _screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        self.parsed_directory_trust_prompt.clone().or_else(|| {
+            self.directory_trust_response
+                .as_ref()
+                .and_then(|_| self.parsed_prompt.clone())
+        })
+    }
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
+        self.parsed_directory_trust_prompt.is_some()
+            || (self.directory_trust_response.is_some() && self.parsed_prompt.is_some())
     }
 }

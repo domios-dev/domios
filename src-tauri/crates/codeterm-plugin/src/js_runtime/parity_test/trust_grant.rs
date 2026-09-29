@@ -36,6 +36,7 @@ fn trust_grant_js_fixture(id: &str, manifest_json: &str, plugin_js: &str) -> JsP
 #[derive(Default)]
 struct TrustGrantNativeStub {
     granted_calls: Mutex<Vec<Vec<String>>>,
+    failure: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -85,6 +86,9 @@ impl AgentProvider for TrustGrantNativeStub {
     fn grant_integration_trust(&self, managed_keys: &[String]) -> serde_json::Value {
         let mut calls = self.granted_calls.lock().unwrap();
         calls.push(managed_keys.to_vec());
+        if let Some(reason) = &self.failure {
+            return serde_json::json!({ "granted": false, "reason": reason });
+        }
         serde_json::json!({ "granted": true, "calls": calls.len(), "keys": managed_keys })
     }
 }
@@ -157,6 +161,34 @@ fn integration_trust_grant_invoked_once_per_install_with_managed_keys() {
         .expect("install must succeed")
         .expect("declared capability must be invoked");
     assert_eq!(native_second["calls"], 2);
+}
+
+#[test]
+fn a_failed_provider_trust_grant_fails_the_install_for_js_and_native() {
+    let reason = "Codex app-server could not confirm hook trust";
+    let plugin_js = format!(
+        r#"
+        module.exports.default = {{
+            installIntegration() {{ return {{ ok: true }}; }},
+            grantIntegrationTrust() {{ return {{ granted: false, reason: {reason:?} }}; }}
+        }};
+    "#
+    );
+    let js = trust_grant_js_fixture("trust-grant-js-fixture", DECLARING_MANIFEST, &plugin_js);
+    let native = TrustGrantNativeStub {
+        failure: Some(reason.into()),
+        ..Default::default()
+    };
+
+    let providers: [&dyn AgentProvider; 2] = [&js, &native];
+    for provider in providers {
+        let error = install_integration_with_trust_grant(provider, 7686, &install_options())
+            .expect_err("unconfirmed trust must fail integration install");
+        assert!(
+            error.contains(reason),
+            "the grant failure reason must reach the owner: {error}"
+        );
+    }
 }
 
 #[test]

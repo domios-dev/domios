@@ -70,14 +70,6 @@ export const CALLER_SUPPLIED_INVOKE = {
   args: { id: "notice-1" },
 };
 
-/** The one action the daemon actually constructs today. */
-export const DAEMON_INVOKE = {
-  type: "invoke",
-  label: "Update",
-  command: "respond_provider_update_prompt",
-  args: { promptId: "prompt-1", accept: true },
-};
-
 export const NON_INVOKE_KINDS = [
   { type: "url", label: "Docs", value: "https://example.invalid" },
   { type: "dismiss", label: "Later" },

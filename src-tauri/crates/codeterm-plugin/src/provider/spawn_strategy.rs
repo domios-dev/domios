@@ -7,6 +7,56 @@ use serde::{Deserialize, Serialize};
 
 use super::StructuredPromptServer;
 
+/// Provider-declared differences between a sent payload and its stored user turn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct TurnEvidenceNormalization {
+    pub unwrap_pasted_content_wrapper: bool,
+    pub collapse_horizontal_whitespace: bool,
+    pub drop_supplementary_characters: bool,
+}
+
+impl TurnEvidenceNormalization {
+    pub fn normalize(self, text: &str) -> String {
+        let text = text.trim();
+        let text = if self.unwrap_pasted_content_wrapper {
+            unwrap_pasted_content_wrapper(text).unwrap_or(text)
+        } else {
+            text
+        };
+        let mut normalized = String::with_capacity(text.len());
+        let mut horizontal_whitespace = false;
+        for character in text.chars() {
+            if self.drop_supplementary_characters && character as u32 > 0xFFFF {
+                continue;
+            }
+            if self.collapse_horizontal_whitespace && matches!(character, ' ' | '\t') {
+                if !horizontal_whitespace {
+                    normalized.push(' ');
+                }
+                horizontal_whitespace = true;
+            } else {
+                normalized.push(character);
+                horizontal_whitespace = false;
+            }
+        }
+        normalized.trim().to_string()
+    }
+}
+
+fn unwrap_pasted_content_wrapper(text: &str) -> Option<&str> {
+    let (opening, content) = text.split_once('\n')?;
+    let opening = opening.trim_end_matches('\r');
+    let id = opening
+        .strip_prefix("<pasted_content id=\"")?
+        .strip_suffix("\">")?;
+    if id.is_empty() {
+        return None;
+    }
+    let closing = format!("</pasted_content id=\"{id}\">");
+    content.strip_suffix(&closing).map(str::trim)
+}
+
 /// How to wait for agent readiness after PTY spawn.
 #[derive(Debug, Clone)]
 pub enum ReadinessStrategy {
@@ -18,6 +68,16 @@ pub enum ReadinessStrategy {
 pub enum ProviderReadinessStrategy {
     TuiFrame { timeout: Duration },
     StructuralComposer { timeout: Duration },
+}
+
+/// Terminal cursor placement accepted as composer evidence for a lazy session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposerCursorPosition {
+    #[default]
+    BottomRegion,
+    /// Visible cursor on the provider's alternate-screen TUI may be centered.
+    VisibleAnywhere,
 }
 
 impl Default for ProviderReadinessStrategy {
@@ -43,14 +103,16 @@ impl ProviderReadinessStrategy {
 /// How to confirm that text submitted to a launched provider was actually
 /// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
 /// real receiver-side observation rather than an optimistic write.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifySubmitStrategy {
     /// Wait for a new shell prompt to appear (default for plain shells and
     /// providers that pipe through the shell unchanged).
     ShellPrompt { timeout: Duration },
-    /// Submit through an interactive TUI. The PTY boundary waits for a
-    /// rendered draft before Enter, then observes the provider turn.
-    TuiInputDrained { initial_key_delay: Duration },
+    /// Submit through an interactive TUI with bounded provider-declared timing.
+    TuiInputDrained {
+        initial_key_delay: Duration,
+        retry_offsets: [Duration; 6],
+    },
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
@@ -59,11 +121,29 @@ pub enum VerifySubmitStrategy {
 impl VerifySubmitStrategy {
     pub fn initial_key_delay(&self) -> Duration {
         match self {
-            Self::TuiInputDrained { initial_key_delay } => *initial_key_delay,
+            Self::TuiInputDrained {
+                initial_key_delay, ..
+            } => *initial_key_delay,
             Self::ShellPrompt { .. } | Self::None => Duration::ZERO,
         }
     }
+
+    pub fn retry_offsets(&self) -> [Duration; 6] {
+        match self {
+            Self::TuiInputDrained { retry_offsets, .. } => *retry_offsets,
+            Self::ShellPrompt { .. } | Self::None => DEFAULT_SUBMIT_RETRY_OFFSETS,
+        }
+    }
 }
+
+pub const DEFAULT_SUBMIT_RETRY_OFFSETS: [Duration; 6] = [
+    Duration::from_millis(200),
+    Duration::from_millis(500),
+    Duration::from_millis(900),
+    Duration::from_millis(1500),
+    Duration::from_millis(2200),
+    Duration::from_millis(3000),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BusySubmitStrategy {
@@ -135,16 +215,38 @@ pub struct AgentLaunchParams {
     /// gap — the host allocates the port instead of the caller hand-passing args.
     pub structured_prompt_server: Option<StructuredPromptServer>,
     pub launch_marker: Option<String>,
+    pub instance_id: Option<String>,
 }
 
-/// Everything a resumed session needs beyond its id. `system_prompt` is the
-/// composed launch prompt, present only when the host has one to re-apply.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchArtifactSweepRequest {
+    pub instance_id: String,
+    pub live_tab_ids: Vec<String>,
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default)]
+    pub include_legacy: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchArtifactSweepReport {
+    pub dead: Vec<String>,
+    pub legacy: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+/// Launch context passed to a provider when a session resumes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
     pub session_id: String,
     pub skip_permissions: bool,
+    pub agent_name: Option<String>,
     pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub instance_id: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
 }

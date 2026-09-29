@@ -70,6 +70,14 @@ function resolveCliSource(env = process.env, root = repoRoot, binary = binName) 
   return path.join(resolveCliReleaseDir(env, root), binary);
 }
 
+function clearStaleBundledCli(destDir) {
+  for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (entry.isFile() && /^codeterm(?:-[^.]+)?(?:\.exe)?$/.test(entry.name)) {
+      fs.rmSync(path.join(destDir, entry.name));
+    }
+  }
+}
+
 function bundleCli() {
   const src = resolveCliSource();
   const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
@@ -81,6 +89,8 @@ function bundleCli() {
     console.error(`CLI binary not found: ${src}`);
     process.exit(1);
   }
+
+  clearStaleBundledCli(destDir);
 
   assertTargetArchitecture(src);
   fs.copyFileSync(src, dest);
@@ -120,6 +130,7 @@ if (require.main === module) {
     resolveCliReleaseDir,
     resolveCliSource,
     bundledCliName,
+    clearStaleBundledCli,
     hostWindowsTarget,
     peMachineForTarget,
     assertTargetArchitecture,

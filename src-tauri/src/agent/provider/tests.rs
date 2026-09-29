@@ -34,6 +34,7 @@ fn provider_descriptor_round_trip() {
             icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),
             icon_color: Some("#abcdef".into()),
             available_models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "model-1".into(),
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
@@ -42,7 +43,9 @@ fn provider_descriptor_round_trip() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
+            model_catalogue: ModelCatalogueCapability::default(),
             model_groups: Vec::new(),
             default_model: Some("model-1".into()),
             reasoning_efforts: vec![ReasoningEffortInfo {
@@ -112,11 +115,6 @@ fn provider_descriptor_round_trip() {
             model_switch_format: Some("/model {model}".into()),
             fresh_context_command: Some("/new".into()),
             compact_command: Some("/compact".into()),
-            self_update: Some(ProviderSelfUpdateCapability {
-                in_session: true,
-                restart_required: true,
-                completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
-            }),
             integration_trust_grant: Some(IntegrationTrustGrantCapability {
                 managed_keys: vec!["session_start".into()],
             }),
@@ -125,6 +123,7 @@ fn provider_descriptor_round_trip() {
             supports_structured_prompts: true,
             supports_permission_auto_confirm: true,
             supports_watcher: false,
+            paste_limit_bytes: Some(4096),
             trust: ProviderTrust::System,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
@@ -141,93 +140,6 @@ fn provider_descriptor_round_trip() {
     let json = serde_json::to_string(&original).expect("serialize");
     let decoded: ProviderDescriptor = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(original, decoded, "round-trip must be lossless");
-}
-
-struct NativeProviderUpdateFixture;
-
-#[async_trait::async_trait]
-impl AgentProvider for NativeProviderUpdateFixture {
-    fn id(&self) -> &str {
-        "provider-update-fixture"
-    }
-
-    fn display_name(&self) -> &str {
-        "Provider Update Fixture"
-    }
-
-    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-        String::new()
-    }
-
-    fn readiness_strategy(&self) -> ReadinessStrategy {
-        ReadinessStrategy::FixedDelay {
-            duration: std::time::Duration::ZERO,
-        }
-    }
-
-    fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::PtyInput
-    }
-
-    fn detect_from_title(&self, _: &str) -> bool {
-        false
-    }
-
-    fn detect_from_output(&self, _: &str) -> bool {
-        false
-    }
-
-    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-        None
-    }
-
-    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
-        None
-    }
-
-    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
-        None
-    }
-
-    fn provider_self_update_capability(&self) -> Option<ProviderSelfUpdateCapability> {
-        Some(ProviderSelfUpdateCapability {
-            in_session: true,
-            restart_required: true,
-            completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
-        })
-    }
-}
-
-#[test]
-fn provider_update_policy_has_native_js_capability_parity() {
-    use std::sync::Arc;
-
-    let manifest_json = r#"{
-        "id":"provider-update-fixture",
-        "version":"0.1.0",
-        "displayName":"Provider Update Fixture",
-        "spawn":{
-            "readinessStrategy":{"kind":"fixed_delay","durationMs":0},
-            "taskDelivery":"pty_input",
-            "verifySubmit":{"kind":"none"}
-        }
-    }"#;
-    let manifest: codeterm_plugin::js_runtime::PluginManifest =
-        serde_json::from_str(manifest_json).expect("manifest parses");
-    let vm = codeterm_plugin::js_runtime::PluginVm::from_source_with(
-        "provider-update-fixture",
-        "module.exports.default = { providerSelfUpdateCapability() { return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' }; } };".to_string(),
-        Some(manifest_json.to_string()),
-    )
-    .expect("fixture vm");
-    let js = codeterm_plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
-    let native = NativeProviderUpdateFixture;
-
-    assert_eq!(
-        js.provider_self_update_capability(),
-        native.provider_self_update_capability()
-    );
-    assert_eq!(js.describe().self_update, native.describe().self_update);
 }
 
 #[test]
@@ -260,6 +172,9 @@ impl AgentProvider for StubProvider {
     fn display_name(&self) -> &str {
         "Stub"
     }
+    fn paste_limit_bytes(&self) -> Option<usize> {
+        Some(4096)
+    }
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         String::new()
     }
@@ -289,6 +204,7 @@ impl AgentProvider for StubProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "offered".into(),
                 display_name: "Offered".into(),
                 description: None,
@@ -297,8 +213,10 @@ impl AgentProvider for StubProvider {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "unsupported".into(),
                 display_name: "Unsupported".into(),
                 description: None,
@@ -307,9 +225,16 @@ impl AgentProvider for StubProvider {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
         ]
     }
+}
+
+#[test]
+fn native_provider_paste_limit_is_exposed_in_descriptor() {
+    assert_eq!(StubProvider.paste_limit_bytes(), Some(4096));
+    assert_eq!(StubProvider.describe().paste_limit_bytes, Some(4096));
 }
 
 /// `describe()` is contractually I/O-free and runs under the registry read

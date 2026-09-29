@@ -21,6 +21,151 @@ use crate::service::notification::{
 use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use codeterm_types::notification::NotifyDestination;
 
+#[test]
+fn hook_binding_fallback_is_reported_once_until_a_hook_binding_succeeds() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    assert!(update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    ));
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    ));
+    assert_eq!(
+        fallbacks
+            .get("provider-alpha")
+            .and_then(|sessions| sessions.get("session-a"))
+            .map(|fallback| fallback.source),
+        Some(BindingSource::LaunchMarker),
+    );
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        false,
+    ));
+    assert!(fallbacks
+        .get("provider-alpha")
+        .is_some_and(|sessions| sessions.contains_key("session-a")));
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        true,
+    ));
+    assert!(!fallbacks.contains_key("provider-alpha"));
+}
+
+#[test]
+fn session_start_fallback_retry_is_available_once_per_pending_fallback() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    assert!(!reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+    settle_hook_binding_fallback_retry(&mut fallbacks, "provider-alpha", "session-a", true);
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    assert!(!reserve_hook_binding_fallback_retry_from(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+    ));
+}
+
+#[test]
+fn binding_fallback_field_survives_non_binding_hooks() {
+    let mut fallbacks = HookBindingFallbacks::new();
+    update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::LaunchMarker,
+        false,
+    );
+    let live_session_ids = vec!["session-a".to_string()];
+    let status_for = |fallbacks: &HookBindingFallbacks, session_ids: &[String]| {
+        integration_status_with_fallback_source(
+            json!({ "session_start_hook": true }),
+            true,
+            hook_binding_fallback_source_from(fallbacks, "provider-alpha", session_ids),
+        )
+    };
+    assert_eq!(
+        status_for(&fallbacks, &live_session_ids)["codeterm_binding_fallback_source"],
+        "launch_marker"
+    );
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        false,
+    ));
+    assert_eq!(
+        status_for(&fallbacks, &live_session_ids)["codeterm_binding_fallback_source"],
+        "launch_marker"
+    );
+    assert!(status_for(&fallbacks, &["session-b".to_string()])
+        .get("codeterm_binding_fallback_source")
+        .is_none());
+    assert!(!update_hook_binding_fallback(
+        &mut fallbacks,
+        "provider-alpha",
+        "session-a",
+        BindingSource::Hook,
+        true,
+    ));
+    assert!(status_for(&fallbacks, &live_session_ids)
+        .get("codeterm_binding_fallback_source")
+        .is_none());
+}
+
+#[test]
+fn codex_integration_status_reports_trust_verification_source() {
+    let status = integration_status_with_fallback_source(
+        json!({
+            "hook_trust_verification_source": "hash_verified",
+            "hook_trust_verified_current": true,
+            "proposed_changes": ["SessionStart hook", "Stop hook"],
+        }),
+        false,
+        None,
+    );
+    assert_eq!(status["hook_trust_verification_source"], "hash_verified");
+    assert_eq!(status["hook_trust_verified_current"], true);
+    assert!(!status["proposed_changes"]
+        .as_array()
+        .is_some_and(|changes| changes.iter().any(|change| change == "hook trust")));
+}
+
 /// A provider that is neither claude nor codex, so nothing the mechanism does
 /// can be keyed on a shipped provider id.
 struct FixtureProvider {
@@ -653,6 +798,13 @@ fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
         )),
         ReconcileAuthorization::AlreadyCurrent
     );
+    assert_eq!(
+        authorize_reconciliation(&facts(
+            json!({ "hooks_installed": true, "hook_contract_current": true }),
+            false
+        )),
+        ReconcileAuthorization::ConsentMissing
+    );
     // A provider that publishes no contract field is current when installed.
     assert_eq!(
         authorize_reconciliation(&facts(json!({ "hooks_installed": true }), true)),
@@ -691,4 +843,16 @@ fn reconciliation_is_authorized_only_by_consent_and_the_install_report() {
         authorize_reconciliation(&facts(json!({ "something_else": 1 }), true)),
         ReconcileAuthorization::Unreadable
     );
+}
+
+#[test]
+fn integration_ownership_is_read_from_provider_report_fields() {
+    assert!(read_integration_owned(
+        &json!({ "integration_owned": true })
+    ));
+    assert!(read_integration_owned(&json!({ "hooks_owned": true })));
+    assert!(read_integration_owned(
+        &json!({ "plugin_file_owned": true })
+    ));
+    assert!(!read_integration_owned(&json!({ "hooks_installed": true })));
 }

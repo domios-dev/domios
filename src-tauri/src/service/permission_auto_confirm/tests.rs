@@ -66,6 +66,34 @@ fn precheck_accepts_a_fresh_request_on_a_bound_session() {
 }
 
 #[test]
+fn permission_auto_confirm_refuses_the_update_dialog() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+    );
+    let screen = std::fs::read_to_string(fixture).expect("Codex update fixture");
+    let update = codeterm_plugin::tab_state::TabStateClassification {
+        state: codeterm_plugin::tab_state::TabState::UpdatePrompt,
+        confidence: crate::agent::state_reactor::GLOBAL_THRESHOLD,
+        data: None,
+        action: None,
+    };
+    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+        tab_id: "update-tab".into(),
+        agent_type: "codex".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen,
+    };
+    let provider = crate::agent::test_provider::MockProvider::new("codex").with_tab_state(update);
+    let classification =
+        crate::agent::provider::AgentProvider::classify_tab_state(&provider, &snapshot);
+    assert_eq!(
+        manual_update_prompt_verdict(classification.as_ref()),
+        Some(Verdict::Refused(Refusal::NotRecognized))
+    );
+}
+
+#[test]
 fn precheck_refuses_every_missing_binding() {
     let now = Instant::now();
     let cases: Vec<(TabFacts, Refusal)> = vec![

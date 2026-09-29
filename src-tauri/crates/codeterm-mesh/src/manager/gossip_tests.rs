@@ -147,14 +147,23 @@ fn unpair_tombstone_survives_restart_and_rejects_stale_gossip() {
         ("100.64.1.9".into(), 7685, re_pair_id.into()),
     );
     restarted.tombstone_peer(re_pair_id);
+    assert!(
+        restarted
+            .validate_pairing_accept_identity("re-pair", re_pair_id)
+            .is_err(),
+        "a tombstoned identity re-pairs only after an explicit owner unrevoke"
+    );
+    restarted.unrevoke(re_pair_id).unwrap();
     assert!(restarted
         .validate_pairing_accept_identity("re-pair", re_pair_id)
         .is_ok());
     restarted.complete_explicit_pairing(paired_peer(re_pair_id));
     assert!(restarted.client_for(re_pair_id).is_some());
 
-    restarted.complete_explicit_pairing(paired_peer("old-id"));
-    assert!(restarted.client_for("old-id").is_some());
+    assert!(
+        restarted.client_for("old-id").is_none(),
+        "an identity nobody unrevoked stays tombstoned"
+    );
 }
 
 #[test]

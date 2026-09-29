@@ -21,19 +21,25 @@ case "${1:-all}" in
       plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
       plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-codex/tests/models.test.ts
       plugins/provider-codex/tests/directory-trust-frames.test.ts
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/app-server-0.157.1.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
+      plugins/provider-codex/tests/transcript-dedupe.test.ts
+      plugins/provider-codex/tests/tool-fields.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
+      plugins/provider-codex/tests/update-check.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
@@ -68,10 +74,12 @@ case "${1:-all}" in
   provider-codex)
     tests=(
       plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-codex/tests/models.test.ts
       plugins/provider-codex/tests/directory-trust-frames.test.ts
       plugins/provider-codex/tests/activity.test.ts
       plugins/provider-codex/tests/rich-results.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/app-server-0.157.1.test.ts
       plugins/provider-codex/tests/hook-ownership.test.ts
       plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
@@ -79,8 +87,10 @@ case "${1:-all}" in
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
+      plugins/provider-codex/tests/update-check.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-codex/tests/windows-launch.test.ts
+      plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
     )

@@ -6,6 +6,8 @@ use std::time::Duration;
 
 #[path = "spawn_tests/launch_command.rs"]
 mod launch_command;
+#[path = "spawn_tests/model_catalogue.rs"]
+mod model_catalogue;
 #[path = "spawn_tests/task_ack.rs"]
 mod task_ack;
 
@@ -236,6 +238,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     }
 }
 
@@ -243,6 +246,7 @@ pub struct ModelProvider {
     id: &'static str,
     models: Vec<crate::agent::provider::ModelInfo>,
     default_model: Option<String>,
+    model_catalogue: crate::agent::provider::ModelCatalogueCapability,
     cli_binary: Option<&'static str>,
     install_command: Option<&'static str>,
 }
@@ -254,6 +258,7 @@ impl ModelProvider {
             models: model_ids
                 .iter()
                 .map(|id| crate::agent::provider::ModelInfo {
+                    default_reasoning_effort: None,
                     id: (*id).into(),
                     display_name: (*id).into(),
                     description: None,
@@ -262,9 +267,11 @@ impl ModelProvider {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
+            model_catalogue: Default::default(),
             cli_binary: None,
             install_command: None,
         }
@@ -273,6 +280,14 @@ impl ModelProvider {
     pub fn with_cli(mut self, binary: &'static str, install_command: &'static str) -> Self {
         self.cli_binary = Some(binary);
         self.install_command = Some(install_command);
+        self
+    }
+
+    pub fn with_model_catalogue(
+        mut self,
+        capability: crate::agent::provider::ModelCatalogueCapability,
+    ) -> Self {
+        self.model_catalogue = capability;
         self
     }
 }
@@ -328,6 +343,10 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
         self.models.clone()
     }
 
+    fn model_catalogue_capability(&self) -> crate::agent::provider::ModelCatalogueCapability {
+        self.model_catalogue
+    }
+
     fn default_model(&self) -> Option<String> {
         self.default_model.clone()
     }
@@ -364,51 +383,6 @@ fn default_visibility_is_visible() {
 fn default_command_is_shell() {
     let spec = SpawnTabSpec::default();
     assert!(matches!(spec.command, TabCommand::Shell));
-}
-
-#[test]
-fn validate_agent_model_accepts_advertised_id() {
-    let registry = registry_with(ModelProvider::new(
-        "opencode",
-        &["anthropic/claude-sonnet-4-6", "opencode/big-pickle"],
-    ));
-
-    assert!(validate_agent_model(&registry, "opencode", Some("opencode/big-pickle")).is_ok());
-    assert!(
-        validate_agent_model(&registry, "opencode", Some("anthropic/claude-sonnet-4-6")).is_ok()
-    );
-}
-
-#[test]
-fn validate_agent_model_allows_bogus_id_for_default_fallback() {
-    let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
-
-    assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
-}
-
-#[test]
-fn validate_agent_model_accepts_claude_alias() {
-    let registry = crate::agent::registry::AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-
-    assert!(validate_agent_model(&registry, "claude", Some("opus")).is_ok());
-}
-
-#[test]
-fn validate_agent_model_allows_unique_prefixed_suffix_for_default_fallback() {
-    let registry = registry_with(ModelProvider::new(
-        "opencode",
-        &["opencode/big-pickle", "opencode/ring-2.6-1t"],
-    ));
-
-    assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
-}
-
-#[test]
-fn validate_agent_model_passes_through_non_enumerable_provider() {
-    let registry = registry_with(ModelProvider::new("dynamic", &[]));
-
-    assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
 }
 
 #[test]
@@ -530,6 +504,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
     let registry = registry_with(ModelProvider {
         id: "model-test-display",
         models: vec![crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "gpt-5.5".into(),
             display_name: "GPT-5.5".into(),
             description: None,
@@ -538,8 +513,10 @@ fn fresh_agent_model_canonicalizes_display_name() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         default_model: Some("gpt-5.5".into()),
+        model_catalogue: Default::default(),
         cli_binary: None,
         install_command: None,
     });
@@ -557,7 +534,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
 }
 
 #[test]
-fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
+fn fresh_agent_model_preserves_free_form_unknown_request() {
     let registry = registry_with(ModelProvider::new(
         "model-test-stale",
         &["model-a", "model-b"],
@@ -566,12 +543,12 @@ fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
     assert_eq!(
         resolve_fresh_agent_model(&registry, "model-test-stale", Some("stale".into()), None)
             .as_deref(),
-        Some("model-a")
+        Some("stale")
     );
 }
 
 #[test]
-fn fresh_agent_model_reports_fallback_notice() {
+fn fresh_agent_model_does_not_report_a_free_form_fallback() {
     let registry = registry_with(ModelProvider::new(
         "model-test-fallback-notice",
         &["model-a", "model-b"],
@@ -585,22 +562,10 @@ fn fresh_agent_model_reports_fallback_notice() {
     );
     attach_planned_model(&mut resolved, Some("codex/model-planned"));
 
-    assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(resolved.model.as_deref(), Some("stale"));
     assert_eq!(resolved.requested_model.as_deref(), Some("stale"));
-    assert_eq!(
-        resolved.fallback_notice,
-        Some(ModelFallbackNotice {
-            planned_model: Some("codex/model-planned".into()),
-            requested_model: "stale".into(),
-            provider_resolved_model: "model-a".into(),
-            actual_model: None,
-            reason: "requested_model_unavailable".into(),
-        })
-    );
-    assert_eq!(
-        model_fallback_notice_title(&resolved.fallback_notice.unwrap()),
-        "model stale unavailable -> using model-a"
-    );
+    assert!(resolved.fallback_notice.is_none());
+    assert!(resolved.warning.is_none());
 }
 
 #[test]
@@ -612,6 +577,7 @@ fn background_model_ignores_a_model_from_another_provider() {
         provider_id,
         crate::agent::model_catalog::RegisteredDefaults {
             models: vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "model-a".into(),
                 display_name: "Model A".into(),
                 description: None,
@@ -620,6 +586,7 @@ fn background_model_ignores_a_model_from_another_provider() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("model-a".into()),
         },
@@ -648,6 +615,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
 
     fn model(id: &str) -> ModelInfo {
         ModelInfo {
+            default_reasoning_effort: None,
             id: id.into(),
             display_name: id.into(),
             description: None,
@@ -656,6 +624,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }
     }
 
@@ -827,6 +796,7 @@ fn from_agent_params_carries_model_into_spec() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(params);
     assert_eq!(spec.description.as_deref(), Some("triage failing snapshot"));
@@ -980,6 +950,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(p.clone());
     match spec.command {
@@ -1049,6 +1020,7 @@ fn from_agent_params_carries_activate_into_spec() {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
     let spec = SpawnTabSpec::from_agent_params(p.clone());
     match spec.command {

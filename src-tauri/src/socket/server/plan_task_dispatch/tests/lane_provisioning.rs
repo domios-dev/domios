@@ -131,6 +131,7 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
                 .expect("fixture task")
                 .execution_attempts
                 .push(TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "attempt-preserved".into(),
                     executor_tab_id: "tab-worker".into(),
                     branch: Some(first.branch.clone()),
@@ -459,6 +460,7 @@ fn vanished_recorded_lane_is_cleared_and_a_fresh_lane_is_provisioned() {
                 .expect("fixture task")
                 .execution_attempts
                 .push(TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "old-attempt".into(),
                     executor_tab_id: "old-tab".into(),
                     branch: Some(old.branch.clone()),
@@ -726,6 +728,11 @@ fn assert_payloads_agree(provenance: &WorkerLaneProvenance, project: &Path) {
         provenance,
         &canonical_project_path,
         &TaskLaneMetadata::default(),
+    );
+    assert_eq!(
+        response["destination"].as_str(),
+        provenance.destination.as_deref(),
+        "the dispatch response reports the destination the lane persists"
     );
     let event = dispatch_ready_event(
         "pl_test",

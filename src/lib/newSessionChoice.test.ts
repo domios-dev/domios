@@ -4,10 +4,12 @@ import { Window } from "happy-dom";
 import {
   NEW_SESSION_CHOICE_STORAGE_KEY,
   defaultNewSessionChoice,
+  resolveEffort,
+  reasoningEffortsForModel,
   readPersistedNewSessionChoice,
   writePersistedNewSessionChoice,
 } from "./newSessionChoice";
-import type { ProviderDescriptor } from "./types";
+import type { ModelInfo, ProviderDescriptor } from "./types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -24,7 +26,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "localStorage", { value: window.localStorage, configurable: true });
 }
 
-function provider(id: string, models: Array<{ id: string; display_name: string }>): ProviderDescriptor {
+function provider(id: string, models: ModelInfo[]): ProviderDescriptor {
   return {
     schema_version: 1,
     id,
@@ -143,6 +145,65 @@ test("reasoning effort resolves from the provider catalog and round-trips", () =
     reDerived.mode === "single" && reDerived.effortId === "high",
     "an undeclared effort falls back to the provider default",
   );
+});
+
+test("per-model efforts narrow persisted choices and use the provider fallback when absent", () => {
+  const withEfforts = {
+    ...provider("provider-a", [
+      {
+        id: "wide-model",
+        display_name: "Wide Model",
+        reasoning_efforts: [
+          { id: "low", display_name: "Low" },
+          { id: "max", display_name: "Max" },
+          { id: "ultra", display_name: "Ultra" },
+        ],
+      },
+      { id: "fallback-model", display_name: "Fallback Model" },
+      {
+        id: "narrow-model",
+        display_name: "Narrow Model",
+        default_reasoning_effort: "low",
+        reasoning_efforts: [
+          { id: "low", display_name: "Low" },
+          { id: "high", display_name: "High" },
+        ],
+      },
+    ]),
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "medium", display_name: "Medium" },
+      { id: "high", display_name: "High" },
+    ],
+    default_reasoning_effort: "high",
+  } as ProviderDescriptor;
+
+  assert(
+    reasoningEffortsForModel(withEfforts, "NARROW-MODEL").map((effort) => effort.id).join(",") === "low,high",
+    "model effort lookup follows backend case-insensitive model resolution",
+  );
+  assert(
+    resolveEffort(withEfforts, "narrow-model") === "low",
+    "the model's live default takes precedence over the provider-wide default",
+  );
+
+  writePersistedNewSessionChoice({
+    mode: "single",
+    providerId: "provider-a",
+    modelId: "narrow-model",
+    effortId: "ultra",
+  });
+  const narrowed = readPersistedNewSessionChoice([withEfforts]);
+  assert(narrowed.mode === "single" && narrowed.effortId === "low", "unsupported effort resets to the model's live default");
+
+  writePersistedNewSessionChoice({
+    mode: "single",
+    providerId: "provider-a",
+    modelId: "fallback-model",
+    effortId: "medium",
+  });
+  const fallback = readPersistedNewSessionChoice([withEfforts]);
+  assert(fallback.mode === "single" && fallback.effortId === "medium", "models without per-model levels use provider fallback");
 });
 
 test("no effort is selected when the provider declares none", () => {

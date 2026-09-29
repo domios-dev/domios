@@ -1,6 +1,99 @@
 use super::*;
 
 #[test]
+fn remote_task_binding_matches_startup_identity_without_local_supervisor() {
+    let remote = crate::service::RemoteTaskBinding {
+        plan_id: "plan-remote".into(),
+        task_id: "task-remote".into(),
+        attempt_id: "attempt-remote".into(),
+        origin_peer_id: "origin-peer".into(),
+    };
+    let identity = crate::service::startup_lease::StartupTaskIdentity {
+        plan_id: "plan-remote".into(),
+        task_id: "task-remote".into(),
+        attempt_id: "attempt-remote".into(),
+    };
+    assert!(remote_task_binding_matches(Some(&remote), Some(&identity)));
+    let mut mismatched = identity;
+    mismatched.attempt_id = "attempt-other".into();
+    assert!(!remote_task_binding_matches(
+        Some(&remote),
+        Some(&mismatched)
+    ));
+    assert!(!remote_task_binding_matches(Some(&remote), None));
+}
+
+#[test]
+fn tab_spawn_spec_carries_matching_remote_binding_to_the_startup_gate() {
+    let spec_for = |attempt: &str| {
+        let params = crate::service::SpawnAgentParams {
+            agent: Some("codex".into()),
+            task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                plan_id: "plan-remote".into(),
+                task_id: "task-remote".into(),
+                attempt_id: attempt.into(),
+                lane_base: None,
+            }),
+            remote_task_binding: Some(crate::service::RemoteTaskBinding {
+                plan_id: "plan-remote".into(),
+                task_id: "task-remote".into(),
+                attempt_id: "attempt-remote".into(),
+                origin_peer_id: "origin-peer".into(),
+            }),
+            ..Default::default()
+        };
+        match crate::service::spawn::SpawnTabSpec::from_agent_params(params).command {
+            crate::service::spawn::TabCommand::Agent(agent) => agent.remote_task_bound,
+            _ => panic!("agent spawn spec"),
+        }
+    };
+    assert!(spec_for("attempt-remote"));
+    assert!(!spec_for("attempt-other"));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn sync_spawn_persists_restorable_launch_parameters() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("sync restore capture".into(), None).id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("sync-restorable")
+            .with_launch_binary("cmd.exe"),
+    ));
+
+    let result = fixture
+        .service
+        .spawn_agent_sync(SpawnAgentParams {
+            agent: Some("sync-restorable".into()),
+            agent_name: Some("sync-restorable-name".into()),
+            args: Some(vec!["--preserved-launch-arg".into()]),
+            workspace_id: Some(workspace_id),
+            ..Default::default()
+        })
+        .unwrap();
+
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&result.tab_id).unwrap();
+        assert!(tab.restorable_launch.captured);
+        assert_eq!(
+            tab.restorable_launch.args,
+            Some(vec!["--preserved-launch-arg".into()])
+        );
+        assert_eq!(
+            tab.restorable_launch.agent_name.as_deref(),
+            Some("sync-restorable-name")
+        );
+        assert_eq!(
+            tab.restorable_launch.permission_bypass_requested,
+            tab.auto_approve
+        );
+    }
+    fixture.service.close_tab(&result.tab_id).unwrap();
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -130,6 +223,8 @@ fn task_specific_empty_provider_command_is_refused_before_task_binding_and_clean
         error.contains("did not resolve a launch command"),
         "{error}"
     );
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+    fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();
     assert!(mux.get_tab(&tab_id).is_none());
     assert_eq!(mux.all_tabs().count(), 1);
@@ -375,6 +470,8 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     )
     .unwrap_err();
     assert!(error.contains("SessionState not registered"), "{error}");
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+    fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();
     assert!(mux.get_tab(&tab_id).is_none());
     assert_eq!(mux.all_tabs().count(), 1);
@@ -644,18 +741,19 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 }
 
 #[test]
-fn supervised_spawn_replaces_the_existing_first_turn_with_startup_handshake() {
+fn cartographer_attach_injects_handshake_only_with_armed_attempt() {
     let mut params = SpawnAgentParams {
         starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
         ..Default::default()
     };
-    apply_startup_handshake(&mut params, true);
-    assert_eq!(
-        params.starter_prompt,
-        crate::agent::provider::StarterPrompt::StartupHandshake
-    );
 
     apply_startup_handshake(&mut params, false);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::AssignedTask
+    );
+
+    apply_startup_handshake(&mut params, true);
     assert_eq!(
         params.starter_prompt,
         crate::agent::provider::StarterPrompt::StartupHandshake

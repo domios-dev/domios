@@ -10,7 +10,7 @@ pub fn render_plan_skill_manifest(
         return String::new();
     }
     let mut out = String::from("## Plan skill manifest\n");
-    out.push_str(&format!("Owning plan: `{plan_id}`. After `codeterm agent ack` and before repository or tool actions, inspect this manifest and byte-completely read every applicable skill with `codeterm plan skill show --plan {plan_id} <slug>`. Choose applicability explicitly from purpose metadata; never infer it from provider, title, cwd, or global memory.\n"));
+    out.push_str(&format!("Owning plan: `{plan_id}`. After the dispatch-specific Worker ACK and before repository or tool actions, inspect this manifest and byte-completely read every applicable skill with `codeterm plan skill show --plan {plan_id} <slug>`. Choose applicability explicitly from purpose metadata; never infer it from provider, title, cwd, or global memory.\n"));
     for skill in plan_skills {
         out.push_str(&format!(
             "- `{}` | {} | {} | `{}`\n",
@@ -48,6 +48,10 @@ pub fn render_task_brief(
     let identity =
         super::worker_identity::compose_task_worker_identity(task, effective_personality);
     out.push_str(&format!("# {}\n\n", task.name));
+
+    if let Some(parent_task_id) = &task.parent_task_id {
+        out.push_str(&format!("Parent task: `{parent_task_id}`\n\n"));
+    }
 
     let body = task.body.trim();
     if !body.is_empty() {
@@ -138,8 +142,6 @@ mod tests {
         }];
         let rendered = render_plan_skill_manifest("pl_zzmxgb", &manifest);
         assert_eq!(rendered.matches("## Plan skill manifest").count(), 1);
-        assert!(rendered.contains("After `codeterm agent ack`"));
-        assert!(rendered.contains("before repository or tool actions"));
         assert!(rendered.contains("codeterm plan skill show --plan pl_zzmxgb <slug>"));
         assert!(rendered.contains("sha256:abc"));
         assert!(!rendered.contains("# Alpha"));

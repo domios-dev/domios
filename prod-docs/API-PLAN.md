@@ -16,6 +16,9 @@ different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries
 labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`,
 and `POST /api/tasks` return `key`.
 
+`plan task add|update --group <key>` declares an unknown group with its key as
+label (`plan groups set` relabels), so `plan groups close` accepts every group a
+heartbeat names.
 
 ### Planner authority over task structure
 
@@ -24,6 +27,10 @@ Team as the plan) holds **durable** authority over task *structure* for the plan
 whole life — name, body, sections, acceptance criteria, test plan, QA plan,
 correctness, tags, dependencies and routing. That authority does not lapse when a
 task is dispatched: it applies to a `pending` task and an `in_progress` one alike.
+Fresh pair Planners are bound to their first Plan from live Team membership.
+Each write still requires that Planner tab's current session and binding nonce;
+when startup binding is pending, the write waits for that event instead of
+requiring `plan rebind`.
 
 It stops at execution. A Planner is refused for `status`, `status_label`, `lane`,
 `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`,
@@ -85,10 +92,12 @@ placement. `canonical_writer` requires `execution_intent: "mutating"`, a
 repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It
 verifies canonical as an attached checkout, skips lane provisioning, and runs the
 checkout occupancy preflight against canonical, so any live attempt there refuses
-it with `checkout_occupied`. The attempt persists `placement`, and on readiness
-records `worktree_path` as the canonical checkout with no `base`, which keeps the
-report guard strict. `task.lane` stays empty, so lane cleanup never touches
-canonical. The dispatch response echoes `placement`.
+it with `checkout_occupied`. The attempt persists `placement`; readiness reports
+use that placement to validate `--sha` against the plan's canonical checkout,
+including when the attempt has no `worktree_path`. Canonical reports keep no base,
+so they require the reported commit to match canonical `HEAD` and refuse any dirty
+checkout, even with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup
+never touches canonical. The dispatch response echoes `placement`.
 
 While such an attempt is live, `plan.review.accept` on another task that records
 a lane is refused with code `-32015`, `data.type = "canonical_writer_holds_checkout"`,
@@ -147,6 +156,19 @@ A genuine respawn preserves predecessor reports and review evidence, retires the
 prior attempt, and enters pending startup. Runtime readiness precedes the
 awaiting-ACK label; only the fresh Worker's ACK starts execution.
 
+Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before
+spawning. Explicit dispatch of a blocked task clears it to pending in the same
+mutation that reserves its attempt and records the prior block reason in a plan
+stride. Respawn also clears a blocked task atomically and records that reason;
+respawn is additionally the supported way to replace an attempt held in review.
+
+Plan writes require the caller's live bound session. When the caller presents
+its own launch nonce while binding is still in flight, the daemon waits for the
+binding event through the startup deadline. A timed-out write returns
+`data.type = "session_binding_pending"` with `data.retryable = true`; a settled
+launch without a registered session remains the distinct
+`plan_binding_session_unregistered` error.
+
 ### Review credit repair and evidence reporters
 
 Historical review credit leaked by older builds is repaired auditably with:
@@ -190,4 +212,27 @@ the deadline — is not a dispatch failure: the dispatch stays spawned-and-await
 and the provider's own launch detection or the worker-ack deadline settles it.
 Only a confirmed-gone tab fails the dispatch.
 
-<!-- revision: 8 -->
+### Reviewed remote lane integration
+
+`plan.task.merge_remote_lane` requires the authenticated origin Orchestrator,
+an origin-accepted remote attempt, and a persisted Worker report. The origin
+requests a Git bundle from the recorded paired peer over signed mesh transport,
+fetches the recorded branch into a CodeTerm-owned ref, then runs a real
+`git merge --no-ff`. It persists the lane tip and merge commit after
+`git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an
+already-recorded integration is idempotent.
+
+### Splitting an in-progress task
+
+The Plan Orchestrator can create child tasks beneath an in-progress task with
+`codeterm plan task split <plan> <task> --child <name>` or a JSON child file.
+Children inherit the parent's sections, executor role, model routing, and
+quality fields unless overridden. They retain the same plan approval and may
+be dispatched while the parent remains in progress; each dispatch provisions
+the child's own lane. Task detail and plan state expose child statuses, and the
+parent presents as `blocked_on_subtasks` while any child is open. Marking the
+parent done or cancelled is refused until all children are done or cancelled.
+Worker briefs carry the parent task id; a Worker may propose children in its
+report but cannot dispatch or spawn them.
+
+<!-- revision: 16 -->

@@ -159,6 +159,30 @@ impl MultiplexerState {
             },
         }
     }
+
+    pub fn commit_team_close(
+        &mut self,
+        team_id: &str,
+        closed_roots: &[String],
+    ) -> Result<(), String> {
+        let mut transaction = self.begin_team_close_transaction();
+        transaction
+            .state_mut()
+            .remove_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?;
+        for tab_id in closed_roots {
+            if transaction.state_mut().get_tab(tab_id).is_some() {
+                transaction.state_mut().close_tab_for_team_close(tab_id)?;
+            }
+        }
+        let live_roots: Vec<String> = closed_roots
+            .iter()
+            .filter(|tab_id| self.get_tab(tab_id).is_some())
+            .cloned()
+            .collect();
+        transaction.commit(self, &live_roots);
+        Ok(())
+    }
     /// Create an empty state with no workspaces.
     /// Used when General Agent will create its own workspace.
     pub fn empty() -> Self {
@@ -270,12 +294,14 @@ impl MultiplexerState {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_session_model_identity: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: Default::default(),
+            restorable_launch: Default::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
@@ -300,6 +326,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,
@@ -315,6 +342,8 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,

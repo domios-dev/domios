@@ -14,6 +14,9 @@
 /// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
 pub const HOST_API_VERSION: u32 = 2;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -23,6 +26,50 @@ use rquickjs::{CatchResultExt, Ctx};
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
+
+struct HeldFileLock {
+    call_id: String,
+    file: File,
+}
+
+fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock>> {
+    static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, HeldFileLock>>> = OnceLock::new();
+    LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+thread_local! {
+    static FILE_LOCK_CALL: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+pub(super) struct FileLockCallScope {
+    call_id: String,
+    previous: Option<String>,
+}
+
+impl FileLockCallScope {
+    pub(super) fn new() -> Self {
+        let call_id = uuid::Uuid::new_v4().to_string();
+        let previous = FILE_LOCK_CALL.with(|scope| scope.replace(Some(call_id.clone())));
+        Self { call_id, previous }
+    }
+}
+
+impl Drop for FileLockCallScope {
+    fn drop(&mut self) {
+        release_call_file_locks(&self.call_id);
+        FILE_LOCK_CALL.with(|scope| *scope.borrow_mut() = self.previous.take());
+    }
+}
+
+fn current_file_lock_call() -> Option<String> {
+    FILE_LOCK_CALL.with(|scope| scope.borrow().clone())
+}
+
+fn release_call_file_locks(call_id: &str) {
+    held_file_locks()
+        .lock()
+        .retain(|_, lock| lock.call_id != call_id);
+}
 
 /// A write-once, weakly-held ref populated after construction — the VM is built
 /// before the `ServiceContext` exists, so it can't be a constructor argument.
@@ -451,6 +498,18 @@ pub(super) fn install(
         sb.can_read(&path) && Path::new(&path).exists()
     });
     let sb = sandbox.clone();
+    bind!("isSymlink", move |path: String| -> Option<bool> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied isSymlink outside sandbox: {path}");
+            return None;
+        }
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => Some(metadata.file_type().is_symlink()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    });
+    let sb = sandbox.clone();
     bind!("readFile", move |path: String| -> Option<String> {
         if !sb.can_read(&path) {
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
@@ -491,6 +550,51 @@ pub(super) fn install(
             }
         }
         std::fs::write(p, contents).is_ok()
+    });
+    let sb = sandbox.clone();
+    bind!("writeFileAtomic", move |path: String,
+                                   contents: String|
+          -> bool {
+        if !sb.can_write(&path) {
+            log::warn!("[plugin] denied writeFileAtomic outside sandbox: {path}");
+            return false;
+        }
+        codeterm_util::atomic_write::write_atomic(Path::new(&path), contents).is_ok()
+    });
+    let sb = sandbox.clone();
+    bind!("lockFile", move |path: String| -> Option<String> {
+        let call_id = current_file_lock_call()?;
+        if !sb.can_write(&path) {
+            log::warn!("[plugin] denied lockFile outside sandbox: {path}");
+            return None;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .ok()?;
+        file.try_lock().ok()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        held_file_locks()
+            .lock()
+            .insert(id.clone(), HeldFileLock { call_id, file });
+        Some(id)
+    });
+    bind!("unlockFile", move |id: String| -> bool {
+        let Some(call_id) = current_file_lock_call() else {
+            return false;
+        };
+        let mut locks = held_file_locks().lock();
+        if !locks.get(&id).is_some_and(|lock| lock.call_id == call_id) {
+            return false;
+        }
+        let Some(file) = locks.remove(&id) else {
+            return false;
+        };
+        drop(locks);
+        file.file.unlock().is_ok()
     });
     let sb = sandbox.clone();
     bind!("removeFile", move |path: String| -> bool {

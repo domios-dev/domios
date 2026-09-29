@@ -17,8 +17,8 @@ use crate::service::TeamPlanCreationError;
 use crate::service::TeamPlanError;
 
 use super::{
-    emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
-    PlanRouteResult,
+    authorize_execution_action_http, authorize_plan_orchestrator_http, emit_plan_changed, epoch_ms,
+    kinds_from_csv, plan_err, tag_facets_from_body, text_err, PlanRouteResult,
 };
 
 fn push_hints(value: &mut Value, hints: Vec<String>) {
@@ -88,29 +88,52 @@ pub async fn create(
         .unwrap_or_default();
     let now = epoch_ms();
     let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
-    let outcome = state
-        .svc
-        .create_team_plan_for_caller(
+    let svc = state.svc.clone();
+    let caller = crate::service::TeamPlanCaller {
+        tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+        session_id: body.session_id,
+        binding_nonce: body.session_binding_nonce,
+    };
+    let create_from_spec = from_spec.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        svc.create_team_plan_for_caller(
             body.title,
             project,
             owner,
-            crate::service::TeamPlanCaller {
-                tab_id: crate::api::tab_routes::caller_tab_header(&headers),
-                session_id: body.session_id,
-                binding_nonce: body.session_binding_nonce,
-            },
+            caller,
             kinds,
-            from_spec.clone(),
+            create_from_spec,
             now,
         )
-        .map_err(|error| match error {
+    })
+    .await
+    .map_err(|error| {
+        text_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Team Plan creation worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| match error {
             TeamPlanCreationError::Plan(error) => plan_err(error),
             TeamPlanCreationError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+            TeamPlanCreationError::SessionBindingPending => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "session binding is pending for this Team Planner launch; retry after the binding event",
+                    "type": "session_binding_pending",
+                    "retryable": true,
+                })),
+            ),
+            TeamPlanCreationError::SessionUnregistered => (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "the Team Planner has no registered agent session; repair the provider integration",
+                    "type": "plan_binding_session_unregistered",
+                    "retryable": false,
+                })),
+            ),
         })?;
     let plan = outcome.plan.clone();
-    let _ = state
-        .svc
-        .bind_pending_paired_planner(&plan.id, &plan.owner, now);
     emit_plan_changed(&state, &plan.id);
     let mut response = serde_json::json!({
         "plan_id": plan.id,
@@ -781,23 +804,32 @@ pub async fn mode_set(
     let now = epoch_ms();
     // are lifecycle. Keeps the single execution-task gate authoritative.
     match mode {
-        PlanMode::Approved => state
-            .svc
-            .approve_and_activate_plan(
+        PlanMode::Approved => {
+            authorize_plan_orchestrator_http(
+                &state.svc,
                 &id,
-                &crate::api::tab_routes::authenticated_plan_caller(&headers),
-                None,
-                now,
+                crate::api::tab_routes::authenticated_plan_caller(&headers),
             )
-            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
-        PlanMode::Planning => {
+            .await?;
             state
                 .svc
-                .authorize_plan_orchestrator(
+                .plan_store
+                .set_planning_state(
                     &id,
-                    &crate::api::tab_routes::authenticated_plan_caller(&headers),
+                    PlanningState::Approved,
+                    PlanningAuthor::User,
+                    None,
+                    now,
                 )
-                .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
+                .map_err(plan_err)?;
+        }
+        PlanMode::Planning => {
+            authorize_plan_orchestrator_http(
+                &state.svc,
+                &id,
+                crate::api::tab_routes::authenticated_plan_caller(&headers),
+            )
+            .await?;
             state
                 .svc
                 .plan_store
@@ -810,14 +842,19 @@ pub async fn mode_set(
                 )
                 .map_err(plan_err)?
         }
-        PlanMode::Execution => state
-            .svc
-            .enter_execution_mode(
+        PlanMode::Execution => {
+            authorize_execution_action_http(
+                &state.svc,
                 &id,
-                &crate::api::tab_routes::authenticated_plan_caller(&headers),
-                now,
+                crate::api::tab_routes::authenticated_plan_caller(&headers),
             )
-            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?,
+            .await?;
+            state
+                .svc
+                .plan_store
+                .set_mode(&id, PlanMode::Execution, now)
+                .map_err(plan_err)?;
+        }
         PlanMode::Paused | PlanMode::Complete => state
             .svc
             .plan_store

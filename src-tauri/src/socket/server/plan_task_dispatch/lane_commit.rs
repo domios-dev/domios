@@ -42,6 +42,9 @@ pub(super) fn lane_metadata_for_dispatch(
     // nudge fires instead of persisting an empty branch name.
     lane.branch = (!provenance.branch.is_empty()).then(|| provenance.branch.clone());
     lane.base = Some(provenance.base.clone());
+    if lane.destination.is_none() {
+        lane.destination = provenance.destination.clone();
+    }
     lane.cleanup_status = None;
     lane
 }
@@ -104,7 +107,7 @@ pub(super) fn dispatch_response_lane(
         "branch": provenance.branch,
         "base": provenance.base,
         "canonical_project_path": canonical_project_path,
-        "destination": lane.destination,
+        "destination": lane.destination.as_ref().or(provenance.destination.as_ref()),
         "workspace_id": lane.workspace_id,
         "workspace_name": lane.workspace_name,
     })

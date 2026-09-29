@@ -1,0 +1,19 @@
+  ┃
+  ┃  -=-codeterm:tab label=Tester tab=55a147a0-=-
+  ┃  reply with one word: alpha
+  ┃  [to reply, run: codeterm send "YOUR REPLY" --tab 55a147a0]
+  ┃
+     alpha
+  ┃
+  ┃  $ codeterm send "alpha" --tab 55a147a0
+  ┃
+  ┃  OK (pending)
+  ┃
+     Sent.
+     ▣  Build · Big Pickle · 15.1s
+  ┃
+  ┃
+  ┃
+  ┃  Build · Big Pickle OpenCode Zen
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   D:\Developer\test-repos\qa-oc-probe                                                     11.2K (6%)  ctrl+p commands

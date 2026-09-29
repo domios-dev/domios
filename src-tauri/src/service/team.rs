@@ -12,6 +12,7 @@ mod close;
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
 use close::close_team_with_state_change_using;
+pub use close::TeamCloseResult;
 use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };
@@ -22,12 +23,15 @@ pub(crate) enum TeamPlanError {
     Plan(PlanError),
 }
 
-/// Who is asking to mutate a Team. `Human` is a named value rather than an
-/// absent caller id, so "nobody supplied a tab" can never read as authority.
+/// Who is asking to mutate a Team. Headerless REST callers need a confirmed
+/// target echo; Tauri and local socket callers carry their own local identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TeamMutationCaller {
     AgentTab(String),
+    AuthenticatedMeshPeer(String),
     Human,
+    HumanConfirmedHeaderless,
+    Unattributed,
 }
 
 impl TeamMutationCaller {
@@ -41,7 +45,20 @@ impl TeamMutationCaller {
     fn tab_id(&self) -> Option<&str> {
         match self {
             Self::AgentTab(tab_id) => Some(tab_id),
-            Self::Human => None,
+            Self::AuthenticatedMeshPeer(_)
+            | Self::Human
+            | Self::HumanConfirmedHeaderless
+            | Self::Unattributed => None,
+        }
+    }
+
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::AgentTab(_) => "AgentTab",
+            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            Self::Human => "Human",
+            Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
+            Self::Unattributed => "Unattributed",
         }
     }
 }
@@ -76,7 +93,14 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         params: AddTeamMemberParams,
     ) -> Result<AddTeamMemberResult, String> {
+        crate::service::spawn::validate_agent_model(
+            &self.agent_registry,
+            &params.provider,
+            params.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let is_cartographer = params.role.trim().eq_ignore_ascii_case("cartographer");
+        let is_orchestrator = params.role.trim().eq_ignore_ascii_case("orchestrator");
         let _cartographer_guard = if is_cartographer {
             Some(
                 self.cartographer_attach_locks
@@ -87,20 +111,51 @@ impl ServiceContext {
         } else {
             None
         };
-        let prepared = {
+        let _orchestrator_guard = if is_orchestrator {
+            Some(
+                self.orchestrator_attach_locks
+                    .for_team(team_id)
+                    .lock_owned()
+                    .await,
+            )
+        } else {
+            None
+        };
+        let classified = {
             let mux = self.mux.read();
+            let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
+            if is_cartographer {
+                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
+                    return Ok(existing);
+                }
+            }
+            prepared
+        };
+        self.classify_spawn_target_for_params(
+            classified.spawn_params.agent.as_deref().unwrap_or_default(),
+            &classified.spawn_params,
+        )?;
+        let (prepared, detached_failed_anchor) = {
+            let mut mux = self.mux.write();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
             if is_cartographer {
                 if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
                     return Ok(existing);
                 }
             }
-            self.classify_spawn_target_for_params(
-                prepared.spawn_params.agent.as_deref().unwrap_or_default(),
-                &prepared.spawn_params,
-            )?;
-            prepared
+            let anchors = staffing::role_anchors_team(
+                &prepared.expected_role,
+                prepared.expected_profile.as_deref(),
+            );
+            let detached =
+                anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
+            (prepared, detached)
         };
+        if detached_failed_anchor {
+            crate::service::publish_mux_state_changed(&self.events);
+            crate::service::session_persist::persist_session_after_close(self);
+            self.emit_state_changed_after_bus_publish();
+        }
         let mut spawn_params = prepared.spawn_params;
         self.attach_manager_bootstrap(team_id, caller_tab_id, &mut spawn_params)?;
         let lane_label = format!("team-{team_id}");
@@ -114,8 +169,8 @@ impl ServiceContext {
         let spawn = self
             .spawn_agent_with_state_change(spawn_params, None, false)
             .await;
-        let tab_id = match spawn {
-            Ok(spawn) => spawn.tab_id,
+        let (tab_id, spawn_warning) = match spawn {
+            Ok(spawn) => (spawn.tab_id, spawn.warning),
             Err(error) => {
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
@@ -141,7 +196,7 @@ impl ServiceContext {
                 |mux| take_over_team_plan(mux, &self.plan_store, team_id, &tab_id, now_ms()),
             )
         };
-        let result = match result {
+        let mut result = match result {
             Ok(result) => result,
             Err(error) => {
                 // Commit and takeover failures close the spawned member inside
@@ -153,6 +208,7 @@ impl ServiceContext {
                 return Err(error);
             }
         };
+        result.warning = spawn_warning;
         if let Some(takeover) = result
             .plan_takeover
             .as_ref()
@@ -264,7 +320,20 @@ impl ServiceContext {
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
-    ) -> Result<Team, String> {
+    ) -> Result<TeamCloseResult, String> {
+        let caller_kind = caller.kind();
+        let result = self.close_team_inner(team_id, caller).await;
+        if let Err(error) = &result {
+            log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
+        }
+        result
+    }
+
+    async fn close_team_inner(
+        &self,
+        team_id: &str,
+        caller: TeamMutationCaller,
+    ) -> Result<TeamCloseResult, String> {
         let close_at = now_ms();
         let prepared = {
             let mux = self.mux.read();
@@ -322,11 +391,22 @@ impl ServiceContext {
         }
         for tab_id in &cleanup.member_tab_ids {
             self.flag_bound_tasks_for_gone_tab(tab_id, 0);
+            crate::service::prompt_resolution::clear_tab_prompt(None);
+            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
             self.prompt_detector.lock().remove_tab(tab_id);
             crate::service::structured_prompt::clear_tab(tab_id);
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        let registry = std::sync::Arc::clone(&self.agent_registry);
+        let closed_tabs = cleanup.agent_providers;
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            crate::service::launch_artifacts::release_closed_tabs(&registry, &closed_tabs)
+        })
+        .await
+        {
+            log::warn!("[team-close] launch artifact release task failed: {error}");
+        }
         let plan_store = std::sync::Arc::clone(&self.plan_store);
         let lane_cleanup = tokio::task::spawn_blocking(move || {
             finish_team_lane_cleanup(&plan_store, &lanes, close_at)
@@ -344,9 +424,12 @@ impl ServiceContext {
             self.revoke_agent_pad(tab_id)?;
         }
         self.delete_team_crons(team_id);
+        if let Err(error) = crate::delayed_send::delete_team_series(self, team_id) {
+            log::error!("Failed to delete Team delayed series {team_id}: {error}");
+        }
         self.emit_state_changed_after_bus_publish();
-        lane_cleanup?;
-        Ok(team)
+        let inventory = lane_cleanup?;
+        Ok(TeamCloseResult { team, inventory })
     }
 
     fn delete_team_crons(&self, team_id: &str) {
@@ -577,6 +660,7 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
         ))
     })?;
     let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
+    let planner = live_team_planner_ref(mux, team_id);
     crate::service::agent_transition::transition_plan_to_orchestrator_core(
         mux,
         plan_store,
@@ -585,9 +669,29 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
         team_id,
         &format!("adopted by Team {team_id}"),
         true,
+        planner,
         now_ms,
     )
     .map_err(TeamPlanError::Team)
+}
+
+fn live_team_planner_ref(mux: &MultiplexerState, team_id: &str) -> Option<crate::plan::PlannerRef> {
+    let mut planners = mux.all_tabs().filter(|tab| {
+        tab.team_id.as_deref() == Some(team_id)
+            && tab.role == Some(AgentRole::Manager)
+            && tab.role_profile.as_deref()
+                == Some(codeterm_types::agent::role_kind::builtins::PLANNER)
+            && crate::service::plan_reconcile::tab_has_live_agent(tab)
+    });
+    let planner = planners.next()?;
+    if planners.next().is_some() {
+        return None;
+    }
+    Some(crate::plan::PlannerRef::Tab {
+        tab_id: planner.id.clone(),
+        session_id: planner.agent_session_id.clone(),
+        title: Some(planner.title.clone()),
+    })
 }
 
 fn transfer_team_plan_core(
@@ -647,6 +751,7 @@ fn transfer_team_plan_core(
         &destination_team_id,
         reason,
         false,
+        None,
         now_ms,
     )
     .map_err(TeamPlanError::Team)
@@ -679,7 +784,10 @@ transfers ownership, then new owner adopts."
         )),
         // A human has no destination-owner identity to fall back on, so the
         // source refusal (missing or remote-owned Team) stands verbatim.
-        TeamMutationCaller::Human => Err(source_denial),
+        TeamMutationCaller::AuthenticatedMeshPeer(_)
+        | TeamMutationCaller::Human
+        | TeamMutationCaller::HumanConfirmedHeaderless
+        | TeamMutationCaller::Unattributed => Err(source_denial),
     }
 }
 
@@ -771,14 +879,19 @@ fn remote_team_origin(mux: &MultiplexerState, team_id: &str) -> Option<String> {
     mux.snapshot().tabs.values().find_map(|tab| {
         let ownership = tab.ownership.as_ref()?;
         let team = ownership.team.as_ref()?;
-        (team.id == team_id).then(|| ownership.peer_name.clone())
+        let qualified_id = format!("mesh:{}/{}", ownership.peer_id, team.id);
+        (team.id == team_id || qualified_id == team_id).then(|| ownership.peer_name.clone())
     })
+}
+
+pub(super) fn is_remote_team(mux: &MultiplexerState, team_id: &str) -> bool {
+    local_team_anchors(mux, team_id).is_empty() && remote_team_origin(mux, team_id).is_some()
 }
 
 /// A Team whose anchor lives on another peer is mirrored here for visibility
 /// only; mutating it locally would fork it from the authority that owns it.
 fn reject_remote_team_mutation(mux: &MultiplexerState, team_id: &str) -> Result<(), String> {
-    if !local_team_anchors(mux, team_id).is_empty() {
+    if !is_remote_team(mux, team_id) {
         return Ok(());
     }
     match remote_team_origin(mux, team_id) {
@@ -799,6 +912,16 @@ pub(super) fn authorize_team_manager(
         return Err(format!("Team {team_id} not found"));
     }
     reject_remote_team_mutation(mux, team_id)?;
+    if matches!(caller, TeamMutationCaller::Unattributed) {
+        return Err(format!(
+            "Unattributed caller is not authorized to manage Team {team_id}"
+        ));
+    }
+    if matches!(caller, TeamMutationCaller::AuthenticatedMeshPeer(_)) {
+        return Err(format!(
+            "Authenticated mesh peer is not authorized to manage Team {team_id}"
+        ));
+    }
     let Some(caller_tab_id) = caller.tab_id() else {
         return Ok(());
     };
@@ -834,11 +957,25 @@ pub(super) fn authorize_team_close(
     if mux.get_team(team_id).is_none() {
         return Err(format!("Team {team_id} not found"));
     }
-    reject_remote_team_mutation(mux, team_id)?;
+    reject_remote_team_mutation(mux, team_id)
+        .map_err(|error| format!("{}: {error}", crate::service::TEAM_CLOSE_REFUSAL_PREFIX))?;
+    match caller {
+        TeamMutationCaller::Unattributed => {
+            return Err(format!(
+                "{}: Unattributed caller cannot close Team {team_id}; explicit human confirmation is required",
+                crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+            ));
+        }
+        TeamMutationCaller::AuthenticatedMeshPeer(_) => return Ok(()),
+        TeamMutationCaller::AgentTab(_)
+        | TeamMutationCaller::Human
+        | TeamMutationCaller::HumanConfirmedHeaderless => {}
+    }
     if member_tab_ids.is_empty() {
         return Ok(());
     }
     authorize_team_manager(mux, team_id, caller)
+        .map_err(|error| format!("{}: {error}", crate::service::TEAM_CLOSE_REFUSAL_PREFIX))
 }
 
 fn authorize_team_mutation(
@@ -860,7 +997,7 @@ mod staffing;
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
     commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
-    AddTeamMemberResult, TeamCartographerAttachLocks,
+    AddTeamMemberResult, TeamCartographerAttachLocks, TeamOrchestratorAttachLocks,
 };
 
 #[cfg(test)]

@@ -3,9 +3,18 @@
 use super::ServiceContext;
 use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
-use crate::service::session_model::{clear_runtime_model_evidence, spawn_startup_model_refresh};
+use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "tab/lifecycle_exit.rs"]
+mod lifecycle_exit;
+#[cfg(test)]
+#[path = "tab/tests.rs"]
+mod tests;
+#[cfg(test)]
+#[cfg(test)]
+pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 pub(crate) const TAB_TITLE_ERROR: &str =
@@ -31,7 +40,9 @@ pub(crate) fn normalize_optional_tab_description(
 
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod rename_guard;
+mod scrollback;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
 
@@ -63,45 +74,6 @@ pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> 
     }
 }
 
-pub(crate) fn clear_agent_identity_for_lifecycle_exit(
-    tab: &mut crate::multiplexer::types::Tab,
-) -> bool {
-    let has_identity = tab.agent_type.is_some()
-        || tab.agent_type_locked
-        || tab.agent_session_id.is_some()
-        || tab.agent_session_name.is_some()
-        || tab.session_binding_nonce.is_some()
-        || tab.reported_session_binding_nonce.is_some()
-        || tab.agent_state.is_some()
-        || tab.pending_prompt.is_some();
-    if !has_identity {
-        return false;
-    }
-    tab.agent_type = None;
-    tab.agent_type_locked = false;
-    tab.agent_set_at = None;
-    tab.agent_booting = false;
-    // Tag the retiring nonce with its still-current session BEFORE clearing it,
-    // so a resumed session can prove same-session lineage after relaunch.
-    tab.remember_superseded_binding_nonce();
-    tab.agent_session_id = None;
-    tab.agent_session_name = None;
-    tab.session_binding_nonce = None;
-    tab.reported_session_binding_nonce = None;
-    tab.agent_state = None;
-    tab.pending_prompt = None;
-    tab.exit_suspected_at = None;
-    // Provider and model are one identity: a tab must never keep a model label
-    // for a provider it no longer has.
-    clear_runtime_model_evidence(tab);
-    crate::service::boot_stage::apply_boot_stage(
-        tab,
-        codeterm_types::pty::BootStage::ShellReady,
-        None,
-    );
-    true
-}
-
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -110,6 +82,19 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    pub(crate) fn release_tab_launch_artifacts(&self, tab_id: &str, provider_id: &str) {
+        let closed_tab = [(tab_id.to_string(), provider_id.to_string())];
+        super::launch_artifacts::release_closed_tabs(&self.agent_registry, &closed_tab);
+    }
+
+    pub(crate) fn tab_launch_artifact_provider(&self, tab_id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        let canonical = mux
+            .resolve_tab_id(tab_id)
+            .unwrap_or_else(|| tab_id.to_string());
+        mux.get_tab(&canonical)?.agent_type.clone()
+    }
+
     pub(crate) fn prepare_tab_close(
         &self,
         tab_id: &str,
@@ -137,12 +122,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
         self.forget_permission_auto_confirm(tab_id);
         self.forget_directory_trust(tab_id);
+        crate::service::folder_trust_carryover::forget_tab(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
@@ -176,11 +163,8 @@ impl ServiceContext {
         false
     }
 
-    /// Close a tab on behalf of `caller_tab_id`. Refuses a coordinator closing
-    /// its OWN tab; Workers self-close on report+exit and closing any other
-    /// tab is unaffected. Fail-safe: an absent caller against a coordinator
-    /// target is refused (we cannot prove it is not the target closing itself),
-    /// while non-coordinator targets close normally.
+    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close
+    /// and requires caller attribution before closing a coordinator Tab.
     pub fn close_tab_guarded(
         &self,
         caller_tab_id: Option<&str>,
@@ -194,17 +178,24 @@ impl ServiceContext {
             let caller = caller_tab_id.and_then(|c| mux.resolve_tab_id(c));
             (target, caller)
         };
-        // Absent (or unresolvable) caller is treated as self — fail-safe.
-        let is_self = canon_caller
-            .as_deref()
-            .map(|c| c == canon_target.as_str())
-            .unwrap_or(true);
-        if is_self && self.is_self_close_protected(&canon_target) {
-            return Err(format!(
-                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
-                 ({canon_target}) — have your parent or another Tab close it, or move first. \
-                 Workers self-close on report+exit."
-            ));
+        if self.is_self_close_protected(&canon_target) {
+            match canon_caller.as_deref() {
+                Some(caller) if caller == canon_target => {
+                    return Err(format!(
+                        "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
+                         ({canon_target}) — have your parent or another Tab close it, or move first. \
+                         Workers self-close on report+exit."
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "{UNATTRIBUTED_CLOSE_REFUSAL_PREFIX}: caller attribution is required to \
+                         close coordinator Tab ({canon_target}); close it through its Team or \
+                         provide an attributed caller Tab."
+                    ));
+                }
+                Some(_) => {}
+            }
         }
         self.close_tab(target_tab_id)
     }
@@ -220,11 +211,20 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
-        let (pre_focus, reservation) = {
+        let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
+            let canonical_tab_id = mux
+                .resolve_tab_id(tab_id)
+                .unwrap_or_else(|| tab_id.to_string());
+            let tab = mux.get_tab(&canonical_tab_id);
+            let provider_id = tab.and_then(|tab| tab.agent_type.clone());
+            let session_id = tab.and_then(|tab| tab.agent_session_id.clone());
             (
                 mux.get_focused_tab_id().map(str::to_string),
                 mux.reserve_tab_close(tab_id)?,
+                provider_id,
+                canonical_tab_id,
+                session_id,
             )
         };
         if let Err(error) = self.prepare_tab_close(tab_id, reason) {
@@ -235,9 +235,23 @@ impl ServiceContext {
             .mux
             .write()
             .close_reserved_tab_with_reason(reservation, reason)?;
+        crate::service::prompt_resolution::clear_tab_prompt(None);
+        crate::service::launch_readiness::owner_prompt_cleared(&canonical_tab_id);
+        if let (Some(provider_id), Some(session_id)) =
+            (provider_id.as_deref(), session_id.as_deref())
+        {
+            crate::service::integration_silence::clear_hook_binding_fallback_session(
+                provider_id,
+                session_id,
+            );
+        }
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        if let Some(provider_id) = provider_id {
+            self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
+        }
         self.finish_tab_close(tab_id)?;
+        self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         {
             let mut notif = self.notif.lock();
@@ -317,6 +331,7 @@ impl ServiceContext {
             launch_owned,
             |candidate| self.pty.lock().get_session(candidate).is_some(),
             |selected| {
+                self.seed_pending_scrollback_before_link(tab_id, selected);
                 let mut mux = self.mux.write();
                 if mux.get_tab(tab_id).is_none() {
                     crate::service::pty_ownership::LinkOutcome::TabMissing
@@ -375,75 +390,6 @@ impl ServiceContext {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
         }
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit(&self, tab_id: &str) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-            tab_id,
-            "agent identity cleared on lifecycle exit",
-        )
-    }
-
-    /// Same teardown, with the observed cause of death written to the lifecycle
-    /// journal instead of a generic label.
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-        &self,
-        tab_id: &str,
-        cause: &str,
-    ) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_during(
-            tab_id,
-            cause,
-            crate::crash::shutdown::active_shutdown(),
-        )
-    }
-
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_during(
-        &self,
-        tab_id: &str,
-        cause: &str,
-        shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
-    ) -> bool {
-        // An armed shutdown killed the provider itself; the snapshot saved at
-        // exit must still carry the identity the next boot resumes.
-        if let Some(reason) = shutdown {
-            log::info!(
-                "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
-            );
-            return false;
-        }
-        // Every observed lifecycle exit funnels here, so the observed launch is
-        // claimed before the clear below retires it.
-        let exited = self.claim_launch_exit(tab_id, None, None);
-        let cleared = {
-            let mut mux = self.mux.write();
-            mux.get_tab_mut(tab_id)
-                .is_some_and(clear_agent_identity_for_lifecycle_exit)
-        };
-        // After the clear, so the launch verdict is the stage that stands.
-        if let Some(exited) = exited {
-            self.publish_launch_exit(&exited);
-        }
-        if !cleared {
-            return false;
-        }
-        self.record_lifecycle_end(
-            tab_id,
-            crate::session::lifecycle::LifecycleTransition::RolledBack {
-                reason: cause.to_string(),
-            },
-        );
-        self.invalidate_guarded_agent_input(tab_id);
-        log::info!("[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause}");
-        self.signal_worker_interruption(
-            tab_id,
-            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-        );
-        self.clear_dead_planner_binding(tab_id);
-        self.prompt_detector.lock().clear(tab_id);
-        crate::service::structured_prompt::clear_tab(tab_id);
-        self.emit_state_changed();
-        true
     }
 
     /// Boot path: refresh model once for every tab that already has an
@@ -643,8 +589,8 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_prompt = None;
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
@@ -652,13 +598,38 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn respond_prompt(
+    pub(crate) fn respond_prompt(
         &self,
         tab_id: &str,
         value: &str,
     ) -> Result<RespondPromptOutcome, String> {
-        if self.mux.read().get_tab(tab_id).is_none() {
+        self.respond_prompt_inner(tab_id, value, None)
+    }
+
+    pub(crate) fn respond_prompt_with_identity(
+        &self,
+        tab_id: &str,
+        value: &str,
+        identity: &codeterm_types::pty::PromptIdentity,
+    ) -> Result<RespondPromptOutcome, String> {
+        self.respond_prompt_inner(tab_id, value, Some(identity))
+    }
+
+    fn respond_prompt_inner(
+        &self,
+        tab_id: &str,
+        value: &str,
+        expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) -> Result<RespondPromptOutcome, String> {
+        let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
+        };
+        let response_identity = tab.prompt_identity();
+        if let Some(expected) = expected_identity {
+            let current_identity = tab.prompt_identity();
+            if current_identity.as_ref() != Some(expected) {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
         }
         let Some(option_index) = value
             .parse::<usize>()
@@ -668,21 +639,36 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::InvalidOption);
         };
 
-        let pending_option_count = crate::service::structured_prompt::pending_for_tab(tab_id)
+        let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if let Some(expected) = expected_identity {
+            if expected.kind == codeterm_types::pty::PromptKind::Structured {
+                let current_identity = structured_prompt.as_ref().map(|prompt| {
+                    codeterm_types::pty::PromptIdentity::new(
+                        codeterm_types::pty::PromptKind::Structured,
+                        prompt,
+                    )
+                });
+                if current_identity.as_ref() != Some(expected) {
+                    return Ok(RespondPromptOutcome::StalePrompt);
+                }
+            } else if structured_prompt.is_some() {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
+        let pending_option_count = structured_prompt
+            .as_ref()
             .map(|prompt| prompt.options.len())
             .or_else(|| {
-                self.mux.read().get_tab(tab_id).and_then(|tab| {
-                    tab.pending_prompt
-                        .as_ref()
-                        .map(|prompt| prompt.options.len())
-                })
+                tab.pending_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.options.len())
             });
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
         }
         if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
             result?;
-            self.mark_prompt_responded(tab_id);
+            self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
             self.emit_state_changed();
             return Ok(RespondPromptOutcome::Structured);
         }
@@ -695,21 +681,30 @@ impl ServiceContext {
             buf.get_text(&pty_id).unwrap_or_default()
         };
         let clean = crate::pty::ansi::clean_terminal_output(&screen);
-        let agent_type = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|p| p.agent_type.clone());
+        let agent_type = tab.agent_type.clone();
         let provider_prompt = agent_type.as_deref().and_then(|at| {
             crate::agent::prompt::parse_prompt_safely(|| {
-                self.agent_registry.parse_prompt(at, &clean)
+                self.agent_registry.parse_interactive_prompt(at, &clean)
             })
         });
+        if let Some(expected) = expected_identity {
+            let current_identity = provider_prompt
+                .as_ref()
+                .map(|(prompt, kind)| codeterm_types::pty::PromptIdentity::new(*kind, prompt));
+            let manual_update_identity_matches = expected.kind
+                == codeterm_types::pty::PromptKind::ManualUpdate
+                && current_identity
+                    .as_ref()
+                    .is_some_and(|current| current.options == expected.options);
+            if current_identity.as_ref() != Some(expected) && !manual_update_identity_matches {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            }
+        }
         let generic_option_count = crate::agent::detector::parse_permission_prompt(&clean)
             .map(|(_, options)| options.len());
         let option_count = provider_prompt
             .as_ref()
-            .map(|prompt| prompt.options.len())
+            .map(|(prompt, _)| prompt.options.len())
             .or(generic_option_count);
         let prompt_on_screen = provider_prompt.is_some()
             || generic_option_count.is_some()
@@ -750,14 +745,53 @@ impl ServiceContext {
             return Ok(RespondPromptOutcome::PromptNotOnScreen);
         }
 
-        self.mark_prompt_responded(tab_id);
+        self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
         self.emit_state_changed();
         Ok(RespondPromptOutcome::Sent)
     }
 
-    fn mark_prompt_responded(&self, tab_id: &str) {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.pending_prompt = None;
+    pub(crate) fn clear_pending_prompt(
+        &self,
+        tab_id: &str,
+    ) -> Option<codeterm_types::pty::PromptIdentity> {
+        let mut mux = self.mux.write();
+        let tab = mux.get_tab_mut(tab_id)?;
+        let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
+        drop(mux);
+        crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        identity
+    }
+
+    fn mark_prompt_responded(
+        &self,
+        tab_id: &str,
+        option_index: usize,
+        identity: Option<&codeterm_types::pty::PromptIdentity>,
+    ) {
+        if let Some(identity) = identity {
+            self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
+            if identity.kind == codeterm_types::pty::PromptKind::Structured {
+                self.push_structured_prompt(tab_id, None);
+            }
+        }
+        if let Some(identity) = self.clear_pending_prompt(tab_id) {
+            self.resolve_prompt_notifications(tab_id, &identity);
+            if crate::service::folder_trust_carryover::should_schedule_owner_clear(Some(
+                identity.kind,
+            )) {
+                let agent_type = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.agent_type.clone());
+                if let Some(agent_type) = agent_type {
+                    crate::service::folder_trust_carryover::owner_trust_prompt_cleared(
+                        self.clone(),
+                        tab_id,
+                        &agent_type,
+                    );
+                }
+            }
         }
         self.prompt_detector.lock().mark_responded(tab_id);
     }
@@ -767,216 +801,15 @@ impl ServiceContext {
 pub(crate) enum RespondPromptOutcome {
     Sent,
     Structured,
+    StalePrompt,
     PromptNotOnScreen,
     NoPty,
     InvalidOption,
 }
 
 #[cfg(test)]
-mod respond_prompt_tests {
-    use super::*;
-    use crate::multiplexer::types::{PendingPrompt, PromptOption};
-    use std::path::PathBuf;
-
-    fn pending_prompt() -> PendingPrompt {
-        PendingPrompt {
-            question: "Choose an option".into(),
-            options: vec![
-                PromptOption {
-                    label: "No".into(),
-                    value: "1".into(),
-                },
-                PromptOption {
-                    label: "Yes".into(),
-                    value: "2".into(),
-                },
-            ],
-            sections: None,
-            multi_select: Some(false),
-            submit_available: Some(true),
-            selected_values: None,
-        }
-    }
-
-    fn fixture_with_screen(
-        screen: &str,
-    ) -> (crate::service::test_fixture::ServiceFixture, String, String) {
-        use crate::multiplexer::state::MultiplexerState;
-
-        let (mut mux, tab_id) = MultiplexerState::new();
-        let pty_id = format!("respond-prompt-{}", uuid::Uuid::new_v4());
-        assert_eq!(mux.link_pty(&tab_id, pty_id.clone()), None);
-        let prompt = pending_prompt();
-        let tab = mux.get_tab_mut(&tab_id).expect("tab");
-        tab.agent_type = Some("claude".into());
-        tab.pending_prompt = Some(prompt.clone());
-        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture
-            .service
-            .agent_registry
-            .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-        fixture
-            .service
-            .prompt_detector
-            .lock()
-            .hook_detected_scraped(&tab_id, prompt);
-        fixture
-            .service
-            .output_buf
-            .lock()
-            .append(&pty_id, screen.as_bytes());
-        fixture
-            .service
-            .pty
-            .lock()
-            .spawn_with_id(Some(pty_id.clone()), None, None, 80, 24, Default::default())
-            .expect("test PTY");
-        (fixture, tab_id, pty_id)
-    }
-
-    fn fixture_with_pending_prompt() -> (crate::service::test_fixture::ServiceFixture, String) {
-        use crate::multiplexer::state::MultiplexerState;
-
-        let (mut mux, tab_id) = MultiplexerState::new();
-        let prompt = pending_prompt();
-        let tab = mux.get_tab_mut(&tab_id).expect("tab");
-        tab.agent_type = Some("claude".into());
-        tab.pending_prompt = Some(prompt.clone());
-        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        fixture
-            .service
-            .prompt_detector
-            .lock()
-            .hook_detected_scraped(&tab_id, prompt);
-        (fixture, tab_id)
-    }
-
-    fn has_input_events(cast: PathBuf) -> bool {
-        std::fs::read_to_string(cast)
-            .expect("capture file")
-            .lines()
-            .skip(1)
-            .map(serde_json::from_str::<serde_json::Value>)
-            .collect::<Result<Vec<_>, _>>()
-            .expect("capture events")
-            .iter()
-            .any(|event| event.get(1).and_then(serde_json::Value::as_str) == Some("i"))
-    }
-
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
-    #[test]
-    fn respond_prompt_answers_the_new_claude_trust_shape() {
-        let screen = std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../plugins/provider-claude/tests/fixtures/folder-trust")
-                .join("quick-safety-no-first.txt"),
-        )
-        .expect("captured folder-trust fixture");
-        let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
-        assert_eq!(
-            fixture
-                .service
-                .agent_registry
-                .build_prompt_response("claude", 1, &screen),
-            Some(vec![b"j".to_vec(), b"\r".to_vec()])
-        );
-        assert_eq!(
-            fixture.service.respond_prompt(&tab_id, "2"),
-            Ok(RespondPromptOutcome::Sent)
-        );
-        assert!(fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .pending_prompt
-            .is_none());
-        assert!(fixture
-            .service
-            .prompt_detector
-            .lock()
-            .active_prompt(&tab_id)
-            .is_none());
-        let _ = fixture.service.pty.lock().kill(&pty_id);
-    }
-
-    #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn respond_prompt_rejects_invalid_options_before_pty_access() {
-        let (fixture, tab_id) = fixture_with_pending_prompt();
-        for value in ["3", "two"] {
-            assert_eq!(
-                fixture.service.respond_prompt(&tab_id, value),
-                Ok(RespondPromptOutcome::InvalidOption)
-            );
-        }
-        assert!(fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .pending_prompt
-            .is_some());
-        assert!(fixture
-            .service
-            .prompt_detector
-            .lock()
-            .active_prompt(&tab_id)
-            .is_some());
-    }
-
-    #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
-    #[tokio::test]
-    async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
-        let (fixture, tab_id, pty_id) = fixture_with_screen("");
-        let capture_path = fixture.temp.path().join("respond-prompt.cast");
-        let capture = crate::pty::capture::CaptureRegistry::global();
-        capture
-            .start(&pty_id, capture_path, 80, 24, 0, Vec::new())
-            .expect("capture input writes");
-
-        let result = fixture.service.respond_prompt(&tab_id, "1");
-        let cast = capture.stop(&pty_id).expect("capture stopped");
-        let _ = fixture.service.pty.lock().kill(&pty_id);
-        assert_eq!(result, Ok(RespondPromptOutcome::PromptNotOnScreen));
-        assert!(!has_input_events(cast));
-        assert!(fixture
-            .service
-            .mux
-            .read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .pending_prompt
-            .is_some());
-        assert!(fixture
-            .service
-            .prompt_detector
-            .lock()
-            .active_prompt(&tab_id)
-            .is_some());
-    }
-
-    #[tokio::test]
-    async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
-        let response = crate::api::agent_routes::respond_prompt_response(
-            RespondPromptOutcome::PromptNotOnScreen,
-        );
-        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("response body");
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&body).expect("response JSON"),
-            serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"})
-        );
-
-        let invalid =
-            crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::InvalidOption);
-        assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
-    }
-}
+#[path = "tab/respond_prompt_tests.rs"]
+mod respond_prompt_tests;
 
 pub(crate) fn focus_tab_hot_path(
     mux: &crate::multiplexer::commands::MuxState,
@@ -991,34 +824,41 @@ pub(crate) fn focus_tab_hot_path(
 }
 
 #[cfg(test)]
-mod self_close_tests {
-    use super::*;
+mod self_close_tests;
+
+#[cfg(test)]
+mod launch_artifact_close_tests {
+    use crate::agent::provider::LaunchArtifactSweepRequest;
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
 
     #[test]
-    fn orchestrator_is_coordinator() {
-        assert!(is_coordinator(
-            Some(AgentRole::Manager),
-            Some("orchestrator"),
-            false,
-            false
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn closing_a_codex_tab_releases_its_own_profile() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());
+        let fixture = ServiceFixture::new(mux);
+        let releases = Arc::new(Mutex::new(Vec::new()));
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::new("codex").with_launch_artifact_logs(
+                Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new())),
+                releases.clone(),
+            ),
         ));
-    }
 
-    #[test]
-    fn plan_owner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), None, true, false));
-        assert!(is_coordinator(None, None, true, false));
-    }
+        fixture.service.close_tab(&tab_id).unwrap();
 
-    #[test]
-    fn bound_planner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), None, false, true));
-    }
-
-    #[test]
-    fn plain_worker_is_not_coordinator() {
-        assert!(!is_coordinator(Some(AgentRole::Worker), None, false, false));
-        assert!(!is_coordinator(None, None, false, false));
+        let releases = releases.lock();
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].0, tab_id);
+        assert!(!releases[0].1.is_empty());
+        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
 }
 

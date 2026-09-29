@@ -26,9 +26,13 @@ const PLUGIN_PREAMBLE: &str = r#"
     readFileHead:  host.readFileHead,
     readFileTail:  host.readFileTail,
     writeFile:     host.writeFile,
+    writeFileAtomic: host.writeFileAtomic,
+    lockFile:      host.lockFile,
+    unlockFile:    host.unlockFile,
     removeFile:    host.removeFile,
     makeDirs:      host.makeDirs,
     fileExists:    host.fileExists,
+    isSymlink:     host.isSymlink,
     expandHome:    host.expandHome,
     writeTempFile: host.writeTempFile,
     readDir: function (p) { return parseJson(host.readDirJson(p)) || []; },
@@ -548,6 +552,7 @@ fn call_json_mode<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     strict: bool,
 ) -> Result<R, VmError> {
+    let _file_lock_scope = super::host_api::FileLockCallScope::new();
     let started = std::time::Instant::now();
     CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).

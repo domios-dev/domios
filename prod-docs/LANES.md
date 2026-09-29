@@ -40,8 +40,19 @@ occupancy preflight makes the placement exclusive: a second live attempt in
 canonical is refused with `checkout_occupied`, and `plan review accept` refuses a
 lane task while the writer is live (`lane.integration_while_canonical_writer_holds_checkout`).
 The writer executes only its `--authorized-gate` commands, commits on the
-integration branch, and reports with a clean tree; any dirt refuses the report.
+integration branch, and reports with a clean tree. The report CLI uses the
+attempt's explicit placement to validate the SHA against the plan's canonical
+checkout, even if that attempt has no worktree path; any dirt refuses the report,
+even with `--acknowledge-dirty`.
+Other attempts with an unresolved lane still receive the lane worktree refusal.
 Without the flag every rule above is unchanged.
+
+For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
+and integration. After accepting the attempt, run
+`codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
+The command requires the peer tip to equal the accepted report SHA and the clean
+origin checkout to remain on its dispatch-time branch. It uses `git merge
+--no-ff` and records only after ancestry passes; cherry-pick and squash are invalid.
 
 Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
@@ -49,7 +60,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 15 -->
+<!-- revision: 17 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.

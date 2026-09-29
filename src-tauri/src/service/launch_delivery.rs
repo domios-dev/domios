@@ -10,6 +10,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::{BootStage, BootStageSink};
 use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::{InjectionError, InjectionResult};
+use crate::service::launch_input_gate::LaunchInputEvidence;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -21,6 +22,13 @@ pub(crate) enum LaunchDeliveryMode {
 pub(crate) struct LaunchContent {
     pub system_prompt: Option<String>,
     pub fallback: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchCommandTask {
+    pub text: Option<String>,
+    pub system_prompt: Option<String>,
+    pub task_is_first_turn: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +152,26 @@ impl LaunchDeliveryGate {
             })
     }
 
+    pub(crate) fn consume_injection_with_readiness<F>(
+        &self,
+        mux: &MuxState,
+        tab_id: &str,
+        sink: &impl BootStageSink,
+        readiness: Option<LaunchInputEvidence>,
+        transaction: F,
+    ) -> Result<LaunchConsumptionReceipt, LaunchConsumptionError>
+    where
+        F: FnOnce() -> Result<InjectionResult, InjectionError>,
+    {
+        if readiness.is_none() {
+            return Ok(LaunchConsumptionReceipt {
+                outcome: LaunchConsumptionOutcome::NotReady,
+                attempt_id: None,
+            });
+        }
+        self.consume_injection(mux, tab_id, sink, transaction)
+    }
+
     #[cfg(test)]
     pub(crate) fn consume<F>(
         &self,
@@ -265,6 +293,30 @@ pub(crate) fn content_for_descriptor(
             system_prompt: None,
             fallback: content,
         },
+    }
+}
+
+pub(crate) fn command_task(
+    provider: &dyn crate::agent::provider::AgentProvider,
+    task: Option<&str>,
+) -> LaunchCommandTask {
+    let system_prompt =
+        content_for_descriptor(&provider.system_prompt_delivery(), task).system_prompt;
+    let inline_task = system_prompt.is_none()
+        && matches!(
+            provider.task_delivery(),
+            crate::agent::provider::TaskDelivery::InlineFlag
+        );
+    let inline_task_text = inline_task
+        .then(|| {
+            task.filter(|text| !text.trim().is_empty())
+                .map(str::to_string)
+        })
+        .flatten();
+    LaunchCommandTask {
+        text: system_prompt.clone().or(inline_task_text),
+        system_prompt,
+        task_is_first_turn: inline_task,
     }
 }
 
@@ -545,6 +597,28 @@ mod tests {
     }
 
     #[test]
+    fn launch_delivery_rejects_missing_readiness_before_transaction() {
+        let (state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let mux: MuxState = std::sync::Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
+            "mux-test", state,
+        ));
+        let sink = RecordingSink::default();
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_provider_ready();
+        let mut transactions = 0;
+        let receipt = gate
+            .consume_injection_with_readiness(&mux, &tab_id, &sink, None, || {
+                transactions += 1;
+                panic!("the launch transaction must not run without readiness evidence");
+            })
+            .expect("readiness refusal is not a write error");
+
+        assert_eq!(receipt.outcome, LaunchConsumptionOutcome::NotReady);
+        assert_eq!(transactions, 0);
+        assert!(sink.0.lock().is_empty());
+    }
+
+    #[test]
     fn delivery_prefers_system_prompt_when_declared() {
         assert_eq!(
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
@@ -597,6 +671,16 @@ mod tests {
     #[test]
     fn native_starter_capable_startup_handshake_is_not_confirmed_a_second_time() {
         assert_eq!(startup_handshake_confirmed_first_turn(true), None);
+    }
+
+    #[test]
+    fn startup_ack_starter_requires_a_supervised_non_task_launch() {
+        assert_eq!(startup_starter_prompt(false, false), None);
+        assert_eq!(
+            startup_starter_prompt(true, false),
+            Some(crate::agent::provider::StarterPrompt::StartupHandshake)
+        );
+        assert_eq!(startup_starter_prompt(true, true), None);
     }
 
     #[test]

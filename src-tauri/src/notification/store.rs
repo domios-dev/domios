@@ -1,9 +1,10 @@
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use codeterm_types::notification::{AnswerSlot, NotificationAction};
+use codeterm_types::pty::PromptIdentity;
 
 use super::answer::{self, AnswerAdmission};
 use super::answer_delivery::{self, AnswerDeliveryPlan};
@@ -45,6 +46,8 @@ pub struct Notification {
     /// at send time and the one answer it may ever hold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<AnswerSlot>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub resolved: bool,
     /// The surface this question offers to turn on, and the one label that
     /// turns it on. Daemon-constructed, and read only when an answer is
     /// recorded — an untapped offer changes nothing.
@@ -76,13 +79,6 @@ pub enum NotificationSeverity {
     Info,
     Warning,
     Error,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DedupAdmission {
-    Added(String),
-    Duplicate(String),
-    Coalesced(String),
 }
 
 /// Outcome of push admission. Only `Deliver` and `Supersede` may reach a sink;
@@ -127,6 +123,18 @@ pub struct Ask {
     pub offer: Option<SurfaceOffer>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PromptOptionAnswer {
+    pub to_tab: String,
+    pub value: String,
+    pub identity: PromptIdentity,
+    pub delivered: bool,
+}
+
 impl Ask {
     pub fn offering(actions: Option<Vec<NotificationAction>>) -> Self {
         Self {
@@ -159,8 +167,6 @@ struct PushSlot {
 
 pub struct NotificationStore {
     notifications: Vec<Notification>,
-    provider_updates: HashMap<String, String>,
-    provider_update_prompts: HashMap<String, String>,
     max_notifications: usize,
     /// One open coalescing slot per (scope, level). Closed on read, clear,
     /// eviction or tab close — never by elapsed time.
@@ -177,8 +183,6 @@ impl NotificationStore {
     pub fn new(max: usize) -> Self {
         Self {
             notifications: Vec::new(),
-            provider_updates: HashMap::new(),
-            provider_update_prompts: HashMap::new(),
             max_notifications: max,
             push_slots: HashMap::new(),
             push_counts: HashMap::new(),
@@ -248,6 +252,7 @@ impl NotificationStore {
             read: false,
             actions,
             answer,
+            resolved: false,
             surface_offer: offer,
             sticky,
             push_failed: None,
@@ -422,73 +427,6 @@ impl NotificationStore {
         self.push_slots.retain(|_, slot| slot.notification_id != id);
     }
 
-    pub fn add_provider_update(
-        &mut self,
-        provider_id: String,
-        prompt_id: String,
-        title: String,
-        body: String,
-        actions: Vec<NotificationAction>,
-        provenance: NotificationProvenance,
-    ) -> DedupAdmission {
-        // Dead mappings must be dropped before coalescing, or a second notification can open while stale state remains.
-        let live_ids: HashSet<&str> = self.notifications.iter().map(|n| n.id.as_str()).collect();
-        self.provider_updates
-            .retain(|_, id| live_ids.contains(id.as_str()));
-        let live_providers: HashSet<String> = self.provider_updates.keys().cloned().collect();
-        self.provider_update_prompts
-            .retain(|_, provider| live_providers.contains(provider));
-
-        if let Some(existing_provider) = self.provider_update_prompts.get(&prompt_id).cloned() {
-            if let Some(id) = self.provider_updates.get(&existing_provider) {
-                return DedupAdmission::Duplicate(id.clone());
-            }
-            self.provider_update_prompts.remove(&prompt_id);
-        }
-
-        if let Some(id) = self.provider_updates.get(&provider_id).cloned() {
-            if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
-                notification.read = false;
-                self.provider_update_prompts.insert(prompt_id, provider_id);
-                return DedupAdmission::Coalesced(id);
-            }
-            self.provider_updates.remove(&provider_id);
-        }
-        let id = self.add_ext(
-            title,
-            Some(body),
-            NotificationSeverity::Info,
-            provenance,
-            Ask::offering(Some(actions)),
-            Some(true),
-            None,
-        );
-        self.provider_updates
-            .insert(provider_id.clone(), id.clone());
-        self.provider_update_prompts.insert(prompt_id, provider_id);
-        DedupAdmission::Added(id)
-    }
-
-    pub fn resolve_provider_update(&mut self, prompt_id: &str) -> Option<String> {
-        let provider_id = self.provider_update_prompts.get(prompt_id)?.clone();
-        let id = self.provider_updates.get(&provider_id)?.clone();
-        if let Some(notification) = self.notifications.iter().find(|item| item.id == id) {
-            let target_is_valid = notification.actions.as_deref().is_some_and(|actions| {
-                actions
-                    .iter()
-                    .any(|action| action_targets_prompt(action, prompt_id))
-            });
-            if !target_is_valid {
-                return None;
-            }
-        }
-        self.provider_updates.remove(&provider_id);
-        self.provider_update_prompts
-            .retain(|_, provider| provider != &provider_id);
-        self.clear(Some(&id));
-        Some(id)
-    }
-
     /// Point this record at the message the latest send named. Always a full
     /// overwrite, so a rewritten record never keeps a stale jump target.
     pub fn set_target(&mut self, id: &str, target: NotificationTarget) -> bool {
@@ -529,22 +467,106 @@ impl NotificationStore {
         match id {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
-                self.provider_updates.retain(|_, value| value != id);
-                let live_providers: HashSet<String> =
-                    self.provider_updates.keys().cloned().collect();
-                self.provider_update_prompts
-                    .retain(|_, provider| live_providers.contains(provider));
                 self.close_push_slot_for(id);
                 self.deliveries.release(id);
             }
             None => {
                 self.notifications.clear();
-                self.provider_updates.clear();
-                self.provider_update_prompts.clear();
                 self.push_slots.clear();
                 self.deliveries.clear();
             }
         }
+    }
+
+    pub fn resolve_prompt_notifications(
+        &mut self,
+        tab_id: &str,
+        identity: &PromptIdentity,
+    ) -> Vec<String> {
+        let mut resolved = Vec::new();
+        for notification in &mut self.notifications {
+            let matching_prompt = notification.actions.as_deref().is_some_and(|actions| {
+                actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        NotificationAction::RespondPromptOption {
+                            identity: offered,
+                            ..
+                        } if offered == identity
+                    )
+                })
+            });
+            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
+                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
+            });
+            if notification.tab_id.as_deref() == Some(tab_id)
+                && matching_prompt
+                && unanswered
+                && !notification.resolved
+            {
+                notification.resolved = true;
+                notification.read = true;
+                notification.actions = None;
+                resolved.push(notification.id.clone());
+            }
+        }
+        for id in &resolved {
+            self.close_push_slot_for(id);
+            self.deliveries.release(id);
+        }
+        resolved
+    }
+
+    pub fn answer_prompt_notifications(
+        &mut self,
+        tab_id: &str,
+        identity: &PromptIdentity,
+        option_index: usize,
+        answered_via: &str,
+    ) -> Vec<String> {
+        let Some(option) = identity.options.get(option_index) else {
+            return Vec::new();
+        };
+        let mut answered = Vec::new();
+        for notification in &mut self.notifications {
+            if notification.tab_id.as_deref() != Some(tab_id) || notification.resolved {
+                continue;
+            }
+            let Some(slot) = notification.answer.as_mut() else {
+                continue;
+            };
+            if slot.answered.is_some() || slot.asked_from_tab.as_deref() != Some(tab_id) {
+                continue;
+            }
+            let Some(actions) = notification.actions.as_deref() else {
+                continue;
+            };
+            let action = actions.iter().find(|action| {
+                matches!(
+                    action,
+                    NotificationAction::RespondPromptOption { identity: offered, value, .. }
+                        if offered == identity && value == &option.value
+                )
+            });
+            let Some(action) = action else {
+                continue;
+            };
+            let Some(label) = action.answer_label() else {
+                continue;
+            };
+            slot.answered = Some(label.to_string());
+            slot.answered_via = Some(answered_via.to_string());
+            slot.delivered = true;
+            notification.resolved = true;
+            notification.read = true;
+            notification.actions = None;
+            answered.push(notification.id.clone());
+        }
+        for id in &answered {
+            self.close_push_slot_for(id);
+            self.deliveries.release(id);
+        }
+        answered
     }
 
     /// The one answer this notification may hold, and the tab it was asked
@@ -555,6 +577,29 @@ impl NotificationStore {
             .find(|n| n.id == id)?
             .answer
             .as_ref()
+    }
+
+    pub fn prompt_option_answer(&self, id: &str, label: &str) -> Option<PromptOptionAnswer> {
+        let notification = self.notifications.iter().find(|item| item.id == id)?;
+        let answer = notification.answer.as_ref()?;
+        let to_tab = answer.asked_from_tab.clone()?;
+        let action = notification
+            .actions
+            .as_deref()?
+            .iter()
+            .find(|action| action.answer_label() == Some(label))?;
+        let NotificationAction::RespondPromptOption {
+            value, identity, ..
+        } = action
+        else {
+            return None;
+        };
+        Some(PromptOptionAnswer {
+            to_tab,
+            value: value.clone(),
+            identity: identity.clone(),
+            delivered: answer.delivered,
+        })
     }
 
     /// Whether this record still stands as a question.
@@ -615,6 +660,19 @@ impl NotificationStore {
         answer::record(&mut self.notifications, id, label)
     }
 
+    pub fn record_detached_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
+        answer::record_detached(&mut self.notifications, id, label)
+    }
+
+    pub fn record_answer_via(
+        &mut self,
+        id: &str,
+        label: &str,
+        answered_via: &str,
+    ) -> AnswerAdmission {
+        answer::record_via(&mut self.notifications, id, label, answered_via)
+    }
+
     /// What one record owes the tab that asked. Read-only: the send itself
     /// happens outside the guard, through the existing envelope path.
     pub fn answer_delivery_plan(&self, id: &str) -> AnswerDeliveryPlan {
@@ -630,6 +688,20 @@ impl NotificationStore {
     /// a locator means whatever the channel that wrote it means by it.
     pub fn remember_channel_placement(&mut self, id: &str, service: &str, locator: &str) -> bool {
         channel_placement::remember(&mut self.notifications, id, service, locator)
+    }
+
+    /// Remember a receipt and return any closed question that must be rewritten.
+    pub fn remember_channel_placement_and_spent_question(
+        &mut self,
+        id: &str,
+        service: &str,
+        locator: &str,
+    ) -> Option<SpentQuestion> {
+        if self.remember_channel_placement(id, service, locator) {
+            self.spent_question(id)
+        } else {
+            None
+        }
     }
 
     pub fn channel_placements(&self, id: &str) -> Vec<ChannelPlacement> {
@@ -650,15 +722,6 @@ impl NotificationStore {
 
     pub fn unread_count(&self) -> usize {
         self.notifications.iter().filter(|n| !n.read).count()
-    }
-}
-
-fn action_targets_prompt(action: &NotificationAction, prompt_id: &str) -> bool {
-    match action {
-        NotificationAction::Invoke {
-            args: Some(args), ..
-        } => args.get("promptId").and_then(serde_json::Value::as_str) == Some(prompt_id),
-        _ => false,
     }
 }
 

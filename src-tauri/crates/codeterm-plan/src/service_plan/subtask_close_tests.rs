@@ -73,6 +73,68 @@ fn close_task_with_open_subtask_errors() {
 }
 
 #[test]
+fn add_task_rejects_terminal_and_child_parents() {
+    let (store, plan_id, parent_id) = store_with_task();
+    for status in [TaskStatus::Done, TaskStatus::Cancelled] {
+        store
+            .with_plan(&plan_id, 11, |plan| {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| task.id == parent_id)
+                    .unwrap()
+                    .status = status;
+                Ok(())
+            })
+            .unwrap();
+        let error = store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: "invalid".into(),
+                    parent_task_id: Some(parent_id.clone()),
+                    ..Default::default()
+                },
+                12,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            PlanError::InvalidSplitParent {
+                reason: SplitParentReason::TerminalParent
+            }
+        ));
+    }
+    store
+        .with_plan(&plan_id, 13, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap()
+                .status = TaskStatus::Pending;
+            Ok(())
+        })
+        .unwrap();
+    let child_id = add_child(&store, &plan_id, &parent_id);
+    let error = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "nested".into(),
+                parent_task_id: Some(child_id),
+                ..Default::default()
+            },
+            14,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::InvalidSplitParent {
+            reason: SplitParentReason::ChildParent
+        }
+    ));
+}
+
+#[test]
 fn close_task_after_subtasks_done_succeeds() {
     let (store, plan_id, parent_id) = store_with_task();
     let child_id = add_child(&store, &plan_id, &parent_id);
@@ -130,6 +192,42 @@ fn update_task_status_done_with_open_subtask_errors() {
         .unwrap_err();
 
     assert!(matches!(err, PlanError::OpenSubtasks { .. }));
+}
+
+#[test]
+fn update_task_status_cancelled_with_open_subtask_errors() {
+    let (store, plan_id, parent_id) = store_with_task();
+    add_child(&store, &plan_id, &parent_id);
+
+    let err = store
+        .update_task(
+            &plan_id,
+            &parent_id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            30,
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, PlanError::OpenSubtasks { .. }));
+    assert_eq!(
+        store.show_task(&parent_id).unwrap().task.status,
+        TaskStatus::Pending
+    );
 }
 
 #[test]

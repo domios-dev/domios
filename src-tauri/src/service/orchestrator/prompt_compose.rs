@@ -98,6 +98,14 @@ fn worker_agent_system_prompt(assignment: Option<&str>, role_profile: Option<&st
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
+    worker_agent_system_prompt_from_identity(identity, assignment, role_profile)
+}
+
+fn worker_agent_system_prompt_from_identity(
+    identity: Option<&str>,
+    assignment: &str,
+    role_profile: Option<&str>,
+) -> String {
     let mut sections = vec![crate::service::persona::guidance_for(
         crate::service::persona::Occasion::WorkerLaunchIdentity,
         Some(crate::multiplexer::types::AgentRole::Worker),
@@ -112,6 +120,27 @@ fn worker_agent_system_prompt(assignment: Option<&str>, role_profile: Option<&st
         sections.push(format!("## Assignment\n\n{}", assignment.trim()));
     }
     sections.join("\n\n")
+}
+
+pub(crate) fn restorable_identity_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let resolved = codeterm_types::agent::restore_role(role, role_profile);
+    if resolved.as_ref().map(|resolved| resolved.role)
+        == Some(crate::multiplexer::types::AgentRole::Worker)
+    {
+        let identity = task
+            .and_then(|task| crate::service::plan::worker_identity::split_worker_identity(task).0);
+        Some(worker_agent_system_prompt_from_identity(
+            identity,
+            "",
+            role_profile,
+        ))
+    } else {
+        role_onboarding_task(None, role, role_profile)
+    }
 }
 
 #[cfg(test)]

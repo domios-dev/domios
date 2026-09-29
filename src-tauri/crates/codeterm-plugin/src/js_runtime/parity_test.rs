@@ -14,10 +14,13 @@ use std::path::PathBuf;
 
 use crate::{
     chatbackend_provider::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry},
-    provider::{AgentLaunchParams, AgentProvider, ModelInfo},
+    provider::{AgentLaunchParams, AgentProvider, ModelInfo, ReasoningEffortInfo},
 };
 
 use super::{load_one, JsProvider};
+
+#[path = "parity_test/model_catalogue.rs"]
+mod model_catalogue;
 
 type PluginsDir = PathBuf;
 
@@ -102,8 +105,22 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: Some("alpha".into()),
+            reasoning_efforts: Some(vec![
+                ReasoningEffortInfo {
+                    id: "max".into(),
+                    display_name: "Max".into(),
+                    description: Some("Maximum reasoning".into()),
+                },
+                ReasoningEffortInfo {
+                    id: "ultra".into(),
+                    display_name: "Ultra".into(),
+                    description: None,
+                },
+            ]),
+            default_reasoning_effort: Some("max".into()),
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "live-b".into(),
             display_name: "Live B".into(),
             description: Some("second".into()),
@@ -112,10 +129,12 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         // A probe that could not run is a capability answer of its own, so the
         // native and JS paths must agree it is unknown, not unavailable.
         ModelInfo {
+            default_reasoning_effort: None,
             id: "live-c".into(),
             display_name: "Live C".into(),
             description: None,
@@ -124,6 +143,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ]
 }
@@ -160,6 +180,10 @@ impl AgentProvider for DiscoverModelsNativeStub {
         }
     }
 
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        crate::provider::ComposerCursorPosition::VisibleAnywhere
+    }
+
     fn detect_from_title(&self, _: &str) -> bool {
         false
     }
@@ -191,6 +215,10 @@ impl AgentProvider for DiscoverModelsNativeStub {
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         Some(discover_models_fixture())
+    }
+
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::authoritative_live()
     }
 }
 
@@ -301,6 +329,7 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
 fn model_capability_fixture() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sentinel-a".into(),
             display_name: "Sentinel A".into(),
             description: Some("ready".into()),
@@ -309,8 +338,10 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sentinel-b".into(),
             display_name: "Sentinel B".into(),
             description: Some("offline".into()),
@@ -319,6 +350,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ]
 }
@@ -439,7 +471,10 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A', group: 'alpha' },
+                        { id: 'live-a', displayName: 'Live A', group: 'alpha', defaultReasoningEffort: 'max', reasoningEfforts: [
+                            { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
+                            { id: 'ultra', displayName: 'Ultra' }
+                        ] },
                         { id: 'live-b', displayName: 'Live B', description: 'second' },
                         { id: 'live-c', displayName: 'Live C', availability: 'unknown' }
                     ];
@@ -480,6 +515,7 @@ fn provider_readiness_native_js_parity() {
             "readinessStrategy": {"kind": "poll_shell_prompt", "timeoutSecs": 30},
             "taskDelivery": "pty_input",
             "providerReadiness": {"kind": "structural_composer", "timeoutSecs": 17},
+            "composerCursorPosition": "visible_anywhere",
             "verifySubmit": {"kind": "none"}
         }
     }"#;
@@ -495,6 +531,121 @@ fn provider_readiness_native_js_parity() {
     assert_eq!(
         js.provider_readiness_strategy(),
         native.provider_readiness_strategy()
+    );
+    assert_eq!(
+        js.composer_cursor_position(),
+        native.composer_cursor_position()
+    );
+
+    if require_plugins().is_some() {
+        let opencode = load_js("opencode");
+        assert_eq!(
+            opencode.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::VisibleAnywhere
+        );
+        let codex = load_js("codex");
+        assert!(codex.provider_readiness_strategy().requires_composer());
+        assert_eq!(
+            codex.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::BottomRegion
+        );
+        let claude = load_js("claude");
+        assert!(!claude.provider_readiness_strategy().requires_composer());
+        assert_eq!(
+            claude.composer_cursor_position(),
+            crate::provider::ComposerCursorPosition::BottomRegion
+        );
+    }
+}
+
+struct NativeCodexReadiness;
+
+#[async_trait::async_trait]
+impl AgentProvider for NativeCodexReadiness {
+    fn id(&self) -> &str {
+        "codex-readiness-fixture"
+    }
+
+    fn display_name(&self) -> &str {
+        "Codex readiness fixture"
+    }
+
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        String::new()
+    }
+
+    fn readiness_strategy(&self) -> crate::provider::ReadinessStrategy {
+        crate::provider::ReadinessStrategy::PollShellPrompt {
+            timeout: std::time::Duration::from_secs(30),
+        }
+    }
+
+    fn task_delivery(&self) -> crate::provider::TaskDelivery {
+        crate::provider::TaskDelivery::InlineFlag
+    }
+
+    fn provider_readiness_strategy(&self) -> crate::provider::ProviderReadinessStrategy {
+        crate::provider::ProviderReadinessStrategy::StructuralComposer {
+            timeout: std::time::Duration::from_secs(30),
+        }
+    }
+
+    fn composer_cursor_position(&self) -> crate::provider::ComposerCursorPosition {
+        crate::provider::ComposerCursorPosition::BottomRegion
+    }
+
+    fn status_bar_rows(&self) -> u16 {
+        1
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+}
+
+#[test]
+fn codex_composer_fingerprint_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let native = NativeCodexReadiness;
+    let js = load_js("codex");
+    assert_eq!(
+        js.provider_readiness_strategy(),
+        native.provider_readiness_strategy()
+    );
+    assert_eq!(
+        js.composer_cursor_position(),
+        native.composer_cursor_position()
+    );
+    assert_eq!(js.status_bar_rows(), native.status_bar_rows());
+
+    let cursor = load_js("cursor");
+    assert!(cursor.provider_readiness_strategy().requires_composer());
+    assert_eq!(
+        cursor.composer_cursor_position(),
+        crate::provider::ComposerCursorPosition::BottomRegion
     );
 }
 
@@ -518,7 +669,6 @@ fn classify_tab_state_fixture() -> crate::tab_state::TabStateClassification {
             keys: Some(vec!["down".into(), "enter".into()]),
             delayed_resume: None,
             surface: None,
-            provider_update: None,
         }),
     }
 }
@@ -570,18 +720,6 @@ impl AgentProvider for ClassifyNativeStub {
     ) -> Option<crate::tab_state::TabStateClassification> {
         Some(classify_tab_state_fixture())
     }
-
-    fn provider_self_update_capability(
-        &self,
-    ) -> Option<crate::provider::ProviderSelfUpdateCapability> {
-        Some(crate::provider::ProviderSelfUpdateCapability {
-            in_session: true,
-            restart_required: true,
-            completion_signal: Some(
-                crate::provider::ProviderUpdateCompletionSignal::ProviderClassification,
-            ),
-        })
-    }
 }
 
 #[test]
@@ -623,26 +761,6 @@ fn classify_tab_state_unimplemented_matches_native_default_none() {
     let snap = classify_tab_state_snapshot();
     assert_eq!(native_default.classify_tab_state(&snap), None);
     assert_eq!(js.classify_tab_state(&snap), None);
-}
-
-#[test]
-fn provider_update_policy_has_native_js_capability_parity() {
-    let native = ClassifyNativeStub;
-    let js = load_inline_js(
-        "provider-update-fixture",
-        r#"
-            module.exports.default = {
-                providerSelfUpdateCapability() {
-                    return { inSession: true, restartRequired: true, completionSignal: 'provider_classification' };
-                }
-            };
-        "#,
-    );
-    assert_eq!(
-        js.provider_self_update_capability(),
-        native.provider_self_update_capability()
-    );
-    assert_eq!(js.describe().self_update, native.describe().self_update);
 }
 
 #[test]
@@ -743,6 +861,19 @@ fn all_workspace_plugins_load() {
 }
 
 #[test]
+fn paste_limit_capability_native_js_parity() {
+    let Some(_) = require_plugins() else {
+        return;
+    };
+    // 4096 lies above passing short cells and below cn20's first failing 8192-byte cell.
+    let codex = load_js("codex");
+    assert_eq!(codex.paste_limit_bytes(), Some(4096));
+    assert_eq!(codex.describe().paste_limit_bytes, Some(4096));
+    assert_eq!(load_js("claude").paste_limit_bytes(), None);
+    assert_eq!(load_js("opencode").paste_limit_bytes(), None);
+}
+
+#[test]
 fn launch_adapter_matrix_uses_each_installed_descriptor() {
     let Some(root) = require_plugins() else {
         return;
@@ -768,6 +899,7 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
         let descriptor = provider.describe();
         let command = provider.build_launch_command(&AgentLaunchParams {
             task: Some(task.into()),
+            instance_id: Some("instance-parity".into()),
             ..Default::default()
         });
 
@@ -912,91 +1044,6 @@ fn model_launch_args_match_each_cli_flag_format() {
     }
 }
 
-/// Reasoning-effort capability is declared in each provider manifest and
-/// surfaced through the descriptor with its provider-owned launch format.
-#[test]
-fn reasoning_effort_capability_is_declared_and_gated() {
-    if require_plugins().is_none() {
-        return;
-    }
-
-    let codex = load_js("codex");
-    let d = codex.describe();
-    let ids: Vec<String> = d.reasoning_efforts.iter().map(|e| e.id.clone()).collect();
-    assert_eq!(
-        ids,
-        vec!["low", "medium", "high", "xhigh"],
-        "codex must surface its declared effort levels"
-    );
-    assert_eq!(d.default_reasoning_effort.as_deref(), Some("medium"));
-    assert_eq!(
-        codex.reasoning_effort_launch_args("high"),
-        vec![
-            "-c".to_string(),
-            "model_reasoning_effort=\"high\"".to_string()
-        ],
-        "codex effort launch flag must match its CLI config-override contract"
-    );
-    assert!(
-        codex.reasoning_effort_launch_args("").is_empty(),
-        "empty effort must produce no launch flags"
-    );
-    assert!(codex.supports_reasoning_effort("medium"));
-    assert!(codex.validate_reasoning_effort(Some("high")).is_ok());
-    let rejection = codex
-        .validate_reasoning_effort(Some("ultra"))
-        .expect_err("unsupported effort must be rejected");
-    assert_eq!(rejection.requested, "ultra");
-    assert_eq!(rejection.supported, vec!["low", "medium", "high", "xhigh"]);
-
-    let claude = load_js("claude");
-    let claude_ids: Vec<String> = claude
-        .describe()
-        .reasoning_efforts
-        .iter()
-        .map(|effort| effort.id.clone())
-        .collect();
-    assert_eq!(claude_ids, vec!["low", "medium", "high", "xhigh", "max"]);
-    assert_eq!(
-        claude.reasoning_effort_launch_args("xhigh"),
-        vec!["--effort".to_string(), "xhigh".to_string()]
-    );
-    assert!(claude.validate_reasoning_effort(None).is_ok());
-    assert!(claude.validate_reasoning_effort(Some("max")).is_ok());
-    assert!(claude.validate_reasoning_effort(Some("ultra")).is_err());
-
-    let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
-    assert_eq!(
-        native_claude.reasoning_efforts(),
-        claude.reasoning_efforts()
-    );
-    assert_eq!(
-        native_claude.reasoning_effort_launch_args("high"),
-        claude.reasoning_effort_launch_args("high")
-    );
-}
-
-#[test]
-fn session_owned_reasoning_effort_native_js_parity() {
-    let native = DiscoverModelsNativeStub;
-    let js = load_inline_js(
-        "effort-attestation-fixture",
-        r#"
-            module.exports.default = {
-                detectSessionReasoningEffort(_cwd, sessionId) {
-                    return sessionId === 'owned-session' ? 'high' : null;
-                }
-            };
-        "#,
-    );
-    for session_id in ["owned-session", "global-latest-foreign"] {
-        assert_eq!(
-            native.detect_session_reasoning_effort("/repo", session_id),
-            js.detect_session_reasoning_effort("/repo", session_id),
-        );
-    }
-}
-
 /// DN-2 read-preference parity: a stored transcript path whose filename
 /// differs from the session id must be what BOTH the native and JS readers
 /// resolve — neither may consult id-based reconstruction. The JS fixture's own
@@ -1064,62 +1111,6 @@ fn transcript_path_evidence_native_js_read_parity() {
     );
 }
 
-#[test]
-fn model_catalog_override_applies_reasoning_efforts() {
-    use std::sync::Arc;
-
-    let id = "model-catalog-effort-override-fixture";
-    let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
-                "models":[{{"id":"fixture-model","displayName":"Fixture Model"}}],
-                "reasoningEfforts":[
-                    {{"id":"low","displayName":"Low"}},
-                    {{"id":"medium","displayName":"Medium"}},
-                    {{"id":"high","displayName":"High"}}
-                ],
-                "defaultReasoningEffort":"medium",
-                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
-                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
-    );
-    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
-    let vm = super::PluginVm::from_source_with(
-        id,
-        "module.exports.default = {};".to_string(),
-        Some(manifest_json),
-    )
-    .expect("fixture vm");
-    let override_path = crate::model_catalog::models_dir().join(format!("{id}.toml"));
-    std::fs::write(
-        &override_path,
-        r#"[[models]]
-id = "fixture-model"
-display_name = "Fixture Model"
-
-[[efforts]]
-id = "xhigh"
-display_name = "Extra high"
-description = "Maximum reasoning depth."
-"#,
-    )
-    .unwrap();
-
-    let provider = JsProvider::new(manifest, Arc::new(vm));
-    let _ = provider.available_models();
-    let efforts: Vec<String> = provider
-        .reasoning_efforts()
-        .into_iter()
-        .map(|effort| effort.id)
-        .collect();
-    let validation = provider.validate_reasoning_effort(Some("xhigh"));
-
-    let _ = std::fs::remove_file(&override_path);
-    assert!(
-        efforts.iter().any(|effort| effort == "xhigh"),
-        "model-catalog override discarded [[efforts]]; resolved efforts: {efforts:?}"
-    );
-    assert!(validation.is_ok());
-}
-
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
 /// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show
@@ -1160,6 +1151,8 @@ fn permission_bypass_descriptor_matches_provider_capability() {
 // Hook event roster parity + fail-closed registration (DN-3 stage 1).
 
 mod hook_event_roster;
+mod integration_kind;
+mod launch_artifacts;
 
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
@@ -1178,6 +1171,8 @@ mod find_session;
 mod manifest_launch_template;
 mod model_groups;
 mod opencode;
+mod reasoning_efforts;
 mod record_identity;
+mod resume_first_turn;
 mod trust_grant;
 mod usage_sources;

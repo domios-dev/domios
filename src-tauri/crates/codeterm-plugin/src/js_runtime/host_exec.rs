@@ -4,8 +4,8 @@
 //! travel via `env`/`stdin`, never argv (visible to `ps`).
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -65,6 +65,15 @@ struct ExecOpts {
     /// Kill blocking subprocesses after this many milliseconds.
     #[serde(default)]
     timeout_ms: Option<u64>,
+    #[serde(default)]
+    conversation: Option<Vec<ExecConversationStep>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecConversationStep {
+    stdin: String,
+    await_response_ids: Vec<u64>,
 }
 
 fn err(msg: &str) -> String {
@@ -84,6 +93,9 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
     let opts = with_host_env(opts, host_env);
+    if let Some(conversation) = opts.conversation.as_deref() {
+        return run_conversation(&opts, conversation);
+    }
     let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
 
     if opts.detach {
@@ -203,6 +215,181 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         value["error"] = serde_json::json!(e);
     }
     value.to_string()
+}
+
+fn run_conversation(opts: &ExecOpts, conversation: &[ExecConversationStep]) -> String {
+    if opts.detach || opts.stdin.is_some() || conversation.is_empty() {
+        return err("exec conversation requires stages, piped stdin, and a foreground process");
+    }
+    if conversation
+        .iter()
+        .any(|stage| stage.await_response_ids.is_empty())
+    {
+        return err("exec conversation stage has no awaited response ids");
+    }
+
+    let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
+    let mut command = Command::new(&resolved);
+    codeterm_util::process_util::no_window_std(&mut command);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = match command
+        .args(&opts.args)
+        .envs(&opts.env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => return err(&format!("spawn {}: {error}", opts.bin)),
+    };
+
+    let Some(stdout_pipe) = child.stdout.take() else {
+        return err("exec conversation stdout pipe unavailable");
+    };
+    let Some(stderr_pipe) = child.stderr.take() else {
+        return err("exec conversation stderr pipe unavailable");
+    };
+    let Some(mut stdin_pipe) = child.stdin.take() else {
+        return err("exec conversation stdin pipe unavailable");
+    };
+
+    let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
+    let _out_thread = std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout_pipe);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if line_tx.send(line.clone()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
+    let _err_thread = std::thread::spawn(move || {
+        let mut text = String::new();
+        let mut reader = BufReader::new(stderr_pipe);
+        let _ = reader.read_to_string(&mut text);
+        let _ = err_tx.send(text);
+    });
+
+    let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
+    let deadline = std::time::Instant::now() + timeout;
+    let mut stdout = String::new();
+    let mut failure = None;
+
+    for stage in conversation {
+        if let Err(error) = stdin_pipe
+            .write_all(stage.stdin.as_bytes())
+            .and_then(|_| stdin_pipe.flush())
+        {
+            failure = Some(format!("write {} conversation stdin: {error}", opts.bin));
+            break;
+        }
+
+        let mut pending = stage
+            .await_response_ids
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>();
+        while !pending.is_empty() {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                failure = Some(format!(
+                    "{} timed out waiting for app-server response id(s) {:?}",
+                    opts.bin, pending
+                ));
+                break;
+            }
+            match line_rx.recv_timeout(remaining) {
+                Ok(line) => {
+                    if let Some(id) = json_rpc_response_id(&line) {
+                        pending.remove(&id);
+                    }
+                    stdout.push_str(&line);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    failure = Some(format!(
+                        "{} timed out waiting for app-server response id(s) {:?}",
+                        opts.bin, pending
+                    ));
+                    break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    failure = Some(format!(
+                        "{} exited before app-server response id(s) {:?}",
+                        opts.bin, pending
+                    ));
+                    break;
+                }
+            }
+        }
+        if failure.is_some() {
+            break;
+        }
+    }
+
+    drop(stdin_pipe);
+    if failure.is_some() {
+        terminate_child(&mut child);
+    }
+
+    let (status_code, wait_failure) =
+        match child.wait_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Some(status)) => (status.code().unwrap_or(-1), None),
+            Ok(None) => {
+                terminate_child(&mut child);
+                let status = child.wait().ok();
+                (
+                    status.and_then(|status| status.code()).unwrap_or(-1),
+                    Some(format!(
+                        "{} timed out after {}ms",
+                        opts.bin,
+                        timeout.as_millis()
+                    )),
+                )
+            }
+            Err(error) => (-1, Some(format!("wait {}: {error}", opts.bin))),
+        };
+
+    let drain = Duration::from_millis(400);
+    let drain_deadline = std::time::Instant::now() + drain;
+    loop {
+        let remaining = drain_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match line_rx.recv_timeout(remaining) {
+            Ok(line) => stdout.push_str(&line),
+            Err(_) => break,
+        }
+    }
+    let stderr = err_rx.recv_timeout(drain).unwrap_or_default();
+    let mut value = serde_json::json!({
+        "code": status_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    });
+    if let Some(error) = failure.or(wait_failure) {
+        value["error"] = serde_json::json!(error);
+    }
+    value.to_string()
+}
+
+fn json_rpc_response_id(line: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get("id")?
+        .as_u64()
 }
 
 #[cfg(windows)]
@@ -684,6 +871,43 @@ mod tests {
         assert!(out.get("error").is_none(), "unexpected error: {out}");
         assert_eq!(out["code"], 0);
         assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
+    }
+
+    #[test]
+    fn conversation_keeps_stdin_open_until_each_response_arrives() {
+        #[cfg(windows)]
+        let opts = serde_json::json!({
+            "bin": "powershell",
+            "args": ["-NoProfile", "-Command", r#"$line = $null; while (($line = [Console]::In.ReadLine()) -ne $null) { if ($line.Contains('"id":1')) { [Console]::Out.WriteLine('{"id":1,"result":{}}') }; if ($line.Contains('"id":2')) { [Console]::Out.WriteLine('{"id":2,"result":{}}') } }"#],
+            "conversation": [
+                { "stdin": "{\"method\":\"initialize\",\"id\":1}\n", "awaitResponseIds": [1] },
+                { "stdin": "{\"method\":\"hooks/list\",\"id\":2}\n", "awaitResponseIds": [2] }
+            ],
+            "timeoutMs": 10000
+        });
+        #[cfg(not(windows))]
+        let opts = serde_json::json!({
+            "bin": "sh",
+            "args": ["-c", r#"while IFS= read -r line; do case "$line" in *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}';; *'"id":2'*) printf '%s\n' '{"id":2,"result":{}}';; esac; done"#],
+            "conversation": [
+                { "stdin": "{\"method\":\"initialize\",\"id\":1}\n", "awaitResponseIds": [1] },
+                { "stdin": "{\"method\":\"hooks/list\",\"id\":2}\n", "awaitResponseIds": [2] }
+            ],
+            "timeoutMs": 10000
+        });
+
+        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
+        assert_eq!(
+            out["code"], 0,
+            "conversation process must exit cleanly: {out}"
+        );
+        assert!(
+            out.get("error").is_none(),
+            "conversation must complete: {out}"
+        );
+        let stdout = out["stdout"].as_str().unwrap_or_default();
+        assert!(stdout.contains("\"id\":1"));
+        assert!(stdout.contains("\"id\":2"));
     }
 
     #[test]

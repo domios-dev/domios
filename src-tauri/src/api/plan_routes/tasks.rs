@@ -18,7 +18,8 @@ use crate::service::{
 };
 
 use super::{
-    emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
+    authorize_draft_structure_mutation_http, authorize_execution_action_http, emit_plan_changed,
+    epoch_ms, optional_string_field, plan_authority_err, plan_err, text_err, PlanRouteResult,
 };
 
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
@@ -39,7 +40,7 @@ fn record_respawn_attempt_and_persist_identity(
     now_ms: u64,
 ) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
 {
-    record_respawn_attempt_and_persist_identity_for(
+    let created = record_respawn_attempt_and_persist_identity_for(
         &state.svc.plan_store,
         &state.svc.mux,
         planner_role_for_tab(state, tab_id).or(Some("worker")),
@@ -49,7 +50,9 @@ fn record_respawn_attempt_and_persist_identity(
         draft,
         title,
         now_ms,
-    )
+    )?;
+    state.svc.persist_current_attempt_session_model(tab_id);
+    Ok(created)
 }
 
 fn record_respawn_attempt_and_persist_identity_for(
@@ -234,13 +237,12 @@ pub async fn task_add(
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let author = state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    let author = authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     let execution_fields = serde_json::json!({
         "assign_tab": body.assign_tab.clone(),
         "executor_role": body.executor_role.clone(),
@@ -353,7 +355,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || task_update_core(&service, &headers, &id, &tid, body))
         .await
@@ -378,11 +380,11 @@ fn task_update_core(
     )
     .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error))?;
     let author = service
-        .authorize_draft_structure_mutation(
+        .authorize_draft_structure_mutation_typed(
             id,
             &crate::api::tab_routes::authenticated_plan_caller(headers),
         )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+        .map_err(plan_authority_err)?;
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
     let section_ids = if body.get("sections").is_some() {
@@ -585,7 +587,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let owner_epoch = state
         .svc
@@ -658,14 +660,13 @@ pub async fn task_assign(
     Json(body): Json<TaskAssignBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
-        .svc
-        .authorize_execution_action(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
+    authorize_execution_action_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
     let owner_epoch = state
         .svc
         .plan_store
@@ -677,20 +678,27 @@ pub async fn task_assign(
     } else {
         None
     };
-    {
+    let assignment = {
         let mux = state.svc.mux.read();
-        crate::service::task_assignment::assign_existing_task(
-            &state.svc.plan_store,
+        crate::service::task_assignment::prepare_existing_task_assignment(
             &mux,
-            &id,
-            &tid,
             &body.tab,
             body.peer.as_deref(),
             authority.as_ref(),
-            epoch_ms(),
         )
-        .map_err(plan_err)?;
     }
+    .map_err(plan_err)?;
+    crate::service::task_assignment::persist_existing_task_assignment(
+        &state.svc.plan_store,
+        assignment,
+        &id,
+        &tid,
+        &body.tab,
+        body.peer.as_deref(),
+        authority.as_ref(),
+        epoch_ms(),
+    )
+    .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -776,7 +784,7 @@ fn owner_tab_is_gone(svc: &ServiceState, owner_tab_id: Option<&str>) -> bool {
     owner_tab_id.is_none_or(|tab_id| svc.mux.read().get_tab(tab_id).is_none())
 }
 
-pub(super) fn verify_task_mutation_owner(
+pub(super) async fn verify_task_mutation_owner(
     svc: &ServiceState,
     headers: &HeaderMap,
     plan_id: &str,
@@ -791,20 +799,30 @@ pub(super) fn verify_task_mutation_owner(
     if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }
+    let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
     if recovery == TaskMutationKind::Recovery
         && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
-        && svc
-            .authorize_plan_orchestrator(
-                plan_id,
-                &crate::api::tab_routes::authenticated_plan_caller(headers),
-            )
-            .is_ok()
     {
-        return svc
-            .plan_store
-            .retire_stale_task_owner(plan_id, task_id, None, |_| false, epoch_ms())
-            .map(|_| ())
-            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.to_string()));
+        match svc
+            .authorize_plan_orchestrator_async(plan_id, &caller)
+            .await
+        {
+            Ok(()) => {
+                return svc
+                    .plan_store
+                    .retire_stale_task_owner(plan_id, task_id, None, |_| false, epoch_ms())
+                    .map(|_| ())
+                    .map_err(|error| {
+                        text_err(axum::http::StatusCode::CONFLICT, error.to_string())
+                    });
+            }
+            Err(crate::service::PlanAuthorityError::SessionBindingPending) => {
+                return Err(plan_authority_err(
+                    crate::service::PlanAuthorityError::SessionBindingPending,
+                ));
+            }
+            Err(_) => {}
+        }
     }
     let tab_id = headers
         .get("X-CodeTerm-Tab-Id")
@@ -858,14 +876,17 @@ pub(super) fn verify_task_mutation_owner(
             "task mutation caller binding is stale or rebound",
         ));
     }
-    if svc
-        .authorize_plan_orchestrator(
-            plan_id,
-            &crate::api::tab_routes::authenticated_plan_caller(headers),
-        )
-        .is_ok()
+    match svc
+        .authorize_plan_orchestrator_async(plan_id, &caller)
+        .await
     {
-        return Ok(());
+        Ok(()) => return Ok(()),
+        Err(crate::service::PlanAuthorityError::SessionBindingPending) => {
+            return Err(plan_authority_err(
+                crate::service::PlanAuthorityError::SessionBindingPending,
+            ));
+        }
+        Err(_) => {}
     }
     svc.verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
         .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
@@ -935,19 +956,83 @@ pub async fn task_respawn(
     Json(body): Json<TaskRespawnRequest>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    state
+    authorize_execution_action_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
+    let plan = state
         .svc
-        .authorize_execution_action(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery)?;
-    let draft = state
+        .plan_store
+        .get(&id)
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::NotFound))?;
+    let original_task = crate::plan::task_key::find_task(&plan.tasks, &tid)
+        .cloned()
+        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
+    if matches!(
+        original_task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
+    ) {
+        crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, &original_task)
+            .map_err(plan_err)?;
+    }
+    let original_plan_mode = plan.mode.clone();
+    let mut draft = state
         .svc
         .plan_store
         .build_task_respawn_draft(&id, &tid, body)
         .map_err(plan_err)?;
+    let parent_tab_id = draft
+        .parent_tab_id
+        .clone()
+        .or_else(|| plan.owner.tab_id.clone())
+        .filter(|parent| !parent.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                "respawn requires a parent Orchestrator tab",
+            )
+        })?;
+    draft.parent_tab_id = Some(parent_tab_id.clone());
+    let lane_for_commit = original_task.lane.clone();
+    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.clone()
+    } else {
+        plan.canonical_project_path.clone()
+    };
+    let lane_protection = crate::service::LaneProtection::for_dispatch_intent(
+        &original_task.interruption.execution_intent,
+    );
+    let verify_cwd = draft.cwd.clone();
+    let verify_canonical_cwd = canonical_cwd.clone();
+    let verify_branch = original_task.lane.branch.clone();
+    let verify_base = original_task.lane.base.clone();
+    let verify_protection = lane_protection;
+    let provenance = tokio::task::spawn_blocking(move || {
+        crate::service::verify_worker_lane(
+            &verify_canonical_cwd,
+            &verify_cwd,
+            verify_branch.as_deref(),
+            verify_base.as_deref(),
+            verify_protection,
+        )
+    })
+    .await
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("respawn lane verification task failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        text_err(
+            axum::http::StatusCode::CONFLICT,
+            format!("respawn lane verification failed: {error}"),
+        )
+    })?;
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = state
         .svc
         .spawn_agent(
@@ -963,12 +1048,25 @@ pub async fn task_respawn(
                 spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
+                planned_reasoning_effort: draft.reasoning_effort.clone(),
+                reasoning_effort: draft.reasoning_effort.clone(),
+                task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                    plan_id: draft.plan_id.clone(),
+                    task_id: draft.task_id.clone(),
+                    attempt_id: draft.attempt_id.clone(),
+                    lane_base: original_task.lane.base.clone(),
+                }),
                 ..Default::default()
             },
-            None,
+            Some(ready_tx),
         )
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    draft.provider = spawn.agent.clone();
+    draft.model = spawn.provider_resolved_model.clone();
+    draft.reasoning_effort = state
+        .svc
+        .resolved_worker_launch_effort_for_tab(&spawn.tab_id);
     let created = record_respawn_attempt_and_persist_identity(
         &state,
         &id,
@@ -977,24 +1075,48 @@ pub async fn task_respawn(
         &draft,
         &spawn.title,
         epoch_ms(),
-    )
-    .map_err(plan_err)?;
+    );
+    let created = match created {
+        Ok(created) => created,
+        Err(error) => {
+            if let Err(close_error) = state.svc.close_tab(&spawn.tab_id) {
+                return Err(text_err(
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "respawn attempt persistence failed: {error}; spawned tab compensation failed: {close_error}"
+                    ),
+                ));
+            }
+            return Err(plan_err(error));
+        }
+    };
     let parent_tab_id = created
         .attempt
         .orchestrator_tab_id
         .as_deref()
-        .or(created.attempt.parent_tab_id.as_deref());
-    if let Some(parent_tab_id) = parent_tab_id {
-        state.svc.arm_worker_ack_deadline(
-            parent_tab_id,
-            &spawn.tab_id,
-            &spawn.title,
-            &id,
-            &tid,
-            &created.attempt.id,
-            respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
-        );
-    }
+        .or(created.attempt.parent_tab_id.as_deref())
+        .unwrap_or(&parent_tab_id)
+        .to_string();
+    let startup = crate::socket::server::plan_task_dispatch::DispatchStartup {
+        app: state.svc.app_handle.clone(),
+        svc: state.svc.clone(),
+        plan_id: id.clone(),
+        task_id: tid.clone(),
+        tab_id: spawn.tab_id.clone(),
+        startup_attempt_id: spawn.pty_id.clone(),
+        attempt_id: created.attempt.id.clone(),
+        parent_tab_id,
+        worker_title: spawn.title.clone(),
+        original_task,
+        original_plan_mode,
+        lane_for_commit,
+        canonical_project_path: canonical_cwd,
+        provenance: Some(provenance),
+        provisioned_lane: None,
+        lane_protection,
+        spawn_command: respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
+    };
+    std::thread::spawn(move || startup.run(ready_rx));
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -1003,6 +1125,11 @@ pub async fn task_respawn(
         "tab_id": spawn.tab_id,
         "spawn": spawn,
         "attempt": created.attempt,
+        "state": "awaiting_dispatch_ready",
+        "readiness": {
+            "ready": false,
+            "awaiting_event": "dispatch_ready",
+        },
         "draft": draft
     })))
 }
@@ -1013,14 +1140,13 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Ordinary)?;
-    state
-        .svc
-        .authorize_draft_structure_mutation(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Ordinary).await?;
+    authorize_draft_structure_mutation_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     state
         .svc
         .plan_store

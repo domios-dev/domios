@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::SocketCallError;
+use crate::client::{RpcError, SocketCallError};
 use std::collections::VecDeque;
 
 /// Tokens no CLI code path can synthesize: if one reaches rendered output it
@@ -11,6 +11,7 @@ const DAEMON_CALLER_PROJECT: &str = "<daemon-reported-caller-project>";
 struct FakeRpc {
     calls: Vec<(String, Option<Value>)>,
     responses: VecDeque<Value>,
+    failure: Option<(String, SocketCallError)>,
 }
 
 impl FakeRpc {
@@ -18,6 +19,15 @@ impl FakeRpc {
         Self {
             calls: vec![],
             responses: VecDeque::from(responses),
+            failure: None,
+        }
+    }
+
+    fn refusing_after(method: &str, response: Value, error: SocketCallError) -> Self {
+        Self {
+            responses: VecDeque::from([response]),
+            failure: Some((method.to_string(), error)),
+            ..Self::default()
         }
     }
 
@@ -36,6 +46,14 @@ impl RpcClient for FakeRpc {
         params: Option<Value>,
     ) -> Result<Value, SocketCallError> {
         self.calls.push((method.to_string(), params));
+        if self
+            .failure
+            .as_ref()
+            .is_some_and(|(expected, _)| expected == method)
+        {
+            let (_, error) = self.failure.take().expect("matching failure remains");
+            return Err(error);
+        }
         if let Some(scripted) = self.responses.pop_front() {
             return Ok(scripted);
         }
@@ -45,6 +63,65 @@ impl RpcClient for FakeRpc {
             "plan_title": "Probe plan"
         }))
     }
+}
+
+#[test]
+fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
+    let data = json!({
+        "type": "invalid_model",
+        "provider": "codex",
+        "requested_model": "gpt-9-bogus",
+        "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+        "refresh_command": "codeterm agent models codex",
+        "message": "unknown model"
+    });
+    let mut client = FakeRpc::refusing_after(
+        "plan.task.dispatch",
+        json!({ "task": { "interruption": { "owner_epoch": 17 } } }),
+        SocketCallError::Rpc(RpcError {
+            code: -32602,
+            message: "unknown model".into(),
+            data: Some(data),
+        }),
+    );
+    let error = run_dispatch(
+        &mut client,
+        true,
+        PlanTaskAction::Dispatch {
+            plan_id: "plan_a".into(),
+            task_id: Some("task_a".into()),
+            agent: Some("codex".into()),
+            authorized_gates: Vec::new(),
+            canonical_writer: false,
+            model: Some("gpt-9-bogus".into()),
+            reasoning_effort: None,
+            parent: None,
+            workspace: None,
+            cwd: None,
+            execution_intent: "read_only".into(),
+            provider_reserve_pct: 0.0,
+        },
+        None,
+    )
+    .expect_err("unknown authoritative model is a structured dispatch error");
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    crate::cmd::print::write_cli_error(true, &error, &mut out, &mut err);
+
+    assert!(err.is_empty());
+    assert_eq!(client.calls[1].0, "plan.task.dispatch");
+    let output: Value = serde_json::from_slice(&out).expect("one JSON error envelope");
+    assert_eq!(output["ok"], false);
+    assert_eq!(output["kind"], "error");
+    assert_eq!(output["data"]["type"], "invalid_model");
+    assert_eq!(output["data"]["provider"], "codex");
+    assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
+    assert_eq!(output["data"]["closest_model_ids"][0], "gpt-6-sol");
+    assert_eq!(
+        output["data"]["refresh_command"],
+        "codeterm agent models codex"
+    );
+    assert_eq!(output["code"], -32602);
 }
 
 fn list_action(status: Option<&str>) -> PlanTaskAction {
@@ -107,6 +184,37 @@ fn plan_task_show_json_returns_raw_rpc_value() {
     .expect("json returns the value");
     assert_eq!(out["task"]["id"], "task_1");
     assert_eq!(client.calls[0].0, "task.show");
+}
+
+#[test]
+fn split_creates_children_with_parent_and_inherited_routing() {
+    let mut client = FakeRpc::scripted([
+        json!({ "task": { "interruption": { "owner_epoch": 3 } } }),
+        json!({
+            "parent_task_id": "parent",
+            "children": [{"task_id": "child_a"}, {"task_id": "child_b"}]
+        }),
+    ]);
+    let response = run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Split {
+            plan_id: "pl_1".into(),
+            task_id: "parent".into(),
+            children: vec!["Part A".into(), "Part B".into()],
+            from_file: None,
+        },
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(client.methods().last().copied(), Some("plan.task.split"));
+    let params = client.calls.last().unwrap().1.as_ref().unwrap();
+    assert_eq!(params["task_id"], "parent");
+    assert_eq!(params["children"][0]["name"], "Part A");
+    assert_eq!(params["children"][1]["name"], "Part B");
+    assert_eq!(response["parent_task_id"], "parent");
+    assert_eq!(response["children"].as_array().unwrap().len(), 2);
 }
 
 #[test]
@@ -316,12 +424,14 @@ fn assigned_only_attempt_labels_each_timestamp() {
             "status": "assigned",
             "provider": "codex",
             "model": "gpt-test",
+            "reasoning_effort": "xhigh",
+            "session_model": "gpt-runtime",
             "assigned_at": 100,
             "acknowledged_at": null,
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
+        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
     );
 }
 
@@ -339,7 +449,7 @@ fn acknowledged_in_progress_attempt_separates_ack_from_assignment() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
+        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
     );
 }
 
@@ -357,7 +467,7 @@ fn reported_partial_attempt_separates_report_from_ack() {
             "reported_at": 120,
             "closed_at": null,
         }),
-        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
+        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
     );
 }
 
@@ -375,7 +485,7 @@ fn closed_attempt_labels_its_closure_separately() {
             "reported_at": 120,
             "closed_at": 130,
         }),
-        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
+        "attempt_id=attempt-closed executor_tab_id=tab-worker status=closed provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=130\n",
     );
 }
 
@@ -384,6 +494,18 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
     let response = json!({
         "attempts": [{
             "attempt_id": "attempt-json",
+            "provider": "codex",
+            "model": "gpt-6-luna",
+            "requested_model": "gpt-6-luna",
+            "provider_resolved_model": "gpt-6-luna",
+            "reasoning_effort": "xhigh",
+            "session_model": "gpt-6-luna",
+            "model_identity_mismatch": {
+                "requested_model": "gpt-6-luna",
+                "provider_resolved_model": "gpt-6-luna",
+                "actual_model": "other-model",
+                "reason": "runtime_session_model_mismatch",
+            },
             "assigned_at": 100,
             "acknowledged_at": 110,
             "reported_at": null,
@@ -408,4 +530,45 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
     assert_eq!(out["attempts"][0]["acknowledged_at"], 110);
     assert_eq!(out["attempts"][0]["reported_at"], Value::Null);
     assert_eq!(out["attempts"][0]["closed_at"], Value::Null);
+    assert_eq!(out["attempts"][0]["provider"], "codex");
+    assert_eq!(out["attempts"][0]["model"], "gpt-6-luna");
+    assert_eq!(out["attempts"][0]["reasoning_effort"], "xhigh");
+    assert_eq!(out["attempts"][0]["session_model"], "gpt-6-luna");
+}
+
+#[test]
+fn attempt_detail_labels_dispatched_and_session_models() {
+    let rendered = render_attempt(&json!({
+        "attempt": {
+            "provider": "codex",
+            "model": "gpt-6-luna",
+            "requested_model": "gpt-6-luna",
+            "provider_resolved_model": "gpt-6-luna",
+            "reasoning_effort": "xhigh",
+            "session_model": "other-model",
+            "model_identity_mismatch": {
+                "requested_model": "gpt-6-luna",
+                "provider_resolved_model": "gpt-6-luna",
+                "actual_model": "other-model",
+                "reason": "runtime_session_model_mismatch",
+            },
+        }
+    }));
+
+    assert!(rendered.contains("provider: codex\n"), "{rendered}");
+    assert!(rendered.contains("model: gpt-6-luna\n"), "{rendered}");
+    assert!(
+        rendered.contains("requested_model: gpt-6-luna\n"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("provider_resolved_model: gpt-6-luna\n"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("reasoning_effort: xhigh\n"), "{rendered}");
+    assert!(
+        rendered.contains("session_model: other-model\n"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
 }

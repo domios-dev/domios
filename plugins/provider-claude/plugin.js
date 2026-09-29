@@ -1330,7 +1330,7 @@ function parseWizardOptions(body) {
 }
 function parseNumberedOptions(text2) {
   const options = [];
-  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
+  const re = /^\s*[❯>]?\s*(\d+)\.[ ]+([^\r\n]*)/gm;
   let m;
   while ((m = re.exec(text2)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -1369,7 +1369,7 @@ function parseClaudeNumberedPrompt(text2) {
   if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
   const options = parseNumberedOptions(raw);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
   const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
   const question = findQuestion(before) || "Choose an option";
   return {
@@ -1488,6 +1488,52 @@ function buildClaudePromptResponse(optionIndex, screen) {
   steps.push("DQ==");
   if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
   return steps;
+}
+function claudeOnboardingPrompt(screen) {
+  const lines = String(screen || "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").split(/\r?\n/).map(onboardingRow);
+  const candidates = lines.flatMap((line, index) => {
+    const match = /^\s*([❯>])?\s*(\d+)\.[ ]+(.*?)\s*$/.exec(line);
+    return match ? [{ focused: Boolean(match[1]), number: match[2], label: match[3].trim(), line: index }] : [];
+  });
+  const options = candidates.slice(-3);
+  if (options.length !== 3 || options.some((option, index) => option.number !== String(index + 1))) return null;
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const first = options[0].line;
+  const last = options[2].line;
+  if (last - first > 4) return null;
+  const footer = lines.slice(last + 1, last + 4).join(" ").toLowerCase();
+  if (!footer.includes("enter") || !footer.includes("esc")) return null;
+  let question = "";
+  for (let index = first - 1; index >= Math.max(0, first - 5); index--) {
+    if (lines[index].endsWith("?")) {
+      question = lines[index];
+      break;
+    }
+  }
+  const questionWords = question.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!questionWords.includes("auto") || !questionWords.includes("environment")) return null;
+  const labels = options.map((option) => normalizeOnboardingLabel(option.label));
+  const target = labels.findIndex((label) => label.startsWith("not now"));
+  if (target < 0 || labels.filter((label) => label.startsWith("yes")).length !== 1) return null;
+  if (labels.filter((label) => label.startsWith("don't show again")).length !== 1) return null;
+  const current = options.findIndex((option) => option.focused);
+  const step = current === target ? "DQ==" : target > current ? "ag==" : "aw==";
+  return {
+    question,
+    options: options.map((option) => [option.label, option.number]),
+    frameKey: `onboarding:focus-${current}:target-${target}`,
+    step
+  };
+}
+function claudeOnboardingNotNowStep(screen) {
+  const prompt = claudeOnboardingPrompt(screen);
+  return prompt ? { frameKey: prompt.frameKey, step: prompt.step } : null;
+}
+function onboardingRow(row) {
+  return row.replace(/^\s*[│┃║]\s*/, "").replace(/\s*[│┃║]\s*$/, "").trim();
+}
+function normalizeOnboardingLabel(label) {
+  return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 function moveToOption(targetIndex, screen) {
   const current = currentHighlightedOptionIndex(screen);
@@ -1746,13 +1792,24 @@ var plugin = {
     return events;
   },
   parsePrompt(text2) {
-    return claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
+    const onboarding = claudeOnboardingPrompt(text2);
+    return onboarding && { question: onboarding.question, options: onboarding.options } || claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
+  },
+  parseDirectoryTrustPrompt(text2) {
+    const prompt = claudeFolderTrustPrompt(String(text2 || ""));
+    return prompt && {
+      question: prompt.question,
+      options: prompt.options.map(([label], index) => [label, String(index + 1)])
+    };
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);
+  },
+  launchOnboardingResponse(screen) {
+    return claudeOnboardingNotNowStep(screen);
   },
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
@@ -1819,7 +1876,7 @@ var plugin = {
   detectSessionModel(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
     if (!path || !host.fs.fileExists(path)) return null;
-    const contents = host.fs.readFile(path);
+    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -2197,6 +2254,7 @@ var plugin = {
       return {
         settings_exists: false,
         hooks_installed: false,
+        integration_owned: false,
         notification_hook: false,
         permission_request_hook: false,
         stop_hook: false,
@@ -2209,7 +2267,12 @@ var plugin = {
     }
     const json = host.fs.readJson(path);
     if (!json) {
-      return { settings_exists: true, hooks_installed: false };
+      return {
+        settings_exists: true,
+        hooks_installed: false,
+        integration_owned: false,
+        integration_state: "unreadable"
+      };
     }
     function present(key) {
       const arr = json.hooks && json.hooks[key];
@@ -2224,6 +2287,10 @@ var plugin = {
         }
       }
       return false;
+    }
+    function markerOwnedPresent(key) {
+      const arr = json.hooks && json.hooks[key];
+      return Array.isArray(arr) && arr.some((entry) => entryCarriesMarker(entry));
     }
     function sessionStartCurrent() {
       const arr = json.hooks && json.hooks.SessionStart;
@@ -2241,9 +2308,10 @@ var plugin = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop");
-    const pc = present("PreCompact");
+    const pc = markerOwnedPresent("PreCompact");
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
+    const owned = INTEGRATION_HOOK_KEYS.some((key) => markerOwnedPresent(key));
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
@@ -2255,6 +2323,7 @@ var plugin = {
     return {
       settings_exists: true,
       hooks_installed: installed,
+      integration_owned: owned,
       hook_contract_current: installed && marked,
       notification_hook: n,
       permission_request_hook: pr,
@@ -2463,6 +2532,12 @@ var CODETERM_CURRENT_ROUTES = [
 ];
 function commandCarriesMarker(cmd) {
   return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function entryCarriesMarker(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
 }
 function commandIsCurrentUnmarked(cmd) {
   if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;

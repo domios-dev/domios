@@ -1,7 +1,6 @@
 //! OpenCode provider parity — JS-only, driving the real `provider-opencode/plugin.js`
-//! through `JsProvider`. OpenCode keeps everything in a sqlite db under
-//! `$XDG_DATA_HOME/opencode`; the sqlite cases build a controlled db in a tempdir
-//! and point the plugin at it via `XDG_DATA_HOME` (serialized through `EnvGuard`).
+//! through `JsProvider`. OpenCode keeps sessions in SQLite under its XDG data
+//! directory or `OPENCODE_DB`; fixture stores are isolated through `EnvGuard`.
 
 use super::*;
 use crate::provider::SystemPromptDelivery;
@@ -14,20 +13,68 @@ fn opencode() -> JsProvider {
     load_js("opencode")
 }
 
+fn opencode_invocation(command: &str) -> &str {
+    let start = command
+        .match_indices("opencode")
+        .map(|(index, _)| index)
+        .find(|index| {
+            let rest = &command[index + "opencode".len()..];
+            rest.is_empty() || rest.starts_with([' ', ';'])
+        })
+        .expect("opencode invocation");
+    let invocation = &command[start..];
+    let end = [
+        " } finally",
+        "; ct_status=",
+        "; unset OPENCODE_CONFIG_CONTENT",
+    ]
+    .iter()
+    .filter_map(|delimiter| invocation.find(*delimiter))
+    .min()
+    .unwrap_or(invocation.len());
+    &invocation[..end]
+}
+
+fn staged_prompt_source(command: &str) -> &str {
+    let source = if let Some(copy) = command.split("Copy-Item -LiteralPath ").nth(1) {
+        copy.split(" -Destination ")
+            .next()
+            .expect("PowerShell staged source path")
+    } else {
+        command
+            .split("cp -- ")
+            .nth(1)
+            .and_then(|copy| copy.split(" &&").next())
+            .expect("POSIX staged source path")
+    };
+    let source = source.trim();
+    if let Some(quote @ ('\'' | '"')) = source.chars().next() {
+        let end = source[1..]
+            .find(quote)
+            .map(|index| index + 1)
+            .expect("quoted staged source path");
+        &source[1..end]
+    } else {
+        source
+            .split_whitespace()
+            .next()
+            .expect("staged source path")
+    }
+}
+
 #[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;
     }
     let j = opencode();
-    assert_eq!(
-        j.build_launch_command(&AgentLaunchParams::default()),
-        "opencode"
-    );
+    let plain = j.build_launch_command(&AgentLaunchParams::default());
+    assert_eq!(opencode_invocation(&plain), "opencode");
     let with_args = j.build_launch_command(&AgentLaunchParams {
         args: Some(vec!["x y".into()]),
         ..Default::default()
     });
+    let with_args = opencode_invocation(&with_args);
     assert!(with_args.starts_with("opencode"), "{with_args}");
     assert!(
         with_args.contains("'x y'") || with_args.contains("\"x y\""),
@@ -43,9 +90,37 @@ fn build_resume_command_shape() {
     let j = opencode();
     // Resume goes through the normal TUI path: `opencode --session <id>`.
     let cmd = j.build_resume_command(SES_ID, true).unwrap();
-    assert!(cmd.contains("opencode"), "{cmd}");
-    assert!(cmd.contains("--session"), "{cmd}");
-    assert!(cmd.contains(SES_ID), "{cmd}");
+    let invocation = opencode_invocation(&cmd);
+    assert!(invocation.starts_with("opencode"), "{invocation}");
+    assert!(invocation.contains("--session"), "{invocation}");
+    assert!(invocation.contains(SES_ID), "{invocation}");
+}
+
+#[test]
+fn restored_resume_command_preserves_exact_session_model_and_effort() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let command = opencode()
+        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            session_id: SES_ID.into(),
+            skip_permissions: false,
+            agent_name: None,
+            system_prompt: None,
+            instance_id: None,
+            args: vec![
+                "-m".into(),
+                "big-pickle".into(),
+                "--variant".into(),
+                "high".into(),
+            ],
+        })
+        .expect("opencode restored resume command");
+
+    assert_eq!(
+        opencode_invocation(&command),
+        format!("opencode --session '{SES_ID}' -m 'big-pickle' --variant 'high'")
+    );
 }
 
 /// OpenCode's `session_config` channel is a shell prologue that stages the
@@ -62,27 +137,35 @@ fn resume_with_context_restages_the_session_config() {
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: SES_ID.into(),
             skip_permissions: false,
+            agent_name: None,
             system_prompt: Some(prompt.into()),
-            args: vec!["--model".into(), "parity-model".into()],
+            instance_id: None,
+            args: vec![
+                "-m".into(),
+                "big-pickle".into(),
+                "--variant".into(),
+                "high".into(),
+            ],
         })
         .expect("opencode resume command");
 
     assert_eq!(command.matches("--session").count(), 1, "{command}");
     assert_eq!(
-        command.matches("OPENCODE_CONFIG_CONTENT").count(),
+        command.matches("cp -- ").count() + command.matches("Copy-Item -LiteralPath ").count(),
         1,
+        "exactly one staged prompt file copy: {command}"
+    );
+    let invocation = opencode_invocation(&command);
+    assert!(
+        invocation.starts_with("opencode ")
+            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --variant 'high'"),
         "{command}"
     );
-    assert!(command.contains("--model parity-model"), "{command}");
     assert!(
         !command.contains(prompt),
         "prompt travels in the staged file, not the command: {command}"
     );
-    let staged = command
-        .split_whitespace()
-        .find(|token| token.contains(".ct-task"))
-        .expect("staged prompt file")
-        .trim_matches(['\'', '"']);
+    let staged = staged_prompt_source(&command);
     let delivered = std::fs::read_to_string(staged).expect("staged prompt file");
     assert_eq!(delivered.matches(prompt).count(), 1);
 }
@@ -94,6 +177,14 @@ fn uses_structured_chat_is_true() {
     }
     // opencode chat lives in sqlite (part JOIN message), not a tailable JSONL.
     assert!(opencode().uses_structured_chat());
+}
+
+#[test]
+fn public_sends_wait_for_startup_turn_completion() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert!(opencode().public_send_waits_for_startup_turn_completion());
 }
 
 #[test]

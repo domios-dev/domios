@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.11.9"
+version = "1.11.10"
 edition = "2021"
 default-run = "codeterm"
 
@@ -10,6 +10,7 @@ exclude = ["pty-fork"]
 resolver = "2"
 
 [dependencies]
+tempfile = "3"
 tauri = { version = "2", features = ["tray-icon", "test"] }
 # Embedded JavaScript runtime for plugin code (provider TS bundles run
 # here when called from headless / background Rust code paths). Features chosen to keep
@@ -22,7 +23,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 portable-pty = { path = "pty-fork" }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
@@ -124,7 +125,6 @@ clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
-tempfile = "3"
 mockito = "1"
 filetime = "0.2.29"
 vt100 = "0.16"

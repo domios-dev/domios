@@ -35,7 +35,44 @@ fn binding(session: &str) -> AssignmentRuntimeBinding {
     AssignmentRuntimeBinding {
         session_id: session.into(),
         session_binding_nonce: "test-nonce".into(),
+        provider: None,
+        model: None,
+        session_model: None,
+        reasoning_effort: None,
     }
+}
+
+#[test]
+fn assignment_attempt_retains_planned_provider_and_model() {
+    let (_dir, store, plan, task) = fixture();
+    let mut worker_binding = binding("worker-session");
+    worker_binding.reasoning_effort = Some("xhigh".into());
+    store
+        .with_plan(&plan, 3, |plan| {
+            plan.tasks[0].model = Some("codex/gpt-6-luna".into());
+            Ok(())
+        })
+        .unwrap();
+
+    store
+        .assign_task_with_runtime_binding(
+            &plan,
+            &task,
+            "worker",
+            None,
+            None,
+            Some(&worker_binding),
+            None,
+            4,
+        )
+        .unwrap();
+
+    let mut detail = store.show_task(&task).unwrap();
+    let attempt = detail.task.execution_attempts.remove(0);
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.agent_type.as_deref(), Some("codex"));
+    assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
 }
 
 fn authority(task: &Task, tab: &str) -> TaskMutationAuthority {

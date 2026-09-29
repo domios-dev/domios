@@ -1,7 +1,8 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 export const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -545,11 +546,20 @@ export function cleanToolText(value: string, fallback: string): string {
 
 // Config and path helpers
 export function opencodeDbPath(): string | null {
-  let base = host.envGet("XDG_DATA_HOME");
-  if (!base) base = host.expandHome("~/.local/share");
+  const windows = host.platform() === "windows";
+  const sep = windows ? "\\" : "/";
+  const configuredDb = host.envGet("OPENCODE_DB");
+  if (configuredDb === ":memory:") return null;
+  if (configuredDb) {
+    const absolute = windows
+      ? /^[A-Za-z]:[\\/]|^[\\/]{1,2}/.test(configuredDb)
+      : configuredDb.startsWith("/");
+    if (absolute) return configuredDb;
+  }
+  const base = host.envGet("XDG_DATA_HOME") || host.expandHome("~/.local/share");
   if (!base) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return base + sep + "opencode" + sep + "opencode.db";
+  const dataDir = base + sep + "opencode";
+  return configuredDb ? dataDir + sep + configuredDb : dataDir + sep + "opencode.db";
 }
 
 export function opencodeSessionRecord(row: OpencodeSessionRow, db: string): unknown {
@@ -602,8 +612,10 @@ export function opencodePluginEntryMatches(entry: unknown, target: string | null
 }
 
 export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
+  const currentHeader = "// " + CODETERM_OPENCODE_PLUGIN_MARKER;
+  const hasCurrentHeader = text.startsWith(currentHeader + "\n")
+    || text.startsWith(currentHeader + "\r\n");
   const required = [
-    CODETERM_OPENCODE_PLUGIN_MARKER,
     "CODETERM_API_URL",
     "CODETERM_API_TOKEN",
     "CODETERM_SESSION_BINDING_NONCE",
@@ -611,15 +623,23 @@ export function isCurrentOpencodeBindingPluginSource(text: string): boolean {
     "/api/tabs/",
     "x-codeterm-binding-nonce",
     "authorization",
+    "sessionID === lastReported",
   ];
-  return required.every((value) => text.includes(value))
+  return hasCurrentHeader
+    && required.every((value) => text.includes(value))
     && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+
+export function ownsOpencodeBindingPluginSource(text: string): boolean {
+  const header = "// " + CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX;
+  return text.startsWith(header) && /^\d+(?:\r?\n|$)/.test(text.slice(header.length));
 }
 
 export function opencodeBindingPluginSource(): string {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     "const PROVIDER_ID = \"opencode\";",
+    "let lastReported = null;",
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
@@ -645,16 +665,17 @@ export function opencodeBindingPluginSource(): string {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID) return;",
+    "  if (!sessionID || sessionID === lastReported) return;",
     "  const url = endpoint();",
     "  if (!url) return;",
+    "  lastReported = sessionID;",
     "  const headers = {",
     "    \"content-type\": \"application/json\",",
     "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
     "    \"x-codeterm-binding-nonce\": process.env.CODETERM_SESSION_BINDING_NONCE,",
     "    authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
     "  };",
-    "  await fetch(url, {",
+    "  const delivered = await fetch(url, {",
     "    method: \"POST\",",
     "    headers,",
     "    body: JSON.stringify({",
@@ -663,7 +684,8 @@ export function opencodeBindingPluginSource(): string {
     "      source,",
     "      cwd: directory || process.cwd(),",
     "    }),",
-    "  }).catch(() => {});",
+    "  }).then((response) => response.ok, () => false);",
+    "  if (!delivered && lastReported === sessionID) lastReported = null;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -736,4 +758,47 @@ export function scanMessagesForModel(db: string, sql: string, params: unknown[])
     }
   }
   return null;
+}
+
+export function scanMessagesForQualifiedModel(db: string, sessionId: string): string | null {
+  try {
+    const rows = host.fs.sqliteQuery<{ data?: string }>(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId],
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i].data;
+      if (!raw) continue;
+      try {
+        const value = JSON.parse(raw) as { role?: string; providerID?: string; modelID?: string };
+        if (
+          value.role === "assistant" &&
+          typeof value.providerID === "string" && value.providerID &&
+          typeof value.modelID === "string" && value.modelID
+        ) {
+          return `${value.providerID}/${value.modelID}`;
+        }
+      } catch (_) {
+      }
+    }
+  } catch (_) {
+  }
+  return null;
+}
+
+export function scanSessionDirectory(db: string, sessionId: string): string | null {
+  try {
+    const rows = host.fs.sqliteQuery<{ id?: string; directory?: string }>(
+      db,
+      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId],
+    );
+    const session = rows.find((row) => row.id === sessionId);
+    return typeof session?.directory === "string" && session.directory.trim()
+      ? session.directory
+      : null;
+  } catch (_) {
+    return null;
+  }
 }

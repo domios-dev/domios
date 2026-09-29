@@ -53,26 +53,67 @@ impl ServiceContext {
         });
     }
 
-    /// A session the tab just bound is the current-session event: the commit
-    /// cleared runtime evidence, so re-read it or an unfocused tab keeps none.
-    pub(crate) fn refresh_session_model_after_binding(&self, tab_id: &str) {
-        let agent_id = {
+    pub(crate) fn refresh_session_model_for_current_tab(&self, tab_id: &str) {
+        let binding = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id).and_then(|tab| tab.agent_type.clone())
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.cwd.clone()?)))
         };
-        let Some(agent_id) = agent_id else { return };
-        self.refresh_session_model_once(tab_id, &agent_id);
+        let Some((agent_id, cwd)) = binding else {
+            return;
+        };
+        self.refresh_session_model(tab_id, &agent_id, &cwd, false);
     }
 
-    pub(crate) fn schedule_session_model_refresh_after_binding(&self, tab_id: &str) {
+    pub(crate) fn schedule_session_model_refresh_for_current_tab(&self, tab_id: &str) {
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         if let Err(error) = std::thread::Builder::new()
-            .name("session-binding-model-refresh".into())
-            .spawn(move || svc.refresh_session_model_after_binding(&tab_id))
+            .name("session-model-event-refresh".into())
+            .spawn(move || svc.refresh_session_model_for_current_tab(&tab_id))
         {
-            log::warn!("[session-model] failed to start post-binding refresh: {error}");
+            log::warn!("[session-model] failed to start event refresh: {error}");
         }
+    }
+
+    pub(crate) fn schedule_session_model_refresh_after_stop(&self, tab_id: &str) -> bool {
+        let (model_known, binding) = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return false;
+            };
+            if tab.agent_type.is_none() || tab.cwd.is_none() || tab.agent_session_id.is_none() {
+                return false;
+            }
+            let binding = super::task_assignment::authenticated_tab_binding(tab);
+            let model_known = tab.agent_session_model.is_some()
+                && binding.as_ref().is_some_and(|binding| {
+                    tab.agent_session_model_identity
+                        .as_ref()
+                        .is_some_and(|identity| {
+                            identity.session_id == binding.session_id
+                                && identity.session_binding_nonce == binding.session_binding_nonce
+                        })
+                });
+            (model_known, binding)
+        };
+        if !model_known {
+            self.schedule_session_model_refresh_for_current_tab(tab_id);
+            return true;
+        }
+        let attempt_model_unknown = binding.is_some_and(|binding| {
+            self.plan_store
+                .open_attempt_task_for_tab(
+                    tab_id,
+                    &binding.session_id,
+                    &binding.session_binding_nonce,
+                )
+                .is_some()
+        });
+        if attempt_model_unknown {
+            self.persist_current_attempt_session_model(tab_id);
+        }
+        false
     }
 
     /// The model this tab's own claimed session is running. Runtime evidence first,
@@ -83,17 +124,30 @@ impl ServiceContext {
         let (recorded, agent_id, cwd, session_id) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
+            let session_id = tab.agent_session_id.as_ref()?;
+            let nonce = tab.session_binding_nonce.as_ref();
+            let recorded = nonce
+                .zip(tab.reported_session_binding_nonce.as_ref())
+                .filter(|(nonce, reported)| nonce == reported)
+                .and_then(|(nonce, _)| {
+                    tab.agent_session_model_identity
+                        .as_ref()
+                        .filter(|identity| {
+                            identity.session_id == *session_id
+                                && identity.session_binding_nonce == *nonce
+                        })
+                })
+                .and_then(|_| tab.agent_session_model.clone());
             (
-                tab.agent_session_model.clone(),
-                tab.agent_type.clone(),
-                tab.cwd.clone(),
-                tab.agent_session_id.clone(),
+                recorded,
+                tab.agent_type.clone()?,
+                tab.cwd.clone()?,
+                session_id.clone(),
             )
         };
         if recorded.is_some() {
             return recorded;
         }
-        let (agent_id, cwd, session_id) = (agent_id?, cwd?, session_id?);
         let detected = self
             .agent_registry
             .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &session_id))
@@ -109,52 +163,69 @@ impl ServiceContext {
     }
 
     pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
-        let (cwd, session_id) = {
+        let cwd = {
             let mux = self.mux.read();
             let Some(p) = mux.get_tab(tab_id) else {
                 return;
             };
-            (p.cwd.clone(), p.agent_session_id.clone())
+            p.cwd.clone()
         };
         let Some(cwd) = cwd else { return };
+        self.refresh_session_model(tab_id, agent_id, &cwd, true);
+    }
+
+    fn refresh_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        cwd: &str,
+        detect_active_session: bool,
+    ) {
+        let session_id = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+        };
         // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling tab's session.
-        if let Some(ref current) = session_id {
-            if let Some(new_sid) = self
-                .agent_registry
-                .with_provider(agent_id, |p| p.detect_active_session(&cwd, current))
-                .flatten()
-            {
-                let claimed = {
-                    let mut mux = self.mux.write();
-                    if new_sid == *current || mux.other_session_ids(tab_id).contains(&new_sid) {
-                        false
-                    } else if let Some(p) = mux.get_tab_mut(tab_id) {
-                        if p.agent_type.as_deref() == Some(agent_id) {
-                            p.archive_context_epoch(agent_id, current);
-                            p.agent_session_id = Some(new_sid.clone());
-                            clear_runtime_model_evidence(p);
-                            true
+        if detect_active_session {
+            if let Some(ref current) = session_id {
+                if let Some(new_sid) = self
+                    .agent_registry
+                    .with_provider(agent_id, |p| p.detect_active_session(cwd, current))
+                    .flatten()
+                {
+                    let claimed = {
+                        let mut mux = self.mux.write();
+                        if new_sid == *current || mux.other_session_ids(tab_id).contains(&new_sid) {
+                            false
+                        } else if let Some(p) = mux.get_tab_mut(tab_id) {
+                            if p.agent_type.as_deref() == Some(agent_id) {
+                                p.archive_context_epoch(agent_id, current);
+                                p.agent_session_id = Some(new_sid.clone());
+                                clear_runtime_model_evidence(p);
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         }
-                    } else {
-                        false
-                    }
-                };
-                if claimed {
-                    log::info!(
-                        "[session-detect] rolled Tab {} from {} → {} ({})",
-                        tab_id,
-                        current,
-                        new_sid,
-                        agent_id,
-                    );
-                    self.emit_state_changed();
-                    if let Err(error) = super::session_persist::persist_session_after_mutation(
-                        self,
-                        super::session_persist::SessionPersistUrgency::Prompt,
-                    ) {
-                        log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                    };
+                    if claimed {
+                        log::info!(
+                            "[session-detect] rolled Tab {} from {} → {} ({})",
+                            tab_id,
+                            current,
+                            new_sid,
+                            agent_id,
+                        );
+                        self.emit_state_changed();
+                        if let Err(error) = super::session_persist::persist_session_after_mutation(
+                            self,
+                            super::session_persist::SessionPersistUrgency::Prompt,
+                        ) {
+                            log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                        }
                     }
                 }
             }
@@ -165,7 +236,7 @@ impl ServiceContext {
             mux.get_tab(tab_id).and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
-        self.refresh_session_reasoning_effort_once(tab_id, agent_id, &cwd, &sid);
+        self.refresh_session_reasoning_effort_once(tab_id, agent_id, cwd, &sid);
         let (
             current_model,
             planned_model,
@@ -203,10 +274,39 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
+            requested_model.as_deref().is_none_or(|requested| {
+                models_match(requested, &model)
+                    || crate::service::spawn::normalize_session_model(requested)
+                        .eq_ignore_ascii_case(&model)
+                    || crate::service::spawn::catalogue_models_match(
+                        &self.agent_registry,
+                        &agent_id,
+                        requested,
+                        &model,
+                    )
+            }),
         );
         let mismatch_changed = identity_update.mismatch != current_mismatch;
         let fallback_changed = identity_update.fallback != current_fallback;
         if !identity_update.model_changed && !mismatch_changed && !fallback_changed {
+            let model_binding_updated = {
+                let mut mux = self.mux.write();
+                if let Some(tab) = mux.get_tab_mut(tab_id) {
+                    if runtime_model_update_matches_session(tab, agent_id, &sid) {
+                        let identity = session_model_identity(tab, &sid);
+                        tab.agent_session_model_identity = identity;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+            if !model_binding_updated {
+                return;
+            }
+            self.persist_attempt_session_model(tab_id, agent_id, &sid, &model);
             return;
         }
         let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
@@ -219,13 +319,18 @@ impl ServiceContext {
                     "model fallback: requested {}, actual {}",
                     mismatch.requested_model, mismatch.actual_model
                 );
-                self.create_notification(
+                self.create_notification_ext(
                     title,
                     Some(
                         "Provider runtime session metadata reported a different model than the launch request."
                             .to_string(),
                     ),
                     Some(severity),
+                    None,
+                    None,
+                    crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+                    crate::service::notification::PushIntent::default(),
+                    None,
                 );
                 log::warn!(
                     "[session-model] tab={} requested_model={} actual_model={} severity={} fallback_reason=runtime_session_model_mismatch",
@@ -237,25 +342,162 @@ impl ServiceContext {
             }
         }
         let model = Some(model);
-        let mut mux = self.mux.write();
-        if let Some(p) = mux.get_tab_mut(tab_id) {
-            if runtime_model_update_matches_session(p, agent_id, &sid) {
-                if identity_update.model_changed {
-                    log::info!(
-                        "[session-model] tab={} {:?} -> {:?}",
-                        tab_id,
-                        p.agent_session_model,
-                        model
-                    );
+        let updated = {
+            let mut mux = self.mux.write();
+            if let Some(tab) = mux.get_tab_mut(tab_id) {
+                if runtime_model_update_matches_session(tab, agent_id, &sid) {
+                    if identity_update.model_changed {
+                        log::info!(
+                            "[session-model] tab={} {:?} -> {:?}",
+                            tab_id,
+                            tab.agent_session_model,
+                            model
+                        );
+                    }
+                    tab.agent_session_model = model.clone();
+                    tab.agent_provider_resolved_model = model.clone();
+                    let model_identity = session_model_identity(tab, &sid);
+                    tab.agent_session_model_identity = model_identity;
+                    tab.model_fallback = identity_update.fallback;
+                    tab.model_identity_mismatch = identity_update.mismatch;
+                    true
+                } else {
+                    false
                 }
-                p.agent_session_model = model;
-                p.model_fallback = identity_update.fallback;
-                p.model_identity_mismatch = identity_update.mismatch;
-                drop(mux);
-                self.emit_state_changed();
+            } else {
+                false
+            }
+        };
+        if updated {
+            self.emit_state_changed();
+            if let Some(model) = model.as_deref() {
+                self.persist_attempt_session_model(tab_id, agent_id, &sid, model);
             }
         }
     }
+
+    pub(crate) fn persist_attempt_session_model(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        model: &str,
+    ) {
+        if let Some(plan_id) =
+            self.write_attempt_model_identity(tab_id, agent_id, session_id, Some(model.to_string()))
+        {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": plan_id }),
+            );
+        }
+    }
+
+    fn write_attempt_model_identity(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        detected_model: Option<String>,
+    ) -> Option<String> {
+        let identity = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return None;
+            };
+            if !runtime_model_update_matches_session(tab, agent_id, session_id) {
+                return None;
+            }
+            let Some(binding) = super::task_assignment::authenticated_tab_binding(tab) else {
+                return None;
+            };
+            let actual_model = binding.session_model.clone().filter(|model| {
+                detected_model
+                    .as_ref()
+                    .is_none_or(|detected| detected == model)
+            });
+            let mismatch = tab.model_identity_mismatch.as_ref().map(|mismatch| {
+                crate::plan::AttemptModelIdentityMismatch {
+                    requested_model: mismatch.requested_model.clone(),
+                    provider_resolved_model: mismatch.provider_resolved_model.clone(),
+                    actual_model: mismatch.actual_model.clone(),
+                    reason: mismatch.reason.clone(),
+                }
+            });
+            (
+                binding,
+                tab.agent_requested_model.clone(),
+                tab.agent_provider_resolved_model.clone(),
+                actual_model,
+                mismatch,
+            )
+        };
+        let (binding, requested_model, provider_resolved_model, session_model, mismatch) = identity;
+        if binding.provider.as_deref() != Some(agent_id)
+            || binding.session_id != session_id
+            || binding.session_binding_nonce.trim().is_empty()
+        {
+            return None;
+        }
+        let Some((plan_id, task_id, attempt_id)) =
+            self.plan_store.open_attempt_task_for_effort_for_tab(
+                tab_id,
+                &binding.session_id,
+                &binding.session_binding_nonce,
+            )
+        else {
+            return None;
+        };
+        match self.plan_store.update_attempt_model_identity(
+            &plan_id,
+            &task_id,
+            tab_id,
+            &attempt_id,
+            &binding.session_id,
+            &binding.session_binding_nonce,
+            requested_model,
+            provider_resolved_model,
+            session_model,
+            mismatch,
+            session_model_epoch_ms(),
+        ) {
+            Ok(true) => Some(plan_id),
+            Ok(false) => None,
+            Err(error) => {
+                log::warn!(
+                    "[session-model] failed to persist task attempt model tab={tab_id}: {error}"
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn persist_current_attempt_session_model(&self, tab_id: &str) {
+        let identity = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.agent_session_id.clone()?)))
+        };
+        if let Some((agent_id, session_id)) = identity {
+            if let Some(plan_id) =
+                self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None)
+            {
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": plan_id }),
+                );
+            }
+        }
+    }
+}
+
+fn session_model_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn spawn_startup_model_refresh(
@@ -284,6 +526,7 @@ fn model_identity_update(
     provider_resolved_model: Option<&str>,
     current_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
     actual_model: &str,
+    requested_matches_actual: bool,
 ) -> ModelIdentityUpdate {
     let actual = actual_model.trim().to_string();
     let planned = planned_model
@@ -296,14 +539,12 @@ fn model_identity_update(
         .map(str::trim)
         .filter(|requested| !requested.is_empty())
         .and_then(|requested| {
-            (!models_match(requested, &actual)).then(|| {
-                crate::multiplexer::types::ModelIdentityMismatch {
-                    planned_model: planned.map(str::to_string),
-                    requested_model: requested.to_string(),
-                    provider_resolved_model: provider_resolved.map(str::to_string),
-                    actual_model: actual.clone(),
-                    reason: "runtime_session_model_mismatch".to_string(),
-                }
+            (!requested_matches_actual).then(|| crate::multiplexer::types::ModelIdentityMismatch {
+                planned_model: planned.map(str::to_string),
+                requested_model: requested.to_string(),
+                provider_resolved_model: provider_resolved.map(str::to_string),
+                actual_model: actual.clone(),
+                reason: "runtime_session_model_mismatch".to_string(),
             })
         });
     let fallback = current_fallback
@@ -320,7 +561,7 @@ fn model_identity_update(
                     provider_resolved_model: mismatch
                         .provider_resolved_model
                         .clone()
-                        .unwrap_or_else(|| mismatch.requested_model.clone()),
+                        .unwrap_or_else(|| mismatch.actual_model.clone()),
                     actual_model: Some(mismatch.actual_model.clone()),
                     reason: mismatch.reason.clone(),
                 })
@@ -334,11 +575,25 @@ fn model_identity_update(
 
 pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::Tab) {
     tab.agent_session_model = None;
+    tab.agent_session_model_identity = None;
     tab.model_identity_mismatch = None;
     if let Some(fallback) = tab.model_fallback.as_mut() {
         fallback.actual_model = None;
     }
     super::reasoning_effort::clear_runtime_evidence(tab);
+}
+
+fn session_model_identity(
+    tab: &crate::multiplexer::types::Tab,
+    session_id: &str,
+) -> Option<crate::multiplexer::types::SessionModelIdentity> {
+    let nonce = tab.session_binding_nonce.as_ref()?;
+    (tab.agent_session_id.as_deref() == Some(session_id)
+        && tab.reported_session_binding_nonce.as_ref() == Some(nonce))
+    .then(|| crate::multiplexer::types::SessionModelIdentity {
+        session_id: session_id.into(),
+        session_binding_nonce: nonce.clone(),
+    })
 }
 
 fn runtime_model_update_matches_session(

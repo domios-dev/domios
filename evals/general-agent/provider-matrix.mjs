@@ -134,6 +134,12 @@ function deliveryState(tab) {
   return tab?.pending_delivery?.state;
 }
 
+function supportsSystemPromptChannel(provider) {
+  const delivery = provider.system_prompt_delivery;
+  return delivery === "session_config" ||
+    (delivery !== null && typeof delivery === "object" && "cli_flag" in delivery);
+}
+
 function messageText(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map(messageText).join("\n");
@@ -204,9 +210,11 @@ async function assertProviderAvailable(provider) {
   if (descriptor.installed === false || descriptor.available === false) {
     throw new Error(`provider ${provider} is not installed/available`);
   }
+  return descriptor;
 }
 
-async function launch(events, provider) {
+async function launch(events, provider, descriptor) {
+  const hasSystemPromptChannel = supportsSystemPromptChannel(descriptor);
   await api("/api/agents/general/complete-first-run", {
     method: "POST",
     body: JSON.stringify({ provider_id: provider }),
@@ -217,7 +225,9 @@ async function launch(events, provider) {
       candidate.agent_type === provider &&
       candidate.boot_stage === "agent_ready" &&
       Boolean(candidate.agent_session_id) &&
-      deliveryState(candidate) === "confirmed",
+      (hasSystemPromptChannel
+        ? !candidate.pending_delivery
+        : deliveryState(candidate) === "confirmed"),
     `${provider} launch`,
   );
   await api(`/api/tabs/${tab.id}/chat-raw/start`, {
@@ -286,14 +296,17 @@ async function main() {
     throw new Error(`dev build ${build} does not match HEAD ${head}`);
   }
   await assertCleanFirstRun();
-  await assertProviderAvailable(PROVIDER);
+  const providerDescriptor = await assertProviderAvailable(PROVIDER);
 
   const events = new EventStream();
   await events.start();
   try {
-    const tab = await launch(events, PROVIDER);
+    const tab = await launch(events, PROVIDER, providerDescriptor);
+    const delivery = supportsSystemPromptChannel(providerDescriptor)
+      ? "system_prompt"
+      : "confirmed_fallback";
     console.log(
-      `PASS ${PROVIDER} launch: tab=${tab.id} session=${tab.agent_session_id} delivery=confirmed`,
+      `PASS ${PROVIDER} launch: tab=${tab.id} session=${tab.agent_session_id} delivery=${delivery}`,
     );
     if (LAUNCH_ONLY_PROVIDERS.has(PROVIDER)) {
       console.log(`PASS ${PROVIDER} launch-only matrix (reply intentionally not required)`);

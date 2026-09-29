@@ -206,9 +206,6 @@ pub fn run() {
             commands::restart_general_agent,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
-            commands::list_provider_update_prompts,
-            commands::respond_provider_update_prompt,
-            commands::acknowledge_provider_update_prompt,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -338,7 +335,6 @@ pub fn run() {
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
-            session::load_scrollback_tail,
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,
@@ -809,6 +805,7 @@ pub fn run() {
                 .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
+                agent_pad_data_dir: crate::paths::data_dir(),
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
@@ -817,6 +814,7 @@ pub fn run() {
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
                 cartographer_attach_locks: Default::default(),
+                orchestrator_attach_locks: Default::default(),
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
@@ -839,6 +837,7 @@ pub fn run() {
                 )),
                 prompt_detector,
                 pty_ownership: Default::default(),
+                provider_tree_witnesses: Arc::new(Default::default()),
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 remote_workers: Arc::new(remote_workers),
@@ -851,7 +850,6 @@ pub fn run() {
                     ),
                 )),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-                provider_updates: Default::default(),
                 chat_registry: crate::service::tab_chat::ChatRegistry::new(),
                 delayed_send,
                 secret_registry: secret_registry.clone(),
@@ -873,6 +871,7 @@ pub fn run() {
                 )),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
+                output_stream_activity: crate::service::output_stream_activity::channel(),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(services_store),
                 tokens: Arc::new(crate::service::tokens::TokenStore::new()),
@@ -900,9 +899,6 @@ pub fn run() {
                     service_state.app_handle.clone(),
                 ),
             ));
-            service_state
-                .provider_updates
-                .bind_execution_owner(&service_state);
             service_state
                 .mem
                 .extraction_authority()
@@ -1025,8 +1021,25 @@ pub fn run() {
             let startup_step = startup::StartupStep::logged("platform and server initialization");
             startup::setup_conpty_host(app);
             startup::install_bundled_cli(app);
+            startup::restore_complete(&service_state);
             startup::start_servers(app, &states, &service_state);
-            commands::ensure_integrations_for_all(&service_state.agent_registry, &states.config);
+            commands::ensure_integrations_for_all(
+                &service_state.agent_registry,
+                &states.config,
+                service_state.clone(),
+            );
+            let (api_port, allow_non_prod_updates) = {
+                let config = states.config.lock();
+                (
+                    config.api.port,
+                    config.updater.allow_provider_updates_in_non_prod,
+                )
+            };
+            service::provider_update::check_available(
+                service_state.clone(),
+                api_port,
+                allow_non_prod_updates,
+            );
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),
@@ -1149,6 +1162,7 @@ pub fn run() {
 
             // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
             if let tauri::RunEvent::ExitRequested { .. } = _event {
+                log::info!("[shutdown] RunEvent::ExitRequested received");
                 crash::shutdown::mark_shutting_down();
             }
 
@@ -1157,4 +1171,5 @@ pub fn run() {
                 crash::exit::handle_run_exit(_app);
             }
         });
+    log::info!("[shutdown] Tauri event loop returned");
 }

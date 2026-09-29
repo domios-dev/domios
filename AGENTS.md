@@ -245,14 +245,17 @@ into false failures. Before ANY change there, read and obey
 written at most once; after the paste reaches the write queue a failure may
 only classify as `submit_unconfirmed`, never `pty_unavailable`; false
 uncertainty is reconciled by exact session-turn evidence, never by guessing
-from screen output. Submit recovery is blind: write the payload once, then issue
-the bounded key-only burst without screen/composer gating. One resettable cycle
-exists per PTY; a new send cancels the old cycle instead of queueing messages.
+from screen output. Submit recovery writes the payload once and issues only the
+bounded submit-key schedule. A capability-declared first-key offset schedules an
+attempt; elapsed time never means ready or delivered. After a key, an exact user
+turn in the tab's bound-session append window stops the remaining keys. One
+resettable cycle exists per PTY; a new send cancels the old cycle instead of
+queueing messages.
 Delivery state is internal telemetry: Chat UI never renders
 delivery banners, failure cards, Retry actions, or notifications. Do not add
-acknowledgement heuristics, payload retries, sleeps, or provider-id branches
-to this path — if evidence quality is the problem, improve the evidence
-source, not the scraping.
+screen/composer acknowledgement, guessed readiness, payload retries, sleeps,
+or provider-id branches. Use exact claimed-session evidence; never scrape the
+screen to determine submission.
 
 **EXPLICIT USER APPROVAL IS REQUIRED BEFORE ANY EDIT TO THIS LOGIC.** This
 includes production code, tests, fixtures, evals, harnesses, scripts, and

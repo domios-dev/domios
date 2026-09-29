@@ -8,7 +8,11 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, inject_trusted_session, lane_params, maybe_inject_caller_tab, resolve_text};
+use super::{
+    call, call_plan_rpc_detailed, inject_trusted_session, lane_params, maybe_inject_caller_tab,
+    resolve_text,
+};
+use crate::cmd::print::CliError;
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -85,12 +89,43 @@ fn render_attempts(value: &Value) -> String {
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let model = attempt.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+        let requested_model = attempt
+            .get("requested_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let provider_resolved_model = attempt
+            .get("provider_resolved_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let reasoning_effort = attempt
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let session_model = attempt
+            .get("session_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
         let assigned_at = render_attempt_timestamp(&attempt, "assigned_at");
         let acknowledged_at = render_attempt_timestamp(&attempt, "acknowledged_at");
         let reported_at = render_attempt_timestamp(&attempt, "reported_at");
         let closed_at = render_attempt_timestamp(&attempt, "closed_at");
+        let remote_field = |key: &str| {
+            attempt
+                .get(key)
+                .and_then(|value| value.as_str())
+                .map(|value| format!(" {key}={value}"))
+                .unwrap_or_default()
+        };
+        let remote_state = remote_field("remote_dispatch_state");
+        let remote_lane = format!(
+            "{}{}",
+            remote_field("remote_lane_tip"),
+            remote_field("remote_merge_commit")
+        );
         out.push_str(&format!(
-            "attempt_id={id} executor_tab_id={tab} status={status} provider={provider} model={model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} closed_at={closed_at}\n"
+            "attempt_id={id} executor_tab_id={tab} status={status}{remote_state} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}
+  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at}{remote_lane} closed_at={closed_at}
+"
         ));
     }
     out
@@ -104,14 +139,15 @@ fn render_attempt(value: &Value) -> String {
         "executor_tab_id",
         "executor_title",
         "status",
-        "provider",
         "agent_type",
-        "model",
         "session_id",
         "role",
         "parent_tab_id",
         "orchestrator_tab_id",
         "mesh_peer",
+        "remote_dispatch_state",
+        "remote_lane_tip",
+        "remote_merge_commit",
         "branch",
         "worktree_path",
         "base",
@@ -135,6 +171,27 @@ fn render_attempt(value: &Value) -> String {
                 .unwrap_or_else(|| v.to_string());
             out.push_str(&format!("{key}: {rendered}\n"));
         }
+    }
+    for key in [
+        "provider",
+        "model",
+        "requested_model",
+        "provider_resolved_model",
+        "reasoning_effort",
+        "session_model",
+        "model_identity_mismatch",
+    ] {
+        let rendered = attempt
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .unwrap_or_else(|| "-".into());
+        out.push_str(&format!("{key}: {rendered}\n"));
     }
     if let Some(command) = attempt.get("report_command").and_then(|v| v.as_str()) {
         out.push_str("\nreport_command:\n");
@@ -274,6 +331,78 @@ pub(crate) fn render_empty_reason(reason: &Value) -> Option<String> {
     }
 }
 
+pub(super) fn run_dispatch(
+    client: &mut dyn RpcClient,
+    json: bool,
+    action: PlanTaskAction,
+    mesh_peer: Option<&str>,
+) -> Result<Option<Value>, CliError> {
+    let PlanTaskAction::Dispatch {
+        plan_id,
+        task_id,
+        agent,
+        authorized_gates,
+        canonical_writer,
+        model,
+        reasoning_effort,
+        parent,
+        workspace,
+        cwd,
+        execution_intent,
+        provider_reserve_pct,
+    } = action
+    else {
+        unreachable!()
+    };
+    let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
+    let mut params = json!({
+        "task_id": task_ref,
+        "execution_intent": execution_intent,
+        "provider_reserve_pct": provider_reserve_pct,
+        "authorized_gates": authorized_gates,
+    });
+    if let Some(pid) = plan_ref {
+        params["plan_id"] = json!(pid);
+    }
+    if canonical_writer {
+        params["placement"] = json!("canonical_writer");
+    }
+    if let Some(agent) = agent {
+        params["agent"] = json!(agent);
+    }
+    if let Some(model) = model {
+        params["model"] = json!(model);
+    }
+    if let Some(effort) = reasoning_effort {
+        params["reasoning_effort"] = json!(effort);
+    }
+    if let Some(parent) = parent {
+        params["parent_tab_id"] = json!(parent);
+    }
+    if let Some(workspace) = workspace {
+        params["workspace_id"] = json!(workspace);
+    }
+    if let Some(cwd) = cwd {
+        params["cwd"] = json!(cwd);
+    }
+    if let Some(peer) = mesh_peer {
+        params["mesh_peer"] = json!(peer);
+    }
+    inject_trusted_session(&mut params);
+    let val = call_plan_rpc_detailed(client, "plan.task.dispatch", params)?;
+    if json {
+        return Ok(Some(val));
+    }
+    if let Some(warnings) = val.get("warnings").and_then(|v| v.as_array()) {
+        for warning in warnings.iter().filter_map(|v| v.as_str()) {
+            eprintln!("warning: {warning}");
+        }
+    }
+    print_safety_nudges(&val);
+    print!("{}", render_dispatch_response(&val));
+    Ok(None)
+}
+
 pub(super) fn run_task(
     client: &mut dyn RpcClient,
     json: bool,
@@ -371,6 +500,30 @@ pub(super) fn run_task(
                 }),
             );
             Ok(None)
+        }
+        PlanTaskAction::Split {
+            plan_id,
+            task_id,
+            children,
+            from_file,
+        } => {
+            let children: Vec<Value> = if let Some(path) = from_file {
+                let content =
+                    std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+                serde_json::from_str(&content)
+                    .map_err(|e| format!("parse children file {path}: {e}"))?
+            } else {
+                children
+                    .into_iter()
+                    .map(|name| json!({"name": name}))
+                    .collect()
+            };
+            if children.is_empty() {
+                return Err("split requires at least one --child or --from-file child".into());
+            }
+            let mut params = json!({"plan_id": plan_id, "task_id": task_id, "children": children});
+            inject_trusted_session(&mut params);
+            call(client, "plan.task.split", params).map(Some)
         }
         PlanTaskAction::Add {
             plan_id,
@@ -709,65 +862,83 @@ pub(super) fn run_task(
             inject_trusted_session(&mut params);
             call(client, "plan.task.assign", params).map(Some)
         }
-        PlanTaskAction::Dispatch {
+        dispatch @ PlanTaskAction::Dispatch { .. } => {
+            run_dispatch(client, json, dispatch, None).map_err(|error| error.message)
+        }
+        PlanTaskAction::RemoteAck {
             plan_id,
             task_id,
-            agent,
-            authorized_gates,
-            canonical_writer,
-            model,
-            reasoning_effort,
-            parent,
-            workspace,
-            cwd,
-            execution_intent,
-            provider_reserve_pct,
+            attempt_id,
         } => {
-            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({
-                "task_id": task_ref,
-                "execution_intent": execution_intent,
-                "provider_reserve_pct": provider_reserve_pct,
-                "authorized_gates": authorized_gates,
-            });
-            if let Some(pid) = plan_ref {
-                params["plan_id"] = json!(pid);
-            }
-            if canonical_writer {
-                params["placement"] = json!("canonical_writer");
-            }
-            if let Some(agent) = agent {
-                params["agent"] = json!(agent);
-            }
-            if let Some(model) = model {
-                params["model"] = json!(model);
-            }
-            if let Some(effort) = reasoning_effort {
-                params["reasoning_effort"] = json!(effort);
-            }
-            if let Some(parent) = parent {
-                params["parent_tab_id"] = json!(parent);
-            }
-            if let Some(workspace) = workspace {
-                params["workspace_id"] = json!(workspace);
-            }
-            if let Some(cwd) = cwd {
-                params["cwd"] = json!(cwd);
-            }
-            inject_trusted_session(&mut params);
-            let val = call(client, "plan.task.dispatch", params)?;
-            if json {
-                return Ok(Some(val));
-            }
-            if let Some(warnings) = val.get("warnings").and_then(|v| v.as_array()) {
-                for w in warnings.iter().filter_map(|v| v.as_str()) {
-                    eprintln!("warning: {w}");
-                }
-            }
-            print_safety_nudges(&val);
-            print!("{}", render_dispatch_response(&val));
-            Ok(None)
+            let worker_tab_id = std::env::var("CODETERM_TAB_ID")
+                .map_err(|_| "remote ACK requires CODETERM_TAB_ID".to_string())?;
+            call(
+                client,
+                "plan.task.remote_ack",
+                json!({
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "worker_tab_id": worker_tab_id,
+                }),
+            )
+            .map(Some)
         }
+        PlanTaskAction::RemoteReport {
+            plan_id,
+            task_id,
+            attempt_id,
+            message,
+            message_file,
+            sha,
+            changed_files,
+            test_cmd,
+            test_result,
+            skipped,
+        } => {
+            let message = crate::cmd::plan::resolve_text(message, message_file)
+                .map_err(|error| error.to_string())?
+                .filter(|message| !message.trim().is_empty())
+                .ok_or_else(|| "remote report message is required".to_string())?;
+            let report_id = format!("remote-report:{attempt_id}");
+            let reporter_tab_id = std::env::var("CODETERM_TAB_ID")
+                .map_err(|_| "remote report requires CODETERM_TAB_ID".to_string())?;
+            call(
+                client,
+                "plan.task.remote_report",
+                json!({
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                    "attempt_id": attempt_id,
+                    "report": {
+                        "id": report_id,
+                        "message": message,
+                        "status": "in_review",
+                        "reporter_tab_id": reporter_tab_id,
+                        "sha": sha,
+                        "changed_files": changed_files,
+                        "test_cmd": test_cmd,
+                        "test_result": test_result,
+                        "skipped": skipped,
+                    }
+                }),
+            )
+            .map(Some)
+        }
+        PlanTaskAction::MergeRemoteLane {
+            plan_id,
+            task_id,
+            attempt_id,
+        } => call(
+            client,
+            "plan.task.merge_remote_lane",
+            json!({
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+            }),
+        )
+        .map(Some),
         PlanTaskAction::Attempts { plan_id, task_id } => {
             let val = call(
                 client,

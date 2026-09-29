@@ -110,14 +110,17 @@ export function AgentStateIndicator({
       >
         {compactStatusMessage(text)}
       </span>
-      {isWorking && onStop && (
+      {onStop && (!isQuiet && !isQuestion) && (
         <button
           type="button"
-          data-testid="agent-stop"
-          onClick={onStop}
-          className="ct-agent-stop shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium"
+          data-testid={isWorking ? "agent-stop" : "agent-stop-slot"}
+          onClick={isWorking ? onStop : undefined}
+          disabled={!isWorking}
+          aria-hidden={!isWorking || undefined}
+          tabIndex={isWorking ? undefined : -1}
+          className={`ct-agent-stop shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium${isWorking ? "" : " invisible"}`}
           aria-label="Stop the agent"
-          title="Stop the agent"
+          title={isWorking ? "Stop the agent" : undefined}
         >
           <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
           Stop

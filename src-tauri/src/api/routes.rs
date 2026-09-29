@@ -123,6 +123,7 @@ pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
+        .route("/api/cli/rpc", post(super::cli_rpc_routes::dispatch))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(
@@ -452,6 +453,10 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/setup/hooks", get(theme_routes::check_hooks_api))
         .route(
+            "/api/integration/sweep-profiles",
+            post(theme_routes::sweep_profiles_api),
+        )
+        .route(
             "/api/setup/hooks/install",
             post(theme_routes::install_hooks_api),
         )
@@ -657,6 +662,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/disconnect",
             post(mesh_routes::mesh_disconnect_peer),
         )
+        .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
         .route(
             "/api/mesh/pair/request",
             post(mesh_routes::mesh_pair_request),
@@ -685,6 +691,14 @@ pub fn create_router(state: AppState) -> Router {
             )),
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
+        .route(
+            "/api/mesh/worker-dispatch",
+            post(mesh_routes::mesh_worker_dispatch),
+        )
+        .route(
+            "/api/mesh/worker-lane-bundle",
+            post(mesh_routes::mesh_worker_lane_bundle),
+        )
         .route(
             "/api/mesh/relay-stream",
             get(mesh_routes::mesh_relay_stream),

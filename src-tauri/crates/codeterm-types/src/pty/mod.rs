@@ -14,7 +14,9 @@ pub use agent_liveness::{
     agent_bracket_label, classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence,
 };
 pub use agent_model_name::{short_model_name, MODEL_FAMILIES};
-pub use agent_role::{AgentRole, PendingPrompt, PromptOption, PromptSection};
+pub use agent_role::{
+    AgentRole, PendingPrompt, PromptIdentity, PromptKind, PromptOption, PromptSection,
+};
 pub use boot_stage::{BootStage, BootStageSink, ProvisionalLaunch};
 pub use permission_auto_confirm::{
     record_auto_confirmation, AutoConfirmedPrompt, MAX_RECENT_AUTO_CONFIRMATIONS,

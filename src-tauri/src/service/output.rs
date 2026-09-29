@@ -13,6 +13,42 @@ use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
+#[path = "output/agent_idle.rs"]
+mod agent_idle;
+#[path = "output/launch_exit.rs"]
+mod launch_exit;
+mod launch_onboarding;
+#[path = "output/manual_update.rs"]
+mod manual_update;
+#[path = "output/prompt_steps.rs"]
+mod prompt_steps;
+#[path = "output/shell_markers.rs"]
+mod shell_markers;
+#[cfg(test)]
+pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
+pub(super) use prompt_steps::write_bound_prompt_steps;
+use prompt_steps::write_prompt_steps;
+mod prompt_notifications;
+#[cfg(test)]
+pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
+pub(super) use manual_update::{
+    clear_manual_update_occurrence, manual_update_prompt_candidate,
+    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
+};
+use prompt_notifications::should_notify_pending_prompt;
+
+#[cfg(test)]
+fn parse_directory_trust_prompt(
+    provider: &dyn codeterm_plugin::provider::AgentProvider,
+    screen: &str,
+) -> Option<crate::multiplexer::types::PendingPrompt> {
+    if !trust_candidate::may_be_directory_trust_prompt(screen)
+        || !provider.supports_directory_trust_prompt_parsing()
+    {
+        return None;
+    }
+    provider.parse_directory_trust_prompt(screen)
+}
 
 /// Per-tab notification cooldown: (tab_id, event_kind) → last fire time.
 /// Prevents notification spam from TUI redraws (same event every chunk).
@@ -51,41 +87,6 @@ impl ServiceContext {
         }
     }
 
-    fn force_agent_idle_for_pty(&self, pty_id: &str) {
-        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
-        if let Some(tab_id) = tab_id {
-            self.force_agent_idle_for_tab(&tab_id);
-        }
-    }
-
-    fn force_agent_idle_for_tab(&self, tab_id: &str) {
-        use crate::agent::offline_state_classifier::{AgentLiveState, TabVerdict, TimelineState};
-
-        let idle_state: AgentLiveState = TabVerdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        }
-        .into();
-        let changed = {
-            let mut mux = self.mux.write();
-            match mux.get_tab_mut(tab_id) {
-                Some(tab) if tab.agent_type.is_some() => {
-                    let changed = tab.agent_state.as_ref() != Some(&idle_state)
-                        || tab.pending_prompt.is_some();
-                    tab.agent_state = Some(idle_state);
-                    tab.pending_prompt = None;
-                    changed
-                }
-                _ => false,
-            }
-        };
-        if changed {
-            self.emit_state_changed();
-            self.schedule_planner_replay(&tab_id);
-            self.heal_recovery_state_if_ready();
-        }
-    }
-
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
@@ -114,6 +115,7 @@ impl ServiceContext {
             tab_cwd,
             agent_session_id,
             directory_trust_eligible,
+            shared_directory_trust_eligible,
             directory_trust_skip,
         ) = {
             let mux = self.mux.read();
@@ -126,6 +128,8 @@ impl ServiceContext {
             let cwd = tab.and_then(|p| p.cwd.clone());
             let sid = tab.and_then(|p| p.agent_session_id.clone());
             let trust = tab.is_some_and(super::directory_trust::directory_trust_check_applies);
+            let shared_trust =
+                tab.is_some_and(super::directory_trust::shared_directory_trust_check_applies);
             let skip = tab.and_then(super::directory_trust::directory_trust_skip_reason);
             (
                 pid,
@@ -136,6 +140,7 @@ impl ServiceContext {
                 cwd,
                 sid,
                 trust,
+                shared_trust,
                 skip,
             )
         };
@@ -206,51 +211,71 @@ impl ServiceContext {
             }
         }
 
-        if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            self.maybe_detect_agent_session(pid, at);
-            if directory_trust_eligible && screen_changed {
-                let screen = self.screen_state.lock().get_screen_text(pty_id);
-                let trust_parser = self
-                    .agent_registry
-                    .with_provider(at, |provider| {
-                        provider.supports_directory_trust_prompt_parsing()
-                    })
-                    .unwrap_or(false);
-                if !trust_parser
-                    || screen.as_deref().is_some_and(
-                        crate::service::directory_trust::directory_trust_prompt_candidate,
-                    )
-                {
-                    self.respond_to_directory_trust(pid, screen.as_deref());
-                }
-            } else if let Some(reason) = directory_trust_skip {
-                self.note_directory_trust(pid, reason, None);
+        let changed_screen = screen_changed.then(|| {
+            self.screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default()
+        });
+        if matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
+            if let (Some(tab_id), Some(agent_type), Some(_)) = (
+                tab_id.as_deref(),
+                agent_type.as_deref(),
+                changed_screen.as_deref(),
+            ) {
+                self.enqueue_launch_onboarding_screen_check(tab_id, pty_id, agent_type);
             }
+        }
+        if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
+            let trust_candidate = trust_candidate::candidate_for_output(
+                self,
+                pid,
+                at,
+                changed_screen.as_deref(),
+                directory_trust_eligible,
+                shared_directory_trust_eligible,
+                is_auto_approve,
+                directory_trust_skip,
+            );
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
+                let update_candidate = changed_screen
+                    .as_deref()
+                    .is_some_and(manual_update_prompt_candidate);
+                if changed_screen
+                    .as_deref()
+                    .is_some_and(|screen| !manual_update_prompt_candidate(screen))
+                {
+                    clear_manual_update_occurrence(pid);
+                }
+                let trust_prompt_candidate = trust_candidate::pending_prompt_candidate(
+                    self,
+                    pty_id,
+                    at,
+                    has_active_prompt,
+                    changed_screen.as_deref(),
+                );
 
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
-                let trust_prompt_parser = self
-                    .agent_registry
-                    .with_provider(at, |provider| {
-                        provider.supports_directory_trust_prompt_parsing()
-                    })
-                    .unwrap_or(false);
-                let trust_candidate_screen = if trust_prompt_parser && screen_changed {
-                    self.screen_state.lock().get_screen_text(pty_id)
-                } else {
-                    None
-                };
-                let trust_candidate = trust_candidate_screen
-                    .as_deref()
-                    .is_some_and(crate::service::directory_trust::directory_trust_prompt_candidate);
-                let check_screen =
-                    has_markers || has_active_prompt || is_auto_approve || trust_candidate;
+                let trust_candidate_screen = trust_candidate.then(|| {
+                    self.screen_state
+                        .lock()
+                        .get_screen_text(pty_id)
+                        .unwrap_or_default()
+                });
+                let check_screen = has_markers
+                    || has_active_prompt
+                    || is_auto_approve
+                    || trust_candidate
+                    || trust_prompt_candidate
+                    || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
                     let screen_state = self.screen_state.lock();
                     let clean_text = if check_screen {
-                        trust_candidate_screen.or_else(|| screen_state.get_screen_text(pty_id))
+                        trust_candidate_screen
+                            .or_else(|| changed_screen.clone())
+                            .or_else(|| screen_state.get_screen_text(pty_id))
                     } else {
                         None
                     };
@@ -266,19 +291,48 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let provider_prompt = if structured.is_none() && trust_candidate {
-                    clean_text.as_deref().and_then(|screen| {
-                        crate::agent::prompt::parse_prompt_safely(|| {
-                            self.agent_registry
-                                .with_provider(at, |provider| {
-                                    provider.parse_directory_trust_prompt(screen)
-                                })
-                                .flatten()
-                        })
-                    })
+                let manual_update_candidate = structured.is_none() && update_candidate;
+                if manual_update_candidate && screen_changed {
+                    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                        tab_id: pid.to_string(),
+                        agent_type: at.to_string(),
+                        session_id: agent_session_id.clone(),
+                        cwd: tab_cwd.clone(),
+                        screen_text: changed_screen.clone().unwrap_or_default(),
+                    };
+                    self.classify_manual_update_prompt_off_runtime(pty_id.to_string(), snapshot);
+                }
+                let default_prompt_kind = if structured.is_some() {
+                    codeterm_types::pty::PromptKind::Structured
+                } else if manual_update_candidate {
+                    codeterm_types::pty::PromptKind::ManualUpdate
                 } else {
-                    None
+                    codeterm_types::pty::PromptKind::Provider
                 };
+                let (provider_prompt, directory_trust_prompt, prompt_kind) =
+                    if structured.is_none() && !manual_update_candidate {
+                        clean_text
+                            .as_deref()
+                            .and_then(|screen| {
+                                crate::agent::prompt::parse_prompt_safely(|| {
+                                    self.agent_registry.parse_interactive_prompt(at, screen)
+                                })
+                                .filter(|(prompt, kind)| {
+                                    *kind == codeterm_types::pty::PromptKind::DirectoryTrust
+                                        || !crate::agent::state_reactor::prompt_is_composer_text(
+                                            screen, prompt,
+                                        )
+                                })
+                            })
+                            .map(|(prompt, kind)| {
+                                let is_directory_trust =
+                                    kind == codeterm_types::pty::PromptKind::DirectoryTrust;
+                                (Some(prompt), is_directory_trust, kind)
+                            })
+                            .unwrap_or((None, false, default_prompt_kind))
+                    } else {
+                        (None, false, default_prompt_kind)
+                    };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
                         crate::agent::native_prompt::resolve_pending_prompt(
@@ -296,17 +350,26 @@ impl ServiceContext {
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
-                let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
-                    pid,
-                    check_screen || prompt_signal,
-                    clean_text.is_some() || native_prompt_input.is_some(),
-                    parsed,
-                );
+                let decision = if manual_update_candidate {
+                    PromptDecision::None
+                } else {
+                    self.prompt_detector.lock().evaluate_pty_output_parsed(
+                        pid,
+                        check_screen || prompt_signal,
+                        clean_text.is_some() || native_prompt_input.is_some(),
+                        parsed,
+                    )
+                };
 
-                self.apply_prompt_decision_with_screen(
+                self.apply_prompt_decision_with_kind(
                     &decision,
                     clean_text.as_deref(),
-                    trust_candidate,
+                    if trust_candidate || directory_trust_prompt {
+                        codeterm_types::pty::PromptKind::DirectoryTrust
+                    } else {
+                        prompt_kind
+                    },
+                    manual_update_candidate,
                 );
 
                 if has_markers {
@@ -330,6 +393,11 @@ impl ServiceContext {
                 .observe_output_status(pty_id, current_status);
             self.recompute_agent_state(pty_id);
             self.run_watcher.complete_via_semantic_idle(self, pty_id);
+        }
+        if screen_changed {
+            if let Some(tab_id) = tab_id.as_deref() {
+                super::folder_trust_carryover::tab_output_changed(self.clone(), tab_id);
+            }
         }
 
         let current_reconciled_status = tab_id
@@ -539,48 +607,6 @@ impl ServiceContext {
         }
     }
 
-    /// Feed a raw chunk into the tab's shell-integration accumulators and emit
-    /// command-lifecycle changes on the unified frontend event path (same
-    /// `emit_everywhere` channel `tab-status-changed` uses). OSC4 renders these.
-    fn process_shell_markers(
-        &self,
-        pty_id: &str,
-        tab_id: Option<&str>,
-        nonce: Option<String>,
-        data: &[u8],
-    ) {
-        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
-        if events.is_empty() {
-            return;
-        }
-        // nothing to surface to a chat view yet.
-        let Some(tab_id) = tab_id else {
-            return;
-        };
-        for event in &events {
-            if let crate::agent::command_detection::CommandLifecycle::Finished {
-                exit_code, ..
-            } = event
-            {
-                self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
-                // Claimed before the teardown clears the launch it names, published
-                // after so the teardown still sees the boot stage it decides on.
-                let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code);
-                // The shell finished its foreground command: if that command was
-                // a proven-up agent, the agent process is gone.
-                self.note_provider_exit_in_surviving_shell(tab_id);
-                if let Some(exited) = exited {
-                    self.publish_launch_exit(&exited);
-                }
-            }
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "shell-command-changed",
-                serde_json::json!({ "tab_id": tab_id, "event": event }),
-            );
-        }
-    }
-
     /// Heuristic detection is limited to hookless, file-backed providers. A
     /// hooked provider that missed its launch deadline reads its own launch record.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
@@ -663,7 +689,31 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
-        self.apply_prompt_decision_with_screen(decision, None, false);
+        self.apply_prompt_decision_with_screen(decision, None, false, false);
+    }
+
+    fn classify_manual_update_prompt_off_runtime(
+        &self,
+        pty_id: String,
+        snapshot: codeterm_plugin::tab_state::TabStateSnapshot,
+    ) {
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            let classified = svc
+                .agent_registry
+                .with_provider(&snapshot.agent_type, |provider| {
+                    parse_manual_update_prompt_with_response(provider, &snapshot)
+                })
+                .flatten();
+            let Some((prompt, skip_value)) = classified else {
+                return;
+            };
+            let screen = svc.screen_state.lock().get_screen_text(&pty_id);
+            if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
+                return;
+            }
+            resolve_classified_manual_update_prompt(&svc, &snapshot, prompt, skip_value);
+        });
     }
 
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
@@ -684,6 +734,9 @@ impl ServiceContext {
                 return;
             }
             tab.pending_prompt = prompt.clone();
+            tab.pending_prompt_kind = prompt
+                .as_ref()
+                .map(|_| codeterm_types::pty::PromptKind::Structured);
         }
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -698,7 +751,72 @@ impl ServiceContext {
         decision: &PromptDecision,
         screen_text: Option<&str>,
         directory_trust_prompt: bool,
+        require_user_confirmation: bool,
     ) {
+        let prompt_kind = if directory_trust_prompt {
+            codeterm_types::pty::PromptKind::DirectoryTrust
+        } else {
+            codeterm_types::pty::PromptKind::Provider
+        };
+        self.apply_prompt_decision_with_kind(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+        );
+    }
+
+    pub(crate) fn apply_prompt_decision_with_kind(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+    ) {
+        self.apply_prompt_decision_with_kind_and_notice(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            true,
+        );
+    }
+
+    fn apply_prompt_decision_with_kind_and_notice(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+        notify_owner: bool,
+    ) {
+        if self.defer_launch_onboarding_prompt(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            notify_owner,
+        ) {
+            return;
+        }
+        self.apply_prompt_decision_immediately(
+            decision,
+            screen_text,
+            prompt_kind,
+            require_user_confirmation,
+            notify_owner,
+        );
+    }
+
+    fn apply_prompt_decision_immediately(
+        &self,
+        decision: &PromptDecision,
+        screen_text: Option<&str>,
+        prompt_kind: codeterm_types::pty::PromptKind,
+        require_user_confirmation: bool,
+        notify_owner: bool,
+    ) {
+        let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust;
         match decision {
             PromptDecision::None => {}
             PromptDecision::NewPrompt { tab_id, prompt }
@@ -719,16 +837,30 @@ impl ServiceContext {
                     )
                 };
 
-                let trust = self.respond_to_directory_trust(tab_id, screen_text);
+                let trust = if require_user_confirmation {
+                    super::directory_trust::TrustDecision::NotApplicable
+                } else {
+                    self.respond_to_directory_trust(tab_id, screen_text)
+                };
                 if trust.owns_prompt() {
                     return;
                 }
-                if auto_approve && !directory_trust_prompt {
+                if auto_approve && !directory_trust_prompt && !require_user_confirmation {
                     if is_general_tab {
+                        let provider_classified_safety_dialog = agent_type
+                            .as_deref()
+                            .zip(screen_text)
+                            .is_some_and(|(agent_type, screen)| {
+                                trust_candidate::provider_classifies_non_auto_ack_dialog(
+                                    self,
+                                    trust_candidate::ProviderDialogIdentity { agent_type, tab_id },
+                                    screen,
+                                )
+                            });
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
                             screen_text.unwrap_or(""),
-                            directory_trust_prompt,
+                            directory_trust_prompt || provider_classified_safety_dialog,
                         ) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
@@ -793,18 +925,35 @@ impl ServiceContext {
                     );
                 }
                 if !directory_trust_prompt
+                    && !require_user_confirmation
                     && self
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()
                 {
                     return;
                 }
-                {
+                let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
+                        let previous_identity = tab.prompt_identity();
+                        let notify = should_notify_pending_prompt(
+                            decision,
+                            tab.pending_prompt.as_ref(),
+                            tab.pending_prompt_kind,
+                            prompt_kind,
+                        );
                         tab.pending_prompt = Some(prompt.clone());
+                        tab.pending_prompt_kind = Some(prompt_kind);
+                        Some((notify, previous_identity))
+                    } else {
+                        None
                     }
-                }
+                };
+                let Some((notify_prompt, previous_identity)) = notify_prompt else {
+                    return;
+                };
+                let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
+                self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -814,13 +963,30 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
+                if notify_prompt && notify_owner {
+                    self.notify_pending_prompt(tab_id, prompt, prompt_kind);
+                }
             }
             PromptDecision::PromptCleared { tab_id } => {
-                let mut mux = self.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    tab.pending_prompt = None;
+                if let Some(identity) = self.clear_pending_prompt(tab_id) {
+                    if super::folder_trust_carryover::should_schedule_owner_clear(Some(
+                        identity.kind,
+                    )) {
+                        let agent_type = self
+                            .mux
+                            .read()
+                            .get_tab(tab_id)
+                            .and_then(|tab| tab.agent_type.clone());
+                        if let Some(agent_type) = agent_type {
+                            super::folder_trust_carryover::owner_trust_prompt_cleared(
+                                self.clone(),
+                                tab_id,
+                                &agent_type,
+                            );
+                        }
+                    }
+                    self.resolve_prompt_notifications(tab_id, &identity);
                 }
-                drop(mux);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -933,32 +1099,6 @@ fn default_prompt_response(option_index: usize) -> Vec<Vec<u8>> {
     steps
 }
 
-fn write_prompt_steps(pty: crate::PtyState, pty_id: String, steps: Vec<Vec<u8>>) {
-    write_bound_prompt_steps(pty, pty_id, steps, || true);
-}
-
-/// The prompt responder with a binding check run immediately before the first
-/// key; a refused binding writes nothing.
-pub(super) fn write_bound_prompt_steps<F>(
-    pty: crate::PtyState,
-    pty_id: String,
-    steps: Vec<Vec<u8>>,
-    still_bound: F,
-) where
-    F: FnOnce() -> bool + Send + 'static,
-{
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        if !still_bound() {
-            return;
-        }
-        for step in steps {
-            let _ = pty.lock().write(&pty_id, &step);
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    });
-}
-
 /// Does the screen's last non-empty line look like a bare shell prompt? Combined
 /// with "no agent markers", this is what makes a frame suspect the agent exited.
 fn screen_ends_in_shell_prompt(screen: &str) -> bool {
@@ -1039,3 +1179,9 @@ mod exit_detection_tests {
 #[cfg(test)]
 #[path = "output/agent_lifecycle_tests.rs"]
 mod agent_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "output/manual_update_prompt_tests.rs"]
+mod manual_update_prompt_tests;
+#[path = "output/trust_candidate.rs"]
+mod trust_candidate;

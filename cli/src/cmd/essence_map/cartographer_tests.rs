@@ -9,7 +9,7 @@ use clap::Parser;
 use tempfile::TempDir;
 
 use super::journal::{self, RecordOutcome, KEEP_CHOICE, REVERT_CHOICE_PREFIX};
-use super::{generate, sha256, validate};
+use super::{sha256, validate};
 use crate::{Cli, Commands};
 
 fn source_root() -> PathBuf {
@@ -60,6 +60,14 @@ fn seeded(root: &Path) -> (PathBuf, PathBuf) {
     .expect("record the first decision");
     assert_eq!(outcome.decision_id(), "decision-0001");
     (map, decisions)
+}
+
+fn generate(root: &Path, map: &Path) -> Result<super::MapSummary, String> {
+    super::generate_with_data_root(root, map, &history_root(root))
+}
+
+fn history_root(root: &Path) -> PathBuf {
+    root.join("codeterm-data")
 }
 
 /// A source edit the generator must notice: every node carries the source
@@ -264,16 +272,21 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
     generate(root, &map).expect("regenerate");
     journal::record(&map, &decisions, "change", "source edit").expect("record the change");
     assert_ne!(digest(&map), baseline);
-    let history = root
-        .join(".codeterm/map-history")
+    let history = history_root(root)
+        .join("map-history")
+        .join(sha256(
+            root.canonicalize().unwrap().to_string_lossy().as_bytes(),
+        ))
         .join(format!("{baseline}.jsonl"));
     assert!(
         history.is_file(),
-        "superseded map is retained outside essences"
+        "superseded map is retained outside the project root"
     );
+    assert!(!root.join(".codeterm").exists());
     assert!(!root.join("essences/map-history").exists());
 
-    let outcome = journal::revert(&map, &decisions, "decision-0001").expect("take the revert");
+    let outcome = journal::revert(&map, &decisions, "decision-0001", &history_root(root))
+        .expect("take the revert");
     assert_eq!(outcome.restored, "decision-0001");
     assert_eq!(outcome.map_sha256, baseline);
     assert_eq!(outcome.decision, "decision-0003");
@@ -284,5 +297,5 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
     assert_eq!(log[0].id, "decision-0001");
     assert_eq!(log[2].map_sha256, baseline);
 
-    assert!(journal::revert(&map, &decisions, "decision-0099").is_err());
+    assert!(journal::revert(&map, &decisions, "decision-0099", &history_root(root)).is_err());
 }

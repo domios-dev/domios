@@ -150,18 +150,18 @@ pub(super) fn assign_task_with_profile(
 ) -> Result<String, JsonRpcError> {
     let (id, tid) = super::plan_refs::resolve_task(store, params)?;
     let tab = get_string_param(params, "tab")?;
-    let mux = svc.mux.read();
-    let result = crate::service::task_assignment::assign_existing_task(
-        store,
-        &mux,
-        &id,
-        &tid,
-        &tab,
-        body.and_then(|x| x.get("peer")).and_then(|v| v.as_str()),
-        authority,
-        now,
-    );
-    result.map_err(plan_rpc_err)?;
+    let peer = body.and_then(|x| x.get("peer")).and_then(|v| v.as_str());
+    let assignment = {
+        let mux = svc.mux.read();
+        crate::service::task_assignment::prepare_existing_task_assignment(
+            &mux, &tab, peer, authority,
+        )
+    }
+    .map_err(plan_rpc_err)?;
+    crate::service::task_assignment::persist_existing_task_assignment(
+        store, assignment, &id, &tid, &tab, peer, authority, now,
+    )
+    .map_err(plan_rpc_err)?;
     Ok(id)
 }
 

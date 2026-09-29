@@ -26,3 +26,32 @@ fn transfer_caller_requires_agent_param() {
     assert_eq!(missing.code, -32602);
     assert!(missing.message.contains("caller_tab_id is required"));
 }
+
+#[test]
+fn plan_create_uses_team_workspace_project_path() {
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.create_workspace("Team project".into(), Some("C:/team/workspace".into()));
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
+    mux.get_tab_mut(&tab_id).unwrap().team_id = Some("team_1".into());
+
+    let params = json!({ "caller_tab_id": tab_id.clone() });
+    assert_eq!(plan_project_path(&params, &mux), "C:/team/workspace");
+    let hinted = json!({ "caller_tab_id": tab_id.clone(), "caller_cwd": "C:/elsewhere" });
+    assert_eq!(
+        plan_project_path(&hinted, &mux),
+        "C:/team/workspace",
+        "a Team caller's own cwd never outranks its Team workspace"
+    );
+    assert_eq!(
+        plan_project_path(&json!({ "caller_cwd": "C:/elsewhere" }), &mux),
+        "C:/elsewhere",
+        "a caller outside any Team keeps its cwd"
+    );
+    assert_eq!(
+        plan_project_path(
+            &json!({ "caller_tab_id": tab_id, "project_path": "C:/override" }),
+            &mux
+        ),
+        "C:/override"
+    );
+}

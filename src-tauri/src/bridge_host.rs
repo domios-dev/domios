@@ -126,9 +126,7 @@ impl BridgeTabPort for ServiceBridgeTabPort {
 
     fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {
         self.0
-            .notif
-            .lock()
-            .remember_channel_placement(&receipt.tag, &receipt.service, locator);
+            .record_channel_placement(&receipt.tag, &receipt.service, locator);
     }
 
     fn telegram_token(&self) -> Option<String> {

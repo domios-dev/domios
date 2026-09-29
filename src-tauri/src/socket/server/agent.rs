@@ -14,6 +14,31 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.diagnostic" => {
+            let tab_id = get_string_param(params, "tab_id")?;
+            let kind = get_string_param(params, "kind")?;
+            if kind != "report_refused" {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "unsupported agent diagnostic kind".into(),
+                    data: None,
+                });
+            }
+            let message = get_string_param(params, "message")?;
+            let target_tab_id = svc
+                .send_refused_report_diagnostic(&tab_id, &message)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "delivered": true,
+                "kind": kind,
+                "target_tab_id": target_tab_id,
+            }))
+        }
         "agent.spawn" => {
             let p = params.as_ref().ok_or(JsonRpcError {
                 code: -32602,
@@ -26,6 +51,12 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                spawn_params.agent.as_deref().unwrap_or_default(),
+                spawn_params.model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
             let plan_task = spawn_params.plan_task.clone();
 
             let svc_ref = &**svc;
@@ -86,6 +117,28 @@ pub(super) fn dispatch(
         "agent.report" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let message = get_string_param(params, "message")?;
+            if params
+                .as_ref()
+                .and_then(|value| value.get("kind"))
+                .and_then(Value::as_str)
+                == Some("report_refused")
+            {
+                let target_tab_id = svc
+                    .send_refused_report_diagnostic(&tab_id, &message)
+                    .map_err(|message| JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    })?;
+                return Ok(serde_json::json!({
+                    "ok": true,
+                    "accepted": false,
+                    "state": "refused",
+                    "kind": "report_refused",
+                    "refused_report_diagnostic_sent": true,
+                    "diagnostic_target_tab_id": target_tab_id,
+                }));
+            }
             let plan_id = params
                 .as_ref()
                 .and_then(|p| p.get("plan_id"))
@@ -294,21 +347,25 @@ pub(super) fn dispatch(
                         });
                     }
                 };
+            let not_required = matches!(
+                acknowledgment,
+                crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired
+            );
             log_ack_event(
                 "startup_ack",
-                "accepted",
+                if not_required {
+                    "not_required"
+                } else {
+                    "accepted"
+                },
                 "none",
                 Some(&caller_tab_id),
                 Some(&attempt_id),
             );
-            let already_acknowledged = matches!(
-                acknowledgment,
-                crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged
-            );
             Ok(startup_ack_success_response(
                 &caller_tab_id,
                 &attempt_id,
-                already_acknowledged,
+                acknowledgment,
             ))
         }
 
@@ -431,8 +488,17 @@ fn task_ack_success_response(
 fn startup_ack_success_response(
     tab_id: &str,
     attempt_id: &str,
-    already_acknowledged: bool,
+    acknowledgment: crate::service::worker_ack::AgentStartupAcknowledgement,
 ) -> Value {
+    if acknowledgment == crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired {
+        return serde_json::json!({
+            "ok": true,
+            "accepted": false,
+            "state": "not_required",
+        });
+    }
+    let already_acknowledged = acknowledgment
+        == crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged;
     let state = if already_acknowledged {
         "already_acknowledged"
     } else {
@@ -455,12 +521,81 @@ mod tests {
         task_ack_success_response,
     };
     use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::TaskBinding;
+    use crate::multiplexer::types::{AgentRole, TaskBinding};
     use crate::plan::{OrchestratorRef, PlanMode, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
     use crate::service::worker_ack::{WorkerAckIdentity, WorkerAckSignal};
     use std::sync::Arc;
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn agent_report_refused_kind_routes_to_diagnostic_without_recording_report() {
+        let (mut mux, parent_tab_id) = MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();
+        let worker_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.set_tab_role(&worker_tab_id, AgentRole::Worker, Some(&parent_tab_id))
+            .unwrap();
+        let fixture = ServiceFixture::new(mux);
+        let plan = fixture
+            .service
+            .plan_store
+            .create_plan_for_team(
+                "Refused report socket route".into(),
+                fixture.temp.path().display().to_string(),
+                OrchestratorRef::from_tab(&parent_tab_id),
+                "team-refused-report".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let task_id = fixture
+            .service
+            .plan_store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "refused report task".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        fixture
+            .service
+            .plan_store
+            .assign_task(&plan.id, &task_id, &worker_tab_id, None, 3)
+            .unwrap();
+        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let service: crate::service::ServiceState = Arc::new(fixture.service.clone());
+
+        let response = crate::socket::server::dispatch_service_rpc(
+            "agent.report",
+            Some(serde_json::json!({
+                "tab_id": worker_tab_id,
+                "kind": "report_refused",
+                "status": "in_review",
+                "plan_id": plan.id,
+                "task_id": task_id,
+                "message": "REPORT NOT SENT: canonical checkout is dirty. Original report: in_review",
+            })),
+            &service,
+        )
+        .unwrap();
+
+        assert_eq!(response["accepted"], false);
+        assert_eq!(response["state"], "refused");
+        assert_eq!(response["kind"], "report_refused");
+        assert_eq!(response["refused_report_diagnostic_sent"], true);
+        assert_eq!(response["diagnostic_target_tab_id"], parent_tab_id);
+        let after = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        assert_eq!(after.status, before.status);
+        assert_eq!(
+            after.execution_attempts[0].report,
+            before.execution_attempts[0].report
+        );
+        assert_eq!(after.execution_attempts[0].report, None);
+    }
 
     #[test]
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -539,6 +674,7 @@ mod tests {
             .task_binding = Some(TaskBinding {
             plan_id: Some(plan.id.clone()),
             task_id: Some(task_id.clone()),
+            attempt_id: None,
             spawn_handle: None,
             bound_at: 1,
         });
@@ -609,7 +745,11 @@ mod tests {
 
     #[test]
     fn repeated_startup_ack_is_an_explicit_success_for_the_attempt() {
-        let response = startup_ack_success_response("tab-demo", "attempt-demo", true);
+        let response = startup_ack_success_response(
+            "tab-demo",
+            "attempt-demo",
+            crate::service::worker_ack::AgentStartupAcknowledgement::AlreadyAcknowledged,
+        );
 
         assert_eq!(response["ok"], true);
         assert_eq!(response["accepted"], true);
@@ -617,6 +757,19 @@ mod tests {
         assert_eq!(response["state"], "already_acknowledged");
         assert_eq!(response["tab_id"], "tab-demo");
         assert_eq!(response["attempt_id"], "attempt-demo");
+    }
+
+    #[test]
+    fn startup_ack_without_an_armed_attempt_is_successfully_not_required() {
+        let response = startup_ack_success_response(
+            "tab-demo",
+            "attempt-demo",
+            crate::service::worker_ack::AgentStartupAcknowledgement::NotRequired,
+        );
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["accepted"], false);
+        assert_eq!(response["state"], "not_required");
     }
 
     #[test]

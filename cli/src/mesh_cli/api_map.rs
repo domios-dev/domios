@@ -57,12 +57,18 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
             require_agent: _,
             to_shell: _,
         } => {
             let mut stdin = std::io::stdin();
-            if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
+            if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
+                delayed_create_to_api(
+                    text, tab, from_file, from_pad, *use_stdin, delay, at, every, until, count,
+                    &mut stdin,
+                )
             } else {
                 send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
             }
@@ -81,23 +87,39 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 tab,
                 delay,
                 at,
+                every,
+                until,
+                count,
                 from_file,
                 from_pad,
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(
+                    text, tab, from_file, from_pad, *use_stdin, delay, at, every, until, count,
+                    &mut stdin,
+                )
             }
             crate::DelayedAction::Edit {
                 id,
                 text,
                 delay,
                 at,
+                every,
+                until,
+                count,
                 from_file,
                 from_pad,
                 stdin: use_stdin,
             } => {
                 let mut body = serde_json::Map::new();
+                match crate::cmd::delayed::parse_recurrence(every.clone(), until.clone(), *count) {
+                    Ok(Some(recurrence)) => {
+                        body.insert("recurrence".into(), recurrence);
+                    }
+                    Ok(None) => {}
+                    Err(e) => return unsupported(&format!("delayed edit recurrence error: {}", e)),
+                }
                 if text.is_some() || from_file.is_some() || from_pad.is_some() || *use_stdin {
                     match resolve_send_text_input(
                         text.clone(),
@@ -124,7 +146,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if body.is_empty() {
                     return unsupported(
-                        "delayed edit needs --text/--from-file/--stdin and/or --delay/--at",
+                        "delayed edit needs --text/--from-file/--stdin, --delay/--at and/or --every",
                     );
                 }
                 (
@@ -681,6 +703,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             MeshAction::Disconnect { instance_id } => (
                 "POST".into(),
                 "/api/mesh/disconnect".into(),
+                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
+            ),
+            MeshAction::Unrevoke { instance_id } => (
+                "POST".into(),
+                "/api/mesh/unrevoke".into(),
                 Some(serde_json::json!({"instance_id": instance_id}).to_string()),
             ),
             MeshAction::Broadcast => ("POST".into(), "/api/mesh/broadcast/start".into(), None),

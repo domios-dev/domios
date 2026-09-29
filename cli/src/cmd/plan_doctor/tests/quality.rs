@@ -83,6 +83,33 @@ fn planning_kind_tasks_do_not_trip_approval_gate() {
 }
 
 #[test]
+fn plan_state_lists_unplanned_tasks() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "unplanned: urgent probe",
+            "type": "unplanned",
+            "tags": ["unplanned"],
+            "status": "pending",
+            "section_ids": ["sec_1"]
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings.iter().any(|finding| {
+        finding.kind == "unplanned_task"
+            && finding.severity == "info"
+            && finding.detail == "unplanned: urgent probe"
+    }));
+}
+
+#[test]
 fn execution_kind_task_in_planning_mode_trips_approval_gate() {
     let plan = json!({
         "id": "pl_1",
@@ -376,6 +403,74 @@ fn quality_accepts_complete_task_and_plan_scaffold() {
 }
 
 #[test]
+fn quality_does_not_flag_a_complete_unplanned_task_quality_gap() {
+    let plan = json!({
+        "id": "pl_unplanned",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "complete urgent work"},
+        "primary_spec_id": "sp_unplanned",
+        "sections": [{"id": "sec_work", "title": "Work", "body": "Urgent work"}],
+        "tasks": [{
+            "id": "task_unplanned",
+            "name": "unplanned: urgent probe",
+            "kind": "unplanned",
+            "status": "done",
+            "section_ids": ["sec_work"],
+            "body": "Run the urgent probe.",
+            "acceptance_criteria": ["Run the urgent probe."],
+            "test_plan": "The Orchestrator verifies the reported result against the brief.",
+            "correctness": "Run the urgent probe.",
+            "executor_role": "Worker"
+        }]
+    });
+
+    let findings = inspect_plan(Path::new("pl_unplanned.json"), &plan, "quality");
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| { finding.kind == "task_quality_gap" && finding.severity == "error" }),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn quality_gap_errors_skip_terminal_tasks() {
+    let plan = json!({
+        "id": "pl_terminal_gaps",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "section"}],
+        "tasks": [
+            {"id": "done", "status": "done"},
+            {"id": "cancelled", "status": "cancelled"},
+            {"id": "pending", "status": "pending"},
+            {"id": "in_progress", "status": "in_progress"}
+        ]
+    });
+
+    let findings = inspect_plan(Path::new("pl_terminal_gaps.json"), &plan, "quality");
+    for (task_id, severity) in [
+        ("done", "warning"),
+        ("cancelled", "warning"),
+        ("pending", "error"),
+        ("in_progress", "error"),
+    ] {
+        let gap = findings
+            .iter()
+            .find(|finding| {
+                finding.kind == "task_quality_gap" && finding.task_id.as_deref() == Some(task_id)
+            })
+            .unwrap_or_else(|| panic!("missing task_quality_gap for {task_id}: {findings:?}"));
+        assert_eq!(gap.severity, severity, "{task_id}: {gap:?}");
+    }
+}
+
+#[test]
 fn quality_warns_for_stalled_running_loop() {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -480,7 +575,7 @@ fn quality_warns_for_missing_executor_role_on_execution_task() {
 }
 
 #[test]
-fn quality_errors_for_test_author_report_without_red_green_demo() {
+fn doctor_terminal_tasks_raise_no_errors() {
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -489,32 +584,45 @@ fn quality_errors_for_test_author_report_without_red_green_demo() {
         "goal": {"vector": "ship"},
         "primary_spec_id": "sp_1",
         "sections": [{"id": "sec_1", "title": "Tests", "body": "section"}],
-        "tasks": [{
-            "id": "task_1",
-            "name": "Author drill",
-            "type": "test",
-            "status": "done",
-            "section_ids": ["sec_1"],
-            "body": "body",
-            "acceptance_criteria": ["criterion"],
-            "test_plan": "run cargo test drill_fixture",
-            "correctness": "matches spec",
-            "executor_role": "test-author",
-            "lane": {
-                "report": {
-                    "id": "report_1",
-                    "message": "STATUS: done\nCHANGES: added drill\nTESTS RUN: cargo test drill_fixture passed"
-                }
+        "tasks": [
+            {
+                "id": "done",
+                "name": "Author drill",
+                "type": "test",
+                "status": "done",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run cargo test drill_fixture",
+                "correctness": "matches spec",
+                "executor_role": "test-author",
+                "lane": {"report": {"id": "report_1", "message": "STATUS: done\nCHANGES: added drill\nTESTS RUN: cargo test drill_fixture passed"}}
+            },
+            {
+                "id": "cancelled",
+                "name": "Cancelled drill",
+                "type": "test",
+                "status": "cancelled",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run cargo test drill_fixture",
+                "correctness": "matches spec",
+                "executor_role": "test-author",
+                "lane": {"report": {"id": "report_2", "message": "STATUS: cancelled\nCHANGES: stopped drill"}}
             }
-        }]
+        ]
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     let finding = findings
         .iter()
         .find(|f| f.kind == "test_author_report_missing_red_green_demo");
 
-    assert!(finding.is_some(), "expected red-green report enforcement");
-    assert_eq!(finding.unwrap().severity, "error");
+    assert!(
+        finding.is_none(),
+        "terminal task should not retain test-author report errors: {findings:?}"
+    );
+    assert!(findings.iter().all(|finding| finding.severity != "error"));
 }
 
 #[test]

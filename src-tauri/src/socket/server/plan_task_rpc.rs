@@ -22,6 +22,8 @@ use crate::service::{
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+mod split;
+
 fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
     crate::service::AuthenticatedPlanCaller {
         tab_id: params
@@ -135,11 +137,16 @@ pub(super) fn handles(method: &str) -> bool {
             | "task.drop"
             | "task.add"
             | "plan.task.add"
+            | "plan.task.split"
             | "plan.task.update"
             | "plan.task.link"
             | "plan.task.relink"
             | "plan.task.assign"
             | "plan.task.dispatch"
+            | "plan.task.dispatch_unplanned"
+            | "plan.task.merge_remote_lane"
+            | "plan.task.remote_ack"
+            | "plan.task.remote_report"
             | "plan.task.attempts"
             | "plan.task.attempt.show"
             | "plan.task.respawn"
@@ -575,7 +582,7 @@ pub(super) fn dispatch(
             }
             Ok(resp)
         }
-
+        "plan.task.split" => split::dispatch_split(params, app, svc, now),
         "plan.task.update" => {
             validate_task_update_params(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
@@ -792,6 +799,103 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.task.dispatch" => super::plan_task_dispatch::dispatch(params, app, svc, now),
+        "plan.task.merge_remote_lane" => {
+            super::plan_task_dispatch::remote::merge_lane(params, app, svc, now)
+        }
+        "plan.task.remote_ack" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let attempt_id = get_string_param(params, "attempt_id")?;
+            let worker_tab_id = get_string_param(params, "worker_tab_id")?;
+            let peer_id = get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
+                JsonRpcError {
+                    code: -32003,
+                    message: "remote ACK requires authenticated mesh transport".into(),
+                    data: None,
+                }
+            })?;
+            let acknowledged = store
+                .acknowledge_remote_dispatch(
+                    &plan_id,
+                    &task_id,
+                    &attempt_id,
+                    &peer_id,
+                    &worker_tab_id,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            svc.acknowledge_remote_worker_ack(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                &peer_id,
+                &worker_tab_id,
+            );
+            emit_plan_changed(app, &plan_id);
+            Ok(
+                json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
+            )
+        }
+        "plan.task.remote_report" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let body = params.as_ref().ok_or_else(|| JsonRpcError {
+                code: -32602,
+                message: "remote report params required".into(),
+                data: None,
+            })?;
+            let attempt_id = get_string_param(params, "attempt_id")?;
+            let peer_id = get_string_param(params, "authenticated_mesh_peer_id").map_err(|_| {
+                JsonRpcError {
+                    code: -32003,
+                    message: "remote report requires authenticated mesh transport".into(),
+                    data: None,
+                }
+            })?;
+            let report: crate::plan::TaskExecutionReportSnapshot =
+                serde_json::from_value(body.get("report").cloned().ok_or_else(|| {
+                    JsonRpcError {
+                        code: -32602,
+                        message: "remote report snapshot is required".into(),
+                        data: None,
+                    }
+                })?)
+                .map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid remote report snapshot: {error}"),
+                    data: None,
+                })?;
+            if report.id.trim().is_empty() {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "remote report id is required for idempotency".into(),
+                    data: None,
+                });
+            }
+            if report.status.as_deref() != Some("in_review") {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "remote task reports must enter in_review for origin acceptance"
+                        .into(),
+                    data: None,
+                });
+            }
+            let reported = store
+                .ingest_remote_dispatch_report(
+                    &plan_id,
+                    &task_id,
+                    &attempt_id,
+                    &peer_id,
+                    report,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            Ok(
+                json!({"reported": reported, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
+            )
+        }
+        "plan.task.dispatch_unplanned" => {
+            super::plan_task_dispatch::dispatch_unplanned(params, app, svc, now)
+        }
         "plan.task.attempts" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;
@@ -849,7 +953,7 @@ pub(super) fn dispatch(
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
             };
-            let draft = store
+            let mut draft = store
                 .build_task_respawn_draft(&id, &tid, request)
                 .map_err(plan_rpc_err)?;
             let original_task = task.clone();
@@ -884,11 +988,13 @@ pub(super) fn dispatch(
                 .parent_tab_id
                 .clone()
                 .or_else(|| plan.owner.tab_id.clone())
+                .filter(|parent| !parent.trim().is_empty())
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "respawn requires a parent Orchestrator tab".into(),
                     data: None,
                 })?;
+            draft.parent_tab_id = Some(parent_tab_id.clone());
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
@@ -900,6 +1006,14 @@ pub(super) fn dispatch(
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
+                planned_reasoning_effort: draft.reasoning_effort.clone(),
+                reasoning_effort: draft.reasoning_effort.clone(),
+                task_launch_authority: Some(crate::service::TaskLaunchAuthority {
+                    plan_id: draft.plan_id.clone(),
+                    task_id: draft.task_id.clone(),
+                    attempt_id: draft.attempt_id.clone(),
+                    lane_base: task.lane.base.clone(),
+                }),
                 spawned_by_tab_id: Some(parent_tab_id.clone()),
                 ..Default::default()
             };
@@ -911,6 +1025,9 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            draft.provider = spawn.agent.clone();
+            draft.model = spawn.provider_resolved_model.clone();
+            draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);
             let created = record_spawned_attempt(svc, &spawn.tab_id, || {
                 store.record_task_respawn_attempt_with_profile(
                     &id,

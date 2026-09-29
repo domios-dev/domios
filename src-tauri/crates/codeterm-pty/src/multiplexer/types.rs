@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+mod restorable_launch;
+pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
@@ -50,18 +54,10 @@ pub struct ModelFallbackNotice {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReasoningEffortIdentity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planned: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requested: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved: Option<String>,
-    #[serde(default)]
-    pub actual: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actual_source: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionModelIdentity {
+    pub session_id: String,
+    pub session_binding_nonce: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,16 +65,6 @@ pub struct ContextEpochArchive {
     pub provider: String,
     pub cwd: String,
     pub session_id: String,
-}
-
-impl ReasoningEffortIdentity {
-    pub fn is_empty(&self) -> bool {
-        self.planned.is_none()
-            && self.requested.is_none()
-            && self.resolved.is_none()
-            && self.actual.is_none()
-            && self.actual_source.is_none()
-    }
 }
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
@@ -313,19 +299,26 @@ impl PendingDeliveryState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PendingDeliveryRecord {
+    record_id: String,
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
     pub provenance: PendingDeliveryProvenance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    send_id: Option<String>,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
 }
 
 #[derive(Deserialize)]
 struct PendingDeliveryRecordWire {
+    #[serde(default)]
+    record_id: Option<String>,
     content_digest: String,
     channel: PendingDeliveryChannel,
     #[serde(default)]
     provenance: Option<PendingDeliveryProvenance>,
+    #[serde(default)]
+    send_id: Option<String>,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
 }
@@ -340,9 +333,13 @@ impl<'de> Deserialize<'de> for PendingDeliveryRecord {
             .provenance
             .unwrap_or_else(|| PendingDeliveryProvenance::for_channel(&wire.channel));
         Ok(Self {
+            record_id: wire
+                .record_id
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             content_digest: wire.content_digest,
             channel: wire.channel,
             provenance,
+            send_id: wire.send_id,
             state: wire.state,
             attempt_provenance: wire.attempt_provenance,
         })
@@ -359,12 +356,27 @@ impl PendingDeliveryRecord {
     pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
         let provenance = PendingDeliveryProvenance::for_channel(&channel);
         Self {
+            record_id: uuid::Uuid::new_v4().to_string(),
             content_digest,
             channel,
             provenance,
+            send_id: None,
             state: PendingDeliveryState::Pending,
             attempt_provenance: None,
         }
+    }
+
+    pub fn with_send_id(mut self, send_id: String) -> Self {
+        self.send_id = Some(send_id);
+        self
+    }
+
+    pub fn record_id(&self) -> &str {
+        &self.record_id
+    }
+
+    pub fn send_id(&self) -> Option<&str> {
+        self.send_id.as_deref()
     }
 
     pub fn state(&self) -> PendingDeliveryState {
@@ -458,6 +470,8 @@ pub struct TaskBinding {
     pub plan_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
     /// Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_handle: Option<String>,
@@ -538,6 +552,8 @@ pub struct Tab {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    #[serde(skip, default)]
+    pub agent_session_model_identity: Option<SessionModelIdentity>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
@@ -557,6 +573,8 @@ pub struct Tab {
     pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     #[serde(default, skip_serializing_if = "ReasoningEffortIdentity::is_empty")]
     pub reasoning_effort_identity: ReasoningEffortIdentity,
+    #[serde(skip, default)]
+    pub restorable_launch: RestorableLaunchParameters,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_epoch_archives: Vec<ContextEpochArchive>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this tab.
@@ -645,6 +663,8 @@ pub struct Tab {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
     /// the chat view. Persisted only with the tab-owned session identity.
@@ -687,6 +707,12 @@ pub struct Tab {
     /// trigger another launch.
     #[serde(skip, default)]
     pub restored_from_snapshot: bool,
+    /// Restored plain-shell history still needs to be prepended before its PTY is linked.
+    #[serde(skip, default)]
+    pub scrollback_seed_pending: bool,
+    /// Sidecar bytes loaded once during startup and consumed before the first PTY link.
+    #[serde(skip, default)]
+    pub pending_scrollback_tail: Option<Arc<[u8]>>,
     /// In-memory only — when true, this tab is excluded from the session
     /// snapshot. Set for ephemeral picker/onboarding tabs that must not
     /// survive a daemon restart and reappear as ghost tabs.
@@ -736,6 +762,11 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
+        let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
+        Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))
+    }
+
     /// True when this tab is backed by a plugin `chatBackend` rather than a PTY.
     /// The one helper the I/O seam and frontend branch on instead of probing
     /// `pty_id`.
@@ -857,12 +888,14 @@ mod tests {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_session_model_identity: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: ReasoningEffortIdentity::default(),
+            restorable_launch: RestorableLaunchParameters::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
@@ -887,6 +920,7 @@ mod tests {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,
@@ -901,6 +935,8 @@ mod tests {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
@@ -973,6 +1009,21 @@ mod tests {
             record.provenance,
             PendingDeliveryProvenance::FallbackBootstrap
         );
+        assert_eq!(record.send_id(), None);
+        assert!(!record.record_id().is_empty());
+    }
+
+    #[test]
+    fn pending_interactive_send_round_trips_its_chat_send_id() {
+        let record =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput)
+                .with_send_id("send-1".into());
+
+        let encoded = serde_json::to_string(&record).unwrap();
+        let decoded: PendingDeliveryRecord = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(decoded.send_id(), Some("send-1"));
+        assert_eq!(decoded.record_id(), record.record_id());
     }
 
     #[test]

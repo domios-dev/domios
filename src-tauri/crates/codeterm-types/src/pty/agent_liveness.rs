@@ -92,6 +92,9 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
     if evidence.provider_exit_observed {
         return AgentLiveness::Absent;
     }
+    if evidence.boot_in_flight {
+        return AgentLiveness::Unobserved;
+    }
     match evidence.boot_stage {
         // The provider's own TUI frame, and the sealed launch, are direct
         // evidence the process is running.
@@ -101,10 +104,10 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
         // observer giving up on a launch is not evidence that the process died.
         Some(BootStage::PtyReattached)
         | Some(BootStage::LaunchDeadlineElapsed)
-        | Some(BootStage::LaunchBindingUnconfirmed) => AgentLiveness::Unobserved,
+        | Some(BootStage::LaunchBindingUnconfirmed)
+        | Some(BootStage::AwaitingOwnerPrompt) => AgentLiveness::Unobserved,
         // Everything up to and including `shell_ready` is a shell, not an
         // agent. Absent unless a launch is still running.
-        _ if evidence.boot_in_flight => AgentLiveness::Unobserved,
         None => AgentLiveness::Unobserved,
         Some(_) => AgentLiveness::Absent,
     }
@@ -183,6 +186,13 @@ mod tests {
     }
 
     #[test]
+    fn a_live_pty_with_a_failure_stage_stays_unobserved_during_launch() {
+        let mut e = evidence(Some(BootStage::SpawnFailed));
+        e.boot_in_flight = true;
+        assert_eq!(classify_agent_liveness(e), AgentLiveness::Unobserved);
+    }
+
+    #[test]
     fn a_snapshot_rebuilt_tab_with_no_pty_yet_is_unobserved() {
         // Restore rebuilds the record with `pty_id: None`; nothing about the
         // agent has been observed, in either direction.
@@ -215,6 +225,19 @@ mod tests {
             assert_eq!(
                 classify_agent_liveness(evidence(Some(stage))),
                 AgentLiveness::Live,
+                "{stage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn proven_launch_stages_are_unobserved_while_launch_is_in_flight() {
+        for stage in [BootStage::ProviderReady, BootStage::AgentReady] {
+            let mut e = evidence(Some(stage));
+            e.boot_in_flight = true;
+            assert_eq!(
+                classify_agent_liveness(e),
+                AgentLiveness::Unobserved,
                 "{stage:?}"
             );
         }

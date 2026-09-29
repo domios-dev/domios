@@ -100,6 +100,8 @@ mod review_gate_selection_tests;
 #[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]
+mod subtask_dispatch_tests;
+#[cfg(test)]
 mod tab_name_contract_tests;
 #[cfg(test)]
 mod task_attempt_tests;
@@ -136,7 +138,7 @@ pub use task_dispatch::{
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
+    SplitParentReason, TaskLaneUpdate, RPC_DISPATCH_IN_FLIGHT, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
     RPC_UNAUTHORIZED_GATE_CLAIM,
 };
 

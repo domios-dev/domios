@@ -1,8 +1,12 @@
-import type { Milestone, Task } from "../types";
+import type { Milestone, Plan, Task } from "../types";
 
 const LATEST_NOTE_MAX = 120;
 
-export function canonicalTaskStatusLabel(task: Task): string {
+export function canonicalTaskStatusLabel(task: Task, plan?: Plan): string {
+  if ((task.status === "pending" || task.status === "in_progress")
+    && plan?.tasks.some((child) => child.parent_task_id === task.id && child.status !== "done" && child.status !== "cancelled")) {
+    return "blocked on subtasks";
+  }
   return task.status.replace(/_/g, " ");
 }
 

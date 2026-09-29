@@ -6,12 +6,10 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
-pub(super) fn visible_spawn_starter_prompt(
-    startup_handshake: Option<crate::agent::provider::StarterPrompt>,
-    provider_starter: Option<crate::agent::provider::StarterPrompt>,
-) -> Option<crate::agent::provider::StarterPrompt> {
-    startup_handshake.or(provider_starter)
-}
+pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
+#[path = "spawn_warnings.rs"]
+mod spawn_warnings;
+pub(crate) use spawn_warnings::merge as merge_spawn_warnings;
 
 pub(crate) use super::spawn_cli::{
     cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
@@ -24,12 +22,16 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
+#[path = "spawn_model_catalogue.rs"]
+mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    attach_planned_model, model_fallback_notice_title, normalize_session_model,
-    persist_model_launch_identity, resolve_fresh_agent_model,
-    resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
-    CatalogBackgroundModelPort,
+    attach_planned_model, normalize_session_model, persist_model_launch_identity,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+    unrequested_substitution_severity, CatalogBackgroundModelPort,
+};
+pub(crate) use spawn_model_catalogue::{
+    catalogue_models_match, resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -39,12 +41,15 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
+#[path = "spawn_reasoning_effort.rs"]
+mod spawn_reasoning_effort;
 #[cfg(test)]
 pub(crate) use spawn_identity::task_spawn_handle;
 pub(crate) use spawn_identity::{
     now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
     task_binding_from_spawn,
 };
+pub(crate) use spawn_reasoning_effort::validate_agent_reasoning_effort;
 
 #[path = "spawn_tab_identity.rs"]
 mod spawn_tab_identity;
@@ -112,6 +117,8 @@ pub enum TabCommand {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentSpawnSpec {
     pub provider: String,
+    #[serde(skip)]
+    pub remote_task_bound: bool,
     #[serde(default)]
     pub planned_model: Option<String>,
     #[serde(default)]
@@ -152,15 +159,6 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default)]
     pub activate: Option<bool>,
-}
-
-fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(format!("{}\n{}", a, b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
-    }
 }
 
 /// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
@@ -248,40 +246,6 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn validate_agent_model(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    model: Option<&str>,
-) -> Result<(), String> {
-    let _ = registry;
-    if model.map(str::trim).is_some_and(|m| !m.is_empty()) {
-        let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
-    }
-    Ok(())
-}
-
-/// Structurally validate a requested reasoning effort against the provider's
-/// declared capability. Empty/absent is always valid (no selection). An
-/// unsupported value returns the provider's structured rejection message and the
-/// caller aborts the spawn — never a silent downgrade. An unknown provider is an
-/// error too: we cannot honestly claim support we can't verify.
-pub(crate) fn validate_agent_reasoning_effort(
-    registry: &AgentRegistry,
-    provider_id: &str,
-    effort: Option<&str>,
-) -> Result<(), String> {
-    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
-        return Ok(());
-    };
-    match registry.with_provider(provider_id, |p| p.validate_reasoning_effort(Some(effort))) {
-        Some(Ok(())) => Ok(()),
-        Some(Err(rejection)) => Err(rejection.to_string()),
-        None => Err(format!(
-            "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
-        )),
-    }
-}
-
 impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
@@ -297,11 +261,15 @@ impl ServiceContext {
         }
 
         let default_provider = crate::config::default_agent_provider();
-        let agent_cmd = if agent.provider.is_empty() {
-            default_provider
-        } else {
-            agent.provider.clone()
-        };
+        let model_selection = resolve_agent_model_selection(
+            &self.agent_registry,
+            (!agent.provider.trim().is_empty()).then_some(agent.provider.as_str()),
+            agent.model.as_deref(),
+            &default_provider,
+        )
+        .map_err(|error| error.to_string())?;
+        let agent_cmd = model_selection.provider_id;
+        let requested_model = model_selection.model;
         let permission_bypass_authorization =
             super::permission_policy::configured_permission_bypass(
                 &self.agent_registry,
@@ -319,19 +287,19 @@ impl ServiceContext {
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
-            agent.model.clone(),
+            requested_model,
             agent.resume_session_id.as_deref(),
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent_cmd,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let (ws_id, ws_cwd, ws_provisioned_cwd) = {
@@ -360,7 +328,10 @@ impl ServiceContext {
         )?;
 
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
-        let warning = merge_warnings(cwd_warning, cli_warning);
+        let warning = merge_spawn_warnings(
+            merge_spawn_warnings(cwd_warning, cli_warning),
+            model_resolution.warning.clone(),
+        );
 
         let default_chat_view = should_default_agent_tab_to_chat(
             spec.visibility,
@@ -368,6 +339,7 @@ impl ServiceContext {
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
                 .unwrap_or(false),
         );
+        let tab_created_by_spawn = agent.existing_tab_id.is_none();
 
         let tab_id = {
             let mut mux = self.mux.write();
@@ -446,16 +418,19 @@ impl ServiceContext {
             agent.spawned_by_tab_id.as_deref(),
         );
         let task_identity = super::worker_ack::startup_task_identity_from_env(&agent.extra_env);
-        let startup_supervised = self.prepare_agent_startup_supervision(
-            &tab_id,
-            spec.parent_tab_id
-                .as_deref()
-                .or(agent.spawned_by_tab_id.as_deref())
-                .or(spec.creator_tab_id.as_deref()),
-            task_identity.clone(),
-        );
-        if task_identity.is_some() && !startup_supervised {
-            self.rollback_provisional_tab_via_close(&tab_id);
+        let startup_supervised = !agent.remote_task_bound
+            && self.prepare_agent_startup_supervision(
+                &tab_id,
+                spec.parent_tab_id
+                    .as_deref()
+                    .or(agent.spawned_by_tab_id.as_deref())
+                    .or(spec.creator_tab_id.as_deref()),
+                task_identity.clone(),
+            );
+        if task_identity.is_some() && !startup_supervised && !agent.remote_task_bound {
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab_via_close(&tab_id);
+            }
             self.emit_state_changed();
             return Err(format!(
                 "task-bound dispatch for Tab {tab_id} could not register a startup supervisor"
@@ -471,14 +446,18 @@ impl ServiceContext {
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {
-                self.rollback_provisional_tab_via_close(&tab_id);
+                if tab_created_by_spawn {
+                    self.rollback_provisional_tab_via_close(&tab_id);
+                }
                 self.emit_state_changed();
                 return Err(e);
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
                     if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
-                        self.rollback_provisional_tab_via_close(&tab_id);
+                        if tab_created_by_spawn {
+                            self.rollback_provisional_tab_via_close(&tab_id);
+                        }
                         self.emit_state_changed();
                         return Err(e);
                     }
@@ -522,10 +501,12 @@ impl ServiceContext {
                 super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
-                let _ = self
-                    .mux
-                    .write()
-                    .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self
+                        .mux
+                        .write()
+                        .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 self.emit_state_changed();
                 return Err(error);
             }
@@ -533,9 +514,12 @@ impl ServiceContext {
         if let Some(binding) = task_binding_from_spawn(&agent) {
             let _ = self.mux.write().set_task_binding_once(&tab_id, binding);
         }
-        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.rollback_provisional_tab(&ws_id, &tab_id);
-        })?;
+        if let Err(error) = self.ensure_agent_pad(&tab_id) {
+            if tab_created_by_spawn {
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+            }
+            return Err(error);
+        }
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
             super::reasoning_effort::persist_launch_identity(
@@ -590,6 +574,23 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
+        super::restored_launch::capture_tab_launch_parameters(
+            &self.mux,
+            &tab_id,
+            &self.agent_registry,
+            super::restored_launch::RestorableLaunchCapture {
+                provider_id: &agent_cmd,
+                requested_model: model_resolution.requested_model.clone(),
+                model: launch_model.clone(),
+                reasoning_effort: agent.reasoning_effort.clone(),
+                args: (!agent.extra_args.is_empty()).then(|| agent.extra_args.clone()),
+                agent_name: agent.agent_name.clone(),
+                task: agent.task.as_deref(),
+                role: agent.role.as_deref(),
+                role_profile: agent.role_profile.as_deref(),
+                permission_bypass_requested: permission_bypass,
+            },
+        );
         let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
             startup_supervised,
             task_identity.is_some(),
@@ -676,11 +677,14 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                if tab_created_by_spawn {
+                    let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                }
                 return Err(error.to_string());
             }
         }
-        let launch_cmd = visible_agent_launch_command(
+        let launch_cmd = visible_agent_launch_command_for_service(
+            self,
             &tab_id,
             &agent_cmd,
             &legacy_params,
@@ -689,14 +693,29 @@ impl ServiceContext {
             &self.agent_registry,
         );
         if launch_cmd.trim().is_empty() {
-            return Err(self.rollback_empty_agent_launch(&tab_id, &agent_cmd));
+            return Err(self.rollback_empty_agent_launch_if_created(
+                &tab_id,
+                &agent_cmd,
+                tab_created_by_spawn,
+            ));
         }
+        let startup_turn = crate::service::startup_turn::resolve(
+            &self.agent_registry,
+            &agent_cmd,
+            legacy_params.starter_prompt,
+            fallback_spec.as_ref(),
+            role_suffixed_task.as_deref(),
+            false,
+            confirmed_first_turn.as_deref(),
+        );
         launch_agent_in_background_with_env(
             self.clone(),
             tab_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::VisibleSpawn,
+            startup_turn.first_turn_will_be_delivered,
+            startup_turn.expected_turn,
             role_suffixed_task,
             fallback_spec,
             agent.extra_env.clone(),
@@ -742,6 +761,12 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
+        validate_agent_model(
+            &self.agent_registry,
+            &agent.provider,
+            agent.model.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
@@ -750,18 +775,14 @@ impl ServiceContext {
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
         let launch_model = model_resolution.model.clone();
-        validate_agent_model(
-            &self.agent_registry,
-            &agent.provider,
-            launch_model.as_deref(),
-        )?;
         validate_agent_reasoning_effort(
             &self.agent_registry,
             &agent.provider,
+            launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
-            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+            self.notify_model_fallback(notice);
         }
 
         let ws_id = {
@@ -974,15 +995,12 @@ impl ServiceContext {
                     .with_provider(&agent.provider, |p| p.model_launch_args(m))
             })
             .unwrap_or_default();
-        if let Some(ref effort) = agent.reasoning_effort {
-            if !effort.is_empty() {
-                let effort_args = self
-                    .agent_registry
-                    .with_provider(&agent.provider, |p| p.reasoning_effort_launch_args(effort))
-                    .unwrap_or_default();
-                model_args.extend(effort_args);
-            }
-        }
+        model_args.extend(self.reasoning_effort_launch_args_or_notice(
+            &tab_id,
+            &agent.provider,
+            launch_model.as_deref(),
+            agent.reasoning_effort.as_deref(),
+        ));
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
@@ -1054,11 +1072,13 @@ impl ServiceContext {
                     &hidden_cwd,
                 ),
                 launch_marker: None,
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
             };
-            let launch_cmd = super::launch_session_detection::marked_provider_launch_command(
-                &svc_outer.agent_registry,
+            let launch_cmd = super::launch_session_detection::marked_launch_command_for_tab(
+                &svc_outer,
                 &provider,
                 &tab_id_outer,
+                &hidden_cwd,
                 &mut launch_params,
             )
             .unwrap_or_else(|| provider.clone());
@@ -1119,7 +1139,7 @@ impl ServiceContext {
             workspace_id: ws_id,
             description: spec.description,
             worker_id: agent.worker_id.clone(),
-            warning: cli_warning,
+            warning: merge_spawn_warnings(cli_warning, model_resolution.warning.clone()),
             model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
@@ -1128,6 +1148,7 @@ impl ServiceContext {
 
 /// A visible launch carries a minted marker so a hook-less provider still binds
 /// its own session.
+#[cfg(test)]
 fn visible_agent_launch_command(
     tab_id: &str,
     agent_cmd: &str,
@@ -1137,6 +1158,26 @@ fn visible_agent_launch_command(
     registry: &AgentRegistry,
 ) -> String {
     super::launch_session_detection::marked_agent_command(
+        tab_id,
+        agent_cmd,
+        params,
+        task,
+        injected_session_id,
+        registry,
+    )
+}
+
+fn visible_agent_launch_command_for_service(
+    service: &ServiceContext,
+    tab_id: &str,
+    agent_cmd: &str,
+    params: &super::SpawnAgentParams,
+    task: Option<&str>,
+    injected_session_id: Option<&str>,
+    registry: &AgentRegistry,
+) -> String {
+    super::launch_session_detection::marked_agent_command_for_service(
+        service,
         tab_id,
         agent_cmd,
         params,

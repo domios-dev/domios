@@ -3,9 +3,14 @@ use crate::client::SocketClient;
 use crate::cmd::plan::caller_context::CallerContext;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::handle_result;
-use crate::cmd::report_guard::ReportRefusal;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
+
+#[path = "agent_models.rs"]
+mod agent_models;
+use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
+#[cfg(test)]
+use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
 
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
@@ -30,6 +35,14 @@ pub fn resolve_spawn_task<R: Read>(
     let caller_cwd = std::env::current_dir()
         .map_err(|error| format!("failed to resolve caller cwd for --task-file: {error}"))?;
     resolve_spawn_task_from(task, task_file, spawn_cwd, &caller_cwd, stdin)
+}
+
+pub(crate) fn resolve_mesh_spawn_task<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    resolve_spawn_task(task, task_file, None, stdin)
 }
 
 fn resolve_spawn_task_from<R: Read>(
@@ -157,96 +170,8 @@ pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn refusal_next_commands() -> Vec<&'static str> {
-    crate::cmd::report_guard::REPORT_NEXT_COMMANDS.to_vec()
-}
-
-fn refusal_report_message(refusal: &ReportRefusal, original: &str) -> String {
-    format!(
-        "REPORT NOT SENT\n{}\n\nOriginal readiness report that was refused locally:\n{}",
-        refusal.message(),
-        original
-    )
-}
-
-fn format_report_refusal_text(
-    refusal: &ReportRefusal,
-    sent: bool,
-    report_id: Option<&str>,
-    error: Option<&str>,
-) -> String {
-    let mut lines = vec!["REPORT NOT SENT".to_string(), refusal.message()];
-    match (sent, report_id, error) {
-        (true, Some(id), _) => lines.push(format!("Diagnostic report sent to parent: {id}")),
-        (true, None, _) => lines.push("Diagnostic report sent to parent.".to_string()),
-        (false, _, Some(err)) => lines.push(format!("Diagnostic report could not be sent: {err}")),
-        (false, _, None) => lines.push("Diagnostic report could not be sent.".to_string()),
-    }
-    lines.push("REPORT NOT SENT".to_string());
-    format!("{}\n", lines.join("\n"))
-}
-
-fn handle_report_refusal(
-    client: &mut SocketClient,
-    json: bool,
-    mut body: serde_json::Value,
-    refusal: ReportRefusal,
-) -> ! {
-    let original = body
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    body["message"] = serde_json::json!(refusal_report_message(&refusal, &original));
-    body["kind"] = serde_json::json!("report_refused");
-    body["status"] = serde_json::json!("partial");
-    if let Some(outcome) = refusal.report_outcome() {
-        body["report_outcome"] = serde_json::json!(outcome);
-    }
-
-    let diagnostic = client.call_detailed("agent.report", Some(body.clone()));
-    let (sent, report_id, error) = match diagnostic {
-        Ok(value) => (
-            true,
-            value
-                .get("report_id")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-            None,
-        ),
-        Err(err) => {
-            let rendered = if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
-                render_plan_call_error(err, &body)
-            } else {
-                err.to_string()
-            };
-            (false, None, Some(rendered))
-        }
-    };
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "verdict": "REPORT NOT SENT",
-                "reason": refusal.reason,
-                "dirty_files": refusal.dirty_files,
-                "next_commands": refusal_next_commands(),
-                "diagnostic_report_sent": sent,
-                "diagnostic_report_id": report_id,
-                "diagnostic_error": error,
-                "report_outcome": refusal.report_outcome(),
-            }))
-            .unwrap()
-        );
-    } else {
-        eprint!(
-            "{}",
-            format_report_refusal_text(&refusal, sent, report_id.as_deref(), error.as_deref())
-        );
-    }
-    std::process::exit(1);
-}
+mod report_refusal;
+use report_refusal::handle_report_refusal;
 
 pub(crate) fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();
@@ -326,89 +251,6 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
             }
         }
     }
-}
-
-/// The same three-state answer the picker renders, so a reader of either
-/// surface gets the same verdict. `unknown` means the probe could not run; only
-/// `unavailable` means the CLI answered no.
-pub const AVAILABILITY_UNAVAILABLE: &str = " (unavailable)";
-pub const AVAILABILITY_UNKNOWN: &str = " (availability unknown)";
-
-/// The provider row's own three-state marker, read off the SAME descriptor
-/// field the API serves and the UI picker consumes.
-fn provider_availability_marker(provider: &serde_json::Value) -> &'static str {
-    match provider.get("availability").and_then(|v| v.as_str()) {
-        Some("available") => "",
-        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
-        _ => AVAILABILITY_UNKNOWN,
-    }
-}
-
-fn availability_marker(model: &serde_json::Value) -> &'static str {
-    match model.get("availability").and_then(|v| v.as_str()) {
-        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
-        Some("unknown") => AVAILABILITY_UNKNOWN,
-        Some(_) => "",
-        None if model.get("available").and_then(|v| v.as_bool()) == Some(false) => {
-            AVAILABILITY_UNAVAILABLE
-        }
-        None => "",
-    }
-}
-
-fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
-    let models = target.get("available_models").and_then(|v| v.as_array());
-    let Some(models) = models else {
-        return format!("No models advertised for provider '{}'.\n", provider);
-    };
-    let default_model = target.get("default_model").and_then(|v| v.as_str());
-    let mut out = String::new();
-    for m in models {
-        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-        let marker = if default_model == Some(id) {
-            " (default)"
-        } else {
-            ""
-        };
-        let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
-        let marker = format!("{marker}{}", availability_marker(m));
-        if description.is_empty() {
-            out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
-        } else {
-            out.push_str(&format!(
-                "{:<10} {}{}\n             {}\n",
-                id, name, marker, description
-            ));
-        }
-    }
-    out.push_str(&format_reasoning_efforts(target));
-    out
-}
-
-fn format_reasoning_efforts(target: &serde_json::Value) -> String {
-    let efforts = target
-        .get("reasoning_efforts")
-        .and_then(|v| v.as_array())
-        .filter(|a| !a.is_empty());
-    let Some(efforts) = efforts else {
-        return String::new();
-    };
-    let default = target
-        .get("default_reasoning_effort")
-        .and_then(|v| v.as_str());
-    let mut out = String::from("\nReasoning effort:\n");
-    for e in efforts {
-        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = e.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-        let marker = if default == Some(id) {
-            " (default)"
-        } else {
-            ""
-        };
-        out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
-    }
-    out
 }
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
@@ -502,15 +344,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     };
                     if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(
-                                target
-                                    .get("available_models")
-                                    .unwrap_or(&serde_json::Value::Null)
-                            )
-                            .unwrap()
-                        );
+                        println!("{}", format_agent_models_json(target));
                         return;
                     }
                     print!("{}", format_agent_models(target, &provider));
@@ -724,13 +558,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             } else {
                 None
             };
-            let base_for_report = base
-                .clone()
-                .or_else(|| std::env::var("CODETERM_LANE_BASE").ok());
-            let report_base = crate::cmd::report_attribution::ReportBase::classify(
-                base,
-                std::env::var("CODETERM_LANE_BASE").ok(),
-            );
+            let canonical_writer = task_scope
+                .as_ref()
+                .is_some_and(|scope| scope.canonical_writer);
+            let base_for_report = if canonical_writer {
+                None
+            } else {
+                base.clone()
+                    .or_else(|| std::env::var("CODETERM_LANE_BASE").ok())
+            };
+            let report_base = if canonical_writer {
+                crate::cmd::report_attribution::ReportBase::default()
+            } else {
+                crate::cmd::report_attribution::ReportBase::classify(
+                    base,
+                    std::env::var("CODETERM_LANE_BASE").ok(),
+                )
+            };
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
                 task_scope.as_ref(),
                 status,
@@ -743,7 +587,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(fields) => fields,
                 Err(refusal) => handle_report_refusal(client, json, body, refusal),
             };
-            if acknowledge_dirty {
+            if acknowledge_dirty && !canonical_writer {
                 if let Some(ref files) = changed_files {
                     if !files.is_empty() {
                         eprintln!(

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
-import type { TeamMemberRole } from "../../lib/teamActions";
+import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { TaskStatus, type Plan } from "../Canvas/types";
@@ -37,7 +37,7 @@ export interface SidebarTeamActions {
     managerTabId: string | null,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string) => void | Promise<void>;
+  onCloseTeam?: (teamId: string) => Promise<TeamCloseInventory>;
 }
 
 export interface TeamTaskBucket {

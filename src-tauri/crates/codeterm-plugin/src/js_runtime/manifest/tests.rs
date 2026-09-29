@@ -697,14 +697,70 @@ fn readiness_conversion() {
 fn verify_submit_conversion() {
     let s = SerdeVerifySubmit::TuiInputDrained {
         initial_key_delay_ms: 150,
+        retry_offsets_ms: [200, 500, 900, 1500, 2200, 3000],
     };
     let v: VerifySubmitStrategy = (&s).into();
     match v {
-        VerifySubmitStrategy::TuiInputDrained { initial_key_delay } => {
+        VerifySubmitStrategy::TuiInputDrained {
+            initial_key_delay,
+            retry_offsets,
+        } => {
             assert_eq!(initial_key_delay, std::time::Duration::from_millis(150));
+            assert_eq!(retry_offsets[5], std::time::Duration::from_millis(3000));
         }
         _ => panic!(),
     }
+}
+
+#[test]
+fn submit_capability_fields_native_js_parity() {
+    use crate::provider::AgentProvider;
+
+    let codex: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../plugins/provider-codex/plugin.json"
+    ))
+    .unwrap();
+    let claude: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../plugins/provider-claude/plugin.json"
+    ))
+    .unwrap();
+    let codex_submit: SerdeVerifySubmit =
+        serde_json::from_value(codex["spawn"]["verifySubmit"].clone()).unwrap();
+    let claude_submit: SerdeVerifySubmit =
+        serde_json::from_value(claude["spawn"]["verifySubmit"].clone()).unwrap();
+    let codex_normalization: crate::provider::TurnEvidenceNormalization =
+        serde_json::from_value(codex["spawn"]["turnEvidenceNormalization"].clone()).unwrap();
+    let claude_normalization: crate::provider::TurnEvidenceNormalization =
+        serde_json::from_value(claude["spawn"]["turnEvidenceNormalization"].clone()).unwrap();
+    let codex_strategy = VerifySubmitStrategy::from(&codex_submit);
+    let claude_strategy = VerifySubmitStrategy::from(&claude_submit);
+    let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
+
+    assert_eq!(
+        codex_strategy.initial_key_delay(),
+        std::time::Duration::from_millis(300)
+    );
+    assert_eq!(
+        codex_strategy.retry_offsets(),
+        [200, 500, 1200, 2200, 4000, 5800].map(std::time::Duration::from_millis)
+    );
+    assert_eq!(
+        claude_strategy,
+        native_claude.verify_submit_strategy(),
+        "the Claude JS capability matches its native provider strategy"
+    );
+    assert_eq!(
+        claude_normalization,
+        native_claude.turn_evidence_normalization(),
+        "the Claude JS capability matches its native evidence normalization"
+    );
+    assert_eq!(
+        codex_normalization,
+        crate::provider::TurnEvidenceNormalization {
+            drop_supplementary_characters: true,
+            ..Default::default()
+        }
+    );
 }
 
 #[test]

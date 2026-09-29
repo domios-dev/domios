@@ -1,11 +1,10 @@
-use std::cell::Cell;
-
-use codeterm_plugin::provider::DirectoryTrustPromptResponse;
+use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, directory_trust_check_applies, directory_trust_prompt_candidate,
-    directory_trust_provenance, directory_trust_skip_reason, inherited_workspace_provenance,
-    legacy_auto_approve_permitted, DirectoryTrustRefusal, TrustDecision, TrustLedger,
+    decide, decide_with_frame_identity, directory_trust_check_applies, directory_trust_provenance,
+    directory_trust_skip_reason, inherited_workspace_provenance, legacy_auto_approve_permitted,
+    shared_directory_trust_check_applies, DirectoryTrustRefusal, SharedTrustCache, TrustDecision,
+    TrustLedger, SHARED_TRUST,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -78,40 +77,60 @@ fn directory_trust_accepts_verbatim_prefixed_cwd_matching_provenance() {
 }
 
 #[test]
-fn directory_trust_prompt_candidate_uses_active_path_choice_structure() {
-    let trust = "> You are in D:\\workspace\\project\n\nShould this folder's guidance be loaded? Project rules can alter how the running agent behaves while working in this folder.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
-    let approval = "Do you want to apply this change? It can modify the selected files in your project.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
-    let bypass = "> D:\\workspace\\project\n\nShould this folder's local rules be loaded? This enables a bypass for the configured policies and removes the usual restrictions.\n\n  1. Yes, continue\n> 2. No, quit\n\nPress enter to continue";
-    let model_picker = "> You are in D:\\workspace\\project\n\nSelect a model\n\n  1. Model A\n> 2. Model B\n  3. Model C\n\nPress enter to select";
-    let answer_list = "> You are in D:\\workspace\\project\n\nHere are the choices we discussed:\n  1. First answer\n  2. Second answer\n  3. Third answer";
-    let one_paragraph_approval = "> D:\\workspace\\project\n\nWould you like to apply this change? It updates the selected files and records the result in the project history.\n\n  1. Yes, apply\n> 2. No, cancel\n\nPress enter to continue";
-    let unselected_trust = trust.replace("> 2. No", " 2. No");
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn trust_responder_never_writes_on_a_non_trust_dialog() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+    );
+    let screen = std::fs::read_to_string(fixture_path).unwrap();
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-update-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude"),
+    ));
 
-    assert!(directory_trust_prompt_candidate(trust));
-    assert!(!directory_trust_prompt_candidate(approval));
-    assert!(!directory_trust_prompt_candidate(bypass));
-    assert!(!directory_trust_prompt_candidate(model_picker));
-    assert!(!directory_trust_prompt_candidate(answer_list));
-    assert!(!directory_trust_prompt_candidate(one_paragraph_approval));
-    assert!(!directory_trust_prompt_candidate(&unselected_trust));
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some(&screen));
+
+    assert_eq!(decision, TrustDecision::NoDialog);
+    assert!(super::LEDGER
+        .lock()
+        .tabs
+        .get(&tab_id)
+        .is_none_or(|trust| trust.answered_frame.is_none()));
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-update-trust"),
+        0,
+        "a non-trust dialog must not dispatch any PTY key"
+    );
 }
 
 #[test]
-fn directory_trust_prompt_candidate_matches_real_fixture_frames() {
+fn core_trust_decision_answers_claude_folder_trust_fixtures() {
     let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../plugins/provider-codex/tests/fixtures/directory-trust");
-    let cases: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(fixture_dir.join("cases.json")).unwrap())
-            .unwrap();
-
-    for case in cases.as_array().unwrap() {
-        let file = case["file"].as_str().unwrap();
-        let expected = case["expect"].as_str().unwrap() != "none";
-        let screen = std::fs::read_to_string(fixture_dir.join(file)).unwrap();
+        .join("../plugins/provider-claude/tests/fixtures/folder-trust");
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    for (file, step) in [
+        ("quick-safety-yes-focused.txt", b"\r".as_slice()),
+        ("trust-rule-focus-affirmative.txt", b"\r".as_slice()),
+        ("trust-box-focus-refusal.txt", b"j".as_slice()),
+        ("trust-numbered-focus-affirmative.txt", b"\r".as_slice()),
+    ] {
+        let screen = std::fs::read_to_string(fixture_dir.join(file)).expect("Claude trust frame");
         assert_eq!(
-            directory_trust_prompt_candidate(&screen),
-            expected,
-            "{file}"
+            decide(
+                true,
+                file,
+                &screen,
+                &parking_lot::Mutex::new(TrustLedger::default()),
+                |s| { provider.directory_trust_prompt_response(s) }
+            ),
+            TrustDecision::Answer {
+                step: step.to_vec()
+            },
+            "provider-classified Claude trust fixture {file}"
         );
     }
 }
@@ -181,20 +200,163 @@ fn spawn_inherits_workspace_provenance_only_in_the_provisioned_directory() {
 }
 
 #[test]
-fn user_directory_never_invokes_the_recognizer() {
+fn user_directory_never_invokes_the_provisioned_recognizer() {
     let (state, tab_id) = agent_tab(None, false);
-    let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
-    assert!(!applies);
-    let invoked = Cell::new(false);
-    let ledger = parking_lot::Mutex::new(TrustLedger::default());
-    let decision = decide(applies, &tab_id, "any screen", &ledger, |_| {
-        invoked.set(true);
-        answer(b"\r")
-    });
-    assert_eq!(decision, TrustDecision::NotApplicable);
-    assert!(
-        !invoked.get(),
-        "a user directory must never reach the recognizer"
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert!(!directory_trust_check_applies(tab));
+    assert!(shared_directory_trust_check_applies(tab));
+}
+
+#[test]
+fn mismatched_provisioned_cwd_never_uses_shared_trust() {
+    let (state, tab_id) = agent_tab(Some("/srv/lanes/original"), false);
+    let tab = state.get_tab(&tab_id).unwrap();
+    assert!(!directory_trust_check_applies(tab));
+    assert!(!shared_directory_trust_check_applies(tab));
+}
+
+#[test]
+fn shared_trust_cache_is_exact_path_scoped_and_invalidated_on_carry() {
+    let mut cache = SharedTrustCache::default();
+    cache.trusted.insert(
+        ("provider-a".into(), r"C:\Users\owner\Trusted".into()),
+        true,
+    );
+    cache
+        .checking
+        .insert(("provider-a".into(), r"C:\Users\owner\Pending".into()), 0);
+    assert_eq!(
+        cache
+            .trusted
+            .get(&("provider-a".into(), r"C:\Users\owner\Trusted".into())),
+        Some(&true)
+    );
+    assert_eq!(
+        cache
+            .trusted
+            .get(&("provider-b".into(), r"C:\Users\owner\Trusted".into())),
+        None
+    );
+    cache.invalidate();
+    assert!(cache.trusted.is_empty());
+    assert!(cache.checking.is_empty());
+    assert_eq!(cache.generation, 1);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
+    let (mut mux, tab_id) = agent_tab(None, false);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("codex".into());
+    tab.cwd = Some(r"C:\Users\owner\Trusted".into());
+    tab.pty_id = Some("pty-shared-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "codex",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        )
+        .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
+    ));
+
+    super::invalidate_shared_trust_cache();
+    SHARED_TRUST
+        .lock()
+        .trusted
+        .insert(("codex".into(), r"C:\Users\owner\Trusted".into()), true);
+    fixture
+        .service
+        .respond_to_shared_trust_prompt(&tab_id, r"C:\Users\owner\Trusted");
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-shared-trust"),
+        1,
+        "an already-open sibling prompt receives one bound trust key",
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn untrusted_shared_lookup_surfaces_one_owner_prompt() {
+    let folder = tempfile::tempdir().expect("owner checkout");
+    let cwd = folder.path().to_string_lossy().into_owned();
+    let (mut mux, tab_id) = state_with_tab(Some(&cwd), None);
+    let tab = mux.get_tab_mut(&tab_id).expect("tab");
+    tab.agent_type = Some("fixture".into());
+    tab.pty_id = Some("pty-owner-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "owner-trust-question-1".into(),
+        options: vec![
+            PromptOption {
+                label: "owner-trust-yes".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "owner-trust-no".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "fixture",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        )
+        .with_directory_trust_prompt(prompt.clone()),
+    ));
+    let key = ("fixture".to_string(), cwd.clone());
+    {
+        let mut cache = SHARED_TRUST.lock();
+        let generation = cache.generation;
+        cache.checking.insert(key.clone(), generation);
+    }
+
+    assert_eq!(
+        fixture
+            .service
+            .respond_to_directory_trust(&tab_id, Some("owner trust screen")),
+        TrustDecision::NotApplicable,
+        "an in-flight lookup leaves the prompt to the owner instead of claiming it"
+    );
+
+    {
+        let mut cache = SHARED_TRUST.lock();
+        cache.checking.remove(&key);
+        cache.trusted.insert(key, false);
+    }
+    fixture
+        .service
+        .surface_shared_directory_trust_prompts(&cwd, "fixture");
+    fixture
+        .service
+        .surface_shared_directory_trust_prompts(&cwd, "fixture");
+
+    assert!(crate::service::launch_readiness::owner_prompt_is_active(
+        &tab_id
+    ));
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref()),
+        Some(&prompt)
+    );
+    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-owner-trust"),
+        0,
+        "an untrusted folder must never receive an affirmative trust key"
     );
 }
 
@@ -261,6 +423,206 @@ fn provisioned_directory_answers_one_key_per_observed_frame() {
     assert_eq!(held, TrustDecision::Held);
     let gone = decide(applies, &tab_id, "composer", &ledger, |_| None);
     assert_eq!(gone, TrustDecision::NoDialog);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-provisioned-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        ),
+    ));
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
+    assert_eq!(
+        decision,
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        }
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-provisioned-trust"),
+        1
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn provenance_never_answers_trust_for_a_repository_the_provider_reports_untrusted() {
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/untrusted"), false);
+    mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"\r".to_vec(),
+            },
+        )
+        .with_directory_trust_state(codeterm_plugin::provider::DirectoryTrustState::Untrusted),
+    ));
+    let decision = fixture
+        .service
+        .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
+    assert_eq!(decision, TrustDecision::NotApplicable);
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-untrusted-repo"),
+        0,
+        "the owner answers an untrusted repository's trust dialog"
+    );
+}
+
+#[test]
+fn launch_onboarding_unchanged_focus_redraw_does_not_queue_second_key() {
+    let capture = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let response = provider
+        .launch_onboarding_response(capture)
+        .expect("captured onboarding prompt");
+    assert_eq!(response.step, b"j");
+    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+
+    let first = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        capture,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(
+        first,
+        TrustDecision::Answer {
+            step: b"j".to_vec()
+        }
+    );
+    ledger.lock().settle("onboarding-redraw");
+
+    let redraw = format!("{capture}\nstatus refreshed");
+    let repeated = decide_with_frame_identity(
+        true,
+        "onboarding-redraw",
+        &redraw,
+        &response.frame_key,
+        &ledger,
+        |_| answer(&response.step),
+    );
+    assert_eq!(
+        repeated,
+        TrustDecision::Waiting,
+        "an extra redraw with unchanged focus must not queue another navigation key"
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answered() {
+    use codeterm_types::agent::roles::AgentRole;
+
+    let yes_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let not_now_focused = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
+    let (mut mux, planner_tab_id) = agent_tab(None, true);
+    let planner = mux.get_tab_mut(&planner_tab_id).unwrap();
+    planner.role = Some(AgentRole::Manager);
+    planner.role_profile = Some("planner".into());
+    planner.pty_id = Some("pty-late-onboarding-planner".into());
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let owner_tab_id = mux.create_tab(&workspace_id).expect("owner tab");
+    let owner = mux.get_tab_mut(&owner_tab_id).unwrap();
+    owner.agent_type = Some("claude".into());
+    owner.pty_id = Some("pty-late-onboarding-owner".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::agent_claude::ClaudeProvider::new(),
+    ));
+
+    let screen_signal =
+        || std::sync::Arc::new(codeterm_pty::pty::screen_state::ScreenChangeSignal::default());
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &planner_tab_id,
+            "claude",
+            yes_focused,
+            screen_signal(),
+        ),
+        TrustDecision::Answer {
+            step: b"j".to_vec()
+        },
+        "an idle post-launch Planner moves once toward Not now"
+    );
+    super::LEDGER.lock().settle(&planner_tab_id);
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &planner_tab_id,
+            "claude",
+            not_now_focused,
+            screen_signal(),
+        ),
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        },
+        "Enter is submitted only after Not now has focus"
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-late-onboarding-planner"),
+        2,
+        "post-launch handling dispatches exactly j followed by Enter"
+    );
+    assert_eq!(
+        fixture.service.respond_to_launch_onboarding(
+            &owner_tab_id,
+            "claude",
+            yes_focused,
+            screen_signal(),
+        ),
+        TrustDecision::NotApplicable,
+        "owner-facing tabs are excluded from the safe auto-response"
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-late-onboarding-owner"),
+        0
+    );
+
+    let prompt = fixture
+        .service
+        .agent_registry
+        .parse_interactive_prompt("claude", yes_focused)
+        .expect("owner prompt parse")
+        .0;
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &owner_tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+    fixture
+        .service
+        .apply_prompt_decision_with_screen(&decision, Some(yes_focused), false, false);
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&owner_tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref()),
+        Some(&prompt),
+        "owner-facing tabs keep the prompt available for a human"
+    );
 }
 
 #[test]

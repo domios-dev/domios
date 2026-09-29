@@ -7,6 +7,7 @@ pub mod agent_done_routes;
 pub mod agent_routes;
 pub mod ai_helper_routes;
 pub mod bridge_routes;
+pub(crate) mod cli_rpc_routes;
 pub mod clipboard_routes;
 pub mod config_routes;
 pub mod cron_routes;

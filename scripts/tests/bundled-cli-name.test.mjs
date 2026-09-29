@@ -5,7 +5,10 @@
 // was ignored and every `codeterm` command kept talking an old protocol.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bundledCliName, hostWindowsTarget } from "../bundle-cli.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { bundledCliName, clearStaleBundledCli, hostWindowsTarget } from "../bundle-cli.js";
 
 test("windows stages one name whether or not a cross target is set", () => {
   const native = bundledCliName({}, "win32", "x64");
@@ -30,4 +33,19 @@ test("each windows arch maps to its own triple", () => {
 test("non-windows keeps the plain name", () => {
   assert.equal(bundledCliName({}, "linux", "x64"), "codeterm");
   assert.equal(bundledCliName({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, "darwin", "arm64"), "codeterm");
+});
+
+test("bundle regeneration clears stale CLI names before Tauri packages resources", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-cli-stage-"));
+  try {
+    fs.writeFileSync(path.join(dir, "codeterm-09-18.exe"), "stale");
+    fs.writeFileSync(path.join(dir, "codeterm.exe"), "old");
+    fs.writeFileSync(path.join(dir, "keep.txt"), "keep");
+
+    clearStaleBundledCli(dir);
+
+    assert.deepEqual(fs.readdirSync(dir), ["keep.txt"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -474,8 +474,8 @@
               "required": false,
               "value_name": "AGENT",
               "possible_values": [],
-              "default": "claude",
-              "help": "Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude",
+              "default": null,
+              "help": "Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used",
               "aliases": []
             },
             {
@@ -535,7 +535,7 @@
               "value_name": "CWD",
               "possible_values": [],
               "default": null,
-              "help": "Working directory",
+              "help": "Working directory (required with --mesh; resolves on the peer)",
               "aliases": []
             },
             {
@@ -662,13 +662,23 @@
               "aliases": []
             },
             {
+              "name": "reason",
+              "positional": false,
+              "required": false,
+              "value_name": "REASON",
+              "possible_values": [],
+              "default": null,
+              "help": "Why this Worker needs an unplanned task",
+              "aliases": []
+            },
+            {
               "name": "reasoning-effort",
               "positional": false,
               "required": false,
               "value_name": "REASONING_EFFORT",
               "possible_values": [],
               "default": null,
-              "help": "Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels",
+              "help": "Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded",
               "aliases": []
             },
             {
@@ -724,7 +734,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task",
+              "help": "Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task",
               "aliases": []
             },
             {
@@ -755,6 +765,16 @@
               "possible_values": [],
               "default": null,
               "help": "Tab title",
+              "aliases": []
+            },
+            {
+              "name": "unplanned",
+              "positional": false,
+              "required": false,
+              "value_name": "UNPLANNED",
+              "possible_values": [],
+              "default": null,
+              "help": "Create and dispatch a visible exceptional task for this Worker",
               "aliases": []
             },
             {
@@ -1763,6 +1783,16 @@
               "aliases": []
             },
             {
+              "name": "count",
+              "positional": false,
+              "required": false,
+              "value_name": "COUNT",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop after this many delivered or skipped ticks",
+              "aliases": []
+            },
+            {
               "name": "delay",
               "positional": false,
               "required": false,
@@ -1770,6 +1800,16 @@
               "possible_values": [],
               "default": null,
               "help": "Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Repeat delivery at an anchored interval (minimum 1m)",
               "aliases": []
             },
             {
@@ -1823,6 +1863,16 @@
               "default": null,
               "help": "Text to queue (positional, or omit and use --from-file/--stdin)",
               "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop recurring delivery at an absolute time",
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -1861,6 +1911,16 @@
               "aliases": []
             },
             {
+              "name": "count",
+              "positional": false,
+              "required": false,
+              "value_name": "COUNT",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence tick limit",
+              "aliases": []
+            },
+            {
               "name": "delay",
               "positional": false,
               "required": false,
@@ -1868,6 +1928,16 @@
               "possible_values": [],
               "default": null,
               "help": "Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence interval (minimum 1m)",
               "aliases": []
             },
             {
@@ -1920,6 +1990,16 @@
               "possible_values": [],
               "default": null,
               "help": "Replacement text",
+              "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the recurrence end time",
               "aliases": []
             }
           ],
@@ -2481,6 +2561,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "no-precompact-memory-export",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_PRECOMPACT_MEMORY_EXPORT",
+              "possible_values": [],
+              "default": null,
+              "help": "Disable conversation export before compaction",
+              "aliases": []
+            },
+            {
               "name": "precompact-memory-export",
               "positional": false,
               "required": false,
@@ -2516,6 +2606,44 @@
               "possible_values": [],
               "default": null,
               "help": "Provider id (e.g. claude, codex)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "sweep-profiles",
+          "about": "Preview or remove dead provider launch artifacts owned by this instance",
+          "aliases": [],
+          "args": [
+            {
+              "name": "confirm",
+              "positional": false,
+              "required": false,
+              "value_name": "CONFIRM",
+              "possible_values": [],
+              "default": null,
+              "help": "Remove the profiles listed by this instance's scan",
+              "aliases": []
+            },
+            {
+              "name": "include-legacy",
+              "positional": false,
+              "required": false,
+              "value_name": "INCLUDE_LEGACY",
+              "possible_values": [],
+              "default": null,
+              "help": "Include every unmarked legacy profile, regardless of tab liveness",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": true,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider id (e.g. codex)",
               "aliases": []
             }
           ],
@@ -5576,6 +5704,24 @@
               "possible_values": [],
               "default": null,
               "help": "Target peer name or instance ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unrevoke",
+          "about": "Explicitly lift a peer identity revocation so it can pair again",
+          "aliases": [],
+          "args": [
+            {
+              "name": "instance_id",
+              "positional": true,
+              "required": true,
+              "value_name": "INSTANCE_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Instance ID of the revoked peer",
               "aliases": []
             }
           ],
@@ -10746,7 +10892,7 @@
                   "value_name": "REASONING_EFFORT",
                   "possible_values": [],
                   "default": null,
-                  "help": "Provider-supported reasoning effort (rejected if unsupported)",
+                  "help": "Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)",
                   "aliases": []
                 },
                 {
@@ -10849,6 +10995,44 @@
               "subcommands": []
             },
             {
+              "name": "merge-remote-lane",
+              "about": "Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "relink",
               "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
@@ -10868,6 +11052,152 @@
                   "positional": true,
                   "required": true,
                   "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remote-ack",
+              "about": "Acknowledge a remote Worker attempt on the origin plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "remote-report",
+              "about": "Persist a remote Worker's in-review report on the origin plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ATTEMPT_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "changed-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CHANGED_FILES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MESSAGE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sha",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SHA",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "skipped",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SKIPPED",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-cmd",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEST_CMD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-result",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEST_RESULT",
                   "possible_values": [],
                   "default": null,
                   "help": null,
@@ -11093,6 +11423,54 @@
                   "possible_values": [],
                   "default": null,
                   "help": "List sibling tasks (open-only unless --all)",
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "split",
+              "about": "Split a task into dispatchable child tasks",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "child",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "CHILDREN",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
                   "aliases": []
                 },
                 {
@@ -12189,6 +12567,16 @@
           "aliases": []
         },
         {
+          "name": "count",
+          "positional": false,
+          "required": false,
+          "value_name": "COUNT",
+          "possible_values": [],
+          "default": null,
+          "help": "Stop after this many delivered or skipped ticks",
+          "aliases": []
+        },
+        {
           "name": "delay",
           "positional": false,
           "required": false,
@@ -12196,6 +12584,16 @@
           "possible_values": [],
           "default": null,
           "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered",
+          "aliases": []
+        },
+        {
+          "name": "every",
+          "positional": false,
+          "required": false,
+          "value_name": "EVERY",
+          "possible_values": [],
+          "default": null,
+          "help": "Repeat delivery to this existing tab at an anchored interval (minimum 1m)",
           "aliases": []
         },
         {
@@ -12273,6 +12671,16 @@
           "aliases": [
             "force"
           ]
+        },
+        {
+          "name": "until",
+          "positional": false,
+          "required": false,
+          "value_name": "UNTIL",
+          "possible_values": [],
+          "default": null,
+          "help": "Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time",
+          "aliases": []
         }
       ],
       "subcommands": []

@@ -1,5 +1,5 @@
 /**
- * Codex model discovery tests cover live cache, manifest fallback, and catalog freshness.
+ * Codex model discovery tests cover live cache, missing-cache reporting, and catalog freshness.
  * Run: npx tsx plugins/provider-codex/tests/models.test.ts
  */
 
@@ -70,8 +70,7 @@ console.log("\n--- discoverModels ---\n");
 {
   const p = loadCodexWithHost(baseHost({ manifestJson: () => JSON.stringify(bundledManifest) }));
   const manifestIds = (bundledManifest.models || []).map((model) => model.id);
-  const discoveredIds = (p.discoverModels() as Array<{ id: string }>).map((model) => model.id);
-  eq(discoveredIds, manifestIds, "the bundled model catalog is the live-cache fallback");
+  eq(p.discoverModels(), null, "a missing live cache reports no discovery so the host applies its seed");
   assert(!manifestIds.includes("gpt-5.4-mini"), "a removed model is absent from launch choices");
 }
 
@@ -95,8 +94,68 @@ console.log("\n--- discoverModels ---\n");
 }
 
 {
+  const cache = JSON.parse(fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "models_cache.json"),
+    "utf8",
+  )) as { models: unknown[] };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{
+    id: string;
+    reasoningEfforts?: Array<{ id: string; displayName: string; description?: string }>;
+    defaultReasoningEffort?: string;
+  }>;
+  eq(
+    models.map((model) => [model.id, model.reasoningEfforts?.map((effort) => effort.id)]),
+    [
+      ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+      ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
+      ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+      ["gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
+    ],
+    "live reasoning levels are carried per model without adding unsupported levels",
+  );
+  eq(
+    models.find((model) => model.id === "gpt-5.6-sol")?.defaultReasoningEffort,
+    "low",
+    "live per-model default reasoning effort is carried from cache",
+  );
+}
+
+{
+  const cache = {
+    models: [
+      { slug: "gpt-empty", supported_reasoning_levels: [] },
+      { slug: "gpt-invalid", supported_reasoning_levels: [{}, { effort: 12 }, { effort: " " }] },
+    ],
+  };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ reasoningEfforts?: unknown }>;
+  eq(
+    models.map((model) => model.reasoningEfforts),
+    [undefined, undefined],
+    "empty or wholly invalid cache levels leave per-model support absent for provider fallback",
+  );
+}
+
+{
   const p = loadCodexWithHost(baseHost({}));
-  eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
+  eq(p.discoverModels(), null, "discoverModels reports no discovery when no Codex cache exists");
 }
 
 // Live cache → clean, current, priority-ordered chat models: hidden + non-chat dropped.
@@ -157,8 +216,8 @@ console.log("\n--- discoverModels: fallback trigger conditions ---\n");
       writeFile: () => true,
     },
   }));
-  eq(p.discoverModels(), manifestSeed.models, "missing cache file falls through to the manifest fallback");
-  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache file is absent");
+  eq(p.discoverModels(), null, "missing cache file reports no discovery; the host applies its seed");
+  eq(manifestCalls, 0, "the plugin never reads the manifest seed itself");
 }
 
 {
@@ -174,34 +233,8 @@ console.log("\n--- discoverModels: fallback trigger conditions ---\n");
       writeFile: () => true,
     },
   }));
-  eq(p.discoverModels(), manifestSeed.models, "unreadable cache falls through to the manifest fallback");
-  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache is present but unreadable");
-}
-
-console.log("\n--- discoverModels: hidden entries excluded from the manifest fallback too ---\n");
-{
-  const seed = {
-    models: [
-      { id: "visible-model", displayName: "Visible", description: "shown", visibility: "list" },
-      { id: "hidden-model", displayName: "Hidden", description: "internal", visibility: "hide" },
-    ],
-  };
-  const p = loadCodexWithHost(baseHost({
-    manifestJson: () => JSON.stringify(seed),
-    fs: {
-      fileExists: () => false,
-      readFile: () => null,
-      readJson: () => null,
-      writeJson: () => true,
-      writeFile: () => true,
-    },
-  }));
-  const models = p.discoverModels() as Array<{ id: string }>;
-  eq(
-    models.map((m) => m.id),
-    ["visible-model"],
-    "manifest fallback drops hide-visibility entries, matching the cache path's own filter",
-  );
+  eq(p.discoverModels(), null, "unreadable cache reports no discovery; the host applies its seed");
+  eq(manifestCalls, 0, "the plugin never reads the manifest seed for an unreadable cache");
 }
 
 console.log("\n--- discoverModels: cache priority order wins over array position ---\n");

@@ -102,7 +102,8 @@ function loadClaude(files: Map<string, string>) {
       readFile: (p: string) => files.get(p) ?? null,
       readJson: (p: string) => {
         const raw = files.get(p);
-        return raw === undefined ? null : JSON.parse(raw);
+        if (raw === undefined) return null;
+        try { return JSON.parse(raw); } catch { return null; }
       },
       writeFile: (p: string, v: string) => { files.set(p, v); return true; },
       writeJson: (p: string, v: unknown) => { files.set(p, JSON.stringify(v, null, 2)); return true; },
@@ -209,7 +210,31 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   }
   const status = loadClaude(files).checkIntegration();
   eq(status.hooks_installed, true, "the reconciled set reports installed");
+  eq(status.integration_owned, true, "the reconciled set reports marker ownership");
+  eq(status.precompact_hook, true, "the owned PreCompact hook reports the saved export choice");
   eq(status.hook_contract_current, true, "and reports its contract current, so nothing writes again");
+}
+
+{
+  const files = settingsWith({ PreCompact: [foreignEntry("PreCompact")] });
+  const status = loadClaude(files).checkIntegration();
+  eq(status.integration_owned, false, "a foreign hook does not imply CodeTerm consent");
+  eq(status.precompact_hook, false, "a foreign PreCompact hook does not imply CodeTerm export opt-in");
+}
+
+{
+  const files = settingsWith({
+    ...Object.fromEntries(EVENTS.map((event) => [event, [currentUnmarked(event)]])),
+  });
+  const status = loadClaude(files).checkIntegration();
+  eq(status.integration_owned, false, "pre-marker compatibility hooks do not imply recorded consent");
+  eq(status.precompact_hook, false, "pre-marker PreCompact is not treated as an explicit export choice");
+}
+
+{
+  const files = new Map([[SETTINGS_PATH, "{"]]);
+  const status = loadClaude(files).checkIntegration();
+  eq(status.integration_state, "unreadable", "invalid settings are reported as unreadable");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

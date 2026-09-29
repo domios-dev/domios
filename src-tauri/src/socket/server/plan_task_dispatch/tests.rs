@@ -37,6 +37,7 @@ mod checkout_occupancy;
 mod concurrent_dispatch;
 mod dispatch_placement;
 mod dispatch_recovery;
+mod invalid_model;
 mod lane_persist;
 mod lane_provisioning;
 mod lane_resolution_multirepo;
@@ -44,7 +45,9 @@ mod lane_safety;
 mod late_attempt_failure;
 mod qa_pass;
 mod recovery_race;
-mod routing;
+mod resolved_effort;
+mod status_preflight;
+mod unplanned;
 mod worker_ack;
 
 #[test]
@@ -75,6 +78,108 @@ fn dispatch_effort_becomes_host_owned_plan_intent() {
     let (planned, requested) = super::dispatch_reasoning_effort(Some(&params));
     assert_eq!(planned.as_deref(), Some("high"));
     assert_eq!(requested.as_deref(), Some("high"));
+}
+
+#[test]
+fn dispatched_attempt_records_routed_model_and_effort() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let mut plan = Plan::new(
+        "attempt routing".into(),
+        root.path().display().to_string(),
+        OrchestratorRef::from_tab("orchestrator"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "unplanned model".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    assert!(task.model.is_none());
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "claude",
+    )));
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "codex",
+    )));
+    let routing = crate::service::spawn::resolve_agent_model_selection(
+        &registry,
+        None,
+        Some("codex:gpt-6-luna"),
+        "claude",
+    )
+    .unwrap();
+    let attempt_id = store
+        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            Some(&routing.provider_id),
+            "attempt-routed-model",
+            Some(vec![]),
+            crate::plan::WorkerPlacement::IsolatedLane,
+            routing.model.clone(),
+            routing.model.clone(),
+            routing.model,
+            Some("xhigh".into()),
+            None,
+            false,
+            true,
+            3,
+        )
+        .unwrap();
+
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
+
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            4,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("high"));
+
+    let updated_at = store.get(&plan.id).unwrap().updated_at;
+    store
+        .update_dispatched_attempt_reasoning_effort(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            &attempt_id,
+            Some("high".into()),
+            5,
+        )
+        .unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().updated_at, updated_at);
 }
 
 #[test]
@@ -119,24 +224,6 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
         "status": "pending"
     }));
     assert!(task.execution_intent.requires_repository());
-}
-
-#[test]
-fn paused_task_dispatch_refuses_before_spawn_without_agent_resume_instruction() {
-    let paused = task(json!({
-        "id": "task_paused",
-        "name": "waiting for user",
-        "type": "task",
-        "status": "paused"
-    }));
-
-    let error = preflight_dispatch_task_status("plan_1", &paused).unwrap_err();
-    let data = error.data.expect("structured paused-task refusal");
-
-    assert_eq!(error.code, -32602);
-    assert_eq!(data["stage"], "task_status");
-    assert_eq!(data["hold_kind"], "unclassified");
-    assert!(data.get("fix").is_none());
 }
 
 #[test]
@@ -204,6 +291,7 @@ fn provenance() -> WorkerLaneProvenance {
         worktree_path: "/project-worktrees/lane".into(),
         branch: "lane/test".into(),
         base: "master".into(),
+        destination: None,
     }
 }
 

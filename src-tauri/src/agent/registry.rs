@@ -286,6 +286,26 @@ impl AgentRegistry {
         guard.get(agent_type).and_then(|p| p.parse_prompt(text))
     }
 
+    pub fn parse_interactive_prompt(
+        &self,
+        agent_type: &str,
+        text: &str,
+    ) -> Option<(
+        crate::multiplexer::types::PendingPrompt,
+        codeterm_types::pty::PromptKind,
+    )> {
+        let guard = self.providers.read();
+        let provider = guard.get(agent_type)?;
+        provider
+            .parse_directory_trust_prompt(text)
+            .map(|prompt| (prompt, codeterm_types::pty::PromptKind::DirectoryTrust))
+            .or_else(|| {
+                provider
+                    .parse_prompt(text)
+                    .map(|prompt| (prompt, codeterm_types::pty::PromptKind::Provider))
+            })
+    }
+
     pub fn is_output_noise(&self, agent_type: &str, text: &str) -> bool {
         let guard = self.providers.read();
         guard
@@ -601,6 +621,7 @@ mod tests {
             id,
             crate::plugin::model_catalog::RegisteredDefaults {
                 models: vec![crate::agent::provider::ModelInfo {
+                    default_reasoning_effort: None,
                     id: "phantom-model".into(),
                     display_name: "Phantom Model".into(),
                     description: None,
@@ -609,6 +630,7 @@ mod tests {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 }],
                 default: Some("phantom-model".into()),
             },
@@ -616,6 +638,7 @@ mod tests {
         crate::agent::model_catalog::put_live(
             id,
             vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "cache-model".into(),
                 display_name: "Cache Model".into(),
                 description: None,
@@ -624,6 +647,7 @@ mod tests {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             Some("cache-model".into()),
         );

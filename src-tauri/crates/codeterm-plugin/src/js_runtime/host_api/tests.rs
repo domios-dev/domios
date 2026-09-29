@@ -441,6 +441,139 @@ fn host_write_then_read_file_round_trip() {
 }
 
 #[test]
+fn host_atomic_write_and_exclusive_file_lock_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir
+        .path()
+        .join("config.toml")
+        .to_string_lossy()
+        .into_owned();
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                lock(p) { return host.lockFile(p); },
+                unlock(id) { return host.unlockFile(id); },
+                lockAndUnlock(p) {
+                    const id = host.lockFile(p);
+                    return id !== null && host.unlockFile(id);
+                },
+                symlink(p) { return host.fs.isSymlink(p); },
+                writeLocked(p, c) {
+                    const id = host.lockFile(p);
+                    if (id === null) return false;
+                    try { return host.writeFileAtomic(p, c); }
+                    finally { host.unlockFile(id); }
+                }
+            };
+        "#,
+    );
+    let lock_id: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
+    let lock_id = lock_id.expect("lock acquisition returns an opaque handle");
+    let contended: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path.clone())]).unwrap();
+    assert!(
+        contended.is_some(),
+        "a completed plugin call releases leaked lock handles"
+    );
+    let ok: bool = crate::js_runtime::vm::call_json(
+        &vm,
+        "writeLocked",
+        &[json!(path.clone()), json!("model = \"gpt-5.6\"\n")],
+    )
+    .unwrap();
+    assert!(ok);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "model = \"gpt-5.6\"\n"
+    );
+    let is_symlink: Option<bool> =
+        crate::js_runtime::vm::call_json(&vm, "symlink", &[json!(path.clone())]).unwrap();
+    assert_eq!(is_symlink, Some(false));
+    let unlocked: bool =
+        crate::js_runtime::vm::call_json(&vm, "unlock", &[json!(lock_id)]).unwrap();
+    assert!(
+        !unlocked,
+        "a call-scoped handle cannot outlive the JavaScript call"
+    );
+    let lock_and_unlock: bool =
+        crate::js_runtime::vm::call_json(&vm, "lockAndUnlock", &[json!(path.clone())]).unwrap();
+    assert!(
+        lock_and_unlock,
+        "the normal lock merge remains usable inside one plugin call"
+    );
+    let external_lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    external_lock.try_lock().unwrap();
+    let blocked: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "lock", &[json!(path)]).unwrap();
+    assert!(
+        blocked.is_none(),
+        "another owner keeps the shared lock exclusive"
+    );
+    external_lock.unlock().unwrap();
+}
+
+#[test]
+fn file_lock_cleanup_preserves_another_live_plugin_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let first_path = dir.path().join("first.lock");
+    let second_path = dir.path().join("second.lock");
+    let first = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(first_path)
+        .unwrap();
+    let second = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&second_path)
+        .unwrap();
+    first.try_lock().unwrap();
+    second.try_lock().unwrap();
+    held_file_locks().lock().insert(
+        "first-call-lock".into(),
+        HeldFileLock {
+            call_id: "first-call".into(),
+            file: first,
+        },
+    );
+    held_file_locks().lock().insert(
+        "second-call-lock".into(),
+        HeldFileLock {
+            call_id: "second-call".into(),
+            file: second,
+        },
+    );
+
+    release_call_file_locks("first-call");
+
+    let locks = held_file_locks().lock();
+    assert!(!locks.contains_key("first-call-lock"));
+    assert!(locks.contains_key("second-call-lock"));
+    drop(locks);
+    let probe = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(second_path)
+        .unwrap();
+    assert!(
+        probe.try_lock().is_err(),
+        "the concurrent call keeps its OS lock"
+    );
+    release_call_file_locks("second-call");
+    probe.try_lock().unwrap();
+    probe.unlock().unwrap();
+}
+
+#[test]
 fn read_file_bounded_head_and_tail_windows() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("big.jsonl");

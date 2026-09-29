@@ -55,6 +55,19 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
+      state={{ state: "idle" }}
+      providerName="Codex"
+      model="gpt-5.6-sol"
+      onStop={() => { stopCalls += 1; }}
+    />,
+  ));
+  const slot = idle.host.querySelector<HTMLButtonElement>('[data-testid="agent-stop-slot"]');
+  assert(slot, "an idle row keeps the Stop slot so the row never changes height");
+  assert(slot.disabled && slot.getAttribute("aria-hidden") === "true", "the idle Stop slot is inert and hidden from assistive tech");
+  assert(!idle.host.querySelector('[data-testid="agent-stop"]'), "idle offers no Stop action");
+
+  await act(async () => idle.root.render(
+    <AgentStateIndicator
       state={{ state: "working", status_line: "Editing files" }}
       providerName="Codex"
       model="gpt-5.6-sol"

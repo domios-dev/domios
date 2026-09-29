@@ -194,7 +194,8 @@ pub(crate) fn handle(json_output: bool, action: EssenceMapAction) {
                 Ok(paths) => paths,
                 Err(error) => fail(error),
             };
-            journal::revert(&map_path, &decisions_path, &revert.to).map(Report::Revert)
+            journal::revert(&map_path, &decisions_path, &revert.to, &crate::data_root())
+                .map(Report::Revert)
         }
     };
 
@@ -235,11 +236,19 @@ fn validate_from_paths(paths: &EssenceMapPaths) -> Result<MapSummary, String> {
 }
 
 pub(crate) fn generate(root: &Path, map_path: &Path) -> Result<MapSummary, String> {
+    generate_with_data_root(root, map_path, &crate::data_root())
+}
+
+fn generate_with_data_root(
+    root: &Path,
+    map_path: &Path,
+    data_root: &Path,
+) -> Result<MapSummary, String> {
     let inventory = build_inventory(root)?;
     let records = records_for(&inventory);
     enforce_budget(&records)?;
     let contents = records_to_jsonl(&records)?;
-    journal::retain_superseded_map(map_path, &contents)?;
+    journal::retain_superseded_map(map_path, &contents, data_root)?;
     write_text(map_path, &contents)?;
     Ok(summary(&records))
 }

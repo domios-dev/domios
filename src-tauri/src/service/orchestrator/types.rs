@@ -116,6 +116,8 @@ pub struct SpawnAgentParams {
     #[serde(default, skip)]
     pub(crate) task_launch_authority: Option<TaskLaunchAuthority>,
     #[serde(default, skip)]
+    pub(crate) remote_task_binding: Option<RemoteTaskBinding>,
+    #[serde(default, skip)]
     pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
@@ -128,9 +130,8 @@ pub struct SpawnAgentParams {
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split tab (even with parent).
     pub force_tab: Option<bool>,
-    /// Claim this existing blank tab instead of creating a new one — used by
-    /// the new-session picker's in-place spawn so confirming transforms the
-    /// picker's own tab rather than leaving it behind as an orphan.
+    /// Claim an existing blank tab instead of creating one. On failure, the
+    /// caller owns cleanup and may restore its pre-claim snapshot.
     pub existing_tab_id: Option<String>,
     /// Skip legacy onboarding work for a paired Orchestrator. Its complete
     /// identity and counterpart context travel in the single launch payload.
@@ -209,6 +210,14 @@ pub(crate) struct TaskLaunchAuthority {
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
     pub(crate) lane_base: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteTaskBinding {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub origin_peer_id: String,
 }
 
 impl TaskLaunchAuthority {

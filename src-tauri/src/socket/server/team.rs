@@ -55,16 +55,34 @@ pub(super) fn dispatch(
         "team.close" => {
             let team_id = get_string_param(params, "team_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
-            let team = tauri::async_runtime::block_on(svc.close_team(
-                &team_id,
-                crate::service::TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
-            ))
-            .map_err(|message| JsonRpcError {
-                code: -32602,
-                message,
-                data: None,
-            })?;
-            Ok(serde_json::json!({ "team": team }))
+            let caller = caller_tab_id
+                .filter(|tab_id| !tab_id.trim().is_empty())
+                .map(crate::service::TeamMutationCaller::AgentTab)
+                .unwrap_or_else(|| {
+                    let confirmed = params
+                        .as_ref()
+                        .and_then(|params| params.get("force"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        && params
+                            .as_ref()
+                            .and_then(|params| params.get("confirm"))
+                            .and_then(Value::as_str)
+                            == Some(team_id.as_str());
+                    if confirmed {
+                        crate::service::TeamMutationCaller::HumanConfirmedHeaderless
+                    } else {
+                        crate::service::TeamMutationCaller::Unattributed
+                    }
+                });
+            let result = tauri::async_runtime::block_on(svc.close_team(&team_id, caller)).map_err(
+                |message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                },
+            )?;
+            Ok(serde_json::json!({ "team": result.team, "inventory": result.inventory }))
         }
         "team.adopt_plan" => {
             let team_id = get_string_param(params, "team_id")?;
@@ -84,6 +102,13 @@ pub(super) fn dispatch(
             let team_id = get_string_param(params, "team_id")?;
             let provider = get_string_param(params, "provider")?;
             let role = get_string_param(params, "role")?;
+            let model = opt_string_param(params, "model");
+            crate::service::spawn::validate_agent_model(
+                &svc.agent_registry,
+                &provider,
+                model.as_deref(),
+            )
+            .map_err(super::model_errors::invalid_model_rpc_error)?;
             // A Team whose Orchestrator is gone has no membership left to spend,
             // so this verb accepts an absent caller and lets staffing judge it.
             let caller_tab_id = opt_string_param(params, "caller_tab_id")
@@ -97,7 +122,7 @@ pub(super) fn dispatch(
                     role,
                     title: opt_string_param(params, "title"),
                     task: opt_string_param(params, "task"),
-                    model: opt_string_param(params, "model"),
+                    model,
                 },
             ))
             .map_err(|message| JsonRpcError {

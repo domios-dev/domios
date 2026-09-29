@@ -79,6 +79,10 @@
     }
   ],
   "defaultModel": "auto",
+  "modelCatalogue": {
+    "authority": "authoritative",
+    "liveDiscoveryRequired": true
+  },
   "sessions": {
     "rootDir": "~/.cursor/projects",
     "cwdEncoding": "dash_encoded",

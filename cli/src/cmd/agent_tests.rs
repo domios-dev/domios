@@ -1,4 +1,9 @@
+use super::report_refusal::{
+    format_report_refusal_text, refusal_diagnostic_request, refusal_next_commands,
+    report_refusal_json,
+};
 use super::*;
+use crate::cmd::report_guard::ReportRefusal;
 
 #[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
@@ -31,6 +36,134 @@ fn agent_models_formats_descriptor_models_from_api_snapshot() {
     assert!(out.contains("Live Codex (default)"));
     assert!(out.contains("catalog snapshot"));
     assert!(!out.contains("static-codex"));
+}
+
+#[test]
+fn agent_models_formats_per_model_efforts_and_provider_fallback() {
+    let provider = serde_json::json!({
+        "id": "codex",
+        "default_model": "gpt-6-sol",
+        "default_reasoning_effort": "medium",
+        "reasoning_efforts": [
+            { "id": "low", "display_name": "Low" },
+            { "id": "medium", "display_name": "Medium" },
+            { "id": "high", "display_name": "High" },
+            { "id": "xhigh", "display_name": "Extra high" }
+        ],
+        "available_models": [
+            {
+                "id": "gpt-6-sol",
+                "display_name": "GPT-6 Sol",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "max" }, { "id": "ultra" }
+                ]
+            },
+            {
+                "id": "gpt-5.5",
+                "display_name": "GPT-5.5",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }
+                ]
+            },
+            {
+                "id": "gpt-5.6-sol",
+                "display_name": "GPT-5.6 Sol",
+                "default_reasoning_effort": "low",
+                "reasoning_efforts": [
+                    { "id": "low" }, { "id": "medium" }, { "id": "high" }, { "id": "xhigh" }
+                ]
+            },
+            { "id": "fallback-model", "display_name": "Fallback Model" }
+        ]
+    });
+
+    let out = format_agent_models(&provider, "codex");
+
+    assert!(out.contains(
+        "GPT-6 Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"
+    ));
+    assert!(
+        out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh")
+    );
+    assert!(out.contains(
+        "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
+    ));
+    assert!(out.contains("Fallback Model\n"));
+    assert!(out.contains("Provider fallback reasoning effort:"));
+    assert!(out.contains(&format!("{:<10} {}", "xhigh", "Extra high")));
+}
+
+#[test]
+fn agent_models_cli_preserves_codex_live_default_from_models_cache() {
+    use codeterm_plugin::js_runtime::{
+        call_json, JsProvider, PluginManifest, PluginVm, SerdeModelInfo,
+    };
+    use codeterm_plugin::model_catalog;
+    use codeterm_plugin::provider::ModelInfo;
+
+    let mut manifest: PluginManifest =
+        serde_json::from_str(include_str!("../../../plugins/provider-codex/plugin.json"))
+            .expect("Codex manifest fixture");
+    let catalog_provider_id = "test-codex-cache-cli-default";
+    manifest.id = catalog_provider_id.into();
+    let cache: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../plugins/provider-codex/tests/fixtures/models_cache.json"
+    ))
+    .expect("Codex model cache fixture");
+    let cache_json = serde_json::to_string(&cache).expect("cache JSON");
+    let host_setup = format!(
+        r#"host.homeDir = function () {{ return "/fixture-home"; }};
+host.platform = function () {{ return "linux"; }};
+host.fs.fileExists = function (path) {{ return path.endsWith("/.codex/models_cache.json"); }};
+host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache.json") ? ({cache_json}) : null; }};"#
+    );
+    let bundle = format!(
+        "{host_setup}\n{}",
+        include_str!("../../../plugins/provider-codex/plugin.js")
+    );
+    let vm = PluginVm::from_source_with(
+        &manifest.id,
+        bundle,
+        Some(serde_json::to_string(&manifest).expect("manifest JSON")),
+    )
+    .expect("Codex provider VM");
+    let discovered: Option<Vec<SerdeModelInfo>> =
+        call_json(&vm, "discoverModels", &[]).expect("Codex live model discovery");
+    let discovered = discovered.expect("cache fixture produces live models");
+    let models: Vec<ModelInfo> = discovered.iter().map(ModelInfo::from).collect();
+    assert_eq!(
+        models
+            .iter()
+            .find(|model| model.id == "gpt-5.6-sol")
+            .and_then(|model| model.default_reasoning_effort.as_deref()),
+        Some("low")
+    );
+
+    let provider = JsProvider::new(manifest.clone(), std::sync::Arc::new(vm));
+    let catalog_cache_path =
+        model_catalog::models_dir().join(format!("{catalog_provider_id}.cache.json"));
+    let _ = std::fs::remove_file(&catalog_cache_path);
+    model_catalog::put_live(catalog_provider_id, models, manifest.default_model.clone());
+    let available_models = codeterm_plugin::provider::AgentProvider::available_models(&provider);
+    let descriptor = serde_json::json!({
+        "default_reasoning_effort": manifest.default_reasoning_effort,
+        "available_models": available_models,
+    });
+
+    let rendered = format_agent_models(&descriptor, &manifest.id);
+    assert!(rendered.contains(
+        "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
+    ));
+    let output_json = format_agent_models_json(&descriptor);
+    let json_models: serde_json::Value =
+        serde_json::from_str(&output_json).expect("CLI model JSON output");
+    let json_models = json_models.as_array().expect("CLI model JSON array");
+    let model = json_models
+        .iter()
+        .find(|model| model["id"] == "gpt-5.6-sol")
+        .expect("live Codex model");
+    assert_eq!(model["default_reasoning_effort"], "low");
+    let _ = std::fs::remove_file(catalog_cache_path);
 }
 
 #[test]
@@ -76,21 +209,53 @@ fn print_report_notices_handles_empty_notices_array() {
 }
 
 #[test]
-fn report_refusal_text_starts_and_ends_with_not_sent() {
+fn report_refusal_text_preserves_supplied_diagnostic_data() {
     let refusal = ReportRefusal {
         reason: "readiness report refused: this git worktree has uncommitted lane changes."
             .to_string(),
         dirty_files: vec!["src/main.rs".to_string()],
     };
 
-    let out = format_report_refusal_text(&refusal, true, Some("rep-1"), None);
-    let lines = out.lines().collect::<Vec<_>>();
+    let out = format_report_refusal_text(&refusal, true, Some("parent-1"), None);
+    assert!(out.contains(&refusal.reason));
+    assert!(out.contains(&refusal.dirty_files[0]));
+}
 
-    assert_eq!(lines.first().copied(), Some("REPORT NOT SENT"));
-    assert_eq!(lines.last().copied(), Some("REPORT NOT SENT"));
-    assert!(out.contains("git status --short"));
-    assert!(out.contains("codeterm agent report --status partial"));
-    assert!(out.contains("Diagnostic report sent to parent: rep-1"));
+#[test]
+fn refused_readiness_report_sends_a_diagnostic_not_a_report() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused: canonical checkout is dirty".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let original = "STATUS: in_review\nCHANGES: finished";
+    let (method, body) = refusal_diagnostic_request("worker-tab", &refusal, original);
+
+    assert_eq!(method, "agent.diagnostic");
+    assert_eq!(body["tab_id"], "worker-tab");
+    assert_eq!(body["kind"], "report_refused");
+    let message = body["message"].as_str().unwrap();
+    assert!(message.contains(&refusal.message()));
+    assert!(message.contains(original));
+    for report_field in ["status", "plan_id", "task_id", "report_outcome"] {
+        assert!(body.get(report_field).is_none());
+    }
+}
+
+#[test]
+fn refused_report_json_names_the_diagnostic_without_report_outcome() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".into(),
+        dirty_files: vec!["src/main.rs".into()],
+    };
+    let value = report_refusal_json(&refusal, true, Some("parent-tab".into()), None);
+
+    assert!(value.get("verdict").is_some());
+    assert_eq!(value["refused_report_diagnostic_sent"], true);
+    assert_eq!(value["diagnostic_target_tab_id"], "parent-tab");
+    assert!(value.get("diagnostic_error").is_some());
+    assert!(value.get("diagnostic_report_sent").is_none());
+    assert!(value.get("diagnostic_report_id").is_none());
+    assert!(value.get("report_outcome").is_none());
 }
 
 #[test]

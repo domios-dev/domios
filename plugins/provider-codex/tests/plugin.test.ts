@@ -9,9 +9,14 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import "./prompt.test";
+import "./restore-resume.test";
 
 let passed = 0;
 let failed = 0;
+
+const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
+eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
+eq(manifest.commands.additionalWritableDirFlag, "--add-dir", "sandbox metadata roots use the declared CLI flag");
 
 function assert(condition: boolean, name: string, detail?: string) {
   if (condition) { passed++; console.log(`  ✓ ${name}`); }
@@ -113,21 +118,6 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-console.log("\n--- provider update capability ---\n");
-
-{
-  const p = loadHostPlugin();
-  eq(
-    p.providerSelfUpdateCapability(),
-    {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification",
-    },
-    "in-session updates declare the completion signal required for restart",
-  );
-}
-
 console.log("\n--- task instructions launch ---\n");
 
 {
@@ -136,15 +126,23 @@ console.log("\n--- task instructions launch ---\n");
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
     fs: { ...baseHost({}).fs, writeTempFile: () => "C:\\Temp\\codeterm task.md" },
   }));
+  const launch = { instanceId: "instance-test" };
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
-  const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const cmd = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
+  eq((cmd.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
+    "Windows per-tab profile launch disables startup updates exactly once");
   assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
   assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
   assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
   assert(cmd.includes("$ctTaskInstructions = [System.IO.File]::ReadAllText('C:\\Temp\\codeterm task.md', [System.Text.Encoding]::UTF8)"), "Windows loads a plain UTF-8 string without PowerShell file metadata");
-  assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
-  assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
-  const profileValueAssignment = /-Value \('developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
+  assert(cmd.includes("$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId)"), "Windows requires a tab identity before writing a per-tab profile");
+  assert(cmd.includes("$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
+  assert(!cmd.includes("[guid]::NewGuid()"), "Windows never writes a profile without a matching tab id");
+  assert(cmd.includes("$ctInstanceId = 'instance-test';"), "Windows carries the writing instance into the profile");
+  assert(cmd.includes("[System.IO.File]::WriteAllText($ctProfilePath,"), "Windows writes a temporary Codex profile");
+  assert(cmd.includes("[System.Text.UTF8Encoding]::new($false)"), "Windows writes the profile as UTF-8 without a BOM that TOML parsers reject");
+  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine"), "the owner marker starts the TOML profile");
+  const profileValueAssignment = /'developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
   assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
   const jsonVarName = profileValueAssignment?.[1] ?? "";
   assert(
@@ -153,35 +151,39 @@ console.log("\n--- task instructions launch ---\n");
   );
   assert(!cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows launch line never deletes the task file, so a relaunch can still read it");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
-  assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
+  assert(cmd.includes("finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit after trust carry-over succeeds");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
-  const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
+  const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
-  const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
+  const silent = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "no_starter" });
   assert(silent.includes("--profile $ctProfileName"), "silent launch keeps developer instructions");
   assert(!silent.includes(" -- '"), "silent launch has no positional starter turn");
   const empty = p.buildLaunchCommand({ task: "   " });
   assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
+  const missingIdentity = p.buildLaunchCommand({ task: hostileTask });
+  assert(missingIdentity.includes("Write-Error 'CodeTerm refused the Codex launch"), "Windows reports why it refused an unowned profile");
+  assert(missingIdentity.includes("exit 1"), "Windows stops after the explicit launch refusal");
+  assert(!missingIdentity.includes("--profile"), "Windows does not write a profile when instance identity is absent");
   const teamText = "host-owned team bootstrap";
-  const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  const team = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");
   const handshakeText = "opaque-startup-handshake";
-  const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
+  const handshake = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
   assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
 
   // The profile path is computed only from $env:CODETERM_TAB_ID, never a
   // per-call random value, so a relaunch overwrites instead of accumulating.
   const profileComputation = (cmd: string): string => {
-    const start = cmd.indexOf("$ctProfileSuffix = if");
-    const end = cmd.indexOf("Set-Content -LiteralPath $ctProfilePath");
+    const start = cmd.indexOf("$ctTabId = $env:CODETERM_TAB_ID;");
+    const end = cmd.indexOf("[System.IO.File]::WriteAllText($ctProfilePath,");
     assert(start !== -1 && end !== -1 && end > start, "profile-path computation fragment is present");
     return cmd.slice(start, end);
   };
-  const firstLaunch = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
-  const secondLaunch = p.buildLaunchCommand({ task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
+  const firstLaunch = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const secondLaunch = p.buildLaunchCommand({ ...launch, task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
   eq(
     profileComputation(firstLaunch),
     profileComputation(secondLaunch),
@@ -206,12 +208,20 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
   eq(
     cmd,
-    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    'codex -c check_for_update_on_startup=false --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
     "the macOS/Linux launch line retains TUI animations",
   );
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
   assert(!cmd.includes("ConvertTo-Json") && !cmd.includes("Set-Content") && !cmd.includes("$ctProfile"), "non-Windows launch has no PowerShell profile machinery");
   assert(!cmd.includes("Remove-Item"), "non-Windows launch never deleted the task file, before or after this fix");
+
+  const metadataRoots = ["worktrees/lane", "objects", "refs", "logs"].map((dir) => `D:/repo/.git/${dir}`);
+  const metadataArgs = metadataRoots.flatMap((root) => ["--add-dir", root]);
+  const launchWithMetadata = p.buildLaunchCommand({ args: metadataArgs });
+  eq((launchWithMetadata.match(/--add-dir/g) || []).length, 4, "sandboxed launch accepts the four derived metadata roots");
+  assert(metadataRoots.every((root) => launchWithMetadata.includes(root)), "launch carries only the supplied lane and common metadata subpaths");
+  const resumeWithMetadata = p.buildResumeCommandWithContext({ sessionId: "11111111-1111-1111-1111-111111111111", args: metadataArgs });
+  eq((resumeWithMetadata.match(/--add-dir/g) || []).length, 4, "resume accepts the four derived metadata roots");
 }
 
 console.log("\n--- meta ---\n");
@@ -221,12 +231,12 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
 {
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
-    "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
+    "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse", "directoryTrustState",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
-    "detectActiveSession", "enumerateSessions", "findSession", "detectSessionModel", "parseSessionMessages", "classifyTabState",
-    "providerSelfUpdateCapability", "detectLaunchSession",
+    "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
+    "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(
@@ -672,11 +682,17 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     "const r = await tools.view_image({path:\"C:\\\\work\\\\update-error.png\",detail:\"original\"});\r\nimage(r.image_url);",
     "first readable line\r\nsecond line",
   ];
-  const parsed = hostPlugin.parseSessionDelta(calls.map((input, index) => JSON.stringify({
-    type: "response_item",
-    payload: { type: "custom_tool_call", name: "exec", call_id: `call_readable_${index}`, input },
-  })).join("\n")) as { messages: any[] };
-  const data = parsed.messages.map((message) => message.blocks[0].data);
+  const records = calls.flatMap((input, index) => {
+    const callId = `call_readable_${index}`;
+    return [
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: callId, input } }),
+      JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call_output", call_id: callId, output: `output-${index}` } }),
+    ];
+  });
+  const parsed = hostPlugin.parseSessionDelta(records.join("\n")) as { messages: any[] };
+  const data = parsed.messages
+    .filter((message) => message.blocks[0]?.kind === "tool_use")
+    .map((message) => message.blocks[0].data);
 
   eq(data[0].tool_kind, "command", "nested exec_command renders as a command");
   eq(data[0].tool_summary, "./build.sh check", "nested exec_command exposes its command");
@@ -722,16 +738,17 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "session_start hook command carries its ownership marker", cmd);
   assert(
-    writtenScript.includes("codeterm-profile-cleanup-v1") &&
-      writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
-      writtenScript.includes("del /F /Q") &&
+    !writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      !writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
       writtenScript.includes("curl.exe") &&
       writtenScript.includes("--max-time 30") &&
       writtenScript.includes("X-CodeTerm-Hook: "),
-    "Windows session_start removes the tab-scoped profile after Codex loads it",
+    "Windows SessionStart leaves the active profile for Codex to finish writing",
     writtenScript,
   );
   const windowsCommand = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
+  assert(windowsCommand.startsWith('cmd.exe /d /s /c call "'),
+    "commandWindows wraps the quoted helper path in cmd for PowerShell and cmd parsing", windowsCommand);
   assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
   assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "Windows hook command carries the in-command ownership marker", windowsCommand);
@@ -824,7 +841,8 @@ for (const [name, fixture] of [
   assert(files.get(configPath)?.includes("enabled = true") === true, "install expands matching trust");
   eq(files.get(ownershipPath), hooksPath, "owned trust expansion is recorded");
   files.set(configPath, `${files.get(configPath)}foreign_after = "preserve"\n`);
-  assert(p.uninstallIntegration().ok === true, "owned trust uninstall succeeds");
+  const uninstall = p.uninstallIntegration();
+  assert(uninstall.ok === true, "owned trust uninstall succeeds: " + JSON.stringify(uninstall));
   const after = files.get(configPath) || "";
   assert(after.includes("enabled = false"), "uninstall revokes only CodeTerm-owned trust");
   assert(after.includes('foreign_after = "preserve"'), "uninstall preserves later foreign config edits");
@@ -866,7 +884,7 @@ for (const [name, fixture] of [
       },
     }));
     const result = p.installIntegration(7686, { consent: true });
-    assert(result.ok === false, `Codex install fails at write ${failAt}`);
+    assert(result.ok === false, `Codex install fails at write ${failAt}: attempted ${writeAttempt} writes, ${JSON.stringify(result)}`);
     eq([...files.entries()].sort(), [...initial.entries()].sort(), `write ${failAt} restores every exact prior byte`);
   }
 }
@@ -1090,12 +1108,14 @@ for (const [name, fixture] of [
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex -c check_for_update_on_startup=false resume Q(windows:11111111-1111-1111-1111-111111111111) --no-daemon",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
   for (const enabled of [false, true]) {
     for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
       eq(command.startsWith("codex"), true, "every Codex launch uses the normal TUI");
+      eq((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
+        "every Codex launch disables startup updates exactly once");
       eq(command.includes("tui.animations=false"), false, "every Codex launch retains TUI animations");
       for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
         eq(command.includes(flag), enabled, `full access controls ${flag}`);

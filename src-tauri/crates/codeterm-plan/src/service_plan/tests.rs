@@ -618,6 +618,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
             let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
             task.execution_attempts
                 .push(crate::plan::TaskExecutionAttempt {
+                    actual_reasoning_effort: None,
                     id: "attempt-vanished".into(),
                     executor_tab_id: "tab-vanished".into(),
                     assigned_at: Some(10),
@@ -1163,3 +1164,5 @@ fn index_projection_derives_legacy_ownership_from_the_record_project_path() {
     assert!(!entry.file_path.starts_with(project.path()));
     assert!(!project.path().join(".codeterm").join("plans").exists());
 }
+
+mod group_close;

@@ -516,6 +516,7 @@ fn scope_bound_lane_validates_against_lane_head_not_the_process_cwd() {
         worktree_path: Some(lane),
         base: Some(base),
         requires_repository: true,
+        ..crate::cmd::report_lane::TaskReadinessScope::default()
     };
 
     let (branch, sha, _changed) = enrich_ready_report(
@@ -539,6 +540,7 @@ fn repository_scope_without_lane_worktree_refuses_instead_of_canonical() {
         worktree_path: None,
         base: None,
         requires_repository: true,
+        ..crate::cmd::report_lane::TaskReadinessScope::default()
     };
 
     let err = enrich_ready_report(
@@ -572,6 +574,7 @@ fn lane_owned_sha_validates_against_the_lane_worktree_not_the_pane_cwd() {
         ReadinessScope {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
+            canonical_writer: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -608,6 +611,7 @@ fn dev_bound_lane_worktree_ignores_foreign_vision_outside_owned_interval() {
         ReadinessScope {
             pane_cwd: dir.path(),
             lane_worktree: Some(&lane),
+            canonical_writer: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -631,6 +635,7 @@ fn pane_cwd_head_is_never_accepted_as_the_lane_commit() {
         ReadinessScope {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
+            canonical_writer: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -657,6 +662,7 @@ fn lane_anchor_resolves_through_a_symlinked_recorded_path() {
         ReadinessScope {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&link),
+            canonical_writer: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -680,6 +686,7 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
         ReadinessScope {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&absent),
+            canonical_writer: false,
         },
         Some(ReportStatusArg::InReview),
         None,

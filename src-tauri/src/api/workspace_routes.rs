@@ -77,10 +77,10 @@ pub async fn focus_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .svc
-        .focus_workspace(&id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+    state.svc.focus_workspace(&id).map_err(|_| {
+        state.svc.log_workspace_not_found(&id);
+        (StatusCode::NOT_FOUND, "Workspace not found")
+    })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -101,6 +101,35 @@ fn map_rename_error(e: String) -> (StatusCode, String) {
 pub(crate) struct CloseWorkspaceBody {
     #[serde(default)]
     force: bool,
+    #[serde(default)]
+    confirm: Option<String>,
+}
+
+fn has_human_workspace_confirmation(body: &CloseWorkspaceBody, workspace_id: &str) -> bool {
+    body.force && body.confirm.as_deref() == Some(workspace_id)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WorkspaceCloseCaller {
+    AgentTab(String),
+    HumanConfirmedHeaderless,
+    Unattributed,
+}
+
+fn workspace_close_caller(
+    headers: &HeaderMap,
+    body: &CloseWorkspaceBody,
+    workspace_id: &str,
+) -> WorkspaceCloseCaller {
+    if let Some(tab_id) = crate::api::tab_routes::caller_tab_header(headers)
+        .filter(|tab_id| !tab_id.trim().is_empty())
+    {
+        WorkspaceCloseCaller::AgentTab(tab_id)
+    } else if has_human_workspace_confirmation(body, workspace_id) {
+        WorkspaceCloseCaller::HumanConfirmedHeaderless
+    } else {
+        WorkspaceCloseCaller::Unattributed
+    }
 }
 
 pub async fn rename_workspace(
@@ -125,15 +154,29 @@ pub async fn close_workspace(
     OptionalJson(body): OptionalJson<CloseWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
-    let cmd = crate::dispatch::Command::WorkspaceClose {
-        workspace_id: id,
-        caller_tab_id,
-        force: body.map(|body| body.force).unwrap_or(false),
+    let body = body.unwrap_or_default();
+    let result = match workspace_close_caller(&headers, &body, &id) {
+        WorkspaceCloseCaller::AgentTab(caller_tab_id) => {
+            state
+                .svc
+                .close_workspace_guarded_async(Some(&caller_tab_id), &id, body.force)
+                .await
+        }
+        WorkspaceCloseCaller::HumanConfirmedHeaderless => {
+            state
+                .svc
+                .close_workspace_as_confirmed_headerless_human(&id, body.force)
+                .await
+        }
+        WorkspaceCloseCaller::Unattributed => {
+            state
+                .svc
+                .close_workspace_guarded_async(None, &id, body.force)
+                .await
+        }
     };
-    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
-        .map_err(crate::api::tab_routes::map_close_error)?;
-    Ok(Json(result.into_json()))
+    result.map_err(crate::api::tab_routes::map_close_error)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub async fn list_recently_closed(
@@ -288,7 +331,10 @@ pub async fn create_tab(
     let tab_id = state
         .svc
         .create_tab_with_activate(&workspace_id, false)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+        .map_err(|_| {
+            state.svc.log_workspace_not_found(&workspace_id);
+            (StatusCode::NOT_FOUND, "Workspace not found")
+        })?;
     let eager = body.map(|b| b.eager).unwrap_or(false);
     let pty_id = if eager {
         state
@@ -311,4 +357,65 @@ pub async fn create_tab(
         "tab_id": tab_id,
         "pty_id": pty_id
     })))
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::{workspace_close_caller, CloseWorkspaceBody, WorkspaceCloseCaller};
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn workspace_close_route_reads_force_from_body() {
+        let no_headers = HeaderMap::new();
+        assert_eq!(
+            workspace_close_caller(&no_headers, &CloseWorkspaceBody::default(), "workspace-1"),
+            WorkspaceCloseCaller::Unattributed,
+        );
+        assert_eq!(
+            workspace_close_caller(
+                &no_headers,
+                &CloseWorkspaceBody {
+                    force: false,
+                    confirm: Some("workspace-1".into()),
+                },
+                "workspace-1",
+            ),
+            WorkspaceCloseCaller::Unattributed,
+        );
+        assert_eq!(
+            workspace_close_caller(
+                &no_headers,
+                &CloseWorkspaceBody {
+                    force: true,
+                    confirm: Some("workspace-1".into()),
+                },
+                "workspace-1",
+            ),
+            WorkspaceCloseCaller::HumanConfirmedHeaderless,
+        );
+        assert_eq!(
+            workspace_close_caller(
+                &no_headers,
+                &CloseWorkspaceBody {
+                    force: true,
+                    confirm: Some("workspace-other".into()),
+                },
+                "workspace-1",
+            ),
+            WorkspaceCloseCaller::Unattributed,
+        );
+        let mut agent_headers = HeaderMap::new();
+        agent_headers.insert("X-CodeTerm-Tab-Id", "agent-1".parse().unwrap());
+        assert_eq!(
+            workspace_close_caller(
+                &agent_headers,
+                &CloseWorkspaceBody {
+                    force: true,
+                    confirm: Some("workspace-1".into()),
+                },
+                "workspace-1",
+            ),
+            WorkspaceCloseCaller::AgentTab("agent-1".into()),
+        );
+    }
 }

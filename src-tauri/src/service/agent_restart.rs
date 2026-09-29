@@ -6,7 +6,7 @@
 //! the self-update flow (`feat/auto-update`) which restarts every agent tab
 //! around binary swap.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -25,12 +25,60 @@ pub const DEFAULT_GRACE_SECS: u64 = 10;
 /// Failure deadline for the new PTY to reach AgentReady.
 pub const RESTART_READY_TIMEOUT_SECS: u64 = 45;
 
-/// Tracks the last successful restart per tab for rate limiting.
+/// Tracks restart attempts and serializes in-flight recovery per tab.
 /// Lives on `ServiceContext` and survives across requests.
-pub type RestartTracker = Arc<Mutex<HashMap<String, Instant>>>;
+#[derive(Default)]
+pub struct RestartTrackerState {
+    last_restart: HashMap<String, Instant>,
+    in_progress: HashSet<String>,
+}
+
+pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;
+
+pub(super) struct RestartClaim {
+    tracker: RestartTracker,
+    tab_id: String,
+}
+
+impl Drop for RestartClaim {
+    fn drop(&mut self) {
+        self.tracker.lock().in_progress.remove(&self.tab_id);
+    }
+}
 
 pub fn new_restart_tracker() -> RestartTracker {
-    Arc::new(Mutex::new(HashMap::new()))
+    Arc::new(Mutex::new(RestartTrackerState::default()))
+}
+
+pub(super) fn claim_restart_attempt(
+    tracker: &RestartTracker,
+    tab_id: &str,
+    automatic: bool,
+) -> Result<RestartClaim, AgentRestartError> {
+    let mut state = tracker.lock();
+    let now = Instant::now();
+    if state.in_progress.contains(tab_id) {
+        return Err(AgentRestartError::BadRequest(
+            "an agent restart or automatic recovery is already in progress".to_string(),
+        ));
+    }
+    if !automatic {
+        if let Some(last) = state.last_restart.get(tab_id) {
+            let elapsed = now.duration_since(*last);
+            let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
+            if elapsed < limit {
+                return Err(AgentRestartError::RateLimited {
+                    retry_after_secs: (limit - elapsed).as_secs().max(1),
+                });
+            }
+        }
+    }
+    state.last_restart.insert(tab_id.to_string(), now);
+    state.in_progress.insert(tab_id.to_string());
+    Ok(RestartClaim {
+        tracker: tracker.clone(),
+        tab_id: tab_id.to_string(),
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +150,12 @@ struct TabRestartSnapshot {
     role_profile: Option<String>,
 }
 
+pub(crate) struct ProviderUpdatePause {
+    snap: TabRestartSnapshot,
+    launch_cmd: String,
+    _claim: RestartClaim,
+}
+
 #[derive(Debug)]
 pub(crate) enum RestartAttemptError {
     Request(AgentRestartError),
@@ -119,6 +173,109 @@ impl From<AgentRestartError> for RestartAttemptError {
 }
 
 impl ServiceContext {
+    pub(crate) fn pause_for_provider_update(
+        &self,
+        tab_id: &str,
+        expected_provider: &str,
+        expected_session: &str,
+    ) -> Result<ProviderUpdatePause, String> {
+        let snap = self
+            .snapshot_tab_for_restart(tab_id)
+            .map_err(|error| format!("{error:?}"))?;
+        if snap.provider != expected_provider
+            || !provider_update_session_matches(expected_session, snap.session_id.as_deref())
+        {
+            return Err(format!(
+                "Tab {} changed provider or session before update",
+                snap.tab_id
+            ));
+        }
+        if !self.session_file_present(&snap) {
+            return Err(format!(
+                "Tab {} no longer has its bound session",
+                snap.tab_id
+            ));
+        }
+        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+            return Err(format!("Tab {} is no longer idle", snap.tab_id));
+        }
+        let claim = self
+            .claim_restart(&snap.tab_id, true)
+            .map_err(|error| format!("{error:?}"))?;
+        let launch_cmd = build_relaunch_command(self, &snap, true, None)
+            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
+            .ok_or_else(|| format!("provider {} returned no resume command", snap.provider))?;
+        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+            return Err(format!(
+                "Tab {} became busy before it could be paused",
+                snap.tab_id
+            ));
+        }
+        self.request_graceful_exit(&snap, false, Duration::from_secs(DEFAULT_GRACE_SECS));
+        self.tear_down_restart_pty(&snap)?;
+        Ok(ProviderUpdatePause {
+            snap,
+            launch_cmd,
+            _claim: claim,
+        })
+    }
+
+    fn provider_update_tab_is_idle(&self, tab_id: &str) -> bool {
+        let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
+            return false;
+        };
+        snapshot.tab_statuses.get(tab_id) == Some(&codeterm_types::pty::TabStatus::Idle)
+    }
+
+    pub(crate) fn resume_after_provider_update(
+        &self,
+        pause: ProviderUpdatePause,
+    ) -> Result<(), String> {
+        if !self.session_file_present(&pause.snap) {
+            return Err(format!(
+                "Tab {} no longer has session {}",
+                pause.snap.tab_id,
+                pause.snap.session_id.as_deref().unwrap_or("<unknown>")
+            ));
+        }
+        let outcome = RestartOutcome::accepted(&pause.snap, false, false);
+        self.set_and_lock_tab_agent_type_from(
+            &pause.snap.tab_id,
+            pause.snap.provider.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            None,
+        );
+        crate::service::orchestrator::launch_agent_in_background(
+            self.clone(),
+            pause.snap.tab_id.clone(),
+            pause.launch_cmd,
+            pause.snap.provider.clone(),
+            crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+            None,
+            None,
+            None,
+            None,
+        );
+        let ready = self
+            .finish_observed_restart(
+                outcome,
+                Some(pause.snap.pty_id.as_str()),
+                Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        let result = self
+            .settle_restored_binding(ready, &pause.snap)
+            .map_err(|error| format!("{error:?}"))?;
+        if result.session_id.as_deref() != pause.snap.session_id.as_deref() {
+            return Err(format!(
+                "Tab {} resumed a different session",
+                pause.snap.tab_id
+            ));
+        }
+        drop(pause._claim);
+        Ok(())
+    }
+
     pub fn agent_restart(
         &self,
         tab_id: &str,
@@ -142,14 +299,14 @@ impl ServiceContext {
             return outcome;
         }
         if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
-            return self.recover_exited_provider(&exited_tab_id, force);
+            return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
 
-        self.check_and_record_restart(&snap.tab_id)?;
+        let restart_claim = self.claim_restart(&snap.tab_id, false)?;
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -201,12 +358,17 @@ impl ServiceContext {
             snap.tab_id.clone(),
             launch_cmd,
             snap.provider.clone(),
-            crate::service::launch_diagnostics::AgentLaunchOrigin::Restart,
+            if session_present {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
+            } else {
+                crate::service::launch_diagnostics::AgentLaunchOrigin::Restart
+            },
             launch_task,
             None,
             None,
             None,
         );
+        drop(restart_claim);
 
         let ready = self.finish_observed_restart(
             outcome,
@@ -262,7 +424,7 @@ impl ServiceContext {
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
-        self.check_and_record_restart(&target.tab_id)?;
+        let restart_claim = self.claim_restart(&target.tab_id, false)?;
 
         let claimed =
             crate::service::general_agent::claim_general_agent_tab_retry(&target.tab_id, &self.mux)
@@ -297,6 +459,7 @@ impl ServiceContext {
                 &app,
             );
         });
+        drop(restart_claim);
 
         log::info!(
             "[agent_restart] Tab {} recovered via General Agent relaunch",
@@ -432,21 +595,12 @@ impl ServiceContext {
         require_observed_live_agent(liveness)
     }
 
-    fn check_and_record_restart(&self, tab_id: &str) -> Result<(), AgentRestartError> {
-        let mut tracker = self.restart_tracker.lock();
-        let now = Instant::now();
-        if let Some(last) = tracker.get(tab_id) {
-            let elapsed = now.duration_since(*last);
-            let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
-            if elapsed < limit {
-                let retry = (limit - elapsed).as_secs().max(1);
-                return Err(AgentRestartError::RateLimited {
-                    retry_after_secs: retry,
-                });
-            }
-        }
-        tracker.insert(tab_id.to_string(), now);
-        Ok(())
+    pub(super) fn claim_restart(
+        &self,
+        tab_id: &str,
+        automatic: bool,
+    ) -> Result<RestartClaim, AgentRestartError> {
+        claim_restart_attempt(&self.restart_tracker, tab_id, automatic)
     }
 
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {
@@ -505,7 +659,10 @@ impl ServiceContext {
         );
         self.screen_state.lock().remove(&snap.pty_id);
         crate::service::stream_preview::remove(&snap.pty_id);
-        self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
+        self.clear_tab_agent_identity_after_confirmed_exit(
+            &snap.tab_id,
+            "agent restart reaped the previous PTY",
+        );
         {
             let mut mux = self.mux.write();
             let tab = mux
@@ -609,6 +766,10 @@ impl ServiceContext {
     }
 }
 
+fn provider_update_session_matches(expected: &str, current: Option<&str>) -> bool {
+    current == Some(expected)
+}
+
 fn require_observed_live_agent(liveness: AgentLiveness) -> Result<(), AgentRestartError> {
     match liveness {
         AgentLiveness::Live => Ok(()),
@@ -664,6 +825,13 @@ fn build_relaunch_command(
     };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
+    let canonical_project = snap.cwd.as_deref().and_then(|cwd| {
+        crate::service::launch_session_detection::canonical_project_for_tab(
+            &svc.plan_store,
+            &snap.tab_id,
+            cwd,
+        )
+    });
     let structured_prompt_server = svc
         .agent_registry
         .with_provider(provider, |p| p.needs_structured_prompt_server())
@@ -681,6 +849,8 @@ fn build_relaunch_command(
         structured_prompt_server,
         launch_task,
         &snap.tab_id,
+        snap.cwd.as_deref(),
+        canonical_project.as_deref(),
     )
 }
 
@@ -693,20 +863,42 @@ fn build_relaunch_command_with_registry(
     structured_prompt_server: Option<StructuredPromptServer>,
     launch_task: Option<&str>,
     tab_id: &str,
+    cwd: Option<&str>,
+    canonical_project: Option<&str>,
 ) -> Option<String> {
     let starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     if session_present && structured_prompt_server.is_some() {
         if let Some(sid) = session_id {
+            let mut args = Vec::new();
+            crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                canonical_project,
+                tab_id,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                &crate::paths::data_dir(),
+                tab_id,
+                &mut args,
+            );
             return registry.with_provider(provider, |p| {
                 p.build_launch_command(&AgentLaunchParams {
                     agent_name: None,
                     task: None,
                     starter_prompt,
-                    args: None,
+                    args: (!args.is_empty()).then_some(args),
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
                     structured_prompt_server: structured_prompt_server.clone(),
                     launch_marker: None,
+                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
                 })
             });
         }
@@ -722,11 +914,32 @@ fn build_relaunch_command_with_registry(
                     .system_prompt
                 })
                 .flatten();
+            let mut args = Vec::new();
+            crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                canonical_project,
+                tab_id,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+                registry,
+                provider,
+                auto_approve,
+                cwd,
+                &crate::paths::data_dir(),
+                tab_id,
+                &mut args,
+            );
             let resume = crate::agent::provider::AgentResumeParams {
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
+                agent_name: None,
                 system_prompt,
-                args: Vec::new(),
+                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                args,
             };
             if let Some(cmd) = registry
                 .with_provider(provider, |p| p.build_resume_command_with_context(&resume))
@@ -745,7 +958,30 @@ fn build_relaunch_command_with_registry(
         session_id: None,
         structured_prompt_server,
         launch_marker: None,
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
+    if let Some(cwd) = cwd {
+        let mut args = Vec::new();
+        crate::service::launch_session_detection::append_sandbox_git_metadata_args(
+            registry,
+            provider,
+            auto_approve,
+            Some(cwd),
+            canonical_project,
+            tab_id,
+            &mut args,
+        );
+        crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
+            registry,
+            provider,
+            auto_approve,
+            Some(cwd),
+            &crate::paths::data_dir(),
+            tab_id,
+            &mut args,
+        );
+        params.args = (!args.is_empty()).then_some(args);
+    }
     crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
     registry.with_provider(provider, |p| p.build_launch_command(&params))
 }

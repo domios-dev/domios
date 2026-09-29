@@ -2,6 +2,104 @@ use super::*;
 use crate::mesh::types::RelayResponse;
 
 #[test]
+fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
+    assert!(super::is_recurring_delayed_relay(
+        "POST",
+        "/api/tabs/tab-1/delayed-messages",
+        &serde_json::json!({"recurrence": {"everyMs": 60_000}}),
+    ));
+    assert!(super::is_recurring_delayed_relay(
+        "PATCH",
+        "/api/delayed-messages/series-1",
+        &serde_json::json!({"recurrence": {"everyMs": 60_000}}),
+    ));
+    let reason = super::recurrence_capability_refusal("old-peer", Some("1.11.9"));
+    assert!(reason.contains("old-peer"));
+    assert!(reason.contains("1.11.9"));
+    assert!(reason.contains("update the peer"));
+    assert!(reason.contains("one-shot explicitly"));
+    assert!(!super::identify_supports_delayed_recurrence(
+        &serde_json::json!({"version": "1.11.9", "features": ["rest-api"]}),
+    ));
+    assert!(!super::identify_supports_delayed_recurrence(
+        &serde_json::json!({"version": "1.11.9"}),
+    ));
+    assert!(super::identify_supports_delayed_recurrence(
+        &serde_json::json!({"version": "1.11.10", "features": ["delayed_recurrence"]}),
+    ));
+    let refusal = super::recurrence_capability_refusal_response(
+        "old-peer",
+        Some(&serde_json::json!({"version": "1.11.9", "features": ["rest-api"]})),
+        None,
+    )
+    .expect("missing feature must refuse before relay dispatch");
+    assert!(!refusal.ok);
+    assert_eq!(refusal.status, 426);
+    assert!(
+        refusal
+            .data
+            .as_ref()
+            .and_then(|data| data.get("error"))
+            .and_then(|error| error.get("bytes_written"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+    );
+    assert!(refusal
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("old-peer"));
+    assert!(refusal
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.9"));
+    assert!(super::recurrence_capability_refusal_response(
+        "current-peer",
+        Some(&serde_json::json!({"features": ["delayed_recurrence"]})),
+        None,
+    )
+    .is_none());
+    let no_identify = super::recurrence_capability_refusal_response(
+        "offline-identify-peer",
+        None,
+        Some("1.11.8"),
+    )
+    .expect("failed identify must refuse with cached peer version");
+    assert!(no_identify
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("1.11.8"));
+}
+
+#[test]
+fn mesh_send_every_proceeds_when_peer_advertises_recurrence() {
+    let identify = serde_json::json!({
+        "version": "1.11.10",
+        "features": ["rest-api", "delayed_recurrence"]
+    });
+    assert!(
+        super::recurrence_capability_refusal_response("current-peer", Some(&identify), None,)
+            .is_none()
+    );
+}
+
+#[test]
+fn one_shot_delayed_relay_does_not_require_recurrence_capability() {
+    assert!(!super::is_recurring_delayed_relay(
+        "POST",
+        "/api/tabs/tab-1/delayed-messages",
+        &serde_json::json!({"scheduledAtMs": 1_800_000_000_000_u64}),
+    ));
+    assert!(!super::is_recurring_delayed_relay(
+        "PATCH",
+        "/api/delayed-messages/delayed-1",
+        &serde_json::json!({"text": "updated"}),
+    ));
+}
+
+#[test]
 fn authorized_workspace_managers_receive_typed_close_provenance() {
     let method = Method::POST;
     let path = "/api/workspaces/ws_remote/close";
@@ -75,6 +173,22 @@ fn caller_fields_in_relay_body_cannot_forge_mesh_provenance() {
             peer_id: "cryptographically-verified-peer",
             workspace_id: "ws_remote",
             force: false,
+        }
+    );
+}
+
+#[test]
+fn relayed_mesh_rpc_keeps_the_verified_sender() {
+    assert_eq!(
+        authorize_peer_relay(
+            "signed-peer",
+            &crate::mesh::types::AccessLevel::Full,
+            &Method::POST,
+            "/api/mesh/rpc",
+            &serde_json::Value::Null
+        ),
+        PeerRelayAuthorization::MeshRpc {
+            peer_id: "signed-peer"
         }
     );
 }
@@ -156,7 +270,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     );
 
     for _ in 0..50 {
-        let (_, name) =
+        let (_, name, _) =
             resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
         assert_eq!(name, "BLACKSTAR");
     }
@@ -164,7 +278,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
     // Id lookup returns the EXACT record for that id, bypassing the name
     // ambiguity — but not the protocol gate: the dead id is still protocol 0.
-    let (_, live_id_name) =
+    let (_, live_id_name, _) =
         resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
     assert_eq!(live_id_name, "BLACKSTAR");
     match resolve_relay_peer(&mesh, "a4db6f3d-dead") {

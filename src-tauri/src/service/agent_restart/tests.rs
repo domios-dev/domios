@@ -4,20 +4,21 @@ fn fresh_tracker() -> RestartTracker {
     new_restart_tracker()
 }
 
+#[test]
+fn provider_update_pause_requires_the_captured_session_before_stopping() {
+    assert!(provider_update_session_matches(
+        "session-a",
+        Some("session-a")
+    ));
+    assert!(!provider_update_session_matches(
+        "session-a",
+        Some("session-b")
+    ));
+    assert!(!provider_update_session_matches("session-a", None));
+}
+
 fn check(tracker: &RestartTracker, tab_id: &str) -> Result<(), AgentRestartError> {
-    let mut guard = tracker.lock();
-    let now = Instant::now();
-    if let Some(last) = guard.get(tab_id) {
-        let elapsed = now.duration_since(*last);
-        let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
-        if elapsed < limit {
-            let retry = (limit - elapsed).as_secs().max(1);
-            return Err(AgentRestartError::RateLimited {
-                retry_after_secs: retry,
-            });
-        }
-    }
-    guard.insert(tab_id.to_string(), now);
+    drop(claim_restart_attempt(tracker, tab_id, false)?);
     Ok(())
 }
 
@@ -51,8 +52,49 @@ fn rate_limit_independent_tabs() {
 fn rate_limit_resets_after_window() {
     let tracker = fresh_tracker();
     let past = Instant::now() - Duration::from_secs(RESTART_RATE_LIMIT_SECS + 1);
-    tracker.lock().insert("tab-1".to_string(), past);
+    tracker
+        .lock()
+        .last_restart
+        .insert("tab-1".to_string(), past);
     assert!(check(&tracker, "tab-1").is_ok());
+}
+
+#[test]
+fn automatic_and_manual_restart_claims_are_mutually_exclusive() {
+    let tracker = fresh_tracker();
+    let automatic = claim_restart_attempt(&tracker, "tab-1", true).unwrap();
+    assert!(matches!(
+        claim_restart_attempt(&tracker, "tab-1", false),
+        Err(AgentRestartError::BadRequest(message)) if message.contains("already in progress")
+    ));
+    drop(automatic);
+    assert!(matches!(
+        claim_restart_attempt(&tracker, "tab-1", false),
+        Err(AgentRestartError::RateLimited { .. })
+    ));
+}
+
+#[test]
+fn concurrent_manual_and_automatic_restart_claims_admit_exactly_one() {
+    let tracker = fresh_tracker();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let admitted = Arc::new(Mutex::new(Vec::new()));
+    std::thread::scope(|scope| {
+        for automatic in [false, true] {
+            let tracker = tracker.clone();
+            let barrier = barrier.clone();
+            let admitted = admitted.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                let claim = claim_restart_attempt(&tracker, "tab-concurrent", automatic);
+                admitted.lock().push(claim.is_ok());
+                barrier.wait();
+                drop(claim);
+            });
+        }
+    });
+    let results = admitted.lock();
+    assert_eq!(results.iter().filter(|admitted| **admitted).count(), 1);
 }
 
 #[test]
@@ -93,6 +135,59 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     assert_eq!(tab.agent_type, None);
     assert_eq!(tab.agent_session_id, None);
     assert_eq!(tab.agent_session_model, None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "spawn-failed-live-shell";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("codex".into());
+        tab.agent_session_id = Some("retired-session".into());
+        tab.session_binding_nonce = Some("retired-nonce".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn live shell PTY");
+
+    assert_eq!(
+        fixture
+            .service
+            .absent_restart_target(&tab_id)
+            .expect("observe absent agent")
+            .as_deref(),
+        Some(tab_id.as_str())
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .expect("tab remains present");
+    assert_eq!(tab.agent_type, None);
+    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("retired-session")
+    );
+
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop live shell PTY");
 }
 
 fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
@@ -195,6 +290,8 @@ fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fallback launch command");
     assert!(!command.contains("--resume"));
@@ -213,6 +310,8 @@ fn build_relaunch_uses_resume_when_session_present() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(command.contains("--resume"));
@@ -231,6 +330,8 @@ fn build_relaunch_unknown_provider_returns_none() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .is_none());
 }
@@ -300,6 +401,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(resume.contains("--dangerously-skip-permissions"));
@@ -313,6 +416,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh command");
     assert!(fresh.contains("--dangerously-skip-permissions"));
@@ -326,6 +431,8 @@ fn build_relaunch_uses_resolved_full_access() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("restricted resume command");
     assert!(!restricted.contains("--dangerously-skip-permissions"));
@@ -356,6 +463,8 @@ fn agent_restart_access_does_not_depend_on_tab_class() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("resume command");
     assert!(command.contains("--dangerously-skip-permissions"));
@@ -373,6 +482,8 @@ fn build_relaunch_drops_resume_without_session_id() {
         None,
         None,
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh launch without session id");
     assert!(!command.contains("--resume"));
@@ -390,6 +501,8 @@ fn fresh_roleless_relaunch_keeps_system_context_without_a_user_turn() {
         None,
         Some("system context"),
         "tab-restart",
+        None,
+        None,
     )
     .expect("fresh roleless launch");
 
@@ -409,6 +522,8 @@ fn restored_worker_never_replays_historical_task_or_wakes() {
         None,
         Some("restored worker system context"),
         "tab-restart",
+        None,
+        None,
     )
     .expect("restored worker relaunch");
 
@@ -435,6 +550,8 @@ fn fresh_relaunch_carries_the_tabs_marker_and_resume_carries_none() {
         None,
         None,
         "tab-restart-fresh",
+        None,
+        None,
     )
     .expect("fresh relaunch command");
     let marker = registered_launch_marker("tab-restart-fresh")
@@ -454,6 +571,8 @@ fn fresh_relaunch_carries_the_tabs_marker_and_resume_carries_none() {
         None,
         None,
         "tab-restart-resume",
+        None,
+        None,
     )
     .expect("resume relaunch command");
     assert!(!resumed.contains("--launch-marker"));

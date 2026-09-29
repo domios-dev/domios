@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::team::TeamAction;
-use crate::client::RpcClient;
+use crate::client::{RpcClient, SocketCallError};
 
 pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
     if let TeamAction::Pair {
@@ -27,11 +27,11 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         .then(|| std::env::var("CODETERM_TAB_ID").ok())
         .flatten();
     let result = match action {
-        TeamAction::List => client.call("team.list", None),
+        TeamAction::List => client.call_detailed("team.list", None),
         TeamAction::Show { team_id } => {
-            client.call("team.show", Some(json!({ "team_id": team_id })))
+            client.call_detailed("team.show", Some(json!({ "team_id": team_id })))
         }
-        TeamAction::Rename { team_id, name } => client.call(
+        TeamAction::Rename { team_id, name } => client.call_detailed(
             "team.rename",
             Some(json!({
                 "team_id": team_id,
@@ -39,26 +39,25 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
                 "caller_tab_id": caller_tab_id,
             })),
         ),
-        TeamAction::Close { team_id } => client.call(
+        TeamAction::Close { team_id } => client.call_detailed(
             "team.close",
-            Some(json!({
-                "team_id": team_id,
-                "caller_tab_id": caller_tab_id,
-            })),
+            Some(close_team_params(&team_id, caller_tab_id.as_deref())),
         ),
         TeamAction::AdoptPlan { team_id, plan_id } => {
             adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
-                .and_then(|params| client.call("team.adopt_plan", Some(params)))
+                .map_err(SocketCallError::Transport)
+                .and_then(|params| client.call_detailed("team.adopt_plan", Some(params)))
         }
         TeamAction::AdoptAgent { team_id, tab_id } => {
             adopt_agent_params(team_id, tab_id, caller_tab_id.as_deref())
-                .and_then(|params| client.call("team.adopt_agent", Some(params)))
+                .map_err(SocketCallError::Transport)
+                .and_then(|params| client.call_detailed("team.adopt_agent", Some(params)))
         }
         TeamAction::AttachCartographer {
             team_id,
             provider,
             model,
-        } => client.call(
+        } => client.call_detailed(
             "team.add_member",
             Some(cartographer_params(
                 team_id,
@@ -76,17 +75,16 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         ),
         Ok(value) => print_human(&value),
         Err(error) => {
-            eprintln!("{}", render_daemon_error(&error));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
     }
 }
 
-/// The daemon's refusal is forwarded byte-for-byte. A Team refusal carries a
-/// stable violation id and the command that fixes the situation; rewording or
-/// truncating it here would leave the operator a failure with no next step.
-pub(crate) fn render_daemon_error(error: &str) -> String {
-    format!("Error: {error}")
+/// Model catalogue refusals add the catalogue refresh command; other errors
+/// keep the daemon's message intact with the CLI's standard error prefix.
+#[cfg(test)]
+pub(crate) fn render_daemon_error(error: &SocketCallError) -> String {
+    crate::cmd::model_error::render_socket_error(error)
 }
 
 fn handle_pair(
@@ -99,15 +97,14 @@ fn handle_pair(
     acknowledge_leaf: bool,
 ) {
     let params = pair_params(orchestrator, planner, workspace, title, acknowledge_leaf);
-    match client.call("orchestration.new", Some(params)) {
+    match client.call_detailed("orchestration.new", Some(params)) {
         Ok(value) if json_output => println!(
             "{}",
             serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
         ),
         Ok(value) => print_pair(&value),
         Err(error) => {
-            eprintln!("{}", render_daemon_error(&error));
-            std::process::exit(1);
+            crate::cmd::model_error::exit_with_socket_error(json_output, error);
         }
     }
 }
@@ -198,6 +195,15 @@ fn adopt_plan_params(
     }))
 }
 
+fn close_team_params(team_id: &str, caller_tab_id: Option<&str>) -> Value {
+    json!({
+        "team_id": team_id,
+        "force": true,
+        "confirm": team_id,
+        "caller_tab_id": caller_tab_id,
+    })
+}
+
 fn adopt_agent_params(
     team_id: String,
     tab_id: String,
@@ -252,6 +258,9 @@ fn cartographer_attachment_summary(value: &Value) -> Option<String> {
 }
 
 fn print_human(value: &Value) {
+    if let Some(warning) = value.get("warning").and_then(Value::as_str) {
+        eprintln!("Warning: {warning}");
+    }
     if let Some(teams) = value.get("teams").and_then(Value::as_array) {
         if teams.is_empty() {
             println!("No Teams.");
@@ -275,6 +284,9 @@ fn print_human(value: &Value) {
     }
     if let Some(team) = value.get("team") {
         print_team(team);
+        if let Some(inventory) = value.get("inventory") {
+            print_close_inventory(inventory);
+        }
         print_members(
             value
                 .get("members")
@@ -290,6 +302,59 @@ fn print_human(value: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("?");
     println!("Adopted plan {plan_id} into Team {team_id}.");
+}
+
+fn print_close_inventory(inventory: &Value) {
+    for record in inventory
+        .get("removed")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        println!(
+            "Removed lane path={} branch={}",
+            record
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("branch")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>")
+        );
+    }
+    for record in inventory
+        .get("kept")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        println!(
+            "Kept lane path={} branch={} reason={}",
+            record
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("branch")
+                .and_then(Value::as_str)
+                .unwrap_or("<none>"),
+            record
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+        );
+    }
+    for branch in inventory
+        .get("orphan_branches")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(branch) = branch.as_str() {
+            println!("Orphan lane branch={branch}");
+        }
+    }
 }
 
 fn print_members(members: Option<&[Value]>) {
@@ -383,6 +448,23 @@ mod tests {
     }
 
     #[test]
+    fn close_team_params_echo_the_target_for_headerless_human_confirmation() {
+        assert_eq!(
+            close_team_params("team-1", None),
+            json!({
+                "team_id": "team-1",
+                "force": true,
+                "confirm": "team-1",
+                "caller_tab_id": null,
+            })
+        );
+        assert_eq!(
+            close_team_params("team-1", Some("manager-1"))["caller_tab_id"],
+            "manager-1",
+        );
+    }
+
+    #[test]
     fn cartographer_attachment_summary_distinguishes_reuse_from_creation() {
         let base = json!({
             "tab_id": "cartographer-tab",
@@ -424,7 +506,7 @@ mod tests {
         // a reworded refusal here would hide the violation id and the fix.
         let refusal = "some.violation.id: Tab tab_x is refused. Do this instead:\n  \
                        codeterm team pair --orchestrator alpha --planner beta --workspace ws_7";
-        let rendered = render_daemon_error(refusal);
+        let rendered = render_daemon_error(&SocketCallError::Transport(refusal.into()));
         assert!(rendered.ends_with(refusal), "{rendered}");
         assert_eq!(rendered.len(), refusal.len() + "Error: ".len());
     }

@@ -16,6 +16,7 @@ pub(crate) mod relay_stream;
 pub mod remote_tabs;
 pub mod rpc;
 pub mod send_dedupe;
+pub mod worker_dispatch;
 
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{
@@ -25,9 +26,11 @@ pub use connection::{
 pub use introduction::mesh_introduce;
 pub use pairing::{
     mesh_pair_accept, mesh_pair_confirm, mesh_pair_reject, mesh_pair_request, mesh_unpair,
+    mesh_unrevoke,
 };
 pub use relay::{mesh_relay, mesh_relay_asset, mesh_relay_stream, mesh_relay_to_peer, mesh_sync};
 pub use rpc::mesh_rpc;
+pub use worker_dispatch::{mesh_worker_dispatch, mesh_worker_lane_bundle};
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))
@@ -269,4 +272,7 @@ pub async fn mesh_set_access(
         body.access_level
     );
     Ok(Json(serde_json::json!({"ok": true})))
+}
+pub(super) fn peer_has_full_access(access: Option<&crate::mesh::types::AccessLevel>) -> bool {
+    access == Some(&crate::mesh::types::AccessLevel::Full)
 }

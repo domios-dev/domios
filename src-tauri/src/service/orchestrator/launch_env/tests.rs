@@ -116,3 +116,27 @@ fn configured_cli_directory_is_restored_after_shell_profile_loading() {
     assert!(command.contains("'/dev/bin'"));
     assert!(command.ends_with("; claude"));
 }
+
+#[test]
+fn dev_instance_agents_resolve_the_instance_cli_first() {
+    let instance_cli_dir = if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\Users\u\.codeterm-dev-worker-a\bin")
+    } else {
+        std::path::PathBuf::from("/home/u/.codeterm-dev-worker-a/bin")
+    };
+    let prod_cli_dir = if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\Users\u\.codeterm\bin")
+    } else {
+        std::path::PathBuf::from("/home/u/.codeterm/bin")
+    };
+    let inherited = std::env::join_paths([prod_cli_dir.clone()]).unwrap();
+
+    let launched = crate::pty::manager::path_with_cli_dir_first(&inherited, &instance_cli_dir)
+        .expect("active instance CLI path is prepended");
+
+    assert_eq!(
+        std::env::split_paths(&launched).next().as_deref(),
+        Some(instance_cli_dir.as_path())
+    );
+    assert!(std::env::split_paths(&launched).any(|entry| entry == prod_cli_dir));
+}

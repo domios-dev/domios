@@ -7,6 +7,11 @@ export interface TabContext {
   cwd?: string | null;
 }
 
+export interface SessionDeltaContext {
+  session_key: string;
+  from_offset: number;
+}
+
 // ── statusBubble ──
 
 export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
@@ -71,7 +76,22 @@ export interface LaunchParams {
   structuredPromptServer?: { hostname: string; port: number };
   /** Host-minted inert token a provider may carry into its own session record. */
   launchMarker?: string;
+  /** Stable identity for the CodeTerm data directory writing this launch. */
+  instanceId?: string;
   [key: string]: unknown;
+}
+
+export interface LaunchArtifactSweepRequest {
+  instanceId: string;
+  liveTabIds: string[];
+  confirm: boolean;
+  includeLegacy: boolean;
+}
+
+export interface LaunchArtifactSweepReport {
+  dead: string[];
+  legacy: string[];
+  removed: string[];
 }
 
 /** One process in the tab's own PTY tree; `startToken` is its OS process start time. */
@@ -98,6 +118,8 @@ export interface LaunchSessionDetection {
 export interface ResumeParams {
   sessionId: string;
   skipPermissions?: boolean;
+  agentName?: string | null;
+  instanceId?: string | null;
   /** Composed system prompt to re-apply; absent when the host has none. */
   systemPrompt?: string | null;
   args?: string[];
@@ -120,7 +142,6 @@ export type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
-  | "provider_update_completed"
   | "rate_limited"
   | "clarifying_question"
   | "idle_stuck"
@@ -150,7 +171,6 @@ export interface TabStateAction {
   delayedResume?: DelayedResume;
   /** A user-facing surface: `kind` names the card template, `payload` its body. */
   surface?: { kind: string; payload: unknown };
-  providerUpdate?: { installKeys: string[]; declineKeys: string[] };
 }
 
 export interface TabStateClassification {
@@ -169,14 +189,6 @@ export interface SettingField {
   [key: string]: unknown;
 }
 
-// ── provider self-update (mirrors codeterm-plugin provider/capabilities.rs) ──
-
-export interface ProviderSelfUpdateCapability {
-  inSession: boolean;
-  restartRequired: boolean;
-  completionSignal?: "provider_classification";
-}
-
 export interface AgentProvider {
   starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
   detectFromTitle?(title: string): boolean;
@@ -187,12 +199,22 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
+  /** Persist provider-owned folder trust after this tab's trust dialog closes. */
+  folderTrustAnswered?(tabId: string, instanceId: string): boolean;
+  sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Whether the provider's own config already trusts this exact folder. */
+  isDirectoryTrusted?(path: string): boolean;
+  /** Effective launch-folder trust, including the provider's trust-root precedence. */
+  directoryTrustState?(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown";
+  /** One next base64 key plus its stable choice/focus identity, or null. */
+  launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */
   parseDirectoryTrustPrompt?(screen: string): ParsedPrompt | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */
@@ -201,6 +223,8 @@ export interface AgentProvider {
     prompt: ParsedPrompt,
     screen?: string,
   ): { optionIndex: number; rule: string; steps: string[] } | null;
+  /** Safe response role for a prompt only after core accepted its classifier. */
+  classifiedPromptAutoResponse?(state: TabState, screen: string): "skip" | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
@@ -211,7 +235,7 @@ export interface AgentProvider {
   sessionExists?(cwd: string, sessionId: string): boolean;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
-  parseSessionDelta?(chunk: string): unknown;
+  parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
@@ -252,7 +276,6 @@ export interface AgentProvider {
   /** Provider-specific settings sections; absent ⇒ manifest-derived sections. */
   settingsSchema?(): SettingField[];
   notificationsSchema?(): SettingField[];
-  providerSelfUpdateCapability?(): ProviderSelfUpdateCapability | null;
 }
 
 // ── secretBackend (mirrors the bitwarden plugin + JsSecretBackend) ──
@@ -435,6 +458,15 @@ export interface ModelInfo {
   // Provider-declared picker section label. Models sharing a group render
   // together under that heading; omitted models stay in the flat list.
   group?: string;
+  // Omitted uses the provider's reasoningEfforts fallback; [] means no selector.
+  reasoningEfforts?: ReasoningEffortInfo[];
+  defaultReasoningEffort?: string;
+}
+
+export interface ReasoningEffortInfo {
+  id: string;
+  displayName: string;
+  description?: string;
 }
 
 export interface Model extends ModelInfo {

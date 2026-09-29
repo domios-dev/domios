@@ -3,6 +3,7 @@
 //! realistic fixture and asserts the result round-trips into the native shape.
 //!
 //! Covered capabilities: buildLaunchCommand, buildResumeCommand,
+//! buildResumeCommandWithContext,
 //! parseSessionDelta, parseSessionMessages, sessionFilePath, sessionJsonlPath,
 //! enumerateSessions, detectSessionModel, detectSessionId, detectActiveSession.
 
@@ -22,8 +23,32 @@ fn codex_status_fixture() -> String {
     .expect("fixture file must exist")
 }
 
+fn codex_update_fixture() -> String {
+    std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("codex-update-available.txt"),
+    )
+    .expect("Codex update fixture")
+}
+
 fn codex() -> JsProvider {
     load_js("codex")
+}
+
+#[test]
+fn codex_declares_update_check_and_installer_as_provider_capabilities() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    assert!(provider.supports_update_check());
+    for platform in ["macos", "linux", "windows"] {
+        assert!(provider.update_command(platform).is_some());
+    }
 }
 
 #[test]
@@ -38,6 +63,42 @@ fn busy_turn_steers_after_the_next_tool_call() {
 }
 
 #[test]
+fn codex_sandbox_writable_roots_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    assert_eq!(
+        provider.additional_writable_dir_flag().as_deref(),
+        Some("--add-dir")
+    );
+    let args = vec![
+        "--add-dir".to_string(),
+        "D:/repo/.git/worktrees/lane".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git/objects".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git/refs".to_string(),
+        "--add-dir".to_string(),
+        "D:/repo/.git/logs".to_string(),
+    ];
+    let launch = provider.build_launch_command(&AgentLaunchParams {
+        args: Some(args.clone()),
+        ..Default::default()
+    });
+    assert_eq!(launch.matches("--add-dir").count(), 4);
+    let resume = provider
+        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            session_id: CODEX_UUID.to_string(),
+            args,
+            instance_id: Some("parity-instance".to_string()),
+            ..Default::default()
+        })
+        .expect("context resume command");
+    assert_eq!(resume.matches("--add-dir").count(), 4);
+}
+
+#[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;
@@ -46,6 +107,12 @@ fn build_launch_command_shape() {
     // Plain launch: codex binary only, no bypass flags.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
     assert!(plain.starts_with("codex"), "must invoke codex: {plain}");
+    assert_eq!(
+        plain
+            .matches("-c check_for_update_on_startup=false")
+            .count(),
+        1
+    );
     assert!(
         !plain.contains("--dangerously-bypass-hook-trust"),
         "removed Codex CLI flag must stay absent: {plain}"
@@ -64,6 +131,10 @@ fn build_launch_command_shape() {
         skip.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip must add approval bypass: {skip}"
     );
+    assert_eq!(
+        skip.matches("-c check_for_update_on_startup=false").count(),
+        1
+    );
 
     // Caller args are shell-quoted onto the tail.
     let with_args = j.build_launch_command(&AgentLaunchParams {
@@ -73,6 +144,41 @@ fn build_launch_command_shape() {
     assert!(
         with_args.contains("'a b'") || with_args.contains("\"a b\""),
         "arg must be quoted: {with_args}"
+    );
+    assert_eq!(
+        with_args
+            .matches("-c check_for_update_on_startup=false")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn classified_prompt_auto_response_is_limited_to_update_skip() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let screen = codex_update_fixture();
+    assert!(provider.supports_classified_prompt_auto_response());
+    assert_eq!(
+        provider
+            .classified_prompt_auto_response(crate::tab_state::TabState::UpdatePrompt, &screen,),
+        Some(crate::provider::ClassifiedPromptOptionRole::Skip)
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::ClarifyingQuestion,
+            &screen
+        ),
+        None
+    );
+    assert_eq!(
+        provider.classified_prompt_auto_response(
+            crate::tab_state::TabState::UpdatePrompt,
+            &screen.replace("2. Skip", "2. Skip this version"),
+        ),
+        None
     );
 }
 
@@ -85,23 +191,35 @@ fn idle_starter_case() {
     let task = "manager identity arrives in the developer channel";
     let assigned = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let idle = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let team = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
     let startup = provider.build_launch_command(&AgentLaunchParams {
         task: Some(task.into()),
         starter_prompt: crate::provider::StarterPrompt::StartupHandshake,
+        instance_id: Some("instance-parity".into()),
         ..Default::default()
     });
+    for command in [&assigned, &idle, &team, &startup] {
+        assert_eq!(
+            command
+                .matches("-c check_for_update_on_startup=false")
+                .count(),
+            1
+        );
+    }
     let assigned_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
         .expect("Codex plugin must provide the assigned-task starter");
@@ -136,51 +254,110 @@ fn build_resume_command_shape() {
     let cmd = j.build_resume_command(CODEX_STEM, true).unwrap();
     // Animations stay on: the repainting status band is what the offline state
     // classifier reads as a live turn, so silencing it would blind activity.
-    assert!(
-        cmd.starts_with("codex resume"),
-        "resume subcommand shape: {cmd}"
+    assert!(cmd.contains(" resume"), "resume subcommand shape: {cmd}");
+    assert_eq!(
+        cmd.matches("-c check_for_update_on_startup=false").count(),
+        1
     );
     assert!(cmd.contains(CODEX_UUID), "must carry the uuid: {cmd}");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),
         "skip flag must propagate: {cmd}"
     );
-
     // Without skip, no approval bypass.
     let no_skip = j.build_resume_command(CODEX_UUID, false).unwrap();
+    assert_eq!(
+        no_skip
+            .matches("-c check_for_update_on_startup=false")
+            .count(),
+        1
+    );
     assert!(!no_skip.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(!no_skip.contains("--dangerously-bypass-hook-trust"));
     assert!(no_skip.contains(CODEX_UUID));
 }
 
-/// Codex declares no resume re-application, so the composed prompt must not
-/// reach its command — the conservative default that keeps a retaining
-/// provider from carrying two copies of its primer. Launch args still travel.
 #[test]
-fn resume_with_context_keeps_the_conservative_default() {
+fn resume_with_context_restores_profile_and_launch_parameters() {
     if require_plugins().is_none() {
         return;
     }
     let j = codex();
     let params = crate::provider::AgentResumeParams {
         session_id: CODEX_UUID.into(),
-        skip_permissions: false,
+        skip_permissions: true,
+        agent_name: Some("restored-agent".into()),
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
-        args: vec!["--model".into(), "parity-model".into()],
+        instance_id: Some("instance-parity".into()),
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="xhigh""#.into(),
+        ],
     };
     let command = j
         .build_resume_command_with_context(&params)
         .expect("codex resume command");
 
-    assert!(!command.contains("parity-sentinel-91c3"));
+    assert!(command.contains(" resume"));
+    assert!(command.contains(CODEX_UUID));
+    assert!(command.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(command.contains("--dangerously-bypass-hook-trust"));
+    assert!(command.contains("gpt-6-sol"));
     assert_eq!(
-        command,
-        crate::provider::append_launch_args(
-            j.build_resume_command(CODEX_UUID, false)
-                .expect("codex base resume"),
-            &params.args
-        )
+        command
+            .matches("-c check_for_update_on_startup=false")
+            .count(),
+        1
     );
+    assert!(command.contains("model_reasoning_effort"));
+    assert!(command.contains("xhigh"));
+    assert!(!command.contains("parity-sentinel-91c3"));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+        assert!(command.contains("launch-artifacts/release"));
+        assert!(command.contains("instance-parity"));
+    }
+}
+
+#[test]
+fn resume_with_context_keeps_the_conservative_default() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let params = crate::provider::AgentResumeParams {
+        session_id: CODEX_UUID.into(),
+        skip_permissions: false,
+        instance_id: Some("instance-parity".into()),
+        system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
+        args: vec![
+            "-m".into(),
+            "gpt-6-sol".into(),
+            "-c".into(),
+            r#"model_reasoning_effort="high""#.into(),
+        ],
+        ..Default::default()
+    };
+    let command = provider
+        .build_resume_command_with_context(&params)
+        .expect("codex resume command");
+
+    assert!(!command.contains("parity-sentinel-91c3"));
+    assert!(command.contains("--no-daemon"));
+    assert!(command.contains("gpt-6-sol"));
+    assert!(command.contains("model_reasoning_effort=\"high\""));
+    if cfg!(windows) {
+        assert!(command.contains("--profile $ctProfileName"));
+    } else {
+        assert_eq!(
+            command,
+            format!(
+                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
+            )
+        );
+    }
 }
 
 #[test]
@@ -221,6 +398,84 @@ fn directory_trust_prompt_response_reads_wrapped_codex_trust_frames() {
             "{file}"
         );
     }
+}
+
+#[test]
+fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let fixture = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust")
+        .join("codex-update-available.txt");
+    let screen = std::fs::read_to_string(fixture).expect("Codex update fixture");
+    let provider = codex();
+    assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+    let snapshot = crate::tab_state::TabStateSnapshot {
+        tab_id: "update-tab".into(),
+        agent_type: "codex".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen.clone(),
+    };
+    let classification = provider
+        .classify_tab_state(&snapshot)
+        .expect("update state");
+    assert_eq!(
+        classification.state,
+        crate::tab_state::TabState::UpdatePrompt
+    );
+    assert!(classification.action.is_none());
+    let prompt = provider.parse_prompt(&screen).expect("structured prompt");
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        ["1", "2", "3"]
+    );
+    assert_eq!(
+        provider.build_prompt_response(1, &screen),
+        vec![b"\x1b[B".to_vec(), b"\r".to_vec()]
+    );
+    assert_eq!(
+        provider.permission_prompt_response("Bash", &prompt, &screen),
+        None
+    );
+}
+
+#[test]
+fn codex_update_copy_in_transcript_is_not_a_blocking_modal() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("codex-update-in-transcript.txt"),
+    )
+    .expect("historical-update fixture");
+    let provider = codex();
+    let snapshot = crate::tab_state::TabStateSnapshot {
+        tab_id: "history-tab".into(),
+        agent_type: "codex".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: screen,
+    };
+
+    let classification = provider
+        .classify_tab_state(&snapshot)
+        .expect("partial historical update evidence");
+    assert_eq!(classification.state, crate::tab_state::TabState::Unknown);
+    assert!(classification.confidence < 0.8);
 }
 
 #[test]
@@ -286,6 +541,38 @@ fn codex_folder_trust_prompt_parses_as_numbered_choices() {
             "{file}"
         );
     }
+}
+
+#[test]
+fn codex_trust_prompt_is_respondable_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("directory-trust")
+            .join("trust-folder-access-0.157.1.txt"),
+    )
+    .expect("Codex 0.157.1 trust fixture");
+    let provider = codex();
+    let prompt = provider
+        .parse_directory_trust_prompt(&screen)
+        .expect("structured trust options are available to the host");
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        ["1", "2"]
+    );
+    assert_eq!(
+        provider.build_prompt_response(1, &screen),
+        vec![b"\x1b[B".to_vec(), b"\r".to_vec()]
+    );
 }
 
 #[test]
@@ -508,6 +795,54 @@ fn session_fs_capabilities_over_current_stores() {
         .detect_session_model(&work_proj, CODEX_UUID)
         .expect("detectSessionModel must resolve a model");
     assert_eq!(model, "gpt-5.6-sol");
+}
+
+#[test]
+fn codex_session_reasoning_effort_reads_exact_rollout() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let state_db = dir.path().join("state_1.sqlite");
+    let rollout = dir.path().join("rollout-owned.jsonl");
+    std::fs::write(
+        &rollout,
+        concat!(
+            "{\"type\":\"turn_context\",\"payload\":{\"effort\":\"high\"}}\n",
+            "{\"type\":\"turn_context\",\"payload\":{\"effort\":\"xhigh\"}}\n",
+        ),
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(&state_db).unwrap();
+    db.execute_batch(
+        "CREATE TABLE threads (id TEXT PRIMARY KEY, model TEXT, rollout_path TEXT, cwd TEXT);",
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO threads (id, model, rollout_path, cwd) VALUES (?1, 'gpt-5.6-sol', ?2, ?3)",
+        rusqlite::params![
+            CODEX_UUID,
+            rollout.to_string_lossy().to_string(),
+            dir.path().to_string_lossy().to_string()
+        ],
+    )
+    .unwrap();
+
+    let _env = EnvGuard::new(&[("CODETERM_CODEX_STATE_DB_PATH", state_db.to_str().unwrap())]);
+    let provider = codex();
+    assert_eq!(
+        provider
+            .detect_session_reasoning_effort("/ignored", CODEX_UUID)
+            .as_deref(),
+        Some("xhigh")
+    );
+    assert_eq!(
+        provider
+            .detect_session_reasoning_effort("/ignored", "22222222-2222-2222-2222-222222222222")
+            .as_deref(),
+        None,
+        "a neighboring thread never supplies this session's actual effort"
+    );
 }
 
 #[test]

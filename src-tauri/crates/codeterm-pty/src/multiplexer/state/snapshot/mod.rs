@@ -160,6 +160,7 @@ impl MultiplexerState {
                     agent_state: p.agent_state.clone(),
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
+                    restorable_launch: p.restorable_launch.clone(),
                     context_epochs: p.context_epoch_archives.clone(),
                     prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
@@ -531,8 +532,29 @@ fn install_leaf(
         }
     });
     let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
+    let restorable_launch = agent_identity
+        .as_ref()
+        .map(|identity| identity.restorable_launch.clone())
+        .unwrap_or_default();
+    let mut reasoning_effort_identity = restored_identity
+        .map(|identity| identity.reasoning_effort.clone())
+        .unwrap_or_default();
+    if !restorable_launch.is_empty() {
+        reasoning_effort_identity.requested = restorable_launch.requested_reasoning_effort.clone();
+        reasoning_effort_identity.resolved = restorable_launch.resolved_reasoning_effort.clone();
+        reasoning_effort_identity.actual = None;
+        reasoning_effort_identity.actual_source = (reasoning_effort_identity.requested.is_some()
+            || reasoning_effort_identity.resolved.is_some())
+        .then(|| "provider-default-unverified".to_string());
+    }
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
+    let scrollback_seed_pending = restored_agent_type.is_none()
+        && matches!(&restored_backing, TabBacking::Pty)
+        && ownership.is_none();
+    let restored_boot_stage = restored_agent_type
+        .as_ref()
+        .map(|_| codeterm_types::pty::BootStage::PtyStarting);
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),
@@ -555,14 +577,14 @@ fn install_leaf(
             agent_session_id: restored_session_id,
             agent_session_name: None,
             agent_session_model: agent_session_model.clone(),
+            agent_session_model_identity: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),
             model_fallback: model_fallback.clone(),
             model_identity_mismatch: model_identity_mismatch.clone(),
-            reasoning_effort_identity: restored_identity
-                .map(|identity| identity.reasoning_effort.clone())
-                .unwrap_or_default(),
+            reasoning_effort_identity,
+            restorable_launch,
             context_epoch_archives: restored_identity
                 .map(|identity| identity.context_epochs.clone())
                 .unwrap_or_default(),
@@ -606,6 +628,7 @@ fn install_leaf(
             title_level: restored_level,
             chat_view: chat_view.unwrap_or(false),
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
             auto_approve: false,
             permission_auto_confirm: *permission_auto_confirm,
@@ -621,8 +644,10 @@ fn install_leaf(
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: true,
+            scrollback_seed_pending,
+            pending_scrollback_tail: None,
             pending_greeting: None,
-            boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
+            boot_stage: restored_boot_stage,
             boot_failure_reason: None,
             provisional_launch: None,
         },

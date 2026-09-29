@@ -1,0 +1,18 @@
+╭──────────────────────────────────────────────────╮
+│ >_ Terminal Agent                                │
+│                                                  │
+│ model:       opaque model                        │
+│ directory:   opaque workspace                    │
+╰──────────────────────────────────────────────────╯
+› opaque delivered request with question?
+  1) opaque-command-alpha
+  2) opaque-command-beta
+• opaque assistant commentary
+• opaque command result
+  └ opaque output
+• 1. 0
+• 2. 0
+                                                    
+› Ask agent to do anything
+  opaque model · opaque workspace
+  ? for shortcuts

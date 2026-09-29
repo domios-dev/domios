@@ -10,6 +10,7 @@ use crate::service::hierarchy::team_plan_creation::{
 };
 use crate::service::plan::{PlanError, PlanStore};
 use crate::service::TeamPlanCreationError;
+use codeterm_types::pty::BootStage;
 
 struct TeamPlanHarness {
     mux: MuxState,
@@ -118,6 +119,31 @@ fn team_planner_creates_first_plan_without_plan_or_session_env() {
         Some((outcome.plan.id.clone(), "Team plan".into()))
     );
     assert_eq!(outcome.plan.planner, None);
+}
+
+#[test]
+fn planner_plan_creation_waits_until_the_binding_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = TeamPlanHarness::new(dir.path());
+    let (_, planner, caller) = bound_pair(&harness.mux, "pending");
+    {
+        let mut mux = harness.mux.write();
+        let tab = mux.get_tab_mut(&planner).unwrap();
+        tab.agent_type = Some("provider-neutral".into());
+        tab.pty_id = Some("planner-pty".into());
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        tab.boot_stage = Some(BootStage::ProviderReady);
+        tab.agent_set_at = Some(
+            std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+                + std::time::Duration::from_secs(1),
+        );
+    }
+
+    let error = planner_create(&harness, caller, "Still pending", 1).unwrap_err();
+
+    assert!(matches!(error, TeamPlanCreationError::SessionUnregistered));
+    assert!(harness.plan_store.list_index().is_empty());
 }
 
 #[test]

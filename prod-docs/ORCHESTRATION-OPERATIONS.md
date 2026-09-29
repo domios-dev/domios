@@ -41,8 +41,10 @@ work stays in isolated lanes. The writer holds canonical exclusively: occupancy
 refuses a second live canonical attempt, and `plan review accept` refuses lane
 tasks until the writer's own verdict. Authorize only focused tests, check and
 fmt; broad, release and integration gates stay with you. It commits on the
-integration branch and reports its commit ids with a clean tree; a dirty report
-is refused and is a bounce. Accept or bounce it before merging any lane.
+integration branch and reports its commit ids with a clean tree; the CLI checks
+the SHA against canonical for this placement, and any dirty report is refused,
+even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before
+merging any lane.
 
 After integrating a lane candidate, run its focused oracle through a canonical
 verification Worker. If it fails, bounce the task with the exact command and
@@ -196,4 +198,15 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 6 -->
+## Team-bound resources
+
+Every created agent, utility shell, and schedule belongs to its Team. Bind
+utility tabs and crons with `--team <team-id>`; helpers join with
+`codeterm agent spawn <provider> --team <team-id>` or
+`codeterm team adopt-agent <team-id> <tab-id>`. Create a standalone shell or
+cron only at the user's request. Team close finalizes members, attempts, lanes,
+and crons; workspace close applies this to every Team it contains. A Planner
+without spawn authority routes requests, including role, reason, and owned work,
+to its Orchestrator.
+
+<!-- revision: 9 -->

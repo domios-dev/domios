@@ -219,7 +219,7 @@ function buildTaskCard(
   const tabId = presence?.tabId ?? clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
   return {
     task,
-    statusChipText: qaChipText(plan, task) ?? canonicalTaskStatusLabel(task),
+    statusChipText: qaChipText(plan, task) ?? canonicalTaskStatusLabel(task, plan),
     presenceLabel: presence?.label ?? null,
     historicalExecutorSummary: historical?.summary ?? null,
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),

@@ -78,11 +78,30 @@ fn a_prompt_the_host_may_not_answer_blocks_the_reminder() {
 }
 
 #[test]
+fn a_codex_update_dialog_blocks_startup_reminders() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+    );
+    let screen = std::fs::read_to_string(path).expect("Codex update fixture");
+    let modal_on_screen = crate::agent::detector::detect_interactive_prompt(&screen);
+    assert!(modal_on_screen);
+    assert_eq!(
+        nudge_for(
+            true,
+            true,
+            terminal(&TrustDecision::NoDialog, modal_on_screen)
+        ),
+        StartupNudge::BlockedOnPrompt
+    );
+}
+
+#[test]
 fn only_deliver_writes() {
     assert!(StartupNudge::Deliver.delivers());
     for nudge in [
         StartupNudge::AnsweredTrustDialog,
         StartupNudge::BlockedOnPrompt,
+        StartupNudge::WaitingForOwnerPrompt,
         StartupNudge::UnboundSession,
         StartupNudge::NoAgent,
     ] {

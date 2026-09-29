@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.11.9",
-  "minCodeterm": "1.11.9",
+  "version": "1.11.10",
+  "minCodeterm": "1.11.10",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -25,10 +25,16 @@
     }
   ],
   "spawn": {
+    "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 30
+    },
+    "composerCursorPosition": "bottom_region",
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": {
       "kind": "cli_flag",
@@ -36,7 +42,18 @@
     },
     "verifySubmit": {
       "kind": "tui_input_drained",
-      "initialKeyDelayMs": 150
+      "initialKeyDelayMs": 300,
+      "retryOffsetsMs": [
+        200,
+        500,
+        1200,
+        2200,
+        4000,
+        5800
+      ]
+    },
+    "turnEvidenceNormalization": {
+      "dropSupplementaryCharacters": true
     },
     "busySubmit": {
       "kind": "submit_normally"
@@ -47,6 +64,7 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "sessionStartsOnFirstUserTurn": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",
@@ -97,6 +115,10 @@
     }
   ],
   "defaultModel": "gpt-6-sol",
+  "modelCatalogue": {
+    "authority": "authoritative",
+    "liveDiscoveryRequired": true
+  },
   "reasoningEfforts": [
     {
       "id": "low",
@@ -157,12 +179,14 @@
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
-    ]
+    ],
+    "additionalWritableDirFlag": "--add-dir"
   },
   "permissions": {
     "network": {
       "allow": [
-        "chatgpt.com"
+        "chatgpt.com",
+        "registry.npmjs.org"
       ]
     },
     "subprocess": {

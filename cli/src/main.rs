@@ -11,7 +11,7 @@ use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_object};
 
 use clap::{CommandFactory, Parser};
-use client::{discover_socket, discover_socket_resolution, SocketClient};
+use client::SocketClient;
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
@@ -165,6 +165,17 @@ fn main_impl() {
     }
 
     if let Some(mesh_target) = cli.mesh.clone() {
+        if matches!(
+            &cli.command,
+            Commands::Plan {
+                action: PlanAction::Task {
+                    action: args::plan::PlanTaskAction::Dispatch { .. }
+                }
+            }
+        ) {
+            mesh_cli::run_plan_task_dispatch_origin(cli, &mesh_target);
+            return;
+        }
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
             cli.command,
@@ -205,16 +216,8 @@ fn main_impl() {
         return;
     };
 
-    let resolved_socket = match discover_socket_resolution() {
-        Ok(resolved) => resolved,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut client = match SocketClient::connect(&resolved_socket.path) {
-        Ok(c) => c,
+    let (mut client, resolved_socket) = match SocketClient::connect_local() {
+        Ok(connection) => connection,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -295,6 +298,9 @@ fn main_impl() {
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
             require_agent,
             to_shell,
         } => {
@@ -309,6 +315,9 @@ fn main_impl() {
                 actions,
                 delay,
                 at,
+                every,
+                until,
+                count,
                 require_agent,
                 to_shell,
             );
@@ -593,10 +602,7 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
-    let Ok(socket_path) = discover_socket() else {
-        return;
-    };
-    let Ok(mut client) = SocketClient::connect(&socket_path) else {
+    let Ok((mut client, _)) = SocketClient::connect_local() else {
         return;
     };
     let Ok(response) = client.call(
@@ -681,18 +687,27 @@ fn is_agent_spawn_flag(arg: &str) -> bool {
     if arg == "--" {
         return true;
     }
-    let Some(long) = arg.strip_prefix("--") else {
+    let root = Cli::command();
+    command_defines_flag(&root, arg)
+        || Cli::command()
+            .find_subcommand("agent")
+            .and_then(|agent| agent.find_subcommand("spawn"))
+            .is_some_and(|spawn| command_defines_flag(spawn, arg))
+}
+
+fn command_defines_flag(command: &clap::Command, arg: &str) -> bool {
+    if let Some(long) = arg.strip_prefix("--") {
+        let name = long.split_once('=').map_or(long, |(name, _)| name);
+        return command
+            .get_arguments()
+            .any(|candidate| candidate.get_long() == Some(name));
+    }
+    let Some(short) = arg.strip_prefix('-').and_then(|value| value.chars().next()) else {
         return false;
     };
-    let name = long.split_once('=').map_or(long, |(name, _)| name);
-    Cli::command()
-        .find_subcommand("agent")
-        .and_then(|agent| agent.find_subcommand("spawn"))
-        .is_some_and(|spawn| {
-            spawn
-                .get_arguments()
-                .any(|candidate| candidate.get_long() == Some(name))
-        })
+    command
+        .get_arguments()
+        .any(|candidate| candidate.get_short() == Some(short))
 }
 
 fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
@@ -770,13 +785,60 @@ mod plan_cli_error_tests {
                         title, task, agent, ..
                     },
             } => {
-                assert_eq!(agent, "claude");
+                assert_eq!(agent.as_deref(), Some("claude"));
                 assert_eq!(
                     title.map(|parts| parts.join(" ")).as_deref(),
                     Some("perf brainstorm opus")
                 );
                 assert_eq!(task.as_deref(), Some("review"));
             }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_title_before_global_json_flag() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm", "agent", "spawn", "claude", "--title", "Scout", "--json",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        let cli = Cli::try_parse_from(args).expect("global json flag after title parses");
+        assert!(cli.json);
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, .. },
+            } => assert_eq!(title.map(|parts| parts.join(" ")).as_deref(), Some("Scout")),
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_quoted_multiword_agent_spawn_title() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "claude",
+                "--title",
+                "Two Words",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        let cli = Cli::try_parse_from(args).expect("quoted multiword title parses");
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, .. },
+            } => assert_eq!(
+                title.map(|parts| parts.join(" ")).as_deref(),
+                Some("Two Words")
+            ),
             _ => panic!("expected agent spawn"),
         }
     }

@@ -34,7 +34,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
 #[test]
 fn notify_answer_kind_cannot_express_a_command_or_arguments() {
     for smuggled in [
-        serde_json::json!({"type": "answer", "label": "Yes", "value": "respond_provider_update_prompt"}),
+        serde_json::json!({"type": "answer", "label": "Yes", "value": "retired_provider_action"}),
         serde_json::json!({"type": "answer", "label": "Yes", "args": {"promptId": "p1"}}),
         serde_json::json!({"type": "answer", "label": "Yes", "value": "x", "args": {}}),
         serde_json::json!({"type": "answer", "label": "Yes", "command": "x"}),
@@ -62,6 +62,23 @@ fn notify_answer_kind_cannot_express_a_command_or_arguments() {
         fields,
         vec!["label", "type"],
         "the whole wire shape of a choice is its kind and its label"
+    );
+}
+
+#[test]
+fn detached_system_choice_requires_the_internal_answer_path() {
+    let (mut store, id) = asked_from(None);
+    assert_eq!(
+        store.record_answer(&id, "Merge"),
+        AnswerAdmission::Undeliverable
+    );
+    assert_eq!(
+        store.record_detached_answer(&id, "Merge"),
+        AnswerAdmission::Recorded("Merge".into())
+    );
+    assert_eq!(
+        store.record_detached_answer(&id, "Rebase"),
+        AnswerAdmission::AlreadyAnswered("Merge".into())
     );
 }
 
@@ -164,6 +181,12 @@ fn notify_answer_takes_exactly_one_answer_per_notification() {
             .and_then(|slot| slot.answered.clone()),
         Some("Rebase".into()),
         "the stored answer is unchanged by every later attempt"
+    );
+    assert_eq!(
+        store
+            .answer_slot(&id)
+            .and_then(|slot| slot.answered_via.as_deref()),
+        Some("notification")
     );
 }
 

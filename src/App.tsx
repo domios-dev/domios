@@ -49,6 +49,7 @@ import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
 import { openNewSessionPicker } from "./lib/newSessionChoice";
 import { matchesBinding } from "./lib/keybindings";
 import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
+import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
@@ -498,7 +499,7 @@ function AppInner() {
         if (tabUiMode === "chat") return;
         const tab = stateRef.current.tabs[focusedTabId];
         if (tab?.pty_id) {
-          forwardTerminalFallback(e, active, (data) => invoke("write_pty_string", { ptyId: tab.pty_id, data }));
+          forwardTerminalFallback(e, active, (data) => writeTerminalInput(tab.pty_id!, data));
         }
       }
     };

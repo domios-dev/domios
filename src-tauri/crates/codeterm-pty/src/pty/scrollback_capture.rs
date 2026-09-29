@@ -14,8 +14,8 @@ use super::manager::OutputBuffer;
 pub struct ScrollbackCapture {
     /// `(tab_id, bounded tail bytes)` for every eligible tab with output.
     pub tails: Vec<(String, Vec<u8>)>,
-    /// Every live eligible tab, including restored tabs with no PTY yet —
-    /// their sidecars must survive until the frontend replays them.
+    pub skipped_tabs: Vec<(String, &'static str)>,
+    /// Every live eligible tab, including restored tabs awaiting PTY materialization.
     pub live_tab_ids: HashSet<String>,
 }
 
@@ -36,36 +36,44 @@ pub fn capture_scrollback_tails(
 ) -> ScrollbackCapture {
     // mux is read before output_buf per the lock order; each guard is scoped
     // so the returned owned data never rides a guard across an await.
-    let (plan, live_tab_ids) = {
+    let (plan, mut skipped_tabs, live_tab_ids) = {
         let state = mux.read();
         let mut plan = Vec::new();
+        let mut skipped = Vec::new();
         let mut live = HashSet::new();
         for tab in state.all_tabs() {
             if !scrollback_eligible(tab) {
                 continue;
             }
             live.insert(tab.id.clone());
+            if tab.scrollback_seed_pending {
+                skipped.push((tab.id.clone(), "scrollback_seed_pending"));
+                continue;
+            }
             if let Some(pty_id) = &tab.pty_id {
                 plan.push((tab.id.clone(), pty_id.clone()));
+            } else {
+                skipped.push((tab.id.clone(), "pty_not_materialized"));
             }
         }
-        (plan, live)
+        (plan, skipped, live)
     };
     let tails = {
         let buf = output_buf.lock();
-        plan.into_iter()
-            .filter_map(|(tab_id, pty_id)| {
-                let data = buf.get(&pty_id)?;
-                if data.is_empty() {
-                    return None;
-                }
-                let start = data.len().saturating_sub(limit);
-                Some((tab_id, data[start..].to_vec()))
-            })
-            .collect()
+        let mut tails = Vec::new();
+        for (tab_id, pty_id) in plan {
+            let Some(data) = buf.get(&pty_id).filter(|data| !data.is_empty()) else {
+                skipped_tabs.push((tab_id, "no_buffered_output"));
+                continue;
+            };
+            let start = data.len().saturating_sub(limit);
+            tails.push((tab_id, data[start..].to_vec()));
+        }
+        tails
     };
     ScrollbackCapture {
         tails,
+        skipped_tabs,
         live_tab_ids,
     }
 }
@@ -73,6 +81,8 @@ pub fn capture_scrollback_tails(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::scrollback::DEFAULT_SCROLLBACK_TAIL_BYTES;
+    use crate::session::store::SessionStore;
 
     fn state_with_tab() -> (MultiplexerState, String) {
         let mut state = MultiplexerState::empty();
@@ -187,5 +197,34 @@ mod tests {
             capture.live_tab_ids.contains(&tab_id),
             "a restored tab awaiting respawn keeps its sidecar"
         );
+        assert_eq!(capture.skipped_tabs, vec![(tab_id, "pty_not_materialized")]);
+    }
+
+    #[test]
+    fn autosave_never_shrinks_sidecar_to_fresh_banner() {
+        let (mut state, tab_id) = state_with_tab();
+        state.link_pty(&tab_id, "pty-restored".to_string());
+
+        let prior_history = vec![b'H'; DEFAULT_SCROLLBACK_TAIL_BYTES];
+        let fresh_banner = b"fresh shell banner\r\n";
+        let mut buffer = OutputBuffer::new(DEFAULT_SCROLLBACK_TAIL_BYTES);
+        buffer.prepend("pty-restored", &prior_history);
+        buffer.append("pty-restored", fresh_banner);
+        let (mux, output_buf) = locked(state, buffer);
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(directory.path().to_path_buf());
+        let capture = capture_scrollback_tails(&mux, &output_buf, DEFAULT_SCROLLBACK_TAIL_BYTES);
+        for (captured_tab, tail) in &capture.tails {
+            store
+                .save_scrollback_tail(captured_tab, tail, DEFAULT_SCROLLBACK_TAIL_BYTES)
+                .unwrap();
+        }
+
+        let saved = store.load_scrollback_tail(&tab_id).unwrap();
+        assert_eq!(saved.len(), DEFAULT_SCROLLBACK_TAIL_BYTES);
+        assert!(saved.iter().any(|byte| *byte == b'H'));
+        assert!(saved.ends_with(fresh_banner));
+        assert_ne!(saved, fresh_banner);
     }
 }

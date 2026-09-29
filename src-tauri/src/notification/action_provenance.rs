@@ -4,19 +4,16 @@
 //! command name - rather than that some particular command was refused.
 
 use codeterm_types::notification::{
-    adopt_caller_actions, answer_actions, CallerAction, DaemonCommand, NotificationAction,
+    adopt_caller_actions, answer_actions, CallerAction, NotificationAction,
 };
 
 use crate::api::notification_routes::CreateNotifBody;
-use crate::notification::store::{DedupAdmission, NotificationProvenance, NotificationStore};
 
-/// Tauri commands that exist and are worth stealing. None is in the daemon set,
-/// and none can be named by a caller-supplied action.
-const OFF_LIMITS_COMMANDS: [&str; 4] = [
+/// Tauri commands are refused as caller buttons.
+const OFF_LIMITS_COMMANDS: [&str; 3] = [
     "clear_notifications",
     "mark_notification_read",
     "answer_notification",
-    "respond_provider_update_prompt_",
 ];
 
 fn caller_body(actions: serde_json::Value) -> serde_json::Value {
@@ -37,7 +34,7 @@ fn action_provenance_caller_action_cannot_carry_an_invoke_target() {
         serde_json::json!({"type": "invoke", "label": "Go", "value": "clear_notifications"}),
         serde_json::json!({"type": "invoke", "label": "Go", "value": "x", "args": {"a": 1}}),
         serde_json::json!({"type": "invoke", "label": "Go"}),
-        serde_json::json!({"type": "invoke", "label": "Go", "command": "respond_provider_update_prompt"}),
+        serde_json::json!({"type": "invoke", "label": "Go", "command": "retired_provider_action"}),
         serde_json::json!({"type": "url", "label": "Go", "value": "https://x", "args": {}}),
         serde_json::json!({"type": "answer", "label": "Yes", "value": "clear_notifications"}),
         serde_json::json!({"type": "dismiss", "label": "No", "args": {}}),
@@ -48,8 +45,7 @@ fn action_provenance_caller_action_cannot_carry_an_invoke_target() {
         );
     }
 
-    // Exhaustive over the caller set with no wildcard arm: a variant added
-    // later cannot slip past this without failing to compile.
+    // Exhaustive over the caller set with no wildcard arm.
     let every_kind = vec![
         CallerAction::Url {
             label: "Docs".into(),
@@ -85,8 +81,13 @@ fn action_provenance_caller_action_cannot_carry_an_invoke_target() {
     // The one crossing into stored actions is total and has no invoke arm.
     for adopted in adopt_caller_actions(every_kind) {
         assert!(
-            !matches!(adopted, NotificationAction::Invoke { .. }),
-            "adopting a caller action must never mint an invoke action"
+            matches!(
+                adopted,
+                NotificationAction::Url { .. }
+                    | NotificationAction::Dismiss { .. }
+                    | NotificationAction::Answer { .. }
+            ),
+            "caller actions remain in the user-facing action set"
         );
     }
 }
@@ -128,86 +129,6 @@ fn action_provenance_every_caller_transport_refuses_an_invoke_action() {
             .len(),
         4
     );
-}
-
-/// The live daemon-constructed invoke - the provider-update prompt - still
-/// reaches storage intact, and serializes naming the allowlisted command.
-#[test]
-fn action_provenance_daemon_invoke_action_survives_construction_and_storage() {
-    let mut store = NotificationStore::new(10);
-    let actions = vec![NotificationAction::Invoke {
-        label: "Update".into(),
-        command: DaemonCommand::RespondProviderUpdatePrompt,
-        args: Some(serde_json::json!({ "promptId": "prompt-1", "accept": true })),
-    }];
-    let admitted = store.add_provider_update(
-        "codex".into(),
-        "prompt-1".into(),
-        "Update available".into(),
-        "Install separately".into(),
-        actions.clone(),
-        NotificationProvenance {
-            tab_id: Some("tab-1".into()),
-            ..Default::default()
-        },
-    );
-    let id = match admitted {
-        DedupAdmission::Added(id) => id,
-        DedupAdmission::Coalesced(id) => panic!("first provider update was coalesced into {id}"),
-        DedupAdmission::Duplicate(id) => panic!("first provider update must be added, got {id}"),
-    };
-    let stored = store.list(false);
-    assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].id, id);
-    assert_eq!(stored[0].actions.as_deref(), Some(actions.as_slice()));
-
-    let wire = serde_json::to_value(stored[0]).expect("a stored row serializes");
-    let action = &wire["actions"][0];
-    assert_eq!(action["type"], serde_json::json!("invoke"));
-    assert_eq!(
-        action["command"],
-        serde_json::json!(DaemonCommand::RespondProviderUpdatePrompt.as_str())
-    );
-    assert_eq!(action["args"]["accept"], serde_json::json!(true));
-    assert!(
-        action.get("value").is_none(),
-        "an invoke target is not a free-form value field on the wire"
-    );
-}
-
-/// The daemon side is an allowlist expressed as a type: the only command names
-/// that exist are the members of the set, and nothing else reads back into it.
-#[test]
-fn action_provenance_daemon_command_set_is_closed() {
-    assert_eq!(DaemonCommand::ALL.len(), 1);
-    for command in DaemonCommand::ALL {
-        assert_eq!(DaemonCommand::parse(command.as_str()), Some(command));
-    }
-    let distinct: std::collections::HashSet<&str> = DaemonCommand::ALL
-        .into_iter()
-        .map(DaemonCommand::as_str)
-        .collect();
-    assert_eq!(
-        distinct.len(),
-        DaemonCommand::ALL.len(),
-        "daemon command wire values collide"
-    );
-
-    for outside in OFF_LIMITS_COMMANDS {
-        assert_eq!(
-            DaemonCommand::parse(outside),
-            None,
-            "{outside} is outside the daemon set"
-        );
-    }
-    for rejected in [
-        "",
-        "   ",
-        "RespondProviderUpdatePrompt",
-        "respond_provider_update",
-    ] {
-        assert_eq!(DaemonCommand::parse(rejected), None);
-    }
 }
 
 /// Negative control: the kinds a caller may still name are byte-identical to

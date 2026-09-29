@@ -1,9 +1,11 @@
+pub use crate::provider::IntegrationKind;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelAvailability, ModelInfo,
-    ProviderReadinessStrategy, ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
+    ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
+    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
+    TurnEvidenceNormalization, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -25,13 +27,19 @@ pub struct SubprocessPermission {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
+    #[serde(default)]
+    pub paste_limit_bytes: Option<usize>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
     pub system_prompt_delivery: SerdeSystemPromptDelivery,
     #[serde(default)]
     pub provider_readiness: SerdeProviderReadinessStrategy,
+    #[serde(default)]
+    pub composer_cursor_position: ComposerCursorPosition,
     pub verify_submit: SerdeVerifySubmit,
+    #[serde(default)]
+    pub turn_evidence_normalization: TurnEvidenceNormalization,
     #[serde(default)]
     pub busy_submit: SerdeBusySubmit,
     #[serde(default)]
@@ -44,6 +52,10 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    #[serde(default, alias = "resumeBindsOnFirstUserTurn")]
+    pub session_starts_on_first_user_turn: bool,
+    #[serde(default)]
+    pub public_send_waits_for_startup_turn_completion: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
     #[serde(default)]
@@ -197,6 +209,8 @@ pub enum SerdeVerifySubmit {
     TuiInputDrained {
         #[serde(default)]
         initial_key_delay_ms: u64,
+        #[serde(default = "default_submit_retry_offsets_ms")]
+        retry_offsets_ms: [u64; 6],
     },
     None,
 }
@@ -207,6 +221,10 @@ impl Default for SerdeVerifySubmit {
     }
 }
 
+fn default_submit_retry_offsets_ms() -> [u64; 6] {
+    crate::provider::DEFAULT_SUBMIT_RETRY_OFFSETS.map(|offset| offset.as_millis() as u64)
+}
+
 impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
     fn from(s: &SerdeVerifySubmit) -> Self {
         match s {
@@ -215,8 +233,10 @@ impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
             },
             SerdeVerifySubmit::TuiInputDrained {
                 initial_key_delay_ms,
+                retry_offsets_ms,
             } => Self::TuiInputDrained {
                 initial_key_delay: std::time::Duration::from_millis(*initial_key_delay_ms),
+                retry_offsets: retry_offsets_ms.map(std::time::Duration::from_millis),
             },
             SerdeVerifySubmit::None => Self::None,
         }
@@ -359,10 +379,9 @@ pub enum CwdEncoding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct IntegrationConfig {
-    /// What kind of integration to install. The kind declares whether native
-    /// or provider-managed review/backup/restore semantics apply.
+    /// The owned integration surface and its reconciliation semantics.
     pub kind: IntegrationKind,
-    /// Where the integration is stored (e.g. `~/.claude/settings.json`).
+    /// The integration's primary target path.
     pub settings_path: String,
     /// Optional `integration.trust_grant` capability declaration: managed hook
     /// key(s) core passes to the plugin's `grantIntegrationTrust` per install.
@@ -375,18 +394,6 @@ pub struct IntegrationConfig {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TrustGrantConfig {
     pub managed_keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IntegrationKind {
-    /// Claude-style: edit a JSON file's `hooks` object with curl-back
-    /// commands.
-    ClaudeSettingsJson,
-    /// Provider JS owns a reviewable global-config merge and backup/restore flow.
-    ProviderManaged,
-    /// No installable integration. PTY parser does it all.
-    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +444,9 @@ pub struct CommandsConfig {
     /// scriptable reasoning-effort launch flag even if it lists effort levels.
     #[serde(default)]
     pub reasoning_effort_launch_args_format: Vec<String>,
+    /// CLI flag accepting one extra writable directory for a sandboxed lane.
+    #[serde(default)]
+    pub additional_writable_dir_flag: Option<String>,
     /// `launchArgsFormat`: full launch command template, used only when the
     /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
     #[serde(default)]
@@ -520,6 +530,10 @@ pub struct SerdeModelInfo {
     /// See `ModelInfo::group`. Provider-declared picker section label.
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub reasoning_efforts: Option<Vec<SerdeReasoningEffortInfo>>,
+    #[serde(default)]
+    pub default_reasoning_effort: Option<String>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -533,6 +547,11 @@ impl From<&SerdeModelInfo> for ModelInfo {
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
+            reasoning_efforts: s
+                .reasoning_efforts
+                .as_ref()
+                .map(|efforts| efforts.iter().map(ReasoningEffortInfo::from).collect()),
+            default_reasoning_effort: s.default_reasoning_effort.clone(),
         }
     }
 }
@@ -592,6 +611,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn spawn_config_accepts_previous_lazy_session_field_name() {
+        let parsed: SpawnConfig = serde_json::from_value(serde_json::json!({
+            "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+            "taskDelivery": "pty_input",
+            "verifySubmit": { "kind": "none" },
+            "resumeBindsOnFirstUserTurn": true,
+        }))
+        .expect("previous installed manifest field remains accepted");
+
+        assert!(parsed.session_starts_on_first_user_turn);
+        let serialized = serde_json::to_value(parsed).expect("config serializes");
+        assert_eq!(serialized["sessionStartsOnFirstUserTurn"], true);
+    }
+
+    #[test]
+    fn spawn_config_accepts_provider_declared_centered_composer() {
+        let parsed: SpawnConfig = serde_json::from_value(serde_json::json!({
+            "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+            "taskDelivery": "pty_input",
+            "verifySubmit": { "kind": "none" },
+            "composerCursorPosition": "visible_anywhere",
+        }))
+        .expect("composer position parses from the provider manifest");
+
+        assert_eq!(
+            parsed.composer_cursor_position,
+            ComposerCursorPosition::VisibleAnywhere
+        );
+    }
+
+    #[test]
     fn serde_model_info_carries_featured_and_badge_into_model_info() {
         let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
             "id": "deepseek-v4-flash",
@@ -620,5 +670,60 @@ mod tests {
         assert_eq!(model.badge, None);
         assert_eq!(model.group, None);
         assert!(!model.is_featured());
+    }
+
+    #[test]
+    fn serde_model_info_carries_per_model_reasoning_efforts() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "gpt-6-sol",
+            "displayName": "GPT-6 Sol",
+            "reasoningEfforts": [
+                { "id": "max", "displayName": "Max", "description": "Maximum reasoning" },
+                { "id": "ultra", "displayName": "Ultra" }
+            ]
+        }))
+        .expect("per-model reasoning efforts parse");
+
+        let model: ModelInfo = (&parsed).into();
+        let wire = serde_json::to_value(&model).expect("model serializes");
+        assert_eq!(wire["reasoning_efforts"][0]["id"], "max");
+        assert_eq!(wire["reasoning_efforts"][0]["display_name"], "Max");
+        let efforts = model.reasoning_efforts.expect("per-model effort list");
+        assert_eq!(
+            efforts
+                .iter()
+                .map(|effort| effort.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["max", "ultra"]
+        );
+        assert_eq!(efforts[0].description.as_deref(), Some("Maximum reasoning"));
+    }
+
+    #[test]
+    fn serde_model_info_carries_per_model_default_reasoning_effort() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "gpt-5.6-sol",
+            "displayName": "GPT-5.6 Sol",
+            "defaultReasoningEffort": "low"
+        }))
+        .expect("per-model default effort parses");
+
+        let model: ModelInfo = (&parsed).into();
+        let wire = serde_json::to_value(&model).expect("model serializes");
+        assert_eq!(wire["default_reasoning_effort"], "low");
+        assert_eq!(model.default_reasoning_effort.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn serde_model_info_preserves_an_explicit_empty_effort_list() {
+        let parsed: SerdeModelInfo = serde_json::from_value(serde_json::json!({
+            "id": "model-without-selector",
+            "displayName": "Model Without Selector",
+            "reasoningEfforts": []
+        }))
+        .expect("empty effort list parses");
+
+        let model: ModelInfo = (&parsed).into();
+        assert_eq!(model.reasoning_efforts, Some(Vec::new()));
     }
 }

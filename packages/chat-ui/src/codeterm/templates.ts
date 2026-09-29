@@ -4,6 +4,7 @@ import { decodeCliMessageText } from "./messageText";
 export interface CardStatus {
   ok: boolean;
   label: string;
+  pending?: boolean;
 }
 export interface PlanLink {
   planId: string;
@@ -390,7 +391,10 @@ function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
 
 function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
-  if (/\bOK\b|\(sent\)|delivered/i.test(result)) return { ok: true, label: "delivered" };
+  if (/\bOK\s*\(pending\)/i.test(result)) {
+    return { ok: false, label: "pending", pending: true };
+  }
+  if (/\bOK\s*\(sent\)|delivered/i.test(result)) return { ok: true, label: "delivered" };
   if (/error|fail|not found/i.test(result)) return { ok: false, label: "failed" };
   return undefined;
 }
