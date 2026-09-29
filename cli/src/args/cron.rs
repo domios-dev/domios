@@ -144,6 +144,9 @@ pub enum CronAction {
         /// Summary of what happened
         #[arg(long)]
         summary: Option<String>,
+        /// Confirm a human completion when this caller has no tab identity
+        #[arg(long)]
+        yes: bool,
     },
 }
 

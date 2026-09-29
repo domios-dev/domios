@@ -174,9 +174,9 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Fields.** `model` overrides the provider's default model (valid ids from `/api/agents/providers`). `jitter_max_ms`: omitted = 10% of the interval up to 30 min, `0` = exact, positive = requested cap in ms, limited to half the schedule interval. `tz`: IANA zone, omitted = UTC, invalid zones rejected, DST handled. `timeout_seconds` overrides `memory.worker_timeout_seconds` for this job; `0` on update clears it.
 
-**`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
+**`CronRunStatus` enum:** `Running`, `AwaitingOwnerPrompt`, `Success`, `Failed`, `Cancelled`. A cron waiting on an owner prompt uses `AwaitingOwnerPrompt`; `POST /api/crons/:id/cancel` cancels both running states.
 
-**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron tabl / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
 
 **Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
@@ -204,4 +204,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

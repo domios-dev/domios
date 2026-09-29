@@ -127,10 +127,10 @@ response** (the agent is blocked on a prompt) and **Agent process exited** or
 condition of one tab, so a tab holds at most one live notice per condition and the
 same prompt or exit never opens a second one. The notice resolves when the
 condition ends: the prompt is answered or goes away, the agent reaches readiness
-again after `codeterm agent restart`, or the tab closes. A tab spawned with
-`--non-user-facing`, and any hidden service tab (memory workers, cron runs), is
-never the user's to answer: its prompts and exits go to its parent or report target
-as a report, and are only written to the CodeTerm log when it has none.
+again after `codeterm agent restart`, or the tab closes. Hidden automation routes
+its prompts and exits to a live report owner, and only writes them to the CodeTerm
+log when it has none. Cron prompts go to the job's creator tab when that tab is
+live; when the job has no live creator, they notify the user.
 
 Unread sticky notices — the condition notices above, and any record created with
 `sticky` over the API — survive a restart of CodeTerm, kept in
@@ -143,4 +143,4 @@ does an offer to turn a surface on, which must be sent again.
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

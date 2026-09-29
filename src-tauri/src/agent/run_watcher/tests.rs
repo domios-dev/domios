@@ -370,6 +370,45 @@ fn owner_prompt() -> codeterm_types::pty::PendingPrompt {
 }
 
 #[test]
+fn cron_reap_requires_a_seen_then_absent_provider_tree() {
+    use crate::service::process_tree::{
+        ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey, ProviderTreeWitnesses,
+    };
+
+    let key = ProviderTreeKey {
+        tab_id: "cron-tab".into(),
+        pty_id: "cron-pty".into(),
+        binding_nonce: Some("cron-nonce".into()),
+        executable_name: "provider-binary".into(),
+    };
+    let witnesses = ProviderTreeWitnesses::default();
+    let present = [ProcessIdentity {
+        pid: 91,
+        start_token: "process-91".into(),
+    }]
+    .into_iter()
+    .collect();
+    witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Present(present));
+    let exited = witnesses.record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    let unseen = ProviderTreeWitnesses::default().record_for_test(
+        &key,
+        ProviderProcessTreeSnapshot::Absent,
+    );
+    let cron = AgentRunKind::Cron {
+        job_id: "job".into(),
+        run_id: "run".into(),
+    };
+    let memory = AgentRunKind::MemWorker {
+        worker_id: "worker".into(),
+    };
+
+    assert!(cron_provider_exit_is_proven(&cron, Some(&exited)));
+    assert!(!cron_provider_exit_is_proven(&cron, Some(&unseen)));
+    assert!(!cron_provider_exit_is_proven(&memory, Some(&exited)));
+    assert!(!cron_provider_exit_is_proven(&cron, None));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn idle_poll_classifies_provider_dialog_as_prompt() {
     let (fixture, tab_id, pty_id) = owner_prompt_fixture();
