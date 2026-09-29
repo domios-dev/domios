@@ -1,7 +1,7 @@
 //! Live model switch for one tab. The provider's capability says how: a
 //! `RestartResume` provider is relaunched on its own verified session with the
-//! new model launch args, and the switch is reported only once the provider's
-//! session-start report or first post-relaunch turn names the model.
+//! new model launch args. A launch report or first post-relaunch turn confirms
+//! the model; a ready relaunch without either returns pending confirmation.
 
 use std::time::{Duration, Instant};
 
@@ -12,8 +12,23 @@ use crate::agent::provider::ModelSwitchMode;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
-/// Failure deadline for the relaunched session to report its model.
+/// Deadline for the relaunched session to report its model before returning pending.
 pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModelSwitchEvidence {
+    SessionStartReport,
+    FirstPostRelaunchTurn,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModelSwitchConfirmation {
+    Observed {
+        model: String,
+        evidence: ModelSwitchEvidence,
+    },
+    Pending,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ModelSwitchOutcome {
@@ -22,7 +37,13 @@ pub(crate) struct ModelSwitchOutcome {
     pub previous_model: Option<String>,
     pub requested_model: String,
     pub launched_model: String,
-    pub observed_model: String,
+    pub confirmation: ModelSwitchConfirmation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelSwitchObservation {
+    model: String,
+    evidence: ModelSwitchEvidence,
 }
 
 #[derive(Debug)]
@@ -41,10 +62,10 @@ pub(crate) enum ModelSwitchError {
         reason: String,
         timed_out: bool,
     },
-    NotObserved {
+    ModelMismatch {
         outcome: RestartOutcome,
         launched_model: String,
-        observed_model: Option<String>,
+        observed_model: String,
     },
 }
 
@@ -64,17 +85,13 @@ impl std::fmt::Display for ModelSwitchError {
             Self::RelaunchFailed { reason, .. } => {
                 write!(formatter, "model switch relaunch failed: {reason}")
             }
-            Self::NotObserved {
+            Self::ModelMismatch {
                 launched_model,
-                observed_model: Some(observed),
+                observed_model: observed,
                 ..
             } => write!(
                 formatter,
-                "relaunched with {launched_model}, but the provider reported {observed}"
-            ),
-            Self::NotObserved { launched_model, .. } => write!(
-                formatter,
-                "relaunched with {launched_model}, but the provider did not report its model within {MODEL_OBSERVE_TIMEOUT_SECS} seconds"
+                "relaunched with {launched_model}, but the current session reported {observed}"
             ),
         }
     }
@@ -353,30 +370,29 @@ impl ServiceContext {
             &launched_model,
             Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS),
         );
-        match observed {
-            Some(observed)
-                if crate::service::session_model::session_model_matches(
-                    &self.agent_registry,
-                    &provider,
-                    &launched_model,
-                    &observed,
-                ) =>
-            {
-                Ok(ModelSwitchOutcome {
-                    restart,
-                    mechanism,
-                    previous_model,
-                    requested_model: requested.to_string(),
+        let confirmation = match model_switch_confirmation(
+            &self.agent_registry,
+            &provider,
+            &launched_model,
+            observed,
+        ) {
+            Ok(confirmation) => confirmation,
+            Err(observed_model) => {
+                return Err(ModelSwitchError::ModelMismatch {
+                    outcome: restart,
                     launched_model,
-                    observed_model: observed,
+                    observed_model,
                 })
             }
-            observed_model => Err(ModelSwitchError::NotObserved {
-                outcome: restart,
-                launched_model,
-                observed_model,
-            }),
-        }
+        };
+        Ok(ModelSwitchOutcome {
+            restart,
+            mechanism,
+            previous_model,
+            requested_model: requested.to_string(),
+            launched_model,
+            confirmation,
+        })
     }
 
     fn verified_resumable_session(
@@ -406,8 +422,9 @@ impl ServiceContext {
         session_id: &str,
         launched_model: &str,
         timeout: Duration,
-    ) -> Option<String> {
+    ) -> Option<ModelSwitchObservation> {
         let mut observed = None;
+        let mut mismatched_report = None;
         crate::service::boot_wait::wait_until(Instant::now() + timeout, || {
             let (report, model, pending_model) = {
                 let mux = self.mux.read();
@@ -427,24 +444,61 @@ impl ServiceContext {
                 )
             };
             if let Some(report) = report {
-                observed = Some(report.model.clone());
                 if crate::service::session_model::session_model_matches(
                     &self.agent_registry,
                     provider,
                     pending_model.as_deref().unwrap_or(launched_model),
                     &report.model,
                 ) {
+                    observed = Some(ModelSwitchObservation {
+                        model: report.model,
+                        evidence: ModelSwitchEvidence::SessionStartReport,
+                    });
                     return true;
                 }
+                mismatched_report = Some(ModelSwitchObservation {
+                    model: report.model,
+                    evidence: ModelSwitchEvidence::SessionStartReport,
+                });
             }
             if pending_model.is_none() {
-                observed = model.or(observed.clone());
-                observed.is_some()
+                if let Some(model) = model {
+                    observed = Some(ModelSwitchObservation {
+                        model,
+                        evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+                    });
+                    return true;
+                }
+                false
             } else {
                 false
             }
         });
-        observed
+        observed.or(mismatched_report)
+    }
+}
+
+fn model_switch_confirmation(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider: &str,
+    launched_model: &str,
+    observation: Option<ModelSwitchObservation>,
+) -> Result<ModelSwitchConfirmation, String> {
+    let Some(observation) = observation else {
+        return Ok(ModelSwitchConfirmation::Pending);
+    };
+    if crate::service::session_model::session_model_matches(
+        registry,
+        provider,
+        launched_model,
+        &observation.model,
+    ) {
+        Ok(ModelSwitchConfirmation::Observed {
+            model: observation.model,
+            evidence: observation.evidence,
+        })
+    } else {
+        Err(observation.model)
     }
 }
 

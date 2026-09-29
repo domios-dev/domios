@@ -34,10 +34,22 @@ pub(super) fn model_switch_result(
 
 pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
     let field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or("-");
+    if field("model_confirmation") == "pending" {
+        return format!(
+            "Relaunched Tab {} in session {} with --model {}; agent ready, model confirmation pending",
+            field("tab_id"),
+            field("session_id"),
+            field("launched_model"),
+        );
+    }
+    let observed_model = value
+        .get("observed_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| field("launched_model"));
     format!(
         "Switched Tab {} to {} (was {}); resumed session {}, model confirmed by the provider",
         field("tab_id"),
-        field("model"),
+        observed_model,
         field("previous_model"),
         field("session_id"),
     )
@@ -87,12 +99,40 @@ mod tests {
 
     #[test]
     fn agent_model_success_requires_an_ok_body() {
-        let success = serde_json::json!({ "ok": true, "model": "opaque-model-9e" });
+        let success = serde_json::json!({ "ok": true, "observed_model": "opaque-model-9e" });
         let value = model_switch_result(reqwest::StatusCode::OK, &success.to_string())
             .expect("an ok body on 200 is success");
-        assert_eq!(value["model"], "opaque-model-9e");
+        assert_eq!(value["observed_model"], "opaque-model-9e");
         let bare = model_switch_result(reqwest::StatusCode::OK, "")
             .expect_err("a 200 without an ok body proves nothing");
         assert!(bare.data.is_some());
+    }
+
+    #[test]
+    fn agent_model_pending_success_keeps_relaunch_evidence_in_json_and_human_output() {
+        let success = serde_json::json!({
+            "ok": true,
+            "tab_id": "tab-4f3a",
+            "launched_model": "opaque-model-9e",
+            "model_confirmation": "pending",
+            "session_id": "session-8b2c",
+            "relaunch_evidence": {
+                "session_id": "session-8b2c",
+                "launched_model": "opaque-model-9e",
+                "agent_ready": true,
+            },
+        });
+        let value = model_switch_result(reqwest::StatusCode::OK, &success.to_string())
+            .expect("pending confirmation is a successful relaunch");
+        let rendered = render_model_switch(&value);
+
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["model_confirmation"], "pending");
+        assert_eq!(value["relaunch_evidence"]["session_id"], "session-8b2c");
+        assert_eq!(value["relaunch_evidence"]["launched_model"], "opaque-model-9e");
+        assert_eq!(value["relaunch_evidence"]["agent_ready"], true);
+        assert!(rendered.contains("--model opaque-model-9e"), "{rendered}");
+        assert!(rendered.contains("session-8b2c"), "{rendered}");
+        assert!(rendered.contains("agent ready, model confirmation pending"), "{rendered}");
     }
 }
