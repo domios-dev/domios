@@ -386,6 +386,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_binding_to_foreign_origin() {
         let (state, request, _, _root, _fixture) = bundle_fixture("different-peer");
         let error = create_lane_bundle_with_limit(
@@ -399,6 +400,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_bundle_over_size_limit() {
         let (state, request, _, _root, _fixture) = bundle_fixture("peer-origin");
         let error =
@@ -412,6 +414,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_refuses_head_or_lane_tip_different_from_report_sha() {
         let (state, mut request, _, _root, _fixture) = bundle_fixture("peer-origin");
         request.report_sha = "unreviewed-sha".into();
@@ -426,6 +429,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn create_lane_bundle_returns_refs_for_owned_attempt() {
         let (state, request, tip, _root, _fixture) = bundle_fixture("peer-origin");
         let response = create_lane_bundle_with_limit(

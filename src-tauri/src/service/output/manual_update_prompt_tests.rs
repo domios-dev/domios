@@ -254,6 +254,7 @@ fn non_update_dialog_does_not_use_the_manual_update_prompt_path() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_classified_trust_dialog_blocks_ga_ack_without_provenance() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -425,6 +426,7 @@ fn user_dir_codex_trust_prompt_is_pending_and_respondable_without_auto_answer() 
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_unchanged_screen() {
     let screen = std::fs::read_to_string(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

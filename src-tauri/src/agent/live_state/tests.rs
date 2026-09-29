@@ -123,6 +123,7 @@ fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restored_tab_not_cleared_before_relaunch_outcome() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {
@@ -167,6 +168,7 @@ fn restored_tab_not_cleared_before_relaunch_outcome() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn unobserved_liveness_pane_remains_relaunchable() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     {

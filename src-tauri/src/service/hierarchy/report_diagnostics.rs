@@ -69,6 +69,7 @@ mod tests {
     use crate::service::test_fixture::ServiceFixture;
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn refused_report_diagnostic_is_never_stored_as_attempt_report() {
         let (mut mux, parent_tab_id) = MultiplexerState::new();
         let workspace_id = mux.find_workspace_for_tab(&parent_tab_id).unwrap();

@@ -58,6 +58,7 @@ fn pending_for_unknown_tab_is_none() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn structured_prompt_notification_answer_records_tab_respond_metadata() {
     let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
