@@ -25,7 +25,7 @@ __export(plugin_exports, {
 module.exports = __toCommonJS(plugin_exports);
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -536,14 +536,14 @@ function opencodeBindingPluginSource() {
     'const PROVIDER_ID = "opencode";',
     "let lastReported = null;",
     "",
-    "function endpoint() {",
+    'function endpoint(event = "session_start") {',
     "  const tab = process.env.CODETERM_TAB_ID;",
     "  const token = process.env.CODETERM_API_TOKEN;",
     "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
     "  if (!tab) return null;",
     "  if (!token || !nonce || !process.env.CODETERM_API_URL) return null;",
     '  const base = process.env.CODETERM_API_URL.replace(/\\/+$/, "");',
-    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/${event}`;",
     "}",
     "",
     "function normalizeSessionID(value) {",
@@ -560,10 +560,10 @@ function opencodeBindingPluginSource() {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID || sessionID === lastReported) return;",
+    "  if (!sessionID) return false;",
+    "  if (sessionID === lastReported) return true;",
     "  const url = endpoint();",
-    "  if (!url) return;",
-    "  lastReported = sessionID;",
+    "  if (!url) return false;",
     "  const headers = {",
     '    "content-type": "application/json",',
     '    "x-codeterm-agent-provider": PROVIDER_ID,',
@@ -580,7 +580,8 @@ function opencodeBindingPluginSource() {
     "      cwd: directory || process.cwd(),",
     "    }),",
     "  }).then((response) => response.ok, () => false);",
-    "  if (!delivered && lastReported === sessionID) lastReported = null;",
+    "  if (delivered) lastReported = sessionID;",
+    "  return delivered;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -610,9 +611,44 @@ function opencodeBindingPluginSource() {
     "  );",
     "}",
     "",
-    "export default async function CodeTermSessionBindingPlugin({ directory }) {",
+    "function resumedSessionID(argv) {",
+    "  for (let i = 0; i < argv.length; i++) {",
+    '    if (argv[i] === "--session") return normalizeSessionID(argv[i + 1]);',
+    '    if (typeof argv[i] === "string" && argv[i].startsWith("--session=")) return normalizeSessionID(argv[i].slice(10));',
+    "  }",
+    "  return null;",
+    "}",
+    "",
+    "async function reportProviderEvent(event, directory) {",
+    "  const sessionID = eventSessionID(event);",
+    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    '  const url = endpoint("provider_event");',
+    "  if (!url) return;",
+    "  await fetch(url, {",
+    '    method: "POST",',
+    "    headers: {",
+    '      "content-type": "application/json",',
+    '      "x-codeterm-agent-provider": PROVIDER_ID,',
+    '      "x-codeterm-binding-nonce": process.env.CODETERM_SESSION_BINDING_NONCE,',
+    "      authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
+    "    },",
+    "    body: JSON.stringify({ session_id: sessionID, event }),",
+    "  }).catch(() => null);",
+    "}",
+    "",
+    "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
+    "  const resumed = resumedSessionID(process.argv || []);",
+    "  if (resumed && client?.session?.get) {",
+    "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
+    "    const session = result?.data || result;",
+    '    if (session?.id === resumed) await report(resumed, "session.get", session.directory || directory);',
+    "  }",
     "  return {",
     "    async event({ event }) {",
+    '      if (event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
+    "        await reportProviderEvent(event, directory);",
+    "        return;",
+    "      }",
     "      if (",
     '        event?.type === "session.created" ||',
     '        event?.type === "session.updated" ||',
@@ -823,6 +859,15 @@ var plugin = {
   detectEvents(text) {
     const t = String(text || "");
     const events = [];
+    try {
+      const event = JSON.parse(t);
+      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.idle") events.push("task_complete");
+      if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
+        events.push("turn_started");
+      }
+    } catch (_) {
+    }
     if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
       events.push("permission_request");
     }
