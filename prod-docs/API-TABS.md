@@ -198,20 +198,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one or all peers |
 | POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
 
-**Mesh-disabled gate (503).** With `config.mesh.enabled = false`, auth middleware answers every `/api/mesh/*` path except `/api/mesh/ping` with `503 Mesh networking is disabled`, as it does any caller authenticated by mesh signed token (a relaying peer); the local Bearer token still works. Re-enabling restores mesh routing without a daemon restart.
-
-**Mesh peer access levels.** Direct signed requests and relayed requests use the same policy. Local-only secret routes and mesh token minting are refused for every peer.
-
-| Level | Permitted operations |
-|---|---|
-| Full | All peer API routes, including announce, sync, and peer introductions, except local-only routes. |
-| ReadOnly | Permitted `GET` routes only, except local-only routes. `POST /api/mesh/sync` is scoped to the sender's liveness and identity; announce and third-party introductions are refused. |
-| AgentIsolated | `POST /api/agents/spawn`; `GET /api/tabs` returns only this peer's spawned tabs; `GET /api/tabs/{id}/text` and `POST` send, attachments, exec, respond, report, and clear are allowed only when `{id}` belongs to this peer. No workspace inventory, other tabs, mesh inventory, memory, config, secrets, or notifications. |
-| Custom | Only configured `Permission` grants; `Admin` grants ordinary peer API access and sender-only sync except local-only routes and Full-only announce/introduction controls. |
-
-The daemon records the authenticated spawning peer on each spawned tab and checks it on every tab-scoped route. Body-supplied ownership does not grant access.
-
-**Peer-ping scheduler.** A background scheduler (`mesh::ping_scheduler`) pings each paired peer's `/api/mesh/ping` every 20 s with a 4 s timeout. On an online/offline transition the peer's `online` flag flips, `last_seen` updates on return, and `mesh-state-changed` fires so the UI re-renders without polling.
+Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the peer-ping scheduler: `codeterm docs MESH`.
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (exempted from bearer middleware by an exact prefix allowlist in `auth.rs`'s `is_custom_auth`), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
@@ -224,10 +211,8 @@ The daemon records the authenticated spawning peer on each spawned tab and check
 
 `connect`, `approve`, `reject`, and `disconnect` are high-level: they handle crypto, key exchange, and peer notification, mirroring the UI's Tauri IPC commands. Management commands are local-only and cannot be relayed via `--mesh`.
 
-**Flat peer model:** Paired = trusted; no trust hierarchy or declarations. Each machine sets a per-peer **AccessLevel** (Full/ReadOnly/AgentIsolated, default Full) locally via `mesh_set_access`. UDP discovery broadcasts every 30 seconds.
-
 ## Related documents
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

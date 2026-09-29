@@ -1,5 +1,5 @@
 # Agent and orchestration API
-REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestration state.
+REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and batches.
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
@@ -68,43 +68,9 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 
 CLI: `codeterm agent model --tab TAB_ID MODEL [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
 
-### Plan Task Attempts
+### Plan task attempts and Teams
 
-Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_tab_id` is the executor identity, not the primary key. `requested_model` and `provider_resolved_model` preserve the selected and provider-resolved ids; `session_model` records the model detected from that attempt's bound session and stays null until observed. `model_identity_mismatch` records a difference and its cause. Respawn creates a new Worker tab and live attempt, never reactivating the selected historical attempt.
-
-### Team-bound plan creation
-
-An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each tab's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
-
-### Team-bound plan activation and transfer
-
-Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
-
-`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
-
-### Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
-
-`{provider, role, title?, task?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `codeterm agent spawn <provider> --team <id> --role Orchestrator` are one service path. `codeterm team attach-cartographer <team> --provider <provider> [--model <model>]` uses that same path.
-
-A Team may have one optional Cartographer Manager. The first attachment spawns a tab with the built-in `cartographer` role kind; repeated attachments return the same `tab_id` with `reused: true` and do not create another tab. It is a non-anchoring Manager without Team-management, plan, or spawn authority. Team close removes the Cartographer tab and its Team binding with every other member; the default Orchestrator/Planner pair does not include one unless explicitly attached.
-
-A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs, not a role ban: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. Unlinking the final Orchestrator atomically retires its owner reference while keeping the discoverable Team and active Plan id/history, so the Team accepts the documented replacement command and the new anchor takes that Plan over through the tab-gone owner rebind. Descendant role bindings follow the ordinary unlink rules. The response carries `plan_takeover: {plan_id, owner_tab_id}` when ownership moved. A takeover failure fails staffing, removes the spawned replacement and lane, and leaves the retained Team and Plan owner/history unchanged. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
-
-`X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker`, `planner`, and `cartographer` still need a spawn-capable member. This bootstrap action only creates a member and cannot delete Team state; destructive Team and workspace closes without a caller tab require explicit target confirmation. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with Team, requested role, and cause: `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
-
-### Close Team (POST /api/teams/{team_id}/close)
-
-Closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, finalizes open attempts and lanes, deletes Team crons, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes keep the Team record; the one automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. A present `X-CodeTerm-Tab-Id` header must identify the Team's Orchestrator or planner-profile Manager. With no caller tab header, a confirmed human sends `{force: true, confirm: "<team_id>"}` after the close dialog; the service logs this as `human-attributed (headerless, confirmed)`. Missing or mismatched confirmation is refused as Unattributed and logged. Unauthorized callers return `403`, and an unknown or already closed Team returns structured `404`. A busy Team (task `in_progress` or Worker working) returns `409` unless `force_busy: true`; plans with unfinished tasks stay active and flagged, never archived: see ORCHESTRATION-OPERATIONS.
-
-| Method | Path | Body / Query | Description |
-|--------|------|--------------|-------------|
-| GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
-| GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
-| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
-
-Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
-
-`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the CodeTerm identity headers. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
+Task execution attempts, respawn, dispatch preflight, Team-bound plans, Team staffing, and Team close: `codeterm docs API-TEAMS`.
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
@@ -165,9 +131,7 @@ curl -X POST http://host:7685/api/keepawake/stop -H "Authorization: Bearer $TOKE
 
 ### Agent Spawn (POST /api/agents/spawn)
 
-One request creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. The response returns immediately; PTY readiness detection and agent launch run in a background thread.
-
-The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts; each agent gets its own tab. Spawns never switch the user's active tab.
+One request creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. The response returns immediately; PTY readiness detection and agent launch run in a background thread. The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts; each agent gets its own tab. Spawns never switch the user's active tab.
 
 **Request body:**
 ```json
@@ -192,20 +156,13 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts; e
 }
 ```
 
-The selected model's advertised reasoning levels constrain `reasoning_effort`; the provider's flat list applies when the model has none (`codeterm agent models <provider>` shows the sets).
-
-Provider listings may include `default_reasoning_effort` on the provider descriptor (fallback) and on each `available_models` entry (that model's live default). `codeterm agent models <provider>` marks the model-specific default beside its reasoning levels, falling back to the provider value only when the model has none.
+The selected model's advertised reasoning levels constrain `reasoning_effort`; the provider's flat list applies when the model has none (`codeterm agent models <provider>` shows the sets). Provider listings may include `default_reasoning_effort` on the provider descriptor (fallback) and on each `available_models` entry (that model's live default). `codeterm agent models <provider>` marks the model-specific default beside its reasoning levels, falling back to the provider value only when the model has none.
 
 All fields are optional; `agent` uses the configured provider unless a unique model id selects another provider. Titles are one word; activity summaries go in `description`. Permissions come only from the global `agent.full_access` setting, which callers cannot override; until the user chooses, spawn is rejected before tab creation with an instruction to choose access in CodeTerm. Without full access, a model the provider declares without an unattended permission mode receives launch-scoped grants for the role's CodeTerm commands, and an Orchestrator or Planner on such a model is rejected before tab creation with an error naming the model (`team pair` checks both members first). `audience` controls user notifications only. With an authoritative model catalogue, an unknown `model` is rejected before tab creation (`codeterm agent models <provider>` refreshes and lists valid ids); free-form providers validate against a published live model list and pass ids through only when no live list exists. An id advertised by several providers requires an explicit provider, and provider aliases are never passed across providers. Reasoning effort is capability-validated before launch; response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. `task` goes through the provider's declared launch delivery; `agent_name` maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` with `execution_intent: "read_only"` needs no task binding: it owns and transitions no task, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced). A task-bound spawn with `execution_intent: "mutating"` is also refused before tab creation unless its effective `cwd` verifies as an isolated lane this task may write in: no checkout, a directory that is not a worktree on a branch, the plan's canonical checkout, or another task's recorded lane all fail closed, and the refusal names `codeterm plan task dispatch`, which provisions the lane. A `Worker` may also carry a `role_profile` naming a leaf kind, such as the builtin `cartographer`, which layers that kind's contract onto the Worker base; a managing kind id (`planner`, `watcher`, `orchestrator`, `general_agent`) is refused rather than downgraded. `codeterm plan task dispatch` sets it from the task's `executor_role` when that role names a builtin leaf.
 
-An unknown id on an authoritative catalogue or a published free-form live list
-is refused before spawn or task dispatch creates a tab. REST spawn returns HTTP
-422 with `error.code` set to `invalid_model`, including `provider`,
-`requested_model`, `closest_model_ids`, and `refresh_command`. A bare id owned by
-multiple providers returns `ambiguous_model` with `ambiguous_providers`; choose
-the provider explicitly. Neither refusal has a transient retry hint. CLI
-`--json` preserves these fields under the error envelope's `data` for spawn,
-dispatch, and team pair.
+`audience` is `user` (default) or `automation`; automation-owned prompts never raise Input-needed notifications. `description` is validated like a tab description, and `reasoning_effort` is never silently downgraded. Routing is **by capability, not identity**: an `agent` matching a `chatBackend` shell id opens an agent shell (`system_prompt`/`preset`/`model` and watcher `mode`/`engine` reach its `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. A `Planner` spawn requires `plan_id` and resolves an omitted parent as the role endpoint does. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general`). `origin_peer` is **never client-supplied**: the mesh relay stamps it from the authenticated sender so a mesh-spawned worker reports back (*Remote mesh workers*). `team_id` + `creator_tab_id` (`codeterm agent spawn --team`) attach a ROLELESS agent to an existing Team: `creator_tab_id` must belong to `team_id`, and the pair is rejected with `role` or `plan_task`. Membership is checked before tab creation, so a refusal leaves nothing behind. Socket `team.adopt_agent` applies the same check to an already-running tab; see API-TRANSPORT. A **roled** Team member (including a replacement Orchestrator) uses `POST /api/teams/{team_id}/members` / socket `team.add_member` (API-TEAMS).
+
+An unknown id on an authoritative catalogue or a published free-form live list is refused before spawn or task dispatch creates a tab. REST spawn returns HTTP 422 with `error.code` set to `invalid_model`, including `provider`, `requested_model`, `closest_model_ids`, and `refresh_command`. A bare id owned by multiple providers returns `ambiguous_model` with `ambiguous_providers`; choose the provider explicitly. Neither refusal has a transient retry hint. CLI `--json` preserves these fields under the error envelope's `data` for spawn, dispatch, and team pair.
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -221,8 +178,7 @@ The worker runs `codeterm agent report "..."` (no `--mesh`/`--tab`); its daemon 
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
 ### Plan-authorized task-less evidence reports
-The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`.
-Authorization is capability-based; role labels grant nothing. An absent caller session is resolved from the exact registered tab only with a matching stored and hook-reported nonce; an explicitly wrong session still refuses. Foreign, unbound, stale/rebound, task-bound, or ungranted callers change no Plan history or report store. A session change requires a fresh owner grant. Registered Planner and task-bound Worker paths are unchanged.
+The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`. Authorization is capability-based; role labels grant nothing. An absent caller session is resolved from the exact registered tab only with a matching stored and hook-reported nonce; an explicitly wrong session still refuses. Foreign, unbound, stale/rebound, task-bound, or ungranted callers change no Plan history or report store. A session change requires a fresh owner grant. Registered Planner and task-bound Worker paths are unchanged.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry (`GET /api/remote-workers`, `remote-workers-changed` event); the sidebar renders it as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
@@ -268,4 +224,4 @@ A failing command returns `{"error": "message", "method": "..."}`; later command
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

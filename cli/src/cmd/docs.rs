@@ -101,8 +101,13 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "API-AGENTS",
-        "Agent, plan, team, and update REST contracts",
+        "Agent restart, model switch, spawn, report, keep-awake, and batch REST contracts",
         "../../../prod-docs/API-AGENTS.md"
+    ),
+    doc!(
+        "API-TEAMS",
+        "Team, Team-bound plan, and task attempt REST contracts",
+        "../../../prod-docs/API-TEAMS.md"
     ),
     doc!(
         "API-TRANSPORT",
