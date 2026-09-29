@@ -50,23 +50,7 @@ pub async fn list_tabs(
     let mut local = result.into_json();
     let isolated_peer = crate::api::auth::isolated_caller_peer_id(&state, &headers);
     if let Some(peer_id) = isolated_peer.as_deref() {
-        let mux = state.svc.mux.read();
-        if let Some(rows) = local.as_array_mut() {
-            rows.retain_mut(|row| {
-                let Some(tab_id) = row.get("id").and_then(serde_json::Value::as_str) else {
-                    return false;
-                };
-                let allowed = mux
-                    .get_tab(tab_id)
-                    .is_some_and(|tab| crate::api::auth::peer_owns_tab(&peer_id, tab));
-                if allowed {
-                    if let Some(object) = row.as_object_mut() {
-                        object.remove("other_workspace_tab_count");
-                    }
-                }
-                allowed
-            });
-        }
+        retain_peer_owned_tab_rows(&state, peer_id, &mut local);
     }
     if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));
@@ -80,6 +64,34 @@ pub async fn list_tabs(
         )
         .await,
     )))
+}
+
+/// Narrows a tab listing to the rows an AgentIsolated peer owns; a non-array
+/// listing is cleared rather than passed through.
+pub(crate) fn retain_peer_owned_tab_rows(
+    state: &AppState,
+    peer_id: &str,
+    listing: &mut serde_json::Value,
+) {
+    let Some(rows) = listing.as_array_mut() else {
+        *listing = serde_json::Value::Array(Vec::new());
+        return;
+    };
+    let mux = state.svc.mux.read();
+    rows.retain_mut(|row| {
+        let Some(tab_id) = row.get("id").and_then(serde_json::Value::as_str) else {
+            return false;
+        };
+        let allowed = mux
+            .get_tab(tab_id)
+            .is_some_and(|tab| crate::api::auth::peer_owns_tab(peer_id, tab));
+        if allowed {
+            if let Some(object) = row.as_object_mut() {
+                object.remove("other_workspace_tab_count");
+            }
+        }
+        allowed
+    });
 }
 
 #[derive(Default, Deserialize)]

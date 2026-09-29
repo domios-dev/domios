@@ -150,35 +150,6 @@ pub(super) fn check_mesh_relay_auth(
     Ok(peer_id)
 }
 
-/// Validate that a relay path won't cause SSRF or bypass the loopback bind.
-/// Rejects paths with userinfo (`@`), protocol schemes, protocol-relative
-/// prefixes, or paths outside `/api/` (the only namespace the relay should
-/// forward to).
-fn validate_relay_path(path: &str) -> Result<(), String> {
-    if !path.starts_with("/api/") {
-        return Err(format!("Relay path must start with /api/: {path}"));
-    }
-    if path.contains('@') {
-        return Err(format!(
-            "Relay path must not contain '@' (SSRF via userinfo): {path}"
-        ));
-    }
-    if path.starts_with("//") {
-        return Err(format!(
-            "Relay path must not start with // (protocol-relative): {path}"
-        ));
-    }
-    // Block explicit scheme prefixes embedded in the path (e.g. /api/http://evil).
-    for scheme in &["http://", "https://", "file://", "ftp://", "data:"] {
-        if path.contains(scheme) {
-            return Err(format!(
-                "Relay path must not contain scheme '{scheme}': {path}"
-            ));
-        }
-    }
-    Ok(())
-}
-
 /// Inject the authenticated originating-peer name into a relayed `/send` body
 /// so the forwarded local send handler can build a peer-qualified source
 /// prefix. No-op for non-send relays. The peer name overrides any body-supplied
@@ -237,9 +208,16 @@ fn tag_relay_spawn_source(
     }
     if let Some(obj) = body.as_object_mut() {
         obj.insert("origin_peer".into(), serde_json::json!(sender_name));
-        if let Some(ownership) = obj.get_mut("ownership").and_then(|v| v.as_object_mut()) {
-            ownership.insert("peer_id".into(), serde_json::json!(sender_id));
-            ownership.insert("peer_name".into(), serde_json::json!(sender_name));
+        let supplied = obj
+            .remove("ownership")
+            .and_then(|value| serde_json::from_value(value).ok());
+        let ownership = crate::api::agent_routes::spawn_ownership::ownership_for_spawning_peer(
+            supplied,
+            sender_id,
+            sender_name,
+        );
+        if let Ok(ownership) = serde_json::to_value(ownership) {
+            obj.insert("ownership".into(), ownership);
         }
         sanitize_cross_peer_parent(obj);
     }
@@ -657,6 +635,11 @@ fn saturated_response() -> crate::mesh::types::RelayResponse {
     )
 }
 
+fn is_tab_listing(method: &str, path: &str) -> bool {
+    method.eq_ignore_ascii_case("GET")
+        && crate::api::access_policy::request_path(path) == "/api/tabs"
+}
+
 /// A logical tab send (POST `.../send`).
 fn is_tab_send(method: &str, path: &str) -> bool {
     let bare = path.split('?').next().unwrap_or(path);
@@ -768,6 +751,7 @@ async fn perform_relay(
 
     validate_relay_path(&cmd.path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
+    let mut isolated_peer = None;
     if sender_id != "local" {
         let (access, protocol_version) = state
             .mesh
@@ -790,7 +774,8 @@ async fn perform_relay(
                 format!("Unsupported method: {}", cmd.method),
             )
         })?;
-        match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body) {
+        let tab_owner = |tab_id: &str| crate::api::auth::tab_owner_peer_id(state, tab_id);
+        match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body, tab_owner) {
             PeerRelayAuthorization::Rejected => {
                 return Ok(relay_failure(
                     StatusCode::FORBIDDEN.as_u16(),
@@ -813,6 +798,9 @@ async fn perform_relay(
                 return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body).await;
             }
             PeerRelayAuthorization::Forward => {}
+        }
+        if access == crate::mesh::types::AccessLevel::AgentIsolated {
+            isolated_peer = Some(sender_id);
         }
     }
 
@@ -867,7 +855,12 @@ async fn perform_relay(
     };
 
     let status = resp.status().as_u16();
-    let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
+    let mut data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
+    if let Some(peer_id) = isolated_peer {
+        if status < 400 && is_tab_listing(&cmd.method, &cmd.path) {
+            crate::api::tab_routes::retain_peer_owned_tab_rows(state, peer_id, &mut data);
+        }
+    }
 
     if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
         let target_tab = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
@@ -1139,7 +1132,9 @@ pub async fn mesh_relay_asset(
     Ok(out)
 }
 
+mod path_guard;
 mod peer_authorization;
+use path_guard::validate_relay_path;
 use peer_authorization::{
     authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
     PeerRelayAuthorization,
@@ -1147,6 +1142,9 @@ use peer_authorization::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod owner_gate_tests;
 
 #[cfg(test)]
 #[path = "relay/sync_access_tests.rs"]
