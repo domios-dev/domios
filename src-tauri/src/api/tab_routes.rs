@@ -47,8 +47,28 @@ pub async fn list_tabs(
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
         })?;
-    let local = result.into_json();
-    if query.local_only {
+    let mut local = result.into_json();
+    let isolated_peer = crate::api::auth::isolated_caller_peer_id(&state, &headers);
+    if let Some(peer_id) = isolated_peer.as_deref() {
+        let mux = state.svc.mux.read();
+        if let Some(rows) = local.as_array_mut() {
+            rows.retain_mut(|row| {
+                let Some(tab_id) = row.get("id").and_then(serde_json::Value::as_str) else {
+                    return false;
+                };
+                let allowed = mux
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| crate::api::auth::peer_owns_tab(&peer_id, tab));
+                if allowed {
+                    if let Some(object) = row.as_object_mut() {
+                        object.remove("other_workspace_tab_count");
+                    }
+                }
+                allowed
+            });
+        }
+    }
+    if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));
     }
     let local = local.as_array().cloned().unwrap_or_default();

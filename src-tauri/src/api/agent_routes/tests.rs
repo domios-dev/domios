@@ -36,6 +36,21 @@ fn spawn_body_minimal() {
 }
 
 #[test]
+fn spawned_tab_owner_uses_authenticated_peer_identity() {
+    let forged = codeterm_types::pty::RemoteOwnership {
+        controller_title: "controller".into(),
+        controller_tab_id: None,
+        peer_id: "forged-peer".into(),
+        peer_name: "Forged".into(),
+        team: None,
+    };
+    let stamped = super::ownership_for_spawning_peer(Some(forged), "signed-peer", "Signed Peer");
+
+    assert_eq!(stamped.peer_id, "signed-peer");
+    assert_eq!(stamped.peer_name, "Signed Peer");
+}
+
+#[test]
 fn spawn_body_empty_object() {
     let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
     assert_eq!(body.agent, None);

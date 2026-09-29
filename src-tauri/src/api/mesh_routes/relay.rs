@@ -7,6 +7,28 @@ use axum::{
     Json,
 };
 
+fn sync_input_for_access<'a>(
+    full_access: bool,
+    sender_id: Option<&str>,
+    peers: &'a [crate::mesh::types::GossipPeerInfo],
+) -> Vec<&'a crate::mesh::types::GossipPeerInfo> {
+    peers
+        .iter()
+        .filter(|peer| full_access || Some(peer.instance_id.as_str()) == sender_id)
+        .collect()
+}
+
+fn sync_output_for_access(
+    full_access: bool,
+    our_id: &str,
+    mut payload: crate::mesh::types::MeshSyncPayload,
+) -> crate::mesh::types::MeshSyncPayload {
+    if !full_access {
+        payload.peers.retain(|peer| peer.instance_id == our_id);
+    }
+    payload
+}
+
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -18,6 +40,10 @@ pub async fn mesh_sync(
         (s, e.to_string())
     })?;
 
+    let access = crate::api::auth::caller_access_level(&state, &headers)
+        .map_err(|(status, message)| (status, message))?;
+    let full_access = access == crate::mesh::types::AccessLevel::Full;
+
     // Re-verify sender token here only to recover authoritative sender_id for peer bookkeeping.
     // If parsing fails, fail soft so new token formats don't disrupt gossip.
     let sender_id = sender_id_from_headers(&state, &headers);
@@ -27,7 +53,13 @@ pub async fn mesh_sync(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    if let Some(voucher) = sender_id.as_deref() {
+    if !full_access {
+        if let Some(voucher) = sender_id.as_deref() {
+            for own_info in sync_input_for_access(false, Some(voucher), &payload.peers) {
+                mesh.apply_gossip_peer_info(own_info);
+            }
+        }
+    } else if let Some(voucher) = sender_id.as_deref() {
         // Log only newly-learned peers — announcing every peer on every gossip
         // exchange once put 550k redundant lines in a single machine's log.
         let known_before = mesh.known_public_keys();
@@ -50,7 +82,8 @@ pub async fn mesh_sync(
     drop(mesh);
 
     let mut mesh = state.mesh.lock();
-    let our_payload = mesh.build_sync_payload();
+    let our_id = mesh.ident.identity.instance_id.clone();
+    let our_payload = sync_output_for_access(full_access, &our_id, mesh.build_sync_payload());
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "mesh-state-changed",
@@ -1114,3 +1147,7 @@ use peer_authorization::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "relay/sync_access_tests.rs"]
+mod sync_access_tests;

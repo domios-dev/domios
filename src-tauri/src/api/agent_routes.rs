@@ -15,48 +15,14 @@ use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 mod model_error;
 mod pair_headers;
+mod spawn_rejection;
+mod spawn_ownership;
 
 pub(super) use pair_headers::create_orchestration_pair;
+pub(crate) use spawn_rejection::SpawnRejection;
+use spawn_ownership::ownership_for_spawning_peer;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
-
-/// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
-/// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
-pub(crate) struct SpawnRejection {
-    status: StatusCode,
-    body: serde_json::Value,
-}
-
-impl IntoResponse for SpawnRejection {
-    fn into_response(self) -> Response {
-        (self.status, Json(self.body)).into_response()
-    }
-}
-
-impl SpawnRejection {
-    pub(crate) fn new(status: StatusCode, code: &str, message: String) -> Self {
-        Self {
-            status,
-            body: serde_json::json!({"ok": false, "error": {"code": code, "message": message}}),
-        }
-    }
-}
-
-impl From<String> for SpawnRejection {
-    fn from(message: String) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            body: serde_json::json!({
-                "ok": false,
-                "error": {
-                    "code": "spawn_failed",
-                    "message": message,
-                    "retry_hint": "transient — retry once; if it persists, fix the spawn request (--role/--plan-task/--cwd) or check the target's health with `codeterm mesh peers`",
-                },
-            }),
-        }
-    }
-}
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -271,6 +237,24 @@ pub async fn spawn_agent(
         })?;
     }
     let require_delivery_ack = body.require_delivery_ack;
+    let spawning_peer = crate::api::auth::caller_peer_id(&state, &headers).map(|peer_id| {
+        let peer_name = state
+            .mesh
+            .lock()
+            .paired_peers
+            .get(&peer_id)
+            .map(|peer| peer.instance_name.clone())
+            .unwrap_or_default();
+        (peer_id, peer_name)
+    });
+    let ownership = match spawning_peer {
+        Some((peer_id, peer_name)) => Some(ownership_for_spawning_peer(
+            body.ownership,
+            &peer_id,
+            &peer_name,
+        )),
+        None => body.ownership,
+    };
     let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
         |(s, m)| SpawnRejection {
             status: s,
@@ -312,7 +296,7 @@ pub async fn spawn_agent(
         spawned_by_tab_id: body.spawned_by_tab_id,
         team_id: body.team_id,
         creator_tab_id: body.creator_tab_id,
-        ownership: body.ownership,
+        ownership,
         model: body.model,
         planned_model: None,
         planned_reasoning_effort: None,
