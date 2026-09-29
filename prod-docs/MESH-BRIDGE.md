@@ -34,7 +34,7 @@ Must run on the **source** machine. Running it through `--mesh PEER` is rejected
 
 ### Secret locality guarantee
 
-Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` from the source machine and never sends it across the wire — `--ensure-token` only ever fires on the daemon that already owns the secret store. This matches the existing local-only contract for `--mesh PEER mem secret …` (which exits `7`) and the daemon's refusal to relay `/api/secrets/*` over mesh transport. Each peer holds its own vault scoped to its own keychain, full stop.
+Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` from the source machine and never sends it across the wire — `--ensure-token` only ever fires on the daemon that already owns the secret store. This matches the existing local-only contract for `--mesh PEER mem secret …` (which exits `7`) and the daemon's refusal to relay `/api/secrets/*` over mesh transport. Each peer holds its own vault scoped to its own local secret store, full stop.
 
 ### Flags
 
@@ -58,4 +58,4 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `6` | Usage error (e.g. ran via `--mesh` — must run on the source machine) |
 | `7` | Split-brain (rollback also failed — manual repair needed) |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
