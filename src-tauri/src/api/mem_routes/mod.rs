@@ -74,6 +74,9 @@ pub(crate) fn validate_item_fields(
             format!("body too large: {} bytes (max 1 MB)", body.len()),
         ));
     }
+    if body.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "body must not be empty".into()));
+    }
     if let Some(a) = area.as_deref() {
         if !a.is_empty() {
             if a.len() > 64 {
@@ -110,6 +113,17 @@ pub(crate) fn validate_item_fields(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod item_validation_tests {
+    use super::validate_item_fields;
+
+    #[test]
+    fn save_rejects_nan_importance_and_empty_body() {
+        assert!(validate_item_fields("valid title", "body", &None, &[], Some(f64::NAN)).is_err());
+        assert!(validate_item_fields("valid title", "  \n", &None, &[], None).is_err());
+    }
 }
 
 /// Reserved `changed_by` prefixes — only the server itself writes these.

@@ -44,7 +44,9 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 - `is_pinned_wakeup` — `0`/`1` flag; pinned items always load in L1 wake-up (subject to budget)
 - `access_count` — incremented on every `get()` call; used by dreaming promotion
 - `accessed_at` / `created_at` / `updated_at`
-- `recurrence_count` — set by dreaming when a topic recurs
+- `recurrence_count` — incremented when `mem save` finds an unchanged normalized body for the same kind and title
+
+`mem save` uses kind plus title as its identity. An unchanged normalized body increments `recurrence_count` and schedules no extraction. A changed body updates the existing row in place and adds the prior body to history. `--replace` also updates in place and preserves the row's uid and creation time.
 - `graph_x` / `graph_y` — persistent graph layout position
 - `seed_fingerprint` — `NULL` unless the item came from a bundled seed (`codeterm-mem/src/seed.rs`). A SHA-256 over every field the seeder manages (kind, scope, title, summary, area, tags, body, importance, source_path, pinned — `source` itself is excluded, it's just the provenance label). `seed_bundled` overwrites the item ONLY when this still matches a freshly computed fingerprint of the stored payload — proof nothing has touched it since the seeder last wrote it. `store::update` clears it to `NULL` atomically, in the same write, whenever any managed field actually changes, so a real edit permanently opts the item out of future bundled refreshes. Never inferred from `mem_item_history`/`changed_by` — those are audit telemetry, not overwrite authority.
 
@@ -175,4 +177,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
