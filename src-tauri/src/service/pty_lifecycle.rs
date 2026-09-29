@@ -349,6 +349,11 @@ fn handle_pty_death_with_cause(
     let Some(ref pid) = tab_id else {
         return PtyDeathOutcome::NoOwningTab;
     };
+    svc.run_watcher.fail_cron_on_process_exit(
+        svc,
+        pty_id,
+        "cron PTY process exited".into(),
+    );
     {
         svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
         svc.settle_restore_report();

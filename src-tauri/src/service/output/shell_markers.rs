@@ -41,9 +41,15 @@ impl ServiceContext {
                 if let Some(proof) = proof {
                     self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
                     let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code, &proof);
-                    let note_surviving_shell_exit = !crate::crash::shutdown::is_shutting_down()
+                    let cron_run_reaped = self.run_watcher.fail_cron_on_process_exit(
+                        self,
+                        pty_id,
+                        "provider process exited to a surviving shell".into(),
+                    );
+                    let note_surviving_shell_exit = !cron_run_reaped
+                        && !crate::crash::shutdown::is_shutting_down()
                         && self.note_provider_exit_in_surviving_shell(tab_id);
-                    if !note_surviving_shell_exit {
+                    if !note_surviving_shell_exit && !cron_run_reaped {
                         self.clear_tab_agent_identity_after_exit_with_proof(
                             tab_id,
                             "provider process exited to a surviving shell",
