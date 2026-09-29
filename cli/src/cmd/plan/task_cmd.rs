@@ -109,20 +109,23 @@ fn render_attempts(value: &Value) -> String {
         let acknowledged_at = render_attempt_timestamp(&attempt, "acknowledged_at");
         let reported_at = render_attempt_timestamp(&attempt, "reported_at");
         let closed_at = render_attempt_timestamp(&attempt, "closed_at");
-        let remote_state = attempt
-            .get("remote_dispatch_state")
-            .and_then(|value| value.as_str())
-            .unwrap_or("-");
-        let remote_lane_tip = attempt
-            .get("remote_lane_tip")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
-        let remote_merge_commit = attempt
-            .get("remote_merge_commit")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let remote_field = |key: &str| {
+            attempt
+                .get(key)
+                .and_then(|value| value.as_str())
+                .map(|value| format!(" {key}={value}"))
+                .unwrap_or_default()
+        };
+        let remote_state = remote_field("remote_dispatch_state");
+        let remote_lane = format!(
+            "{}{}",
+            remote_field("remote_lane_tip"),
+            remote_field("remote_merge_commit")
+        );
         out.push_str(&format!(
-            "attempt_id={id} executor_tab_id={tab} status={status} remote_dispatch_state={remote_state} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}\n  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at} remote_lane_tip={remote_lane_tip} remote_merge_commit={remote_merge_commit} closed_at={closed_at}\n"
+            "attempt_id={id} executor_tab_id={tab} status={status}{remote_state} provider={provider} model={model} requested_model={requested_model} provider_resolved_model={provider_resolved_model} reasoning_effort={reasoning_effort} session_model={session_model}
+  assigned_at={assigned_at} acknowledged_at={acknowledged_at} reported_at={reported_at}{remote_lane} closed_at={closed_at}
+"
         ));
     }
     out
