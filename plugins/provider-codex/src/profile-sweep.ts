@@ -296,6 +296,8 @@ export function sweepCodexProfiles(
   return manageCodexProfiles(host, liveTabIds, instanceId, true, false);
 }
 
+const MAX_SWEEP_REMOVALS = 200;
+
 export function manageCodexProfiles(
   host: ProfileSweepHost,
   liveTabIds: readonly string[],
@@ -306,7 +308,8 @@ export function manageCodexProfiles(
   const candidates = inspectCodexProfiles(host, liveTabIds, instanceId);
   const removed: string[] = [];
   if (!confirm) return { ...candidates, removed };
-  for (const name of [...candidates.dead, ...(includeLegacy ? candidates.legacy : [])]) {
+  const targets = [...candidates.dead, ...(includeLegacy ? candidates.legacy : [])];
+  for (const name of targets.slice(0, MAX_SWEEP_REMOVALS)) {
     const path = profilePath(host, name);
     if (!path) continue;
     const contents = readProfile(host, path);

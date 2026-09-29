@@ -9,6 +9,7 @@ use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 
+mod journal_repair;
 mod permission_auto_confirm;
 
 fn new_journal() -> (TabLifecycleJournal, TempDir) {

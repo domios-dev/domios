@@ -988,6 +988,7 @@ mod tests {
                 checkpoint(20, "corrupt-operation", "claude", None),
             ],
             tail: TailStatus::Intact,
+            duplicate_seqs: 0,
         };
 
         let plan = select_journal_restore(&load, "tab-live", "session-live", "codex").unwrap();
@@ -1019,6 +1020,7 @@ mod tests {
                 checkpoint(20, "parser-operation", "codex", Some(parser_write)),
             ],
             tail: TailStatus::Intact,
+            duplicate_seqs: 0,
         };
 
         let plan = select_journal_restore(&load, "tab-live", "session-live", "codex").unwrap();
@@ -1049,6 +1051,7 @@ mod tests {
                 Some(repair_write),
             )],
             tail: TailStatus::Intact,
+            duplicate_seqs: 0,
         };
 
         let plan = select_journal_restore(&load, "tab-live", "session-live", "codex").unwrap();
