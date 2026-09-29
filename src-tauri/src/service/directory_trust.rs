@@ -714,8 +714,8 @@ impl ServiceContext {
                 .is_some_and(directory_trust_check_applies);
             let eligible = provisioned || SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true);
             match self.provider_directory_trust_response(agent_type, &screen) {
-                Some(DirectoryTrustPromptResponse::Answer { step }) if eligible => {
-                    (step == expected, true)
+                Some(DirectoryTrustPromptResponse::Answer { step }) => {
+                    (eligible && step == expected, true)
                 }
                 _ => (false, false),
             }
@@ -726,7 +726,7 @@ impl ServiceContext {
                 "[directory-trust] Withheld key for Tab {}: the dialog changed before the write",
                 tab_id
             );
-            // A settled dialog may emit no further frame, so re-evaluate once against the current one.
+            // A settled dialog may emit no further frame; respond_to_directory_trust re-decides eligibility.
             if dialog_still_answerable {
                 let service = self.clone();
                 let tab = tab_id.to_string();
