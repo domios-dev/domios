@@ -13939,6 +13939,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Close a Worker that still holds an in-progress task; its Orchestrator is notified with the recovery command",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "required": false,
@@ -14773,9 +14783,19 @@
         },
         {
           "name": "close",
-          "about": "Close every member tab and remove the Team registry entry",
+          "about": "Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force",
           "aliases": [],
           "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged",
+              "aliases": []
+            },
             {
               "name": "team_id",
               "positional": true,
