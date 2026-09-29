@@ -104,6 +104,7 @@ impl PlanStore {
                         | RemoteDispatchState::PeerMissingBase
                         | RemoteDispatchState::PeerOffline
                         | RemoteDispatchState::RelayLost
+                        | RemoteDispatchState::RemoteAckTimeout
                 );
                 if terminal {
                     attempt.closed_at.get_or_insert(now_ms);
@@ -162,6 +163,84 @@ impl PlanStore {
             task.status = crate::plan::TaskStatus::InProgress;
             task.status_changed_at = now_ms;
             task.status_label = Some("acknowledged".into());
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
+    pub fn mark_remote_ack_timeout(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        peer_id: &str,
+        worker_tab_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) else {
+                return Ok(false);
+            };
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.mesh_peer.as_deref() == Some(peer_id)
+                    && attempt.executor_tab_id == worker_tab_id
+                    && attempt.remote_dispatch_state == Some(RemoteDispatchState::AwaitingWorkerAck)
+                    && attempt.acknowledged_at.is_none()
+                    && attempt.closed_at.is_none()
+            }) else {
+                return Ok(false);
+            };
+            attempt.remote_dispatch_state = Some(RemoteDispatchState::RemoteAckTimeout);
+            attempt.closed_at = Some(now_ms);
+            attempt.closure_reason = Some("remote_ack_timeout".into());
+            if task.assigned_tab_id.as_deref() == Some(worker_tab_id) {
+                task.assigned_tab_id = None;
+            }
+            if task.status == TaskStatus::InProgress {
+                task.status = TaskStatus::Pending;
+                task.status_changed_at = now_ms;
+            }
+            task.status_label = Some("remote_ack_timeout".into());
+            task.updated_at = now_ms;
+            Ok(true)
+        })
+    }
+
+    pub fn mark_remote_peer_offline_before_ack(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        peer_id: &str,
+        worker_tab_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) else {
+                return Ok(false);
+            };
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.mesh_peer.as_deref() == Some(peer_id)
+                    && attempt.executor_tab_id == worker_tab_id
+                    && attempt.remote_dispatch_state == Some(RemoteDispatchState::AwaitingWorkerAck)
+                    && attempt.acknowledged_at.is_none()
+                    && attempt.closed_at.is_none()
+            }) else {
+                return Ok(false);
+            };
+            attempt.remote_dispatch_state = Some(RemoteDispatchState::PeerOffline);
+            attempt.closed_at = Some(now_ms);
+            attempt.closure_reason = Some("remote_peer_offline_before_ack".into());
+            if task.assigned_tab_id.as_deref() == Some(worker_tab_id) {
+                task.assigned_tab_id = None;
+            }
+            if task.status == TaskStatus::InProgress {
+                task.status = TaskStatus::Pending;
+                task.status_changed_at = now_ms;
+            }
+            task.status_label = Some("peer_offline".into());
             task.updated_at = now_ms;
             Ok(true)
         })
@@ -523,6 +602,94 @@ mod tests {
         let detail = store.show_task(&task_id).unwrap();
         assert_eq!(
             detail.task.execution_attempts[0].remote_dispatch_state,
+            Some(RemoteDispatchState::PeerOffline)
+        );
+    }
+
+    #[test]
+    fn remote_attempt_ack_deadline_marks_attempt_explicitly() {
+        let (_root, store, plan_id, task_id, attempt_id) = remote_attempt();
+        store
+            .record_remote_dispatch_lane(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "remote-tab-1",
+                "lane/remote-attempt",
+                "D:/peer/repo-worktrees/lane",
+                "base-sha",
+                "codex",
+                4,
+            )
+            .unwrap();
+
+        assert!(store
+            .mark_remote_ack_timeout(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "remote-tab-1",
+                5,
+            )
+            .unwrap());
+        assert!(!store
+            .mark_remote_ack_timeout(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "remote-tab-1",
+                6,
+            )
+            .unwrap());
+
+        let task = store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.status_label.as_deref(), Some("remote_ack_timeout"));
+        assert!(task.assigned_tab_id.is_none());
+        let attempt = &task.execution_attempts[0];
+        assert_eq!(attempt.executor_tab_id, "remote-tab-1");
+        assert_eq!(attempt.remote_dispatch_state, Some(RemoteDispatchState::RemoteAckTimeout));
+        assert_eq!(attempt.closure_reason.as_deref(), Some("remote_ack_timeout"));
+        assert_eq!(attempt.closed_at, Some(5));
+    }
+
+    #[test]
+    fn remote_peer_offline_is_explicit_attempt_state() {
+        let (_root, store, plan_id, task_id, attempt_id) = remote_attempt();
+        store
+            .record_remote_dispatch_lane(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "remote-tab-1",
+                "lane/remote-attempt",
+                "D:/peer/repo-worktrees/lane",
+                "base-sha",
+                "codex",
+                4,
+            )
+            .unwrap();
+        assert!(store
+            .mark_remote_peer_offline_before_ack(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                "peer-origin",
+                "remote-tab-1",
+                5,
+            )
+            .unwrap());
+
+        let task = store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.status_label.as_deref(), Some("peer_offline"));
+        assert!(task.assigned_tab_id.is_none());
+        assert_eq!(
+            task.execution_attempts[0].remote_dispatch_state,
             Some(RemoteDispatchState::PeerOffline)
         );
     }
