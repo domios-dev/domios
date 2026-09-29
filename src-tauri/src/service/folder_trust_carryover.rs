@@ -120,6 +120,15 @@ impl CarrySchedule {
 static SCHEDULE: LazyLock<parking_lot::Mutex<CarrySchedule>> = LazyLock::new(Default::default);
 
 pub(crate) fn owner_trust_prompt_cleared(service: ServiceContext, tab_id: &str, agent_type: &str) {
+    super::directory_trust::invalidate_shared_trust_cache();
+    let cwd = service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.cwd.clone());
+    if let Some(cwd) = cwd {
+        service.respond_to_shared_directory_trust_prompts(&cwd, agent_type);
+    }
     SCHEDULE.lock().arm(tab_id, agent_type);
     start_attempt(service, tab_id.to_string());
 }
