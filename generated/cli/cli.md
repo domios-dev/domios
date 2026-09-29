@@ -1102,7 +1102,7 @@ List all registered skills
 
 #### `codeterm mem skill new`
 
-Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
+Scaffold a new skill folder under <skills-dir>/<name>/ (skills/ in the active instance data dir), write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
 
 - `--area` — Optional area tag to put in the frontmatter
 - `<name>` — Skill slug (also folder name). Use kebab-case
