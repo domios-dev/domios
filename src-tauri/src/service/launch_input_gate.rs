@@ -382,7 +382,10 @@ impl ServiceContext {
                     codeterm_plugin::provider::DirectoryTrustState::Unknown,
                     |path| {
                         provider
-                            .directory_trust_state(path, skip_permissions)
+                            .directory_trust_state(
+                                &codeterm_paths::strip_verbatim_prefix(path),
+                                skip_permissions,
+                            )
                             .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
                     },
                 );

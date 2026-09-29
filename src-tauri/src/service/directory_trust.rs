@@ -341,9 +341,9 @@ impl ServiceContext {
         let path = cwd.to_string();
         let cache_key = key.clone();
         std::thread::spawn(move || {
-            let result = service
-                .agent_registry
-                .with_provider(&agent, |provider| provider.is_directory_trusted(&path));
+            let result = service.agent_registry.with_provider(&agent, |provider| {
+                provider.is_directory_trusted(&codeterm_paths::strip_verbatim_prefix(&path))
+            });
             let trusted = match result {
                 Some(Ok(trusted)) => trusted,
                 Some(Err(error)) => {
