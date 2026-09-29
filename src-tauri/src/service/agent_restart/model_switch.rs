@@ -313,7 +313,7 @@ impl ServiceContext {
         .map_err(ModelSwitchError::InvalidModel)?;
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
         let session_id = self.verified_resumable_session(&snap)?;
-        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+        if !self.tab_is_idle(&snap.tab_id) {
             return Err(ModelSwitchError::NotSwitchable(
                 "the agent is mid-turn or waiting on a prompt; switch its model once it is idle"
                     .to_string(),

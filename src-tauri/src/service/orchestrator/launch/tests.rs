@@ -3,6 +3,8 @@ use super::startup_readiness::{
     first_turn_binding_required, input_ready_stage_after_provider_ready,
     launch_waits_for_first_turn_binding,
 };
+#[path = "tests/relaunch_supervision.rs"]
+mod relaunch_supervision;
 #[path = "tests/structural_wait.rs"]
 mod structural_wait;
 use super::{
