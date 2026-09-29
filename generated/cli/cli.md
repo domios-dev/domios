@@ -2964,6 +2964,7 @@ Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 Close a tab by ID
 
+- `--force` — Close a Worker that still holds an in-progress task; its Orchestrator is notified with the recovery command
 - `<id>` — Temporary positional alias for the tab id. Prefer --tab
 - `--tab` — Tab ID to close
 
@@ -3153,8 +3154,9 @@ Attach the one optional Cartographer Manager to a Team
 
 #### `codeterm team close`
 
-Close every member tab and remove the Team registry entry
+Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force
 
+- `--force` — Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged
 - `<team_id>` — Team ID
 
 #### `codeterm team list`
