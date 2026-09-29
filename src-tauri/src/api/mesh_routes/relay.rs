@@ -306,96 +306,6 @@ fn default_relay_method() -> String {
     "GET".to_string()
 }
 
-/// No paired record at all for this id/name — distinct from [`PEER_UNROUTABLE_REASON`],
-/// which means the record exists but `client_for` couldn't build a route to it.
-pub const PEER_NOT_PAIRED_REASON: &str = "peer_not_paired";
-/// The paired record exists, but `MeshManager::client_for` found no route.
-/// Keep this distinct from a missing record (codeterm#368).
-pub const PEER_UNROUTABLE_REASON: &str = "peer_unroutable";
-/// A name matched one or more paired records, but none is online — refusing
-/// to guess between them (codeterm#434). Distinct from [`PEER_NOT_PAIRED_REASON`]
-/// (no record at all) and from the per-peer protocol mismatch below (exactly
-/// one online-but-outdated record).
-pub const PEER_NAME_NO_ONLINE_RECORD_REASON: &str = "peer_name_no_online_record";
-
-fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
-    (
-        StatusCode::NOT_FOUND,
-        format!("{PEER_NOT_PAIRED_REASON}: {target} is not a paired peer"),
-    )
-}
-
-fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        format!(
-            "{PEER_UNROUTABLE_REASON}: peer {peer_name} is paired but has no reachable address"
-        ),
-    )
-}
-
-/// Refusal for a name that matched only offline/dead records. Names EVERY
-/// candidate considered (both a live-turned-offline duplicate and any stale
-/// leftover) plus the id form of the same relay call, as structured JSON —
-/// never bake this into prose a caller would have to pattern-match.
-fn peer_name_no_online_record_error(
-    name: &str,
-    candidates: &[crate::mesh::paired_resolve::PairedNameCandidate],
-) -> (StatusCode, String) {
-    let mut candidates: Vec<_> = candidates.to_vec();
-    candidates.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
-    let body = serde_json::json!({
-        "reason": PEER_NAME_NO_ONLINE_RECORD_REASON,
-        "name": name,
-        "candidates": candidates.iter().map(|c| serde_json::json!({
-            "instance_id": c.instance_id,
-            "online": c.online,
-            "relay_protocol_version": c.relay_protocol_version,
-            "route_by_id": { "target_peer_id": c.instance_id },
-        })).collect::<Vec<_>>(),
-    });
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        serde_json::to_string(&body).unwrap_or_else(|_| PEER_NAME_NO_ONLINE_RECORD_REASON.into()),
-    )
-}
-
-/// Resolve a paired target while preserving missing, incompatible, and
-/// currently-unroutable refusal states. Name resolution over duplicate
-/// records sharing an `instance_name` prefers the online, highest-protocol
-/// record deterministically (codeterm#434) — see
-/// [`crate::mesh::paired_resolve::resolve_paired_by_name`].
-fn resolve_relay_peer(
-    mesh: &crate::mesh::MeshManager,
-    target: &str,
-) -> Result<(crate::mesh::transport::PeerClient, String, Option<String>), (StatusCode, String)> {
-    let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, target)
-        .map_err(|error| match error {
-            crate::mesh::paired_resolve::ResolvePairedError::NotFound => {
-                peer_not_paired_error(target)
-            }
-            crate::mesh::paired_resolve::ResolvePairedError::NoOnlineCandidate {
-                name,
-                candidates,
-            } => peer_name_no_online_record_error(&name, &candidates),
-        })?;
-    if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
-        return Err((
-            StatusCode::UPGRADE_REQUIRED,
-            format!(
-                "Peer {} uses incompatible Mesh relay protocol {}",
-                peer.instance_name, peer.relay_protocol_version
-            ),
-        ));
-    }
-    let name = peer.instance_name.clone();
-    let version = peer.version.clone();
-    let client = mesh
-        .client_for(&peer.instance_id)
-        .ok_or_else(|| peer_unroutable_error(&name))?;
-    Ok((client, name, version))
-}
-
 fn is_recurring_delayed_relay(method: &str, path: &str, body: &serde_json::Value) -> bool {
     let bare = path.split('?').next().unwrap_or(path);
     let is_create = method.eq_ignore_ascii_case("POST")
@@ -496,11 +406,20 @@ pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(req): Json<PeerRelayCommand>,
-) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
+) -> Result<Json<PeerRelayResponse>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let (client, peer_name, peer_version) = {
+    let (client, peer_id, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?
+    };
+    let answered_by = |response| {
+        Json(PeerRelayResponse {
+            response,
+            peer: AnsweringPeer {
+                instance_id: peer_id.clone(),
+                instance_name: peer_name.clone(),
+            },
+        })
     };
     if is_recurring_delayed_relay(&req.method, &req.path, &req.body) {
         let identify = client.auth_get_json("/api/identify").await.ok();
@@ -509,7 +428,7 @@ pub async fn mesh_relay_to_peer(
             identify.as_ref(),
             peer_version.as_deref(),
         ) {
-            return Ok(Json(refusal));
+            return Ok(answered_by(refusal));
         }
     }
     crate::api::mesh_attachment::guard_remote_send_on_host(&req.method, &req.path, &req.body)
@@ -529,7 +448,7 @@ pub async fn mesh_relay_to_peer(
     let resp = match client.send_relay(&cmd).await {
         Ok(resp) => resp,
         Err(err) => {
-            return Ok(Json(relay_failure(
+            return Ok(answered_by(relay_failure(
                 err.http_status(),
                 err.code(),
                 err.bytes_written(),
@@ -559,7 +478,7 @@ pub async fn mesh_relay_to_peer(
         }
     }
 
-    Ok(Json(resp))
+    Ok(answered_by(resp))
 }
 
 pub async fn mesh_relay(
@@ -1133,12 +1052,25 @@ pub async fn mesh_relay_asset(
 }
 
 mod path_guard;
+mod peer_resolution;
 mod peer_authorization;
 use path_guard::validate_relay_path;
+use peer_resolution::{
+    peer_not_paired_error, peer_unroutable_error, resolve_relay_peer, AnsweringPeer,
+    PeerRelayResponse,
+};
+#[cfg(test)]
+use peer_resolution::{
+    PEER_NAME_AMBIGUOUS_REASON, PEER_NAME_NO_ONLINE_RECORD_REASON, PEER_NOT_PAIRED_REASON,
+    PEER_UNROUTABLE_REASON,
+};
 use peer_authorization::{
     authorize_peer_relay, close_workspace_from_mesh_peer, mesh_rpc_from_mesh_peer,
     PeerRelayAuthorization,
 };
+
+#[cfg(test)]
+mod peer_resolution_tests;
 
 #[cfg(test)]
 mod tests;

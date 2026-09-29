@@ -1,5 +1,13 @@
 //! Relay local API calls to a paired peer via signed /api/mesh/relay POSTs.
 
+mod classify;
+use classify::classify_relay_answer;
+#[cfg(test)]
+use classify::classify_relay_response;
+#[cfg(test)]
+pub(crate) use classify::tailscale_unreachable_hint;
+pub(crate) use classify::{AnsweringPeer, RefusalClass, RelayAnswer};
+
 #[cfg(test)]
 use super::compat::{
     dialect_from_identify, request_for_dialect, response_for_dialect, MeshApiDialect,
@@ -105,6 +113,9 @@ pub(crate) struct MeshSpawnFailure {
     /// `Some(false)` nothing landed, `Some(true)` the payload reached the target
     /// PTY, `None` the outcome is unknown — never read absence as "nothing".
     pub(crate) bytes_written: Option<bool>,
+    /// Whether an identical retry can ever succeed; `None` when never classified.
+    pub(crate) class: Option<RefusalClass>,
+    pub(crate) peer_id: Option<String>,
 }
 
 impl MeshSpawnFailure {
@@ -115,7 +126,27 @@ impl MeshSpawnFailure {
             retry_hint: retry_hint.into(),
             code: None,
             bytes_written: None,
+            class: None,
+            peer_id: None,
         }
+    }
+
+    /// A refusal decided before anything was sent: nothing landed, and the same request will be refused again.
+    pub(crate) fn refused_before_send(
+        peer: &str,
+        code: &str,
+        reason: impl Into<String>,
+        retry_hint: impl Into<String>,
+    ) -> Self {
+        let mut failure = Self::new(peer, reason, retry_hint).with_delivery(Some(code.to_string()), Some(false));
+        failure.class = Some(RefusalClass::Deterministic);
+        failure
+    }
+
+    fn answered_by(mut self, peer: Option<&AnsweringPeer>, class: RefusalClass) -> Self {
+        self.peer_id = peer.map(|p| p.instance_id.clone());
+        self.class = Some(class);
+        self
     }
 
     fn with_delivery(mut self, code: Option<String>, bytes_written: Option<bool>) -> Self {
@@ -135,6 +166,12 @@ impl MeshSpawnFailure {
         }
         if let Some(written) = self.bytes_written {
             error["bytes_written"] = serde_json::json!(written);
+        }
+        if let Some(class) = self.class {
+            error["class"] = serde_json::json!(class.as_str());
+        }
+        if let Some(peer_id) = &self.peer_id {
+            error["peer_id"] = serde_json::json!(peer_id);
         }
         serde_json::json!({ "ok": false, "error": error })
     }
@@ -157,220 +194,6 @@ impl MeshSpawnFailure {
 impl std::fmt::Display for MeshSpawnFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{}: {}", self.peer, self.reason)
-    }
-}
-
-/// Fallback next-step hint by HTTP status class, used when the peer's
-/// response carries no `retry_hint` of its own.
-fn generic_retry_hint(status: u16) -> String {
-    match status {
-        429 => "rate limited — back off and retry shortly".to_string(),
-        500..=599 => {
-            "transient — retry once; if it repeats, check the peer daemon is up (`codeterm mesh peers`)"
-                .to_string()
-        }
-        400..=499 => "request rejected — verify the requested peer, tab, and operation".to_string(),
-        _ => "retry the spawn".to_string(),
-    }
-}
-
-fn is_cgnat_ip(token: &str) -> bool {
-    let octets: Vec<&str> = token.split('.').collect();
-    if octets.len() != 4 {
-        return false;
-    }
-    let parsed: Option<Vec<u8>> = octets.iter().map(|o| o.parse::<u8>().ok()).collect();
-    matches!(parsed.as_deref(), Some([100, second, _, _]) if (64..=127).contains(second))
-}
-
-// A relay failure that names a Tailscale address (100.64/10 CGNAT or *.ts.net)
-// usually means the local Tailscale path dropped, not that the peer is down.
-pub(crate) fn tailscale_unreachable_hint(text: &str) -> Option<String> {
-    let ts_dns = text.contains(".ts.net");
-    let cgnat = text
-        .split(|c: char| !c.is_ascii_digit() && c != '.')
-        .any(is_cgnat_ip);
-    (ts_dns || cgnat).then(|| {
-        "the peer is a Tailscale address that timed out — Tailscale may have dropped the path (the \
-         peer is likely fine). Try `tailscale ping <peer>` or restart Tailscale on this machine, \
-         then confirm the peer is up."
-            .to_string()
-    })
-}
-
-/// The peer's own delivery verdict, read off the relayed body.
-#[derive(Default)]
-struct PeerVerdict {
-    code: Option<String>,
-    /// Three-valued: absent means unknown, never zero.
-    bytes_written: Option<bool>,
-    message: Option<String>,
-}
-
-fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
-    let Some(error) = data.get("error").filter(|e| e.is_object()) else {
-        return PeerVerdict::default();
-    };
-    let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
-    PeerVerdict {
-        code: text("code"),
-        bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),
-        message: text("message"),
-    }
-}
-
-/// What a caller may safely do next, given what the payload is known to have
-/// done. An unknown outcome is never advertised as a free retry.
-fn delivery_retry_hint(
-    data: &serde_json::Value,
-    code: Option<&str>,
-    bytes_written: Option<bool>,
-    status: u16,
-) -> String {
-    if code == Some("peer_lacks_delayed_recurrence") {
-        return "update the peer or send a one-shot explicitly".to_string();
-    }
-    if let Some(hint) = data
-        .get("error")
-        .and_then(|e| e.get("retry_hint"))
-        .and_then(|v| v.as_str())
-    {
-        return hint.to_string();
-    }
-    match (code, bytes_written) {
-        (Some(_), Some(true)) => "the payload already reached the target PTY — check the target \
-             before resending; a retry may deliver it twice"
-            .to_string(),
-        (Some(_), Some(false)) => {
-            "nothing was written to the target — safe to retry once".to_string()
-        }
-        (Some(_), None) => "the delivery outcome is unknown — confirm on the target before \
-             resending; a blind retry may deliver it twice"
-            .to_string(),
-        _ => generic_retry_hint(status),
-    }
-}
-
-/// Classify a completed relay response into success data or a structured
-/// failure. Pure — no I/O, no process exit — so tests can drive it directly.
-fn classify_relay_response(
-    peer_name: &str,
-    relayed: (&str, &str),
-    status: reqwest::StatusCode,
-    bytes: &[u8],
-) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let val: serde_json::Value = serde_json::from_slice(bytes).unwrap_or(serde_json::Value::Null);
-
-    // A local relay refusal can itself be JSON without being a RelayResponse.
-    if !status.is_success() && val.get("ok").is_none() {
-        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-        let peer_offline = val.get("reason").and_then(serde_json::Value::as_str)
-            == Some("peer_name_no_online_record");
-        let reason = if peer_offline {
-            format!(
-                "peer_offline: no online mesh route for {}",
-                val.get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(peer_name)
-            )
-        } else if preview.trim().is_empty() {
-            format!("HTTP {}", status.as_u16())
-        } else {
-            format!("HTTP {}: {}", status.as_u16(), preview.trim())
-        };
-        let mut retry = if peer_offline {
-            "bring the peer online, then retry".to_string()
-        } else {
-            relay_retry_hint(relayed, status.as_u16())
-        };
-        if status.as_u16() >= 500 {
-            if let Some(ts) = tailscale_unreachable_hint(&preview) {
-                retry.push_str("\nhint: ");
-                retry.push_str(&ts);
-            }
-        }
-        return Err(MeshSpawnFailure::new(peer_name, reason, retry));
-    }
-
-    let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
-    let PeerVerdict {
-        code,
-        bytes_written,
-        message,
-    } = peer_delivery_verdict(&data);
-    let envelope_status = val
-        .get("status")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(status.as_u16() as u64) as u16;
-
-    // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.
-    if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-        let reason = val
-            .get("error")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .or_else(|| match (&code, &message) {
-                (Some(code), Some(message)) => Some(format!("{code}: {message}")),
-                (Some(code), None) => Some(code.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| format!("HTTP {envelope_status}"));
-        let hint = route_retry_hint(
-            relayed,
-            &data,
-            code.as_deref(),
-            bytes_written,
-            envelope_status,
-        );
-        return Err(
-            MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
-        );
-    }
-
-    // On a send the peer's own body is the only delivery evidence, so its `ok: false` outranks an accepting envelope.
-    let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
-    if is_send_relay(relayed.0, relayed.1) && peer_refused {
-        let reason = match (&code, &message) {
-            (Some(code), Some(message)) => format!("{code}: {message}"),
-            (Some(code), None) => code.clone(),
-            (None, Some(message)) => message.clone(),
-            _ => format!("peer did not confirm delivery (HTTP {envelope_status})"),
-        };
-        let hint = route_retry_hint(
-            relayed,
-            &data,
-            code.as_deref(),
-            bytes_written,
-            envelope_status,
-        );
-        return Err(
-            MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
-        );
-    }
-
-    Ok(data)
-}
-
-fn relay_retry_hint(relayed: (&str, &str), status: u16) -> String {
-    let path = relayed.1.split('?').next().unwrap_or(relayed.1);
-    if status == 404 && relayed.0.eq_ignore_ascii_case("GET") && path.ends_with("/text") {
-        "the tab has no PTY; choose a PTY-backed tab".to_string()
-    } else {
-        generic_retry_hint(status)
-    }
-}
-
-fn route_retry_hint(
-    relayed: (&str, &str),
-    data: &serde_json::Value,
-    code: Option<&str>,
-    bytes_written: Option<bool>,
-    status: u16,
-) -> String {
-    if code.is_none() && data.get("error").is_none() {
-        relay_retry_hint(relayed, status)
-    } else {
-        delivery_retry_hint(data, code, bytes_written, status)
     }
 }
 
@@ -441,14 +264,14 @@ fn perform_compatible_mesh_relay_call(
     .map(|value| response_for_dialect(dialect, value))
 }
 
-/// Resolve a peer (refreshing once on miss), sign, and relay — returning a
-/// structured failure instead of exiting so callers can decide what to do.
-pub(crate) fn mesh_relay_invoke_result(
+/// Resolve a peer (refreshing once on miss), sign, and relay — returning the
+/// answer with the peer that produced it, or a structured failure.
+pub(crate) fn mesh_relay_invoke_answered(
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
-) -> Result<serde_json::Value, MeshSpawnFailure> {
+) -> Result<RelayAnswer, MeshSpawnFailure> {
     let local = crate::build_local_api().map_err(|error| {
         MeshSpawnFailure::new(
             target,
@@ -477,22 +300,52 @@ pub(crate) fn mesh_relay_invoke_result(
         })?;
     let status = response.status();
     let bytes = response.bytes().unwrap_or_default();
-    classify_relay_response(target, (method, path), status, &bytes)
+    classify_relay_answer(target, (method, path), status, &bytes)
 }
 
-/// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
-/// the shared entry point for callers that don't need the Result themselves.
-pub(crate) fn mesh_relay_invoke(
+/// Data-only view of [`mesh_relay_invoke_answered`] for callers that do not
+/// report which peer answered.
+pub(crate) fn mesh_relay_invoke_result(
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    mesh_relay_invoke_answered(target, method, path, body).map(|answer| answer.data)
+}
+
+/// Like `mesh_relay_invoke_answered`, but prints and exits(1) on failure.
+pub(crate) fn mesh_relay_invoke_with_peer(
     target: &str,
     method: &str,
     path: &str,
     body: Option<&str>,
     json_mode: bool,
-) -> serde_json::Value {
-    match mesh_relay_invoke_result(target, method, path, body) {
-        Ok(data) => data,
+) -> RelayAnswer {
+    match mesh_relay_invoke_answered(target, method, path, body) {
+        Ok(answer) => answer,
         Err(failure) => failure.print_and_exit(json_mode),
     }
+}
+
+/// Name the answering peer on stderr in human mode, when the caller addressed
+/// it by something other than its exact id.
+pub(crate) fn announce_answering_peer(target: &str, peer: Option<&AnsweringPeer>) {
+    if let Some(peer) = peer.filter(|p| p.instance_id != target) {
+        eprintln!("answered by {} ({})", peer.instance_name, peer.short_id());
+    }
+}
+
+/// Add `answered_by` to an object result; other shapes are left untouched so a
+/// bare-array consumer never breaks.
+pub(crate) fn with_answering_peer(
+    mut data: serde_json::Value,
+    peer: Option<&AnsweringPeer>,
+) -> serde_json::Value {
+    if let (Some(object), Some(peer)) = (data.as_object_mut(), peer) {
+        object.insert("answered_by".into(), peer.to_json());
+    }
+    data
 }
 
 #[cfg(test)]
@@ -594,12 +447,17 @@ pub fn mesh_relay_generic(
     body: Option<&str>,
     json_mode: bool,
 ) {
-    let data = mesh_relay_invoke(target, method, path, body, json_mode);
+    let RelayAnswer { data, peer } =
+        mesh_relay_invoke_with_peer(target, method, path, body, json_mode);
 
     if json_mode {
         // Unwrap envelope so `--json` output matches local CLI shape.
+        let data = with_answering_peer(data, peer.as_ref());
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
-    } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+        return;
+    }
+    announce_answering_peer(target, peer.as_ref());
+    if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
         // /tabs/<id>/output returns {"text": "..."} — print raw.
         print!("{}", text);
     } else if data.is_null() {
@@ -820,6 +678,9 @@ pub(crate) fn test_close_failure() -> MeshSpawnFailure {
 
 #[cfg(test)]
 mod delivery_classification_tests;
+
+#[cfg(test)]
+mod verdict_tests;
 
 #[cfg(test)]
 mod mesh_spawn_failure_tests {

@@ -133,6 +133,16 @@ fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
     );
 }
 
+#[test]
+fn mesh_refusal_classification_spawn_string_error_is_never_promised_transient() {
+    let rejection = SpawnRejection::from("Unknown agent provider: 'x'".to_string());
+    let error = rejection.body.get("error").expect("error object present");
+    assert_eq!(
+        error.get("class").and_then(|v| v.as_str()),
+        Some(super::spawn_rejection::SPAWN_REFUSAL_CLASS_UNCLASSIFIED)
+    );
+}
+
 #[tokio::test]
 async fn unknown_authoritative_model_returns_structured_422_without_retry_hint() {
     let provider = BinaryProvider::new("rest-catalogue", "rest-catalogue", None)
