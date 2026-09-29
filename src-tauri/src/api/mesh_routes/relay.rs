@@ -777,6 +777,9 @@ async fn perform_relay(
             } => {
                 return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force).await;
             }
+            PeerRelayAuthorization::MeshRpc { peer_id } => {
+                return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body).await;
+            }
             PeerRelayAuthorization::Forward => {}
         }
     }
@@ -878,6 +881,9 @@ enum PeerRelayAuthorization<'a> {
         workspace_id: &'a str,
         force: bool,
     },
+    MeshRpc {
+        peer_id: &'a str,
+    },
     Forward,
 }
 
@@ -891,6 +897,9 @@ fn authorize_peer_relay<'a>(
     if !check_access(access, method, path) {
         return PeerRelayAuthorization::Rejected;
     }
+    if *method == Method::POST && path == "/api/mesh/rpc" {
+        return PeerRelayAuthorization::MeshRpc { peer_id };
+    }
     match workspace_close_target(method, path) {
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
             peer_id,
@@ -899,6 +908,28 @@ fn authorize_peer_relay<'a>(
         },
         None => PeerRelayAuthorization::Forward,
     }
+}
+
+async fn mesh_rpc_from_mesh_peer(
+    state: &AppState,
+    peer_id: &str,
+    body: &serde_json::Value,
+) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
+    let request: super::rpc::MeshRpcRequest =
+        serde_json::from_value(body.clone()).map_err(|error| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid mesh RPC body: {error}"),
+            )
+        })?;
+    let peer_id = peer_id.to_string();
+    let response = super::rpc::handle_mesh_rpc(state, request, move || Ok(peer_id)).await;
+    Ok(crate::mesh::types::RelayResponse {
+        ok: true,
+        status: StatusCode::OK.as_u16(),
+        data: Some(serde_json::to_value(response).unwrap_or(serde_json::Value::Null)),
+        error: None,
+    })
 }
 
 fn relay_workspace_close_force(body: &serde_json::Value) -> bool {

@@ -114,39 +114,55 @@ pub async fn mesh_rpc(
     headers: HeaderMap,
     Json(request): Json<MeshRpcRequest>,
 ) -> Json<MeshRpcResponse> {
+    let auth_state = state.clone();
+    Json(
+        handle_mesh_rpc(&state, request, move || {
+            super::relay::check_mesh_relay_auth(&auth_state, &headers)
+        })
+        .await,
+    )
+}
+
+/// `authenticate` names the signed sender; a relay passes the sender it already verified,
+/// because its loopback re-sign would otherwise present this instance as the caller.
+pub(super) async fn handle_mesh_rpc(
+    state: &AppState,
+    request: MeshRpcRequest,
+    authenticate: impl FnOnce() -> Result<String, (axum::http::StatusCode, String)>,
+) -> MeshRpcResponse {
     if request.request_id.is_empty() || request.request_id.len() > 128 {
-        return Json(MeshRpcResponse {
+        return MeshRpcResponse {
             result: None,
             error: Some(crate::socket::server::JsonRpcError {
                 code: -32602,
                 message: "request_id must contain 1 to 128 characters".to_string(),
                 data: None,
             }),
-        });
+        };
     }
     if let Some(error) = protocol::version_skew_gate(
         protocol::client_protocol_version(request.protocol_version.as_ref()),
         protocol::PROTOCOL_VERSION,
         protocol::RECOVERY_COMMAND,
     ) {
-        return Json(MeshRpcResponse {
+        return MeshRpcResponse {
             result: None,
             error: Some(error),
-        });
+        };
     }
     let (entry, owns_dispatch) = response_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .acquire(request.request_id);
     if !owns_dispatch {
-        return Json(entry.wait().await);
+        return entry.wait().await;
     }
 
     let authenticated_peer = if matches!(
         request.method.as_str(),
         "plan.task.remote_ack" | "plan.task.remote_report"
     ) {
-        match super::relay::check_mesh_relay_auth(&state, &headers) {
+        match authenticate() {
             Ok(peer_id)
                 if state
                     .mesh
@@ -166,7 +182,7 @@ pub async fn mesh_rpc(
                         data: None,
                     }),
                 });
-                return Json(entry.wait().await);
+                return entry.wait().await;
             }
             Err((_, message)) => {
                 entry.complete(MeshRpcResponse {
@@ -177,7 +193,7 @@ pub async fn mesh_rpc(
                         data: None,
                     }),
                 });
-                return Json(entry.wait().await);
+                return entry.wait().await;
             }
         }
     } else {
@@ -227,7 +243,7 @@ pub async fn mesh_rpc(
     };
 
     entry.complete(response.clone());
-    Json(response)
+    response
 }
 
 fn sanitize_remote_context(params: &mut Option<serde_json::Value>) {
@@ -382,6 +398,40 @@ mod tests {
                     error.message
                 );
             }
+        }
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
+    #[tokio::test]
+    async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        for (access, full) in [
+            (crate::mesh::types::AccessLevel::Full, true),
+            (crate::mesh::types::AccessLevel::ReadOnly, false),
+        ] {
+            let (peer, _) = remote_peer(access);
+            let peer_id = peer.instance_id.clone();
+            let state = app_state(&fixture, Some(peer));
+            let response = super::handle_mesh_rpc(
+                &state,
+                super::MeshRpcRequest {
+                    method: "plan.task.remote_ack".into(),
+                    params: Some(serde_json::json!({})),
+                    request_id: format!("relayed-{full}"),
+                    protocol_version: Some(serde_json::json!(
+                        crate::socket::server::protocol::PROTOCOL_VERSION
+                    )),
+                },
+                move || Ok(peer_id),
+            )
+            .await;
+            let message = response.error.expect("empty params still refuse").message;
+            assert_eq!(
+                message.contains("requires Full mesh access"),
+                !full,
+                "{message}"
+            );
         }
     }
 

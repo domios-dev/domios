@@ -178,6 +178,22 @@ fn caller_fields_in_relay_body_cannot_forge_mesh_provenance() {
 }
 
 #[test]
+fn relayed_mesh_rpc_keeps_the_verified_sender() {
+    assert_eq!(
+        authorize_peer_relay(
+            "signed-peer",
+            &crate::mesh::types::AccessLevel::Full,
+            &Method::POST,
+            "/api/mesh/rpc",
+            &serde_json::Value::Null
+        ),
+        PeerRelayAuthorization::MeshRpc {
+            peer_id: "signed-peer"
+        }
+    );
+}
+
+#[test]
 fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     let access = crate::mesh::types::AccessLevel::Full;
     for (method, path) in [
