@@ -9,6 +9,8 @@
 //! schedule helpers re-exported so callers keep using `cron::store::compute_next_run`
 //! (and friends) unchanged.
 
+#[cfg(test)]
+mod corruption_tests;
 mod crud;
 mod schedule;
 mod tabs;
@@ -16,8 +18,7 @@ mod tabs;
 mod tests;
 
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,7 @@ pub use schedule::{
 };
 
 use crate::cron::clock::{system_clock, SharedClock};
+use crate::persisted_state::{Loaded, StateFile};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CronRunStatus {
@@ -169,14 +171,13 @@ impl CronStore {
         Self::load(path, clock)
     }
 
+    /// A crons.json that fails to load is preserved and recovered from backup;
+    /// without one the store runs on an empty in-memory file and every save is
+    /// refused, so built-in jobs are merged in memory only.
     fn load(file_path: PathBuf, clock: SharedClock) -> Self {
-        let file = if file_path.exists() {
-            match fs::read_to_string(&file_path) {
-                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-                Err(_) => CronFile::default(),
-            }
-        } else {
-            CronFile::default()
+        let file = match state_file(&file_path).load(parse_cron_file) {
+            Loaded::Parsed(file) | Loaded::Recovered { value: file, .. } => file,
+            Loaded::Missing | Loaded::Unrecoverable { .. } => CronFile::default(),
         };
         Self {
             file,
@@ -194,8 +195,20 @@ impl CronStore {
 
     pub fn save(&self) -> Result<(), String> {
         let json = serde_json::to_string_pretty(&self.file).map_err(|e| e.to_string())?;
-        fs::write(&self.file_path, json).map_err(|e| e.to_string())
+        state_file(&self.file_path).save(&json)
     }
+}
+
+fn state_file(path: &Path) -> StateFile {
+    StateFile::new(path).with_validator(validate_cron_file)
+}
+
+fn parse_cron_file(text: &str) -> Result<CronFile, String> {
+    serde_json::from_str(text).map_err(|error| error.to_string())
+}
+
+fn validate_cron_file(text: &str) -> Result<(), String> {
+    parse_cron_file(text).map(|_| ())
 }
 
 #[derive(Debug, Clone, Deserialize)]

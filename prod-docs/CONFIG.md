@@ -207,6 +207,28 @@ codeterm config get                            # no key → dump the whole redac
 
 Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Changes are saved to disk immediately and trigger a `config-changed` event.
 
+## When config.toml fails to load
+
+A `config.toml` that cannot be read or parsed is never treated as empty and never
+overwritten:
+
+1. The original is renamed to `config.toml.corrupt-<UTC timestamp>` next to it
+   (the newest 5 are kept), one ERROR line names the file and the parse error,
+   and one action-needed notification names the kept copy.
+2. Every successful save also writes a rotating backup under
+   `state-backups/config.toml/` (the newest 10 are kept). The newest backup that
+   parses is restored to `config.toml`, so the API token and `agent.full_access`
+   come from it.
+3. With no valid backup CodeTerm runs on defaults in memory and writes nothing
+   to `config.toml`: every save is refused until you fix the file or put a
+   valid one back, which is picked up without a restart. The API token is never
+   regenerated after a parse error; the token and `agent.full_access` are read
+   from the broken file's intact lines when possible, and otherwise
+   token-authenticated API calls are refused until the file is fixed.
+
+A save that finds a hand-edited `config.toml` which no longer parses preserves
+it the same way before writing.
+
 ## General Agent
 
 The General Agent is an always-on Claude Code instance that lives in the "General" workspace. It handles Telegram messages, cron tasks, and acts as the default orchestrator.
