@@ -1128,6 +1128,7 @@ mod find_session;
 mod manifest_launch_template;
 mod model_groups;
 mod opencode;
+mod opencode_usage_bounds;
 mod reasoning_efforts;
 mod record_identity;
 mod resume_first_turn;

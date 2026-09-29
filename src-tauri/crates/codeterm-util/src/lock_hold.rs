@@ -66,11 +66,12 @@ mod imp {
             }
         }
         pub fn lock(&self) -> TimedGuard<MutexGuard<'_, T>> {
+            let inner = self.inner.lock();
             TimedGuard {
                 name: self.name,
                 kind: "lock",
                 start: Instant::now(),
-                inner: self.inner.lock(),
+                inner,
             }
         }
         pub fn try_lock(&self) -> Option<TimedGuard<MutexGuard<'_, T>>> {
@@ -96,11 +97,12 @@ mod imp {
             }
         }
         pub fn read(&self) -> TimedGuard<RwLockReadGuard<'_, T>> {
+            let inner = self.inner.read();
             TimedGuard {
                 name: self.name,
                 kind: "read",
                 start: Instant::now(),
-                inner: self.inner.read(),
+                inner,
             }
         }
         pub fn try_read(&self) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
@@ -112,11 +114,12 @@ mod imp {
             })
         }
         pub fn write(&self) -> TimedGuard<RwLockWriteGuard<'_, T>> {
+            let inner = self.inner.write();
             TimedGuard {
                 name: self.name,
                 kind: "write",
                 start: Instant::now(),
-                inner: self.inner.write(),
+                inner,
             }
         }
         pub fn try_write(&self) -> Option<TimedGuard<RwLockWriteGuard<'_, T>>> {

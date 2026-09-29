@@ -120,6 +120,7 @@ export interface HostFs {
   writeTempFile(contents: string, suffix?: string): string | null;
   readDir(path: string): DirEntry[];
   walkDir(path: string, maxDepth?: number): DirEntry[];
+  /** Throws RangeError when the result, or any value SQLite reads for it, passes the host's 64 MiB bound. */
   sqliteQuery<T = Record<string, unknown>>(
     db: string,
     sql: string,
