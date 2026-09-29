@@ -140,10 +140,15 @@ fn respawn_keeps_persona() {
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
     assert_eq!(draft.title.as_deref(), Some("Ranker"));
     assert_eq!(draft.cwd, "/tmp/worktree");
-    assert!(draft.task_prompt.starts_with(
-        "Act as planner; do not implement.\n\
-         Your assigned task is: retry lane"
-    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    let expected_identity =
+        crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Ranker"));
+    let (identity, _) =
+        crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
+    assert_eq!(identity, Some(expected_identity.as_str()));
+    let identity = identity.unwrap();
+    assert!(identity.contains("Ranker"));
+    assert!(identity.contains("Act as planner; do not implement."));
     assert!(draft
         .task_prompt
         .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
