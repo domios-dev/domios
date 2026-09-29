@@ -582,7 +582,7 @@ fn session_model_evidence(
             Some((report.model.clone(), Some(report)))
         }
         (_, Some(transcript)) => Some((transcript, None)),
-        (None, None) => None,
+        _ => None,
     }
 }
 
