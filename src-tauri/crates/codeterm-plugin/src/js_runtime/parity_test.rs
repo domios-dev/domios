@@ -1134,6 +1134,38 @@ fn transcript_path_evidence_native_js_read_parity() {
     );
 }
 
+#[test]
+fn host_read_file_refuses_past_cap() {
+    const LIMIT: usize = 1024 * 1024;
+    let dir = tempfile::tempdir().unwrap();
+    let small_path = dir.path().join("small.txt");
+    let large_path = dir.path().join("large.txt");
+    std::fs::write(&small_path, b"bounded fixture").unwrap();
+    std::fs::write(&large_path, vec![b'x'; LIMIT + 1]).unwrap();
+
+    let vm = super::vm::PluginVm::from_source(
+        "read-file-cap-fixture",
+        "module.exports.default = { read(path) { return host.fs.readFile(path); } };".into(),
+    )
+    .unwrap();
+    let small = small_path.to_string_lossy().into_owned();
+    let native = super::host_api::read_plugin_file(&small).unwrap();
+    let javascript: String = super::vm::call_json(&vm, "read", &[serde_json::json!(small)])
+        .unwrap();
+    assert_eq!(javascript, native);
+
+    let large = large_path.to_string_lossy().into_owned();
+    let native_error = super::host_api::read_plugin_file(&large).unwrap_err();
+    let javascript_error = super::vm::call_json::<String>(
+        &vm,
+        "read",
+        &[serde_json::json!(large)],
+    )
+    .unwrap_err();
+    assert!(native_error.contains("1048576"));
+    assert!(javascript_error.to_string().contains("1048576"));
+}
+
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
 /// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show

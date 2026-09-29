@@ -5,9 +5,12 @@ use axum::{
 };
 use codeterm_types::notification::{validate_answer_labels, CallerAction};
 use serde::Deserialize;
+use std::io::Read;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::notification::reach::Unseen;
+
+const NOTIFICATION_FILE_READ_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub(crate) struct ListNotifQuery {
@@ -285,7 +288,19 @@ pub async fn serve_file(
         return Err((StatusCode::NOT_FOUND, "File not found"));
     }
 
-    let bytes = std::fs::read(&requested)
+    let file = std::fs::File::open(&requested)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file"))?;
+    if file
+        .metadata()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to inspect file"))?
+        .len()
+        > NOTIFICATION_FILE_READ_LIMIT
+    {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "File exceeds 16 MiB limit"));
+    }
+    let mut bytes = Vec::new();
+    file.take(NOTIFICATION_FILE_READ_LIMIT)
+        .read_to_end(&mut bytes)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file"))?;
 
     let content_type = match requested.extension().and_then(|e| e.to_str()) {
