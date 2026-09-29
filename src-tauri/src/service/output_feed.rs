@@ -84,4 +84,44 @@ impl ServiceContext {
             );
         }
     }
+
+    pub(crate) fn mark_agent_turn_error(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Error)
+    }
+
+    pub(crate) fn mark_agent_turn_complete(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Idle)
+    }
+
+    pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Working)
+    }
+
+    fn mark_agent_turn_status(&self, tab_id: &str, status: TabStatus) -> bool {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        let Some(pty_id) = pty_id else {
+            return false;
+        };
+        let (previous, current) = {
+            let mut tracker = self.agent_tracker.lock();
+            let previous = tracker.get_status(&pty_id);
+            match status {
+                TabStatus::Working => tracker.set_working(&pty_id),
+                TabStatus::Error => tracker.set_error(&pty_id),
+                TabStatus::Idle => tracker.set_idle(&pty_id),
+                _ => return false,
+            }
+            if status != TabStatus::Working {
+                tracker.notify_terminal_event(&pty_id);
+            }
+            (previous, tracker.get_status(&pty_id))
+        };
+        self.emit_tab_status_if_changed(&pty_id, previous, current);
+        self.emit_state_changed();
+        true
+    }
 }

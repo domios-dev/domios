@@ -136,6 +136,7 @@ fn tab_status_label(snapshot: &MultiplexerSnapshot, tab_id: &str) -> String {
             TabStatus::Working => "Working",
             TabStatus::Waiting => "Waiting",
             TabStatus::Idle => "Idle",
+            TabStatus::Error => "Error",
             TabStatus::Dead => "Dead",
         })
         .unwrap_or("Unknown")

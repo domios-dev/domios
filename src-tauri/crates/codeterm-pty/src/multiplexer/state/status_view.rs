@@ -17,7 +17,9 @@ pub fn resolved_tab_status(
         .pty_id
         .as_deref()
         .and_then(|pty_id| tracker.get_status_if_tracked(pty_id));
-    let raw = if tab.pending_prompt.is_some() && !matches!(tracked, Some(TabStatus::Dead)) {
+    let raw = if tab.pending_prompt.is_some()
+        && !matches!(tracked, Some(TabStatus::Dead | TabStatus::Error))
+    {
         Some(TabStatus::Waiting)
     } else {
         tracked

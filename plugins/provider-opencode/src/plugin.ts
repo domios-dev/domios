@@ -145,6 +145,18 @@ const plugin: PluginModule = {
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
+    try {
+      const event = JSON.parse(t) as {
+        type?: string;
+        properties?: { status?: { type?: string } };
+      };
+      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.idle") events.push("task_complete");
+      if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
+        events.push("turn_started");
+      }
+    } catch (_) {
+    }
     if (
       t.indexOf("Permission required") !== -1 ||
       t.indexOf("Allow this tool call") !== -1 ||

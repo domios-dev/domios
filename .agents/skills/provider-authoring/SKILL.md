@@ -308,8 +308,9 @@ Transcribed limits a JS-only author must know:
   (no-ops) or the native provider.
 - **`checkRuleStatus` / `installRule` and `readUsage`** are likewise
   native/trait-default only.
-- **`detectEvents`** maps only `"permission_request"`; other event names are
-  silently dropped.
+- **`detectEvents`** maps `"permission_request"`, `"turn_error"`,
+  `"task_complete"`, and `"turn_started"`; other event names are silently
+  dropped.
 
 ## The stop key
 
@@ -317,10 +318,11 @@ What CodeTerm sends to interrupt a generating agent is exactly
 `commands.stopKey` — `JsProvider::stop_keystroke()` returns the manifest value
 verbatim, and the descriptor's `supports_stop` is derived from its presence
 (two reads of one capability, guarded by
-`parity_test.rs::supports_stop_matches_stop_keystroke`). All four bundled
-provider manifests — claude, codex, opencode, **and cursor** — declare Esc
-(`"\u001b"`). Cursor has no native Rust provider, so its manifest is the sole
-operative source: no code path sends Ctrl+C to any bundled provider. The
+`parity_test.rs::supports_stop_matches_stop_keystroke`). The claude, codex,
+and cursor manifests declare Esc (`"\u001b"`); OpenCode declares two Esc bytes
+(`"\u001b\u001b"`) for its interrupt sequence. Cursor has no native Rust
+provider, so its manifest is the sole operative source: no code path sends
+Ctrl+C to any bundled provider. The
 `AgentProvider` trait doc and the CLI help state the mechanism — the
 provider's declared stopKey — not a per-provider key table.
 
