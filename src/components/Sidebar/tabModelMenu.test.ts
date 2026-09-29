@@ -2,12 +2,7 @@
 
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { ModelInfo, ProviderDescriptor, Tab } from "../../lib/types";
-import {
-  switchTabModel,
-  tabModelEntryLabel,
-  tabModelMenuView,
-  tabModelSwitchPayload,
-} from "./tabModelMenu";
+import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
 import { __setTabModelApiForTest } from "./tabModelApi";
 
 const MODELS: ModelInfo[] = [
@@ -27,7 +22,7 @@ function descriptor(overrides: Partial<ProviderDescriptor> = {}): ProviderDescri
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    model_switch_format: "/switch {model}",
+    model_switch: "restart_resume",
     ...overrides,
   } as ProviderDescriptor;
 }
@@ -45,12 +40,12 @@ function tab(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("which rows offer a model switch", () => {
-  it("offers it to a PTY agent whose provider publishes a switch command and models", () => {
+  it("offers it to a PTY agent whose provider declares a live switch and models", () => {
     expect(tabModelMenuView(tab(), descriptor(), null)).not.toBeNull();
   });
 
-  it("offers it to the protected General Agent row — protection guards close and rename, not the model", () => {
-    expect(tabModelMenuView(tab({ protected: true }), descriptor(), null)).not.toBeNull();
+  it("withholds it from the protected General Agent row, whose model comes from configuration", () => {
+    expect(tabModelMenuView(tab({ protected: true }), descriptor(), null)).toBeNull();
   });
 
   it("withholds it from a plain terminal tab", () => {
@@ -62,9 +57,9 @@ describe("which rows offer a model switch", () => {
     expect(tabModelMenuView(shell, descriptor(), null)).toBeNull();
   });
 
-  it("withholds it when the provider publishes no in-agent switch command", () => {
-    expect(tabModelMenuView(tab(), descriptor({ model_switch_format: null }), null)).toBeNull();
-    expect(tabModelMenuView(tab(), descriptor({ model_switch_format: "  " }), null)).toBeNull();
+  it("withholds it when the provider declares no live switch mechanism", () => {
+    expect(tabModelMenuView(tab(), descriptor({ model_switch: undefined }), null)).toBeNull();
+    expect(tabModelMenuView(tab(), descriptor({ model_switch: "unsupported" }), null)).toBeNull();
   });
 
   it("withholds it when the provider publishes no models", () => {
@@ -83,7 +78,7 @@ describe("which rows offer a model switch", () => {
     expect(tabModelMenuView(tab(), descriptor({ id: "someone-else" }), null)).toBeNull();
   });
 
-  it("withholds it without a live PTY to write the switch into", () => {
+  it("withholds it without a live agent PTY to relaunch", () => {
     expect(tabModelMenuView(tab({ pty_id: null }), descriptor(), null)).toBeNull();
   });
 });
@@ -121,29 +116,19 @@ describe("the entry reflects session state", () => {
 });
 
 describe("the switch round-trips the id it was given", () => {
-  it("formats the payload from the provider's own template", () => {
-    const view = tabModelMenuView(tab(), descriptor({ model_switch_format: "!use {model} now" }), null);
-    expect(tabModelSwitchPayload(view!, "fixture-large")).toBe("!use fixture-large now\r");
-  });
-
-  it("appends the id when the template names no placeholder", () => {
-    const view = tabModelMenuView(tab(), descriptor({ model_switch_format: "/model" }), null);
-    expect(tabModelSwitchPayload(view!, "fixture-small")).toBe("/model fixture-small\r");
-  });
-
-  it("writes the selected id to this tab's PTY", async () => {
+  it("asks the daemon to switch this tab to the selected id and writes nothing itself", async () => {
     const calls: Array<[string, string]> = [];
     __setTabModelApiForTest({
-      switchModel: async (ptyId, payload) => {
-        calls.push([ptyId, payload]);
+      switchModel: async (tabId, modelId) => {
+        calls.push([tabId, modelId]);
       },
     });
     try {
-      const view = tabModelMenuView(tab({ pty_id: "pty-fixture" }), descriptor(), null);
+      const view = tabModelMenuView(tab({ id: "tab-fixture" }), descriptor(), null);
       await switchTabModel(view!, MODELS[1].id);
       expect(calls.length).toBe(1);
-      expect(calls[0][0]).toBe("pty-fixture");
-      expect(calls[0][1]).toBe(`/switch ${MODELS[1].id}\r`);
+      expect(calls[0][0]).toBe("tab-fixture");
+      expect(calls[0][1]).toBe(MODELS[1].id);
     } finally {
       __setTabModelApiForTest(null);
     }

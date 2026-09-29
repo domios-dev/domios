@@ -27,6 +27,33 @@ mod model_identity_tests {
         assert_eq!(fallback.actual_model.as_deref(), Some("gpt-5.6-terra"));
     }
 
+    fn launch_report() -> crate::multiplexer::types::LaunchModelReport {
+        crate::multiplexer::types::LaunchModelReport {
+            model: "next-model-b2".into(),
+            transcript_model_at_launch: Some("prior-model-a1".into()),
+        }
+    }
+
+    #[test]
+    fn launch_report_outranks_a_transcript_that_predates_the_launch() {
+        for transcript in [Some("prior-model-a1".to_string()), None] {
+            let (model, kept) =
+                session_model_evidence(Some(launch_report()), transcript).expect("evidence");
+            assert_eq!(model, "next-model-b2");
+            assert_eq!(kept, Some(launch_report()));
+        }
+    }
+
+    #[test]
+    fn transcript_past_the_launch_retires_the_launch_report() {
+        let (model, kept) =
+            session_model_evidence(Some(launch_report()), Some("later-model-c3".into()))
+                .expect("evidence");
+        assert_eq!(model, "later-model-c3");
+        assert_eq!(kept, None);
+        assert_eq!(session_model_evidence(None, None), None);
+    }
+
     #[test]
     fn repeated_runtime_mismatch_keeps_actual_without_second_model_change() {
         let update = model_identity_update(
@@ -346,6 +373,7 @@ mod model_refresh_tests {
             Some(crate::multiplexer::types::SessionModelIdentity {
                 session_id: "session-live".into(),
                 session_binding_nonce: "binding-live".into(),
+                launch_report: None,
             })
         );
     }
@@ -418,6 +446,7 @@ mod model_refresh_tests {
         tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
             session_id: "session-known".into(),
             session_binding_nonce: "nonce-known".into(),
+            launch_report: None,
         });
         let (provider, detection_calls) =
             SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
@@ -700,6 +729,7 @@ mod model_refresh_tests {
         tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
             session_id: "session-replay".into(),
             session_binding_nonce: "nonce-replay".into(),
+            launch_report: None,
         });
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(

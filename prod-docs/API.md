@@ -140,6 +140,7 @@ Socket equivalents and shapes: API-TRANSPORT.
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-TABS |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart an observed live agent, or resume an exited provider's verified owned session in its shell. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
+| POST | `/api/tabs/{id}/agent/model` | `{model: string}` | Switch one idle agent Tab to another model through its provider's declared `model_switch`; returns after the provider reports the new model. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
 
 #### Chat attachment authority
 
@@ -230,4 +231,4 @@ Local `codeterm send` uses socket `tab.send_text`: it prints `OK (sent)` after
 confirmed delivery, `OK (pending)` for accepted or unconfirmed delivery, and an
 explicit refusal when no payload bytes were written. The resolved payload echo
 is emitted for confirmed delivery and for pending sends reporting written bytes.
-<!-- revision: 173 -->
+<!-- revision: 174 -->

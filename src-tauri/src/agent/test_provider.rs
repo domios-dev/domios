@@ -50,6 +50,7 @@ pub struct MockProvider {
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
     sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
+    model_switch: codeterm_plugin::provider::ModelSwitchMode,
 }
 
 impl MockProvider {
@@ -89,7 +90,13 @@ impl MockProvider {
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
             sandboxed_linux_launch: None,
+            model_switch: codeterm_plugin::provider::ModelSwitchMode::Unsupported,
         }
+    }
+
+    pub fn with_model_switch(mut self, mode: codeterm_plugin::provider::ModelSwitchMode) -> Self {
+        self.model_switch = mode;
+        self
     }
 
     pub fn with_launch_artifact_logs(
@@ -350,6 +357,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn model_switch(&self) -> codeterm_plugin::provider::ModelSwitchMode {
+        self.model_switch
+    }
+
     fn sandboxed_linux_launch_capability(
         &self,
     ) -> Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability> {

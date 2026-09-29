@@ -101,6 +101,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(agent_routes::agent_restart_handler),
         )
         .route(
+            "/api/tabs/{id}/agent/model",
+            post(super::agent_model_routes::agent_model_handler),
+        )
+        .route(
             "/api/tabs/{id}/agent-type",
             post(agent_routes::set_agent_type),
         )

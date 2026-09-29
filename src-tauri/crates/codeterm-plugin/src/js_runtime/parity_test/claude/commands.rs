@@ -103,14 +103,17 @@ fn in_tab_command_surface_native_js_parity() {
         "fresh_context_command must agree"
     );
     assert_eq!(
-        n.model_switch_format(),
-        j.model_switch_format(),
-        "model_switch_format must agree"
+        n.model_switch(),
+        j.model_switch(),
+        "model_switch must agree"
     );
     assert_eq!(n.compact_command(), Some("/compact"));
     assert_eq!(n.fresh_context_command(), Some("/new"));
     assert_eq!(n.exit_command(), Some("/exit"));
-    assert_eq!(n.model_switch_format(), Some("/model {model}"));
+    assert_eq!(
+        n.model_switch(),
+        crate::provider::ModelSwitchMode::RestartResume
+    );
 }
 
 #[test]

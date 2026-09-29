@@ -948,8 +948,8 @@ impl AgentProvider for JsProvider {
         ))
     }
 
-    fn model_switch_format(&self) -> Option<&str> {
-        self.manifest.commands.model_switch_format.as_deref()
+    fn model_switch(&self) -> provider::ModelSwitchMode {
+        self.manifest.commands.model_switch
     }
 
     fn supports_lazy_skills(&self) -> bool {

@@ -1,16 +1,15 @@
-/** Data seam for the sidebar row's model switch. The switch itself is the
- *  provider's own in-agent command, written to the tab's live PTY — the same
- *  route ChatComposer's `/model` picker uses, so no session is restarted. */
+/** Data seam for the sidebar row's model switch. The daemon relaunches the tab
+ *  on its own session with the new model and resolves once the provider
+ *  reports that model — never a slash command typed into the agent. */
 import { invoke } from "../../lib/bridge";
 
 export interface TabModelApi {
-  /** `payload` is already formatted from the provider's `model_switch_format`. */
-  switchModel(ptyId: string, payload: string): Promise<void>;
+  switchModel(tabId: string, modelId: string): Promise<void>;
 }
 
 const defaultApi: TabModelApi = {
-  switchModel: async (ptyId, payload) => {
-    await invoke("write_pty_string", { ptyId, data: payload, raw: false });
+  switchModel: async (tabId, model) => {
+    await invoke("switch_agent_model", { tabId, model });
   },
 };
 

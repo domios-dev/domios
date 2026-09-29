@@ -58,6 +58,15 @@ pub struct ModelFallbackNotice {
 pub struct SessionModelIdentity {
     pub session_id: String,
     pub session_binding_nonce: String,
+    pub launch_report: Option<LaunchModelReport>,
+}
+
+/// The model a provider named when this binding started, with the transcript's
+/// model at that instant: a transcript still naming it predates the launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchModelReport {
+    pub model: String,
+    pub transcript_model_at_launch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

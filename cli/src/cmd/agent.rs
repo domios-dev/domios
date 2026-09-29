@@ -6,6 +6,8 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_model_switch.rs"]
+mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
 use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
@@ -836,43 +838,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Model { name, tab } => {
             let tab_id = resolve_tab(client, tab);
-            let agent_type = local_http
-                .get(format!("{}/api/tabs", base))
+            let result = local_http
+                .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
+                .json(&serde_json::json!({ "model": name }))
                 .send()
-                .ok()
-                .and_then(|r| r.json::<serde_json::Value>().ok())
-                .and_then(|v| {
-                    v.as_array().and_then(|arr| {
-                        arr.iter()
-                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&tab_id))
-                            .and_then(|p| {
-                                p.get("agent_type")
-                                    .and_then(|t| t.as_str())
-                                    .map(String::from)
-                            })
-                    })
+                .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
+                .and_then(|resp| {
+                    let status = resp.status();
+                    let text = resp.text().unwrap_or_default();
+                    agent_model_switch::model_switch_result(status, &text)
                 });
-            if matches!(agent_type.as_deref(), Some("codex")) {
-                eprintln!("Error: Codex /model is an interactive picker, not scriptable.");
-                eprintln!("hint: kill the Tab and respawn with the model:");
-                eprintln!("      codeterm agent spawn codex --model {}", name);
-                std::process::exit(1);
-            }
-            // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
-            // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
-            let cmd = format!("/model {}\r", name);
-            match local_http
-                .post(format!("{}/api/tabs/{}/send", base, tab_id))
-                .json(&serde_json::json!({"text": cmd, "raw": true}))
-                .send()
-            {
-                Ok(_) => {
-                    println!("Sent /model {} to {}", name, tab_id);
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+            match result {
+                Ok(value) if json => crate::cmd::print::print_json(&value),
+                Ok(value) => println!("{}", agent_model_switch::render_model_switch(&value)),
+                Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
             }
         }
     }

@@ -434,9 +434,8 @@ pub struct CommandsConfig {
     /// `""` for Ctrl+C.
     #[serde(default)]
     pub stop_key: Option<String>,
-    /// Format string with `{model}` placeholder.
     #[serde(default)]
-    pub model_switch_format: Option<String>,
+    pub model_switch: crate::provider::ModelSwitchMode,
     #[serde(default)]
     pub auto_approve_flags: Vec<String>,
     /// Each element may contain `{model}` placeholder.

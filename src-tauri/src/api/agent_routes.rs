@@ -781,7 +781,7 @@ fn default_grace_secs() -> u64 {
     crate::service::agent_restart::DEFAULT_GRACE_SECS
 }
 
-fn agent_restart_response(
+pub(crate) fn agent_restart_response(
     outcome: &crate::service::agent_restart::RestartOutcome,
 ) -> serde_json::Value {
     serde_json::json!({
