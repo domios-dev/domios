@@ -53,7 +53,7 @@ codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
 # View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
 codeterm tab list
 
-# Get one tab's agent state (type, session, prompt)
+# Get one tab's state (working|question|idle|exited, as tab list shows), type, session, prompt
 codeterm tab status --tab $WORKER
 
 # Include pending_prompt question and numbered options for an active provider dialog

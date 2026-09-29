@@ -41,6 +41,9 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
   }
 
   function global:prompt {
+    # $? must be read first: any statement before it overwrites the finished command's status.
+    $lastSucceeded = $?
+    $lastNativeExit = $global:LASTEXITCODE
     # An empty Enter or a prompt redraw adds no history entry, so it never reads as a finished command.
     $lastHistory = Get-History -Count 1
     $historyId = if ($null -eq $lastHistory) { 0 } else { $lastHistory.Id }
@@ -48,7 +51,8 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
     $global:__CodeTermLastHistoryId = $historyId
     if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
       [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
-      [Console]::Write(([char]27 + ']633;D' + [char]7))
+      $exitCode = if ($lastSucceeded) { 0 } elseif ($lastNativeExit -is [int] -and $lastNativeExit -ne 0) { $lastNativeExit } else { 1 }
+      [Console]::Write(([char]27 + ']633;D;' + $exitCode + [char]7))
     }
     [Console]::Write(([char]27 + ']633;A' + [char]7))
     $rendered = & $global:__CodeTermOriginalPrompt
@@ -479,7 +483,7 @@ mod tests {
         // write error, so an install could be running an older file than this constant.
         let content = POWERSHELL_PS1;
         let authenticated_command = content.find("']633;E;;'").unwrap();
-        let command_finished = content.find("']633;D'").unwrap();
+        let command_finished = content.find("']633;D;'").unwrap();
         assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
         assert!(content.contains("Remove-Item Env:CODETERM_SHELL_NONCE"));
         assert!(content.contains("IsNullOrEmpty($global:__CodeTermShellNonce)"));

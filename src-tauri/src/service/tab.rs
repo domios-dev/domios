@@ -777,11 +777,33 @@ impl ServiceContext {
     ) -> Option<codeterm_types::pty::PromptIdentity> {
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id)?;
+        let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
+        if let Some(pty_id) = resolved_pty {
+            self.release_prompt_waiting(tab_id, &pty_id);
+        }
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.release_boot_owner_prompt(tab_id);
         identity
+    }
+
+    /// A resolved prompt no longer holds its PTY in Waiting; the next output
+    /// re-derives Working from real activity.
+    fn release_prompt_waiting(&self, tab_id: &str, pty_id: &str) {
+        use crate::agent::status::TabStatus;
+        let released = {
+            let mut tracker = self.agent_tracker.lock();
+            let waiting = tracker.get_status_if_tracked(pty_id) == Some(TabStatus::Waiting);
+            if waiting {
+                tracker.set_idle(pty_id);
+            }
+            waiting
+        };
+        if released {
+            let now = self.reconciled_tab_status_for_id(tab_id, TabStatus::Idle);
+            self.emit_tab_status_if_changed(pty_id, TabStatus::Waiting, now);
+        }
     }
 
     fn mark_prompt_responded(
