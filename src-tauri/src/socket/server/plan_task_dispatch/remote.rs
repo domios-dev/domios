@@ -154,13 +154,20 @@ pub(super) fn dispatch(
         &manifest,
         &authorized_gates,
     );
+    let origin_id = app
+        .state::<crate::MeshStateHandle>()
+        .lock()
+        .ident
+        .identity
+        .instance_id
+        .clone();
     brief.push_str(&format!(
         "\n\nRemote assignment ACK:\ncodeterm plan task remote-ack {} {} {} --mesh {}\n",
-        plan_id, task_id, attempt_id, peer_id
+        plan_id, task_id, attempt_id, origin_id
     ));
     brief.push_str(&format!(
         "Remote final report: run `codeterm plan task remote-report {} {} {} --message-file <report-path> --sha <lane-head> --mesh {}`. It persists your report on the origin attempt and moves the task to in_review.\n",
-        plan_id, task_id, attempt_id, peer_id
+        plan_id, task_id, attempt_id, origin_id
     ));
     let origin_tab_id = owned_str(p, "caller_tab_id")
         .or(plan.owner.tab_id.clone())
