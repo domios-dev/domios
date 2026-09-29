@@ -591,13 +591,21 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Raw key bytes the host writes into the PTY to interrupt the
-    /// agent's current generation without exiting — the provider's
-    /// declared stopKey (Esc for all bundled providers).
+    /// Raw key bytes from a provider's single-key `stopKey` declaration.
     /// Returning `None` means the provider has no in-tab stop hook
     /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
         None
+    }
+
+    /// Ordered raw key values from a provider's stop declaration.
+    fn stop_keys(&self) -> Option<Vec<String>> {
+        self.stop_keystroke().map(|key| vec![key.to_string()])
+    }
+
+    /// Whether a later key waits for a PTY screen-change event.
+    fn stop_key_wait_for_output(&self) -> bool {
+        false
     }
 
     // ── Plugin skill delivery ────────────────────────────────────────
@@ -858,7 +866,7 @@ pub trait AgentProvider: Send + Sync {
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
             integration_trust_grant: self.integration_trust_grant_capability(),
-            supports_stop: self.stop_keystroke().is_some(),
+            supports_stop: self.stop_keys().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
             supports_permission_auto_confirm: self.supports_permission_auto_confirm(),

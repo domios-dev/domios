@@ -66,12 +66,27 @@ static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
 impl ServiceContext {
-    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+    pub(crate) fn arm_agent_stop_suppression(&self, pty_id: &str) {
         AGENT_STOP_SUPPRESS_UNTIL.lock().unwrap().insert(
             pty_id.to_string(),
             Instant::now() + Duration::from_millis(AGENT_STOP_SUPPRESS_MS),
         );
+    }
+
+    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+        self.arm_agent_stop_suppression(pty_id);
         self.force_agent_idle_for_pty(pty_id);
+    }
+
+    pub(crate) fn is_agent_stop_suppressed_for_tab(&self, tab_id: &str) -> bool {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        pty_id
+            .as_deref()
+            .is_some_and(Self::is_agent_stop_suppressed)
     }
 
     fn is_agent_stop_suppressed(pty_id: &str) -> bool {

@@ -252,7 +252,7 @@ pub struct ProviderDescriptor {
     /// install needs no provider-owned trust grant step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_trust_grant: Option<IntegrationTrustGrantCapability>,
-    /// `true` when this provider declares a stop_keystroke — UI shows
+    /// `true` when this provider declares a stop sequence — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,
