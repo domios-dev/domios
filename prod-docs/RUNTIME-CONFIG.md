@@ -65,7 +65,7 @@ Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Us
 
 ## Cron Jobs
 
-Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here.
+Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here. Closing a workspace deletes its cron jobs, run history, and log directories.
 
 A `crons.json` that fails to load is preserved as `crons.json.corrupt-<UTC timestamp>`,
 reported by one ERROR line and one action-needed notification, and recovered from
@@ -82,7 +82,7 @@ Without a backup the store runs on an empty in-memory list: built-in jobs such a
 | `name` | `string` | — | Display name |
 | `description` | `string?` | — | Optional free-text description |
 | `workspace_id` | `string` | — | Owning workspace |
-| `schedule` | `string` | — | 5-field cron (`min hour dom mon dow`) or oneshot expression (`"in 5m"`, ISO 8601, unix ms) |
+| `schedule` | `string` | — | Exactly 5-field cron (`min hour dom mon dow`) with a fire within the next 5 years, or a oneshot expression (`"in 5m"`, ISO 8601, unix ms) |
 | `enabled` | `bool` | `true` | Whether the scheduler fires this job |
 | `agent` | `string` | `"claude"` | Agent provider id (see `codeterm agent providers`) |
 | `model` | `string?` | *(provider default)* | Model override within the provider (e.g. `"opus"`, `"haiku"`). Query valid values via `codeterm agent models <provider>`. |
@@ -100,11 +100,11 @@ Without a backup the store runs on an empty in-memory list: built-in jobs such a
 
 ### Jitter semantics (`jitter_max_ms`)
 
-- `null` (omitted) → **auto**: 10% of the inter-fire interval, clamped to `[1m, 30m]`. Default.
+- `null` (omitted) → **auto**: 10% of the inter-fire interval, up to 30m. Default.
 - `0` → **disabled**: jobs fire exactly on schedule.
-- positive integer → hard cap in milliseconds of random delay added to each scheduled fire.
+- positive integer → requested maximum random delay in milliseconds, capped at half the inter-fire interval.
 
-Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
+Jitter is applied on top of recurring cron fire times. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
 
 ### Hidden spawn
 
@@ -199,4 +199,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

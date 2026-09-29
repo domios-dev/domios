@@ -164,6 +164,80 @@ async fn workspace_close_guard_human_can_close_empty_workspace() {
         .is_none());
 }
 
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn workspace_close_handles_crons() {
+    use crate::cron::store::{CronCreateParams, CronStore};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Cron workspace".into(), None).id;
+    let retained_workspace_id = mux.create_workspace("Retained workspace".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+    let path = fixture.temp.path().join("crons.json");
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
+    let add_cron = |workspace_id: String, name: &str| CronCreateParams {
+        name: name.into(),
+        workspace_id,
+        team_id: None,
+        detach_from_team: false,
+        schedule: "* * * * *".into(),
+        task: "run the job".into(),
+        description: None,
+        agent: Some("fixture".into()),
+        model: None,
+        reasoning_effort: None,
+        cwd: None,
+        role: None,
+        skill: None,
+        creator_tab_id: None,
+        report_target_tab_id: None,
+        enabled: Some(true),
+        max_history: None,
+        oneshot: None,
+        jitter_max_ms: Some(0),
+        tz: None,
+        timeout_seconds: None,
+    };
+    let removed_job = cron
+        .lock()
+        .create(add_cron(workspace_id.clone(), "Removed cron"))
+        .unwrap();
+    let removed_log = cron
+        .lock()
+        .save_log(&removed_job.id, "run-1", "run output")
+        .unwrap();
+    cron.lock()
+        .create(add_cron(retained_workspace_id.clone(), "Retained cron"))
+        .unwrap();
+    fixture._app.manage(cron.clone());
+    fixture._app.manage(Arc::new(std::sync::Condvar::new()));
+
+    fixture
+        .service
+        .close_workspace_as_human(&workspace_id, false)
+        .await
+        .unwrap();
+
+    assert!(cron.lock().list_for_workspace(&workspace_id).is_empty());
+    assert!(!removed_log.exists());
+    assert_eq!(
+        cron.lock().list_for_workspace(&retained_workspace_id).len(),
+        1
+    );
+    let persisted = CronStore::new_with_path(path);
+    assert!(persisted.list_for_workspace(&workspace_id).is_empty());
+    assert_eq!(
+        persisted.list_for_workspace(&retained_workspace_id).len(),
+        1
+    );
+}
+
 #[test]
 #[cfg_attr(
     not(windows),
@@ -381,7 +455,7 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
             workspace_id: workspace_id.clone(),
             team_id: Some(team_id.clone()),
             detach_from_team: false,
-            schedule: "0 0 * * * *".into(),
+            schedule: "0 0 * * *".into(),
             task: "Check progress".into(),
             description: None,
             agent: Some("fixture".into()),

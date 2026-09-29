@@ -29,13 +29,23 @@ impl ServiceContext {
         wake: &CronWake,
         mut params: CronCreateParams,
     ) -> Result<CronJob, String> {
+        params.creator_tab_id = params
+            .creator_tab_id
+            .take()
+            .filter(|tab_id| !tab_id.trim().is_empty());
+        if let Some(tab_id) = params.creator_tab_id.as_deref() {
+            if self.mux.read().get_tab(tab_id).is_none() {
+                return Err(format!("creator_tab_id: Cron Tab {tab_id} not found"));
+            }
+        }
         let inherited_attachment = crate::service::team::resolve_inherited_team_attachment(
             &self.mux.read(),
             params.team_id.as_deref(),
             params.creator_tab_id.as_deref(),
             &params.workspace_id,
             params.detach_from_team,
-        )?;
+        )
+        .map_err(|error| format!("team_id/creator_tab_id: {error}"))?;
         params.team_id = inherited_attachment.map(|attachment| attachment.team_id);
         self.validate_cron_ownership(&params)?;
         let provider = params
@@ -44,6 +54,9 @@ impl ServiceContext {
             .filter(|agent| !agent.trim().is_empty())
             .map(str::to_string)
             .unwrap_or_else(crate::config::default_agent_provider);
+        params.agent = Some(provider.clone());
+        params.model = params.model.take().filter(|model| !model.trim().is_empty());
+        self.validate_cron_spawn_fields(&provider, params.model.as_deref(), params.cwd.as_deref())?;
         self.validate_cron_reasoning_effort(
             &provider,
             params.model.as_deref(),
@@ -58,35 +71,49 @@ impl ServiceContext {
     fn validate_cron_ownership(&self, params: &CronCreateParams) -> Result<(), String> {
         let mux = self.mux.read();
         if let Some(target_tab_id) = params.report_target_tab_id.as_deref() {
-            mux.get_tab(target_tab_id)
-                .ok_or_else(|| format!("Cron report target Tab {target_tab_id} not found"))?;
+            mux.get_tab(target_tab_id).ok_or_else(|| {
+                format!("report_target_tab_id: Cron Tab {target_tab_id} not found")
+            })?;
         }
         match (params.team_id.as_deref(), params.creator_tab_id.as_deref()) {
             (None, _) => Ok(()),
             (Some(team_id), Some(creator_tab_id)) => {
-                let creator = mux
-                    .get_tab(creator_tab_id)
-                    .ok_or_else(|| format!("Cron creator Tab {creator_tab_id} not found"))?;
+                let creator = mux.get_tab(creator_tab_id).ok_or_else(|| {
+                    format!("creator_tab_id: Cron Tab {creator_tab_id} not found")
+                })?;
                 if creator.team_id.as_deref() != Some(team_id) {
                     return Err(format!(
-                        "Cron creator Tab {creator_tab_id} does not belong to Team {team_id}"
+                        "creator_tab_id: Cron Tab {creator_tab_id} does not belong to Team {team_id}"
                     ));
                 }
                 let team_workspace = mux
                     .team_workspace(team_id)
-                    .ok_or_else(|| format!("Team {team_id} not found"))?;
+                    .ok_or_else(|| format!("team_id: Team {team_id} not found"))?;
                 if team_workspace != params.workspace_id {
                     return Err(format!(
-                        "Team {team_id} belongs to workspace {}, not {}",
+                        "team_id: Team {team_id} belongs to workspace {}, not {}",
                         team_workspace, params.workspace_id
                     ));
                 }
                 Ok(())
             }
             (Some(team_id), None) => Err(format!(
-                "Team cron {team_id} requires creator_tab_id from a live Team member"
+                "creator_tab_id: Team cron {team_id} requires a live Team member Tab"
             )),
         }
+    }
+
+    fn validate_cron_spawn_fields(
+        &self,
+        provider: &str,
+        model: Option<&str>,
+        cwd: Option<&str>,
+    ) -> Result<(), String> {
+        self.require_agent_provider_ready(provider)
+            .map_err(|error| format!("agent: {error}"))?;
+        crate::service::spawn::validate_agent_model(&self.agent_registry, provider, model)
+            .map_err(|error| format!("model: {error}"))?;
+        crate::service::spawn_cwd::validate_spawn_cwd(cwd).map_err(|error| format!("cwd: {error}"))
     }
 
     fn validate_cron_reasoning_effort(
@@ -102,7 +129,8 @@ impl ServiceContext {
         {
             return Ok(());
         }
-        self.require_agent_provider_ready(provider)?;
+        self.require_agent_provider_ready(provider)
+            .map_err(|error| format!("agent: {error}"))?;
         let model =
             model.map(|model| crate::agent::model_catalog::resolve_model(provider, Some(model)).id);
         crate::service::spawn::validate_agent_reasoning_effort(
@@ -111,6 +139,7 @@ impl ServiceContext {
             model.as_deref(),
             effort,
         )
+        .map_err(|error| format!("reasoning_effort: {error}"))
     }
 
     pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
@@ -133,9 +162,16 @@ impl ServiceContext {
         cron: &CronState,
         wake: &CronWake,
         id: &str,
-        patch: CronUpdateParams,
+        mut patch: CronUpdateParams,
     ) -> Result<CronJob, String> {
-        let (provider, model, effort) = {
+        if patch
+            .agent
+            .as_deref()
+            .is_some_and(|agent| agent.trim().is_empty())
+        {
+            patch.agent = Some(crate::config::default_agent_provider());
+        }
+        let (provider, model, cwd, effort) = {
             let store = cron.lock();
             let job = store
                 .get(id)
@@ -151,9 +187,19 @@ impl ServiceContext {
                 .clone()
                 .or_else(|| job.reasoning_effort.clone());
             let model = patch.model.clone().or_else(|| job.model.clone());
-            (provider, model, effort)
+            let cwd = patch.cwd.clone().or_else(|| job.cwd.clone());
+            (provider, model, cwd, effort)
         };
-        self.validate_cron_reasoning_effort(&provider, model.as_deref(), effort.as_deref())?;
+        self.validate_cron_spawn_fields(
+            &provider,
+            model.as_deref().filter(|model| !model.trim().is_empty()),
+            cwd.as_deref(),
+        )?;
+        self.validate_cron_reasoning_effort(
+            &provider,
+            model.as_deref().filter(|model| !model.trim().is_empty()),
+            effort.as_deref(),
+        )?;
         let job = cron.lock().update(id, patch)?;
         wake.notify_all();
         self.emit_cron_changed();
@@ -195,6 +241,30 @@ impl ServiceContext {
             cron.lock().delete(id)?;
         }
         wake.notify_all();
+        self.emit_cron_changed();
+        Ok(())
+    }
+
+    pub(crate) fn cron_delete_workspace(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        let (jobs, logs_dir) = {
+            let mut store = cron.lock();
+            let jobs = store.delete_for_workspace(workspace_id)?;
+            (jobs, store.logs_dir())
+        };
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        for job in jobs {
+            let _ = std::fs::remove_dir_all(logs_dir.join(job.id));
+        }
+        if let Some(wake) = wake {
+            wake.notify_all();
+        }
         self.emit_cron_changed();
         Ok(())
     }
@@ -593,6 +663,7 @@ mod tests {
     use parking_lot::Mutex;
 
     use super::CronRunEnd;
+    use crate::agent::provider::ModelInfo;
     use crate::agent::test_provider::MockProvider;
     use crate::cron::store::{
         CronCreateParams, CronRunInfo, CronRunStatus, CronStore, CronUpdateParams,
@@ -656,6 +727,26 @@ mod tests {
             agent: None,
             model: None,
             reasoning_effort: Some(effort.into()),
+            jitter_max_ms: None,
+            tz: None,
+            timeout_seconds: None,
+        }
+    }
+
+    fn empty_patch() -> CronUpdateParams {
+        CronUpdateParams {
+            name: None,
+            description: None,
+            schedule: None,
+            task: None,
+            cwd: None,
+            role: None,
+            skill: None,
+            enabled: None,
+            max_history: None,
+            agent: None,
+            model: None,
+            reasoning_effort: None,
             jitter_max_ms: None,
             tz: None,
             timeout_seconds: None,
@@ -755,6 +846,132 @@ mod tests {
         assert_eq!(updated.reasoning_effort, None);
         let raw = fs::read_to_string(path).unwrap();
         assert!(!raw.contains("reasoning_effort"));
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_create_validates_agent_model_cwd() {
+        let (fixture, cron, wake, path) = fixture();
+        let models = vec![ModelInfo {
+            id: "fixture-model".into(),
+            display_name: "Fixture model".into(),
+            ..ModelInfo::default()
+        }];
+        crate::plugin::model_catalog::register(
+            "cron-catalogue",
+            crate::plugin::model_catalog::RegisteredDefaults {
+                models: models.clone(),
+                default: Some("fixture-model".into()),
+            },
+        );
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::new("cron-catalogue")
+                .with_models(models)
+                .with_authoritative_model_catalogue(),
+        ));
+        let valid = fixture
+            .service
+            .cron_create(&cron, &wake, create_params("baseline", None))
+            .unwrap();
+        let model_job = fixture
+            .service
+            .cron_create(&cron, &wake, {
+                let mut params = create_params("catalogue-job", None);
+                params.agent = Some("cron-catalogue".into());
+                params.model = Some("fixture-model".into());
+                params
+            })
+            .unwrap();
+        let initial = fs::read(&path).unwrap();
+        let missing_cwd = fixture
+            .temp
+            .path()
+            .join("missing-cron-cwd")
+            .display()
+            .to_string();
+
+        let mut missing_creator = create_params("missing-creator", None);
+        missing_creator.creator_tab_id = Some("missing-tab".into());
+        let error = fixture
+            .service
+            .cron_create(&cron, &wake, missing_creator)
+            .unwrap_err();
+        assert!(error.starts_with("creator_tab_id:"), "{error}");
+
+        let mut invalid_agent = create_params("invalid-agent", None);
+        invalid_agent.agent = Some("missing-agent".into());
+        let error = fixture
+            .service
+            .cron_create(&cron, &wake, invalid_agent)
+            .unwrap_err();
+        assert!(error.starts_with("agent:"), "{error}");
+
+        let mut invalid_model = create_params("invalid-model", None);
+        invalid_model.agent = Some("cron-catalogue".into());
+        invalid_model.model = Some("missing-model".into());
+        let error = fixture
+            .service
+            .cron_create(&cron, &wake, invalid_model)
+            .unwrap_err();
+        assert!(error.starts_with("model:"), "{error}");
+
+        let mut invalid_cwd = create_params("invalid-cwd", None);
+        invalid_cwd.cwd = Some(missing_cwd.clone());
+        let error = fixture
+            .service
+            .cron_create(&cron, &wake, invalid_cwd)
+            .unwrap_err();
+        assert!(error.starts_with("cwd:"), "{error}");
+
+        let agent_error = fixture
+            .service
+            .cron_update(
+                &cron,
+                &wake,
+                &valid.id,
+                CronUpdateParams {
+                    agent: Some("missing-agent".into()),
+                    ..empty_patch()
+                },
+            )
+            .unwrap_err();
+        assert!(agent_error.starts_with("agent:"), "{agent_error}");
+
+        let model_error = fixture
+            .service
+            .cron_update(
+                &cron,
+                &wake,
+                &model_job.id,
+                CronUpdateParams {
+                    model: Some("missing-model".into()),
+                    ..empty_patch()
+                },
+            )
+            .unwrap_err();
+        assert!(model_error.starts_with("model:"), "{model_error}");
+
+        let cwd_error = fixture
+            .service
+            .cron_update(
+                &cron,
+                &wake,
+                &valid.id,
+                CronUpdateParams {
+                    cwd: Some(missing_cwd),
+                    ..empty_patch()
+                },
+            )
+            .unwrap_err();
+        assert!(cwd_error.starts_with("cwd:"), "{cwd_error}");
+        assert_eq!(fs::read(&path).unwrap(), initial);
+        assert_eq!(cron.lock().list().len(), 2);
+        assert_eq!(cron.lock().get(&valid.id).unwrap().agent, "tiered");
+        assert_eq!(cron.lock().get(&valid.id).unwrap().cwd, None);
+        assert_eq!(
+            cron.lock().get(&model_job.id).unwrap().model.as_deref(),
+            Some("fixture-model")
+        );
     }
 
     fn started_job(cron: &crate::CronState, oneshot: bool, report_target: Option<&str>) -> String {
