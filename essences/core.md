@@ -56,7 +56,7 @@ The external supervisor observes daemon epochs and owns crash-recovery launches;
 What one CodeTerm instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.
 
 - Part of: core:service-layer.
-- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; restoring this state after a restart is unconditional and the journal is telemetry, not authority; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
+- Invariants: each instance keeps its own data directory, so development never reads or writes production's state; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
 - Dependent capabilities: workspaces and tabs, session continuity, scheduling, service registry, secret store, configuration, usage and Analytics.
 
 ### PTY {#core:pty}
