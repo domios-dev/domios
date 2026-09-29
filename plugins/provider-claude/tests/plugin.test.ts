@@ -130,6 +130,35 @@ console.log("\n--- session model detection ---\n");
   eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
 }
 
+{
+  const fixturePath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "queued-mid-turn.jsonl",
+  );
+  let transcript = fs.readFileSync(fixturePath, "utf8").replaceAll(
+    "claude-opus-5",
+    "claude-haiku-4-5",
+  );
+  const p = loadClaudeWithHost(baseHost({
+    fs: {
+      fileExists: () => true,
+      readFileTail: () => transcript,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+  }));
+  const boundary = p.sessionModelTranscriptBoundary("/fixture/project", "fixture-session");
+
+  eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), null,
+    "the transcript tail before the relaunch boundary is ignored");
+  transcript += '{"type":"assistant","uuid":"after-relaunch","message":{"model":"claude-sonnet-5-5"}}\n';
+  eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), "Sonnet",
+    "the first assistant model after the boundary is observed");
+}
+
 console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");

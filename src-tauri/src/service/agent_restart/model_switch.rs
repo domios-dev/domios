@@ -1,7 +1,7 @@
 //! Live model switch for one tab. The provider's capability says how: a
 //! `RestartResume` provider is relaunched on its own verified session with the
-//! new model launch args. A launch report or first post-relaunch turn confirms
-//! the model; a ready relaunch without either returns pending confirmation.
+//! new model launch args. The first assistant turn after the transcript
+//! boundary confirms the model; a ready relaunch without one returns pending.
 
 use std::time::{Duration, Instant};
 
@@ -133,6 +133,7 @@ impl From<AgentRestartError> for ModelSwitchError {
 pub(super) struct ModelSwitchLaunch {
     provider: String,
     session_id: String,
+    transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary,
     params: SpawnAgentParams,
     launch: RestorableLaunchParameters,
     task: Option<String>,
@@ -145,6 +146,23 @@ impl ModelSwitchLaunch {
         session_id: &str,
         requested: &str,
     ) -> Result<Self, ModelSwitchError> {
+        let cwd = snap.cwd.as_deref().ok_or_else(|| {
+            ModelSwitchError::NotSwitchable(
+                "the session's working directory is unavailable for model verification".to_string(),
+            )
+        })?;
+        let transcript_boundary = svc
+            .agent_registry
+            .with_provider(&snap.provider, |provider| {
+                provider.session_model_transcript_boundary(cwd, session_id)
+            })
+            .flatten()
+            .ok_or_else(|| {
+                ModelSwitchError::NotSwitchable(
+                    "the provider cannot establish a model transcript boundary for this session"
+                        .to_string(),
+                )
+            })?;
         let registry = &svc.agent_registry;
         let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             registry,
@@ -220,6 +238,7 @@ impl ModelSwitchLaunch {
         Ok(Self {
             provider: snap.provider.clone(),
             session_id: session_id.to_string(),
+            transcript_boundary,
             params,
             launch,
             task,
@@ -250,6 +269,15 @@ impl ModelSwitchLaunch {
     /// The tab's spawn record now names the new model, so a daemon restore
     /// relaunches what is actually running.
     pub(super) fn commit(&self, svc: &ServiceContext, tab_id: &str) {
+        if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
+            tab.model_fallback = None;
+            tab.pending_model_switch_observation =
+                Some(crate::multiplexer::types::PendingModelSwitchObservation {
+                    session_id: self.session_id.clone(),
+                    launched_model: self.launched_model().to_string(),
+                    transcript_boundary: self.transcript_boundary.clone(),
+                });
+        }
         crate::service::restored_launch::persist_restored_launch_identity(
             &svc.mux,
             tab_id,
@@ -257,14 +285,6 @@ impl ModelSwitchLaunch {
             &self.params,
             &self.launch,
         );
-        if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
-            tab.model_fallback = None;
-            tab.pending_model_switch_observation =
-                Some(crate::multiplexer::types::PendingModelSwitchObservation {
-                    session_id: self.session_id.clone(),
-                    launched_model: self.launched_model().to_string(),
-                });
-        }
         if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
             svc,
             crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -443,23 +463,25 @@ impl ServiceContext {
                         .map(|pending| pending.launched_model.clone()),
                 )
             };
-            if let Some(report) = report {
-                if crate::service::session_model::session_model_matches(
-                    &self.agent_registry,
-                    provider,
-                    pending_model.as_deref().unwrap_or(launched_model),
-                    &report.model,
-                ) {
-                    observed = Some(ModelSwitchObservation {
+            if pending_model.is_none() {
+                if let Some(report) = report {
+                    if crate::service::session_model::session_model_matches(
+                        &self.agent_registry,
+                        provider,
+                        launched_model,
+                        &report.model,
+                    ) {
+                        observed = Some(ModelSwitchObservation {
+                            model: report.model,
+                            evidence: ModelSwitchEvidence::SessionStartReport,
+                        });
+                        return true;
+                    }
+                    mismatched_report = Some(ModelSwitchObservation {
                         model: report.model,
                         evidence: ModelSwitchEvidence::SessionStartReport,
                     });
-                    return true;
                 }
-                mismatched_report = Some(ModelSwitchObservation {
-                    model: report.model,
-                    evidence: ModelSwitchEvidence::SessionStartReport,
-                });
             }
             if pending_model.is_none() {
                 if let Some(model) = model {

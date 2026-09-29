@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::provider::{self, SessionMessage, SessionMetadata};
+use codeterm_types::agent::SessionModelTranscriptBoundary;
 
 /// Encode a CWD path the same way Claude CLI does for project directories.
 pub(super) fn encode_cwd(cwd: &str) -> String {
@@ -298,6 +299,100 @@ pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String
         .or_else(|| scan_tail(&path, 4 * 1024 * 1024))
 }
 
+pub(super) fn session_model_transcript_boundary(
+    cwd: &str,
+    session_id: &str,
+) -> Option<SessionModelTranscriptBoundary> {
+    let path = session_file_path(cwd, session_id)?;
+    let contents = read_model_tail(&path)?;
+    transcript_model_boundary(&contents)
+}
+
+pub(super) fn detect_session_model_after_boundary(
+    cwd: &str,
+    session_id: &str,
+    boundary: &SessionModelTranscriptBoundary,
+) -> Option<String> {
+    let path = session_file_path(cwd, session_id)?;
+    let contents = read_model_tail(&path)?;
+    transcript_model_after_boundary(&contents, boundary)
+}
+
+fn transcript_model_boundary(contents: &str) -> Option<SessionModelTranscriptBoundary> {
+    if contents.is_empty() {
+        return Some(SessionModelTranscriptBoundary {
+            last_entry_uuid: None,
+        });
+    }
+    if !contents.ends_with('\n') {
+        return None;
+    }
+    if contents.lines().all(|line| line.trim().is_empty()) {
+        return Some(SessionModelTranscriptBoundary {
+            last_entry_uuid: None,
+        });
+    }
+    let last_entry = contents
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())?;
+    let entry = serde_json::from_str::<serde_json::Value>(last_entry).ok()?;
+    let last_entry_uuid = entry
+        .get("uuid")
+        .and_then(serde_json::Value::as_str)
+        .filter(|uuid| !uuid.is_empty())?
+        .to_string();
+    Some(SessionModelTranscriptBoundary {
+        last_entry_uuid: Some(last_entry_uuid),
+    })
+}
+
+fn transcript_model_after_boundary(
+    contents: &str,
+    boundary: &SessionModelTranscriptBoundary,
+) -> Option<String> {
+    let entries = contents
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect::<Vec<_>>();
+    let start_index = match boundary.last_entry_uuid.as_deref() {
+        Some(uuid) => entries
+            .iter()
+            .position(|entry| entry.get("uuid").and_then(serde_json::Value::as_str) == Some(uuid))?
+            .saturating_add(1),
+        None => 0,
+    };
+    let entries = &entries[start_index..];
+    entries.iter().rev().find_map(|entry| {
+        if entry.get("type").and_then(serde_json::Value::as_str) != Some("assistant") {
+            return None;
+        }
+        let model = entry
+            .get("message")
+            .and_then(|message| message.get("model"))
+            .and_then(serde_json::Value::as_str)?;
+        (!model.is_empty() && model != "<synthetic>").then(|| family_from_model_id(model))
+    })
+}
+
+fn read_model_tail(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    const TAIL_BYTES: u64 = 4 * 1024 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    let start = length.saturating_sub(TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::with_capacity((length - start) as usize);
+    file.read_to_end(&mut bytes).ok()?;
+    if start > 0 {
+        if let Some(line_end) = bytes.iter().position(|byte| *byte == b'\n') {
+            bytes.drain(..=line_end);
+        }
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 pub(super) fn detect_session_reasoning_effort(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
     scan_effort_tail(&path, 64 * 1024)
@@ -495,6 +590,27 @@ mod model_label_tests {
         writeln!(f, r#"{{"message":{{"model":"claude-opus-4-7"}}}}"#).unwrap();
         drop(f);
         assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn transcript_boundary_excludes_old_turns_and_accepts_the_next_assistant_turn() {
+        let transcript = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/tests/fixtures/queued-mid-turn.jsonl"
+        ))
+        .replace("claude-opus-5", "claude-haiku-4-5");
+        let boundary = transcript_model_boundary(&transcript).expect("fixture boundary");
+
+        assert_eq!(transcript_model_after_boundary(&transcript, &boundary), None);
+
+        let appended = format!(
+            "{transcript}{}\n",
+            r#"{"type":"assistant","uuid":"after-relaunch","message":{"model":"claude-sonnet-5-5"}}"#
+        );
+        assert_eq!(
+            transcript_model_after_boundary(&appended, &boundary).as_deref(),
+            Some("Sonnet")
+        );
     }
 
     #[test]
