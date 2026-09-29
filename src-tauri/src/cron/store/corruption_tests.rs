@@ -35,7 +35,11 @@ fn cron_store_parse_error_keeps_user_jobs_file() {
     let copies = state_file(&path).corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read(&copies[0]).unwrap(), truncated);
-    assert_eq!(std::fs::read(&path).unwrap(), full, "restored from the newest backup");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        full,
+        "restored from the newest backup"
+    );
     assert_eq!(crate::persisted_state::incidents_for(&path).len(), 1);
 }
 
@@ -51,10 +55,20 @@ fn cron_store_parse_error_without_backup_never_persists_defaults() {
     assert!(store.list().is_empty());
     assert!(!path.exists());
     let built_in = store.create(params("mem-dreaming-auto"));
-    assert!(built_in.is_err(), "the save is refused while the file is held");
-    assert_eq!(names(&store), vec!["mem-dreaming-auto"], "merged in memory only");
+    assert!(
+        built_in.is_err(),
+        "the save is refused while the file is held"
+    );
+    assert_eq!(
+        names(&store),
+        vec!["mem-dreaming-auto"],
+        "merged in memory only"
+    );
     assert!(store.save().is_err());
-    assert!(!path.exists(), "defaults are never persisted over the corrupt file");
+    assert!(
+        !path.exists(),
+        "defaults are never persisted over the corrupt file"
+    );
     let copies = state_file(&path).corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read(&copies[0]).unwrap(), broken);

@@ -1091,12 +1091,8 @@ mod tests {
         let (mut mux, owner_tab) = crate::multiplexer::state::MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&owner_tab).unwrap();
         let foreign_tab = mux.create_tab(&workspace).unwrap();
-        mux.get_tab_mut(&owner_tab)
-            .unwrap()
-            .session_binding_nonce = Some("owner-nonce".into());
-        mux.get_tab_mut(&foreign_tab)
-            .unwrap()
-            .session_binding_nonce = Some("foreign-nonce".into());
+        mux.get_tab_mut(&owner_tab).unwrap().session_binding_nonce = Some("owner-nonce".into());
+        mux.get_tab_mut(&foreign_tab).unwrap().session_binding_nonce = Some("foreign-nonce".into());
         let fixture = ServiceFixture::new(mux);
         let cron = Arc::new(Mutex::new(CronStore::new_with_path(
             fixture.temp.path().join("crons.json"),

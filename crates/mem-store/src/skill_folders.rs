@@ -248,7 +248,10 @@ fn register_folder(conn: &Connection, folder: &Path, skill_md: &Path) -> MemStor
     }
     let source = format!("file:{}", skill_md.display());
     let now = chrono::Utc::now().to_rfc3339();
-    let uid = format!("folder-{id}-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+    let uid = format!(
+        "folder-{id}-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    );
     let tags_json = r#"["folder-skill","auto-registered"]"#;
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO mem_items
@@ -267,7 +270,9 @@ fn register_folder(conn: &Connection, folder: &Path, skill_md: &Path) -> MemStor
         ],
     )?;
     if inserted == 0 {
-        return Err(MemStoreError::Conflict(format!("skill id {id} already taken")));
+        return Err(MemStoreError::Conflict(format!(
+            "skill id {id} already taken"
+        )));
     }
     conn.execute(
         "INSERT OR REPLACE INTO mem_fts (mem_id, title, summary, body, tags) VALUES (?1, ?2, '', ?3, ?4)",

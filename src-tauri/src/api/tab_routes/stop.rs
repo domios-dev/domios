@@ -27,18 +27,19 @@ async fn stopped_after_status_event(
             return false;
         }
         let wait_signal = signal.clone();
-        let changed = tokio::task::spawn_blocking(move || {
-            wait_signal.wait_after(generation, remaining)
-        })
-        .await
-        .unwrap_or(false);
+        let changed =
+            tokio::task::spawn_blocking(move || wait_signal.wait_after(generation, remaining))
+                .await
+                .unwrap_or(false);
         if !changed {
             let check_svc = svc.clone();
             let check_tab = tab_id.clone();
             return matches!(
                 tokio::task::spawn_blocking(move || check_svc.stop_decision(&check_tab)).await,
                 Ok(StopDecision::NoAgent)
-                    | Ok(StopDecision::NotWorking(codeterm_types::pty::TabStatus::Dead))
+                    | Ok(StopDecision::NotWorking(
+                        codeterm_types::pty::TabStatus::Dead
+                    ))
             );
         }
         generation = signal.generation();

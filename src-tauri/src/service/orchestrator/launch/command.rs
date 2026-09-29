@@ -261,10 +261,14 @@ fn build_agent_command_inner(
     };
     let command = if let Some((service, tab_id)) = notice_context {
         crate::service::task_files::capture(service, tab_id, || {
-            registry.with_provider(agent_cmd, |provider| provider.build_launch_command(&launch_params))
+            registry.with_provider(agent_cmd, |provider| {
+                provider.build_launch_command(&launch_params)
+            })
         })
     } else {
-        registry.with_provider(agent_cmd, |provider| provider.build_launch_command(&launch_params))
+        registry.with_provider(agent_cmd, |provider| {
+            provider.build_launch_command(&launch_params)
+        })
     };
     match command {
         Some(command) if command.trim().is_empty() => String::new(),

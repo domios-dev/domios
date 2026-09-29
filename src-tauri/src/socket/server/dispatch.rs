@@ -291,7 +291,11 @@ pub(super) fn dispatch(
     }
     if matches!(
         method,
-        "plan.archive" | "plan.unarchive" | "plan.delete" | "plan.disown" | "plan.claim"
+        "plan.archive"
+            | "plan.unarchive"
+            | "plan.delete"
+            | "plan.disown"
+            | "plan.claim"
             | "plan.update"
     ) {
         let plan_id = plan_refs::resolve_plan(&svc.plan_store, &params)?;

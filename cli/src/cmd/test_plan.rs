@@ -94,7 +94,8 @@ resulting output and confirming that everything looks correct across all the rel
 
     #[test]
     fn bash_c_test_plan_is_a_runnable_command() {
-        let prefix = "The test plan has enough detail to identify the suite and observable result. ";
+        let prefix =
+            "The test plan has enough detail to identify the suite and observable result. ";
         assert!(test_plan_vague_reason(&format!(
             "{prefix}`bash -c 'python -m unittest tests.test_cli'`"
         ))

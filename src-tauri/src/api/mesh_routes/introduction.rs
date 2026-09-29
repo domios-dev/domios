@@ -200,7 +200,12 @@ mod tests {
             introduced_by: "peer-alice".into(),
         };
 
-        assert!(super::record_introduction(&mut mesh, &intro, "peer-alice", 1000));
+        assert!(super::record_introduction(
+            &mut mesh,
+            &intro,
+            "peer-alice",
+            1000
+        ));
 
         let request = mesh.pending_requests.values().next().unwrap();
         assert_eq!(request.from_instance_id, "peer-bob");

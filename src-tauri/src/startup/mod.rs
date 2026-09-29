@@ -15,9 +15,9 @@ mod progress;
 mod rest_api;
 mod restore_complete;
 mod servers;
-mod state_incidents;
 #[cfg(test)]
 mod stall_tests;
+mod state_incidents;
 mod states;
 mod user_path;
 mod window;

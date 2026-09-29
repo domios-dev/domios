@@ -619,7 +619,9 @@ pub(super) fn dispatch(
 
         "plan.next" => {
             let id = plan_refs::resolve_plan(store, params)?;
-            let plan = store.get(&id).ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let plan = store
+                .get(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             if let Some(response) = archived_next_response(&id, plan.status) {
                 return Ok(response);
             }

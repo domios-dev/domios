@@ -520,14 +520,26 @@ mod tests {
             revision: 0,
         };
 
-        assert!(update_pending_observations(&mut pending, &restored_ids, &absent));
+        assert!(update_pending_observations(
+            &mut pending,
+            &restored_ids,
+            &absent
+        ));
         let first = build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed);
         assert_eq!(first.dropped, 1);
-        assert_eq!(unlogged_pane_ids(&first, &mut pending.logged_panes), vec!["opencode"]);
+        assert_eq!(
+            unlogged_pane_ids(&first, &mut pending.logged_panes),
+            vec!["opencode"]
+        );
 
         let live = observed(&[("opencode", AgentLiveness::Live)]);
-        assert!(update_pending_observations(&mut pending, &restored_ids, &live));
-        let reconciled = build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed);
+        assert!(update_pending_observations(
+            &mut pending,
+            &restored_ids,
+            &live
+        ));
+        let reconciled =
+            build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed);
         assert_eq!(reconciled.dropped, 0);
         assert_eq!(reconciled.restored, 1);
         assert!(unlogged_pane_ids(&reconciled, &mut pending.logged_panes).is_empty());

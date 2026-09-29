@@ -20,7 +20,10 @@ fn pair_title_is_persisted_on_the_team_record() {
 
     apply_team_title(&mut mux, &team_id, Some("Release crew")).unwrap();
 
-    assert_eq!(mux.get_team(&team_id).unwrap().name.as_deref(), Some("Release crew"));
+    assert_eq!(
+        mux.get_team(&team_id).unwrap().name.as_deref(),
+        Some("Release crew")
+    );
     assert_eq!(mux.list_teams()[0].name.as_deref(), Some("Release crew"));
 }
 

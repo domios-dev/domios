@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 use super::ServiceContext;
 
-pub(crate) fn capture<T>(service: &ServiceContext, tab_id: &str, operation: impl FnOnce() -> T) -> T {
+pub(crate) fn capture<T>(
+    service: &ServiceContext,
+    tab_id: &str,
+    operation: impl FnOnce() -> T,
+) -> T {
     let (result, paths) = codeterm_util::task_files::capture(tab_id, operation);
     if !paths.is_empty() {
         service
@@ -22,19 +26,19 @@ pub(crate) fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf
         .lock()
         .remove(tab_id)
         .unwrap_or_default();
-    let root = service.agent_pad_data_dir.join("runtime").join("task-files");
+    let root = service
+        .agent_pad_data_dir
+        .join("runtime")
+        .join("task-files");
     codeterm_util::task_files::release_tab(&root, tab_id, &paths)
 }
 
 pub(crate) fn sweep_after_restore(service: &ServiceContext) -> Vec<PathBuf> {
-    let live_owners: HashSet<String> = service
-        .mux
-        .read()
-        .snapshot()
-        .tabs
-        .into_keys()
-        .collect();
-    let root = service.agent_pad_data_dir.join("runtime").join("task-files");
+    let live_owners: HashSet<String> = service.mux.read().snapshot().tabs.into_keys().collect();
+    let root = service
+        .agent_pad_data_dir
+        .join("runtime")
+        .join("task-files");
     let removed = codeterm_util::task_files::sweep(&root, &live_owners);
     let mut registry = service.launch_task_files.lock();
     registry.retain(|tab_id, paths| {
@@ -51,8 +55,8 @@ pub(crate) fn sweep_after_restore(service: &ServiceContext) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiplexer::types::TabCloseReason;
     use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::TabCloseReason;
     use crate::service::test_fixture::ServiceFixture;
 
     fn fixture_with_task_file() -> (ServiceFixture, String, PathBuf) {
@@ -63,9 +67,8 @@ mod tests {
             .agent_pad_data_dir
             .join("runtime")
             .join("task-files");
-        let marker = codeterm_util::task_files::instance_marker_for(
-            &fixture.service.agent_pad_data_dir,
-        );
+        let marker =
+            codeterm_util::task_files::instance_marker_for(&fixture.service.agent_pad_data_dir);
         let path = capture(&fixture.service, &tab_id, || {
             codeterm_util::task_files::write_at(
                 &root,
@@ -101,7 +104,11 @@ mod tests {
                 .service
                 .close_tab_with_reason(&tab_id, reason)
                 .expect("close tab");
-            assert!(!path.exists(), "task file survived {} close", reason.label());
+            assert!(
+                !path.exists(),
+                "task file survived {} close",
+                reason.label()
+            );
         }
     }
 

@@ -260,8 +260,7 @@ impl ServiceContext {
                     .cloned()
             })
         });
-        if pending_switch.is_some()
-            && (launch_report.is_none() || pending_binding_nonce.is_none())
+        if pending_switch.is_some() && (launch_report.is_none() || pending_binding_nonce.is_none())
         {
             return;
         }
@@ -282,13 +281,11 @@ impl ServiceContext {
         } else {
             session_model_evidence(launch_report.clone(), transcript_model.clone())
         };
-        let Some((model, launch_report)) = evidence
-        else {
+        let Some((model, launch_report)) = evidence else {
             return;
         };
-        let first_turn_observed = pending_switch.is_some()
-            && transcript_model.is_some()
-            && launch_report.is_none();
+        let first_turn_observed =
+            pending_switch.is_some() && transcript_model.is_some() && launch_report.is_none();
         self.apply_session_model(
             tab_id,
             agent_id,
@@ -424,12 +421,12 @@ impl ServiceContext {
             else {
                 return false;
             };
-            let Some(observation) = tab
-                .pending_model_switch_observation
-                .as_ref()
-                .filter(|pending| {
-                    tab.agent_session_id.as_deref() == Some(pending.session_id.as_str())
-                })
+            let Some(observation) =
+                tab.pending_model_switch_observation
+                    .as_ref()
+                    .filter(|pending| {
+                        tab.agent_session_id.as_deref() == Some(pending.session_id.as_str())
+                    })
             else {
                 return false;
             };

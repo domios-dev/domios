@@ -103,8 +103,12 @@ fn mesh_relay_large_payload_verdict() {
 fn mesh_relay_landed_verdict_is_scoped_to_sends() {
     let mut not_a_send = submit_unconfirmed_envelope();
     not_a_send["data"]["ok"] = serde_json::json!(false);
-    let failure = answer(("POST", "/api/agents/spawn"), reqwest::StatusCode::OK, not_a_send)
-        .expect_err("only a tab send may turn landed bytes into an accepted send");
+    let failure = answer(
+        ("POST", "/api/agents/spawn"),
+        reqwest::StatusCode::OK,
+        not_a_send,
+    )
+    .expect_err("only a tab send may turn landed bytes into an accepted send");
     assert_eq!(failure.bytes_written, Some(true));
 }
 
@@ -118,14 +122,21 @@ fn mesh_peer_resolution_table() {
             {"instance_id": "id-2", "instance_name": "ROG", "online": true, "relay_protocol_version": 1},
         ],
     });
-    let failure = answer(("GET", "/api/tabs"), reqwest::StatusCode::CONFLICT, ambiguous_body)
-        .expect_err("an ambiguous name is refused");
+    let failure = answer(
+        ("GET", "/api/tabs"),
+        reqwest::StatusCode::CONFLICT,
+        ambiguous_body,
+    )
+    .expect_err("an ambiguous name is refused");
     assert!(failure.reason.contains("id-1") && failure.reason.contains("id-2"));
     assert_eq!(failure.class, Some(RefusalClass::Deterministic));
     assert_eq!(failure.to_json()["error"]["class"], "deterministic");
 
     let table: [(&str, Option<&str>); 2] = [
-        ("with a resolved peer the failure names it", Some("BLACKSTAR-peer [dev-meshpeer]")),
+        (
+            "with a resolved peer the failure names it",
+            Some("BLACKSTAR-peer [dev-meshpeer]"),
+        ),
         ("without one it keeps the typed target", None),
     ];
     for (case, resolved) in table {
@@ -140,17 +151,27 @@ fn mesh_peer_resolution_table() {
         );
         let failure = answer(SEND, reqwest::StatusCode::OK, body).expect_err(case);
         assert_eq!(failure.peer, resolved.unwrap_or("typed-name"), "{case}");
-        assert_eq!(failure.peer_id.as_deref(), resolved.map(|_| PEER_ID), "{case}");
+        assert_eq!(
+            failure.peer_id.as_deref(),
+            resolved.map(|_| PEER_ID),
+            "{case}"
+        );
     }
 
     let ok = answer(
         ("GET", "/api/tabs"),
         reqwest::StatusCode::OK,
-        envelope(true, serde_json::json!({"ok": true, "status": 200, "data": [{"id": "t"}]})),
+        envelope(
+            true,
+            serde_json::json!({"ok": true, "status": 200, "data": [{"id": "t"}]}),
+        ),
     )
     .expect("success");
     let named = with_answering_peer(ok.data.clone(), ok.peer.as_ref());
-    assert!(named.is_array(), "a bare-array result is never wrapped or rewritten");
+    assert!(
+        named.is_array(),
+        "a bare-array result is never wrapped or rewritten"
+    );
     let object = with_answering_peer(serde_json::json!({"tabs": []}), ok.peer.as_ref());
     assert_eq!(object["answered_by"]["instance_id"], PEER_ID);
 }
@@ -158,11 +179,31 @@ fn mesh_peer_resolution_table() {
 #[test]
 fn mesh_refusal_classification() {
     let table: [(Option<&str>, u16, RefusalClass); 9] = [
-        (Some(delivery::PEER_RELAY_NOT_AUTHORIZED), 403, RefusalClass::Deterministic),
-        (Some(delivery::PEER_RELAY_PROTOCOL_MISMATCH), 426, RefusalClass::Deterministic),
-        (Some(delivery::TAB_NOT_REACHABLE_ON_PEER), 404, RefusalClass::Deterministic),
-        (Some(delivery::TAB_BUSY_REFUSED), 409, RefusalClass::Transient),
-        (Some(delivery::MESH_DELIVERY_WINDOW_SATURATED), 503, RefusalClass::Transient),
+        (
+            Some(delivery::PEER_RELAY_NOT_AUTHORIZED),
+            403,
+            RefusalClass::Deterministic,
+        ),
+        (
+            Some(delivery::PEER_RELAY_PROTOCOL_MISMATCH),
+            426,
+            RefusalClass::Deterministic,
+        ),
+        (
+            Some(delivery::TAB_NOT_REACHABLE_ON_PEER),
+            404,
+            RefusalClass::Deterministic,
+        ),
+        (
+            Some(delivery::TAB_BUSY_REFUSED),
+            409,
+            RefusalClass::Transient,
+        ),
+        (
+            Some(delivery::MESH_DELIVERY_WINDOW_SATURATED),
+            503,
+            RefusalClass::Transient,
+        ),
         (Some("spawn_failed"), 500, RefusalClass::Unknown),
         (None, 400, RefusalClass::Deterministic),
         (None, 503, RefusalClass::Transient),

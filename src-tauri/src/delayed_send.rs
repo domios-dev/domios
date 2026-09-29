@@ -108,7 +108,10 @@ impl DelayedSendQueue {
                 .map_err(|e| format!("create {}: {}", parent.display(), e))?;
         }
         let mut messages = match queue_file(&path).load(|text| parse_queue(&path, text)) {
-            Loaded::Parsed(messages) | Loaded::Recovered { value: messages, .. } => messages,
+            Loaded::Parsed(messages)
+            | Loaded::Recovered {
+                value: messages, ..
+            } => messages,
             Loaded::Missing | Loaded::Unrecoverable { .. } => Vec::new(),
         };
         for msg in &mut messages {
@@ -880,7 +883,8 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     if !target_tab_exists(svc, &msg.tab_id) {
         let error = format!("recipient tab {} no longer exists", msg.tab_id);
         if msg.recurrence.is_some() {
-            svc.delayed_send.stop_recurring_for_missing_target(&msg.id)?;
+            svc.delayed_send
+                .stop_recurring_for_missing_target(&msg.id)?;
         } else {
             svc.delayed_send.mark_failed(&msg.id, error.clone())?;
         }
@@ -893,13 +897,9 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
             service.ensure_tab_pty_for_send(&tab_id)?;
             let deadline = std::time::Instant::now() + Duration::from_secs(120);
             let ready = crate::service::boot_wait::wait_until(deadline, || {
-                service
-                    .mux
-                    .read()
-                    .get_tab(&tab_id)
-                    .is_some_and(|tab| {
-                        tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
-                    })
+                service.mux.read().get_tab(&tab_id).is_some_and(|tab| {
+                    tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+                })
             });
             if ready {
                 Ok(())

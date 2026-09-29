@@ -322,11 +322,11 @@ pub(super) fn dispatch(
                 caller_tab_id,
                 binding_nonce,
             )
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+                data: None,
+            })?;
             Ok(serde_json::json!({"ok": true}))
         }
 

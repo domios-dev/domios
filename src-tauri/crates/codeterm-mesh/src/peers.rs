@@ -188,11 +188,12 @@ fn validate_peers(text: &str) -> Result<(), String> {
 }
 
 pub(crate) fn load_peers_at(path: &Path) -> HashMap<String, PairedPeer> {
-    let (peers, scrubbed) =
-        match peers_file(path).load(|text| rehydrate_peers_payload(text).map_err(|e| e.to_string())) {
-            Loaded::Parsed(result) | Loaded::Recovered { value: result, .. } => result,
-            Loaded::Missing | Loaded::Unrecoverable { .. } => return HashMap::new(),
-        };
+    let (peers, scrubbed) = match peers_file(path)
+        .load(|text| rehydrate_peers_payload(text).map_err(|e| e.to_string()))
+    {
+        Loaded::Parsed(result) | Loaded::Recovered { value: result, .. } => result,
+        Loaded::Missing | Loaded::Unrecoverable { .. } => return HashMap::new(),
+    };
     if scrubbed > 0 {
         log::info!(
             "[mesh/migrate] Scrubbed {} unparseable IP entries from peers.json",

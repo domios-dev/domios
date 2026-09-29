@@ -122,7 +122,11 @@ pub async fn do_approve(
         manager.pending_requests.remove(&request_id);
         let _ = manager.save();
         drop(manager);
-        crate::api::events::emit_everywhere(&app_handle, "mesh-state-changed", serde_json::Value::Null);
+        crate::api::events::emit_everywhere(
+            &app_handle,
+            "mesh-state-changed",
+            serde_json::Value::Null,
+        );
         return Ok(());
     }
 
@@ -475,7 +479,7 @@ fn mesh_owner_authorized(headers: &HeaderMap, local_token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::mesh::types::{
-        DiscoveryMethod, DiscoveredPeer, PairingRequest, PairingStatus, PeerAddress,
+        DiscoveredPeer, DiscoveryMethod, PairingRequest, PairingStatus, PeerAddress,
     };
 
     #[test]
@@ -513,7 +517,8 @@ mod tests {
             introduced_by: Some("voucher".into()),
         };
 
-        let (request_id, _, _) = super::record_incoming_pairing_request(&mut mesh, request).unwrap();
+        let (request_id, _, _) =
+            super::record_incoming_pairing_request(&mut mesh, request).unwrap();
 
         assert_eq!(
             mesh.pending_requests[&request_id].status,
@@ -553,7 +558,10 @@ mod tests {
             assert!(matches!(error, super::ApproveError::NotFound), "{id}");
         }
         assert!(mesh.revocation_list.blocked.is_empty());
-        assert_eq!(mesh.pending_requests["accepted"].status, PairingStatus::Accepted);
+        assert_eq!(
+            mesh.pending_requests["accepted"].status,
+            PairingStatus::Accepted
+        );
     }
 
     #[test]
@@ -567,7 +575,10 @@ mod tests {
             pending_request("open", "stranger", PairingStatus::Pending),
         );
         super::reject_pending_request(&mut mesh, "open").expect("pending request rejects");
-        assert_eq!(mesh.pending_requests["open"].status, PairingStatus::Rejected);
+        assert_eq!(
+            mesh.pending_requests["open"].status,
+            PairingStatus::Rejected
+        );
         assert_eq!(mesh.revocation_list.blocked, vec!["stranger".to_string()]);
         super::reject_pending_request(&mut mesh, "open")
             .expect_err("a second reject is a processed request");

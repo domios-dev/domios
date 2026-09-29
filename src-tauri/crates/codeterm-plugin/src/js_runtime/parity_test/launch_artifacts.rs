@@ -146,8 +146,14 @@ fn launch_task_file_capture_native_js_parity() {
     assert_eq!(js_files.len(), 1);
     assert!(std::path::Path::new(&native_path).starts_with(codeterm_util::task_files::task_dir()));
     assert!(std::path::Path::new(&js_path).starts_with(codeterm_util::task_files::task_dir()));
-    assert_eq!(std::fs::read_to_string(&native_path).unwrap(), "opaque-task-fragment");
-    assert_eq!(std::fs::read_to_string(&js_path).unwrap(), "opaque-task-fragment");
+    assert_eq!(
+        std::fs::read_to_string(&native_path).unwrap(),
+        "opaque-task-fragment"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&js_path).unwrap(),
+        "opaque-task-fragment"
+    );
     let paths = [native_files, js_files].concat();
     codeterm_util::task_files::release_tab(
         &codeterm_util::task_files::task_dir(),

@@ -106,9 +106,7 @@ fn provider_turn_error_surfaces_status_event_capability() {
         vec![crate::detector::AgentEvent::TurnError]
     );
     assert_eq!(
-        opencode().detect_events(
-            r#"{"type":"session.idle","properties":{"sessionID":"ses_abc"}}"#
-        ),
+        opencode().detect_events(r#"{"type":"session.idle","properties":{"sessionID":"ses_abc"}}"#),
         vec![crate::detector::AgentEvent::TaskComplete]
     );
     assert_eq!(

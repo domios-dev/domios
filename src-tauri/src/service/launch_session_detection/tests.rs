@@ -116,9 +116,7 @@ fn crafted_gitfile_pointing_at_another_lane_is_refused() {
     )
     .expect("crafted gitfile");
 
-    assert!(
-        git_worktree_metadata_dirs(forged.to_str().unwrap(), repo.to_str().unwrap(),).is_err()
-    );
+    assert!(git_worktree_metadata_dirs(forged.to_str().unwrap(), repo.to_str().unwrap(),).is_err());
 }
 
 #[test]
@@ -481,15 +479,9 @@ fn marked_provider_launch_command_hands_every_fresh_launch_its_tabs_marker() {
     ];
 
     for (tab_id, mut params) in cases {
-        let command = marked_provider_launch_command(
-            &registry,
-            "direct",
-            tab_id,
-            None,
-            None,
-            &mut params,
-        )
-        .expect("registered provider builds a command");
+        let command =
+            marked_provider_launch_command(&registry, "direct", tab_id, None, None, &mut params)
+                .expect("registered provider builds a command");
         let marker = registered_launch_marker(tab_id).expect("tab registers its marker");
         assert_eq!(params.launch_marker.as_deref(), Some(marker.as_str()));
         assert_eq!(command, format!("direct-cli --launch-marker {marker}"));

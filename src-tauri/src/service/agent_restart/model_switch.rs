@@ -259,12 +259,11 @@ impl ModelSwitchLaunch {
         );
         if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
             tab.model_fallback = None;
-            tab.pending_model_switch_observation = Some(
-                crate::multiplexer::types::PendingModelSwitchObservation {
+            tab.pending_model_switch_observation =
+                Some(crate::multiplexer::types::PendingModelSwitchObservation {
                     session_id: self.session_id.clone(),
                     launched_model: self.launched_model().to_string(),
-                },
-            );
+                });
         }
         if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
             svc,
@@ -431,12 +430,13 @@ impl ServiceContext {
                 let Some(tab) = mux.get_tab(tab_id) else {
                     return false;
                 };
-                let identity_current = crate::service::session_model::has_current_session_model(
-                    tab, session_id,
-                );
+                let identity_current =
+                    crate::service::session_model::has_current_session_model(tab, session_id);
                 (
                     crate::service::session_model::current_launch_report(tab, session_id),
-                    identity_current.then(|| tab.agent_session_model.clone()).flatten(),
+                    identity_current
+                        .then(|| tab.agent_session_model.clone())
+                        .flatten(),
                     tab.pending_model_switch_observation
                         .as_ref()
                         .filter(|pending| pending.session_id == session_id)

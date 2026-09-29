@@ -502,7 +502,9 @@ pub(super) fn install(
         }
     });
     let sb = sandbox.clone();
-    bind!("readFile", move |ctx: Ctx, path: String| -> rquickjs::Result<Option<String>> {
+    bind!("readFile", move |ctx: Ctx,
+                            path: String|
+          -> rquickjs::Result<Option<String>> {
         if !sb.can_read(&path) {
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
             return Ok(None);

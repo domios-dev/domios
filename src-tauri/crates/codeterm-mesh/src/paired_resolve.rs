@@ -64,7 +64,10 @@ fn candidate_of(peer: &PairedPeer) -> PairedNameCandidate {
 /// Peers whose id starts with `target` (the short id `mesh status` prints).
 /// Only a hex-looking token of 6+ characters counts, so a name is never read
 /// as an id prefix.
-fn id_prefix_matches<'a>(peers: &'a HashMap<String, PairedPeer>, target: &str) -> Vec<&'a PairedPeer> {
+fn id_prefix_matches<'a>(
+    peers: &'a HashMap<String, PairedPeer>,
+    target: &str,
+) -> Vec<&'a PairedPeer> {
     let hex_like = target.len() >= 6 && target.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     if !hex_like {
         return Vec::new();
@@ -251,7 +254,12 @@ mod tests {
             peer(full, "BLACKSTAR-peer [dev-meshpeer]", true, 1),
         );
         peers.insert("3b6e44a3-x".into(), peer("3b6e44a3-x", "OTHER", true, 1));
-        for target in ["BLACKSTAR-peer", "blackstar-peer [dev-meshpeer]", "dc737738", "DC737738"] {
+        for target in [
+            "BLACKSTAR-peer",
+            "blackstar-peer [dev-meshpeer]",
+            "dc737738",
+            "DC737738",
+        ] {
             let resolved = resolve_paired_by_name(&peers, target).expect(target);
             assert_eq!(resolved.instance_id, full, "{target}");
         }

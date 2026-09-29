@@ -155,9 +155,9 @@ pub(super) fn authorize_plan_mutation(
     if confirmed_human
         || (caller.tab_id.is_some()
             && matches!(
-            svc.classify_planning_caller(plan_id, &caller),
-            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
-        ))
+                svc.classify_planning_caller(plan_id, &caller),
+                Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+            ))
     {
         return Ok(());
     }
@@ -232,6 +232,9 @@ mod tests {
         let confirmed = Some(json!({ "human_confirmation": true }));
         assert!(has_human_confirmation(None, &confirmed));
         assert!(!has_human_confirmation(Some("planner-tab"), &confirmed));
-        assert!(!has_human_confirmation(None, &Some(json!({ "human_confirmation": false }))));
+        assert!(!has_human_confirmation(
+            None,
+            &Some(json!({ "human_confirmation": false }))
+        ));
     }
 }

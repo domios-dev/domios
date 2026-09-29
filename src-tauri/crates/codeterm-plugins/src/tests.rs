@@ -175,16 +175,36 @@ mod store_index_tests {
         with_data_root(|root| {
             let source = root.join("override-source");
             std::fs::create_dir_all(&source).unwrap();
-            std::fs::write(source.join("plugin.json"), serde_json::json!({"id":"source-id","version":"1.0.0","requiresReload":true}).to_string()).unwrap();
+            std::fs::write(
+                source.join("plugin.json"),
+                serde_json::json!({"id":"source-id","version":"1.0.0","requiresReload":true})
+                    .to_string(),
+            )
+            .unwrap();
             std::fs::write(source.join("plugin.js"), "module.exports = {};").unwrap();
-            let result = install_command(None, Some(source.display().to_string()), Some("runtime-id".into()), None).unwrap();
+            let result = install_command(
+                None,
+                Some(source.display().to_string()),
+                Some("runtime-id".into()),
+                None,
+            )
+            .unwrap();
             assert_eq!(result["id"], "runtime-id");
             let folder = plugin_dir(&PluginId::parse("runtime-id").unwrap());
-            let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("plugin.json")).unwrap()).unwrap();
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(folder.join("plugin.json")).unwrap())
+                    .unwrap();
             assert_eq!(manifest["id"], "runtime-id");
             let rows = list_installed().unwrap();
-            assert!(rows["plugins"].as_array().unwrap().iter().any(|row| row["id"] == "runtime-id"));
-            assert_eq!(config::get_command("runtime-id").unwrap()["id"], "runtime-id");
+            assert!(rows["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"] == "runtime-id"));
+            assert_eq!(
+                config::get_command("runtime-id").unwrap()["id"],
+                "runtime-id"
+            );
             assert_eq!(result["reload_required"], true);
         });
     }
@@ -839,7 +859,9 @@ exit /b 0
             )
             .expect("refresh failure should not block cached install");
 
-            assert!(plugin_dir(&PluginId::validated("cached")).join("plugin.json").exists());
+            assert!(plugin_dir(&PluginId::validated("cached"))
+                .join("plugin.json")
+                .exists());
             let warnings = out["warnings"].as_array().expect("warnings array");
             assert_eq!(warnings.len(), 1);
             let warning = warnings[0].as_str().unwrap();
@@ -868,7 +890,9 @@ exit /b 0
 
             let first = update_system_command(None).expect("system manifest addition installs");
             assert_eq!(first["updated"], serde_json::json!(["extra-system"]));
-            assert!(plugin_dir(&PluginId::validated("extra-system")).join("plugin.json").exists());
+            assert!(plugin_dir(&PluginId::validated("extra-system"))
+                .join("plugin.json")
+                .exists());
             let listed = list_installed().unwrap();
             let extra = listed["plugins"]
                 .as_array()
@@ -885,7 +909,9 @@ exit /b 0
                 .as_str()
                 .unwrap()
                 .contains("left installed"));
-            assert!(plugin_dir(&PluginId::validated("extra-system")).join("plugin.json").exists());
+            assert!(plugin_dir(&PluginId::validated("extra-system"))
+                .join("plugin.json")
+                .exists());
 
             restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
         });
@@ -1094,7 +1120,9 @@ exit /b 0
             update_system_command(None).expect("baseline sync installs compatible providers");
             for id in ["claude", "codex", "opencode"] {
                 assert!(
-                    plugin_dir(&PluginId::validated(id)).join("plugin.json").exists(),
+                    plugin_dir(&PluginId::validated(id))
+                        .join("plugin.json")
+                        .exists(),
                     "{id} should be installed at baseline"
                 );
             }

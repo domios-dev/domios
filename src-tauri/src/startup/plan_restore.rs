@@ -14,7 +14,10 @@ pub(crate) fn restore(service: &ServiceContext) {
     let mut workspace_cwds = workspace_cwds(&service.mux);
     workspace_cwds.sort();
     workspace_cwds.dedup();
-    let probe_paths: Vec<_> = workspace_cwds.iter().map(std::path::PathBuf::from).collect();
+    let probe_paths: Vec<_> = workspace_cwds
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
     codeterm_plan::service_plan::paths::warm_project_roots(&probe_paths, PROJECT_PROBE_PARALLELISM);
 
     for cwd in workspace_cwds {

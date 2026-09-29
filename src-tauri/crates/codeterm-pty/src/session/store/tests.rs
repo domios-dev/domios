@@ -579,15 +579,26 @@ fn desk_backup_retention_policy() {
     let now = 1_800_000_000u64;
     // QA rate: one snapshot every 10 s for 26 h.
     let all: Vec<u64> = (0..(26 * 360)).map(|i| now - i * 10).collect();
-    let evicted: std::collections::HashSet<u64> =
-        super::retention::timestamps_to_evict(&all, now).into_iter().collect();
-    let kept: Vec<u64> = all.iter().copied().filter(|t| !evicted.contains(t)).collect();
+    let evicted: std::collections::HashSet<u64> = super::retention::timestamps_to_evict(&all, now)
+        .into_iter()
+        .collect();
+    let kept: Vec<u64> = all
+        .iter()
+        .copied()
+        .filter(|t| !evicted.contains(t))
+        .collect();
 
     assert!(kept.len() <= 160, "bounded, kept {}", kept.len());
     assert!(kept.contains(&now), "newest snapshot always survives");
     let oldest_kept_age = kept.iter().map(|t| now - t).max().unwrap();
-    assert!(oldest_kept_age >= 23 * 3600, "covers ~24h, oldest {oldest_kept_age}s");
-    let hour_ago = kept.iter().filter(|t| now - **t >= 3600 && now - **t < 7200).count();
+    assert!(
+        oldest_kept_age >= 23 * 3600,
+        "covers ~24h, oldest {oldest_kept_age}s"
+    );
+    let hour_ago = kept
+        .iter()
+        .filter(|t| now - **t >= 3600 && now - **t < 7200)
+        .count();
     assert!(hour_ago >= 1, "history exists beyond the recent burst");
 
     let week_old = now - 8 * 86_400;

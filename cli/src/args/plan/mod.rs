@@ -757,9 +757,10 @@ mod tests {
             Commands::Plan {
                 action:
                     PlanAction::Review {
-                        action: PlanReviewAction::Accept {
-                            plan_id, task_id, ..
-                        },
+                        action:
+                            PlanReviewAction::Accept {
+                                plan_id, task_id, ..
+                            },
                     },
             } => (plan_id, task_id),
             _ => panic!("expected plan review accept"),

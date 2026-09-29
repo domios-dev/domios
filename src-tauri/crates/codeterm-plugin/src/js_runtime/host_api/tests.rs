@@ -905,7 +905,11 @@ fn host_launch_task_file_is_captured_for_its_tab() {
 
     assert_eq!(files, vec![path.clone()]);
     assert!(path.starts_with(codeterm_util::task_files::task_dir()));
-    assert!(path.file_name().unwrap().to_string_lossy().contains("7461622d686f73742d63617074757265"));
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .contains("7461622d686f73742d63617074757265"));
     let _ = std::fs::remove_file(path);
 }
 

@@ -129,10 +129,16 @@ mod tests {
         assert_eq!(value["ok"], true);
         assert_eq!(value["model_confirmation"], "pending");
         assert_eq!(value["relaunch_evidence"]["session_id"], "session-8b2c");
-        assert_eq!(value["relaunch_evidence"]["launched_model"], "opaque-model-9e");
+        assert_eq!(
+            value["relaunch_evidence"]["launched_model"],
+            "opaque-model-9e"
+        );
         assert_eq!(value["relaunch_evidence"]["agent_ready"], true);
         assert!(rendered.contains("--model opaque-model-9e"), "{rendered}");
         assert!(rendered.contains("session-8b2c"), "{rendered}");
-        assert!(rendered.contains("agent ready, model confirmation pending"), "{rendered}");
+        assert!(
+            rendered.contains("agent ready, model confirmation pending"),
+            "{rendered}"
+        );
     }
 }

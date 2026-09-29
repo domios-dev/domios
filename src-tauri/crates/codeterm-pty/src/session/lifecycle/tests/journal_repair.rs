@@ -29,7 +29,9 @@ fn lifecycle_journal_compacts_with_duplicate_seq() {
     assert_eq!(load.duplicate_seqs, 1);
     assert_eq!(load.records.len(), 2);
 
-    journal.compact().expect("duplicate seq is repaired, not refused");
+    journal
+        .compact()
+        .expect("duplicate seq is repaired, not refused");
 
     let repaired = journal.load();
     assert_eq!(repaired.duplicate_seqs, 0);
