@@ -27,6 +27,19 @@ pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
         || section_ids_contains(&plan.sections, id)
 }
 
+pub(super) fn ensure_group_declared(plan: &mut Plan, key: Option<&str>) {
+    let Some(key) = key.filter(|key| !key.trim().is_empty()) else {
+        return;
+    };
+    if !plan.task_groups.iter().any(|group| group.key == key) {
+        plan.task_groups.push(TaskGroup {
+            key: key.to_string(),
+            label: key.to_string(),
+            color: None,
+        });
+    }
+}
+
 fn section_matches(section: &Section, selector: &str) -> bool {
     section.id == selector || section.handle.as_deref() == Some(selector)
 }

@@ -942,6 +942,57 @@ fn set_task_groups_persists_and_reloads() {
 }
 
 #[test]
+fn heartbeat_and_groups_close_agree_on_declared_groups() {
+    let (store, id, task_id) = store_with_task(&["status_update"]);
+    store
+        .update_task(
+            &id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Some("release-1.11.10")),
+            &[],
+            None,
+            None,
+            3,
+        )
+        .unwrap();
+    let plan = store.get(&id).unwrap();
+    assert!(plan
+        .task_groups
+        .iter()
+        .any(|group| { group.key == "release-1.11.10" && group.label == "release-1.11.10" }));
+    store
+        .with_plan(&id, 4, |plan| {
+            plan.tasks[0].status = TaskStatus::Done;
+            plan.tasks[0].status_changed_at = 4;
+            Ok(())
+        })
+        .unwrap();
+    let heartbeat = store.prepend_heartbeat_for_plan(&id, "");
+    assert!(heartbeat.contains(&format!("codeterm plan groups close {id} release-1.11.10")));
+    store
+        .close_group(
+            &id,
+            "release-1.11.10",
+            "regression recorded",
+            AgentRef::from_tab("owner"),
+            5,
+        )
+        .unwrap();
+}
+
+#[test]
 fn set_tag_facets_persists_and_reloads() {
     use crate::plan::{TagFacet, TagFacetValue};
     let (store, id, _) = store_with_task(&["status_update"]);

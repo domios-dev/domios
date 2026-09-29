@@ -11,6 +11,26 @@ use crate::service::plan_batch_authority::{apply_batch_from_socket, BatchWriteEr
 use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
+
+fn plan_project_path(params: &Value, mux: &crate::multiplexer::state::MultiplexerState) -> String {
+    let requested = params
+        .get("project_path")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let team_workspace = params
+        .get("caller_tab_id")
+        .and_then(Value::as_str)
+        .and_then(|tab_id| mux.get_tab(tab_id))
+        .filter(|tab| tab.team_id.is_some())
+        .and_then(|tab| mux.get_workspace(&tab.workspace_id))
+        .and_then(|workspace| workspace.cwd.clone());
+    requested.or(team_workspace).unwrap_or_else(|| {
+        std::env::current_dir()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_default()
+    })
+}
+
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     let data = e.to_json();
     JsonRpcError {
@@ -190,15 +210,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             let title = get_string_param(params, "title")?;
-            let project = body
-                .get("project_path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| {
-                    std::env::current_dir()
-                        .map(|d| d.display().to_string())
-                        .unwrap_or_default()
-                });
+            let project = plan_project_path(body, &svc.mux.read());
             let kinds = body
                 .get("kinds")
                 .and_then(|v| v.as_str())

@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use crate::args::plan::{
     PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
     PlanKindsAction, PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction,
@@ -57,15 +55,7 @@ pub(crate) fn resolve_role_guidance(
 }
 
 fn read_path_or_stdin(path: &str) -> Result<String, String> {
-    if path == "-" {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|e| format!("failed to read stdin: {}", e))?;
-        Ok(buf)
-    } else {
-        std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {}", path, e))
-    }
+    crate::cmd::payload_source::read_file_or_stdin(path, "message file")
 }
 
 pub(crate) fn owner_from_env() -> Value {
@@ -299,7 +289,13 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            if let Some(project) = project.or_else(|| default_project_path(client)) {
+            let project = project.or_else(|| {
+                std::env::var_os("CODETERM_TEAM_ID")
+                    .is_none()
+                    .then(|| default_project_path(client))
+                    .flatten()
+            });
+            if let Some(project) = project {
                 params["project_path"] = json!(project);
             }
             if let Some(spec_id) = from_spec {
