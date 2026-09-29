@@ -17,6 +17,12 @@ impl PluginId {
     }
 }
 
+impl std::fmt::Display for PluginId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
     let bytes = value.as_bytes();
     let valid_chars = bytes.first().is_some_and(u8::is_ascii_lowercase)
@@ -25,7 +31,7 @@ fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
     let device_base = value.split('.').next().unwrap_or("").to_ascii_uppercase();
     let reserved = matches!(device_base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || ["COM", "LPT"].iter().any(|prefix| {
-            device_base.strip_prefix(prefix).is_some_and(|n| matches!(n, "1"..="9"))
+            device_base.strip_prefix(prefix).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
         });
     if value.is_empty() { return Err(format!("{domain} must not be empty")); }
     if bytes.len() > 64 { return Err(format!("{domain} must be at most 64 ASCII characters")); }

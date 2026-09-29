@@ -851,7 +851,7 @@ fn read_file_bounded(path: &str, max_bytes: u64, tail: bool) -> Option<String> {
 
 pub(super) fn read_plugin_file(path: &str) -> Result<String, String> {
     use std::io::Read;
-    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    let file = File::open(path).map_err(|error| error.to_string())?;
     let size = file.metadata().map_err(|error| error.to_string())?.len();
     if size > PLUGIN_READ_FILE_LIMIT {
         return Err(format!("readFile limit is {PLUGIN_READ_FILE_LIMIT} bytes"));
