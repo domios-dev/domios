@@ -901,6 +901,18 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.stop_key.as_deref()
     }
 
+    fn stop_keys(&self) -> Option<Vec<String>> {
+        if let Some(keys) = self.manifest.commands.stop_keys.as_ref() {
+            return (!keys.is_empty() && keys.iter().all(|key| !key.is_empty()))
+                .then(|| keys.clone());
+        }
+        self.stop_keystroke().map(|key| vec![key.to_string()])
+    }
+
+    fn stop_key_wait_for_output(&self) -> bool {
+        self.manifest.commands.stop_key_wait_for_output
+    }
+
     fn trust(&self) -> ProviderTrust {
         self.trust
     }

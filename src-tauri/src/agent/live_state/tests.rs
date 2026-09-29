@@ -6,6 +6,52 @@ use std::collections::{BTreeMap, BTreeSet};
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
+fn restored_prompt_without_a_session_is_live_with_a_live_pty() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "pty-restored-prompt-no-session";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("prompt-fixture".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.boot_stage = Some(crate::service::boot_stage::BootStage::AwaitingOwnerPrompt);
+        tab.agent_booting = true;
+        tab.agent_session_id = None;
+        tab.restored_from_snapshot = true;
+        tab.pending_prompt = Some(crate::multiplexer::types::PendingPrompt {
+            question: "prompt-token".into(),
+            options: Vec::new(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        });
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn live backing PTY");
+
+    assert_eq!(
+        observe_tab_liveness(&fixture.service, &tab_id),
+        AgentLiveness::Live
+    );
+
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop live backing PTY");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
 fn restore_wave_does_not_clear_identity_of_a_launching_tab() {
     let (mut mux, launching_tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let waiting_tab_id = mux.create_tab_record();
