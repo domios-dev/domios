@@ -61,7 +61,6 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("readStructuredChat", "native fallback (bundled drop-ins only), else empty"),
     ("parseInteractiveEvents", "native fallback (bundled drop-ins only); also requires spawn.interactiveEvents"),
     ("classifyTabState", "native fallback (bundled drop-ins only), else no classification"),
-    ("providerSelfUpdateCapability", "native fallback (bundled drop-ins only), else none"),
     ("settingsSchema", "manifest-derived settings sections"),
     ("notificationsSchema", "none"),
     ("parseUsage", "usage parsing off"),

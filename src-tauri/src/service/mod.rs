@@ -35,8 +35,10 @@ pub mod input_parser;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
+pub(crate) mod launch_artifacts;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
+pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
 pub mod message_gateway;
@@ -46,15 +48,25 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
+mod parked_user_delivery;
 mod process_tree;
+mod prompt_resolution;
+pub(crate) mod provider_update;
+pub(crate) mod public_send_readiness;
+pub(crate) mod startup_turn;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
-pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
+pub(crate) use orchestrator::{
+    build_agent_command_for_service, launch_agent_in_background, mark_tab_agent_launch_started,
+    provider_launch_task,
+};
 pub(crate) mod directory_trust;
+mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
+pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;
 pub(crate) mod permission_policy;
@@ -64,9 +76,9 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
+pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod plugin_host;
 pub(crate) mod provider_identity;
-pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
@@ -106,6 +118,7 @@ mod status_reconciliation;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
+pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
@@ -126,6 +139,7 @@ pub(crate) use team::close_team_with_state_change;
 pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
+pub use team::TeamCloseResult;
 mod task_lane_guard;
 pub(crate) use task_lane_guard::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, recorded_lane_matches,
@@ -146,7 +160,7 @@ pub mod web_access;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
-mod worker_lane;
+pub(crate) mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
@@ -158,6 +172,8 @@ mod workspace;
 mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
+pub(crate) const TEAM_CLOSE_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED]";
+pub(crate) const WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX: &str = "[WORKSPACE CLOSE CLEANUP FAILED]";
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -187,28 +203,30 @@ pub use inject_verify::{
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 #[cfg(test)]
 pub(crate) use orchestrator::{
-    arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
+    arm_provider_session_for_test, launch_waits_for_first_turn_binding, spawn_onboarding_task,
+    LaunchGeneration,
 };
 pub(crate) use orchestrator::{
     move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
-    TaskLaunchAuthority,
+    RemoteTaskBinding, TaskLaunchAuthority,
 };
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
 pub(crate) use plan_authority::{
-    ensure_planner_task_fields_are_structural, planner_forbidden_task_field,
-    AuthenticatedPlanCaller, OrchestratorLearningError,
+    ensure_planner_task_fields_are_structural, launch_binding_is_pending,
+    planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
+    PlanAuthorityError,
 };
 pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
-pub(crate) use team::TeamCartographerAttachLocks;
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
+pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
     respawn_title_provenance,
@@ -219,6 +237,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) agent_pad_data_dir: std::path::PathBuf,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
@@ -227,6 +246,7 @@ pub struct ServiceContext {
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
     pub(crate) cartographer_attach_locks: TeamCartographerAttachLocks,
+    pub(crate) orchestrator_attach_locks: TeamOrchestratorAttachLocks,
     pub agent_tracker: AgentTrackerState,
     /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
@@ -243,6 +263,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
+    pub(crate) provider_tree_witnesses: Arc<process_tree::ProviderTreeWitnesses>,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -264,7 +285,6 @@ pub struct ServiceContext {
     pub bridge_threads: Arc<codeterm_bridge::bridge::threads::ThreadService>,
     /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
-    pub provider_updates: provider_update::ProviderUpdateRegistry,
     /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
     pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
@@ -316,6 +336,8 @@ pub struct ServiceContext {
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
     pub mux_emit_stats: Arc<MuxEmitStats>,
+    pub(crate) output_stream_activity:
+        tokio::sync::broadcast::Sender<output_stream_activity::OutputStreamActivity>,
     /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
     pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -394,6 +416,16 @@ impl ServiceContext {
         channel: crate::multiplexer::types::PendingDeliveryChannel,
         payload: &str,
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
+        self.create_pending_delivery_with_send_id(tab_id, channel, payload, None)
+    }
+
+    pub(crate) fn create_pending_delivery_with_send_id(
+        &self,
+        tab_id: &str,
+        channel: crate::multiplexer::types::PendingDeliveryChannel,
+        payload: &str,
+        send_id: Option<&str>,
+    ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
         use sha2::Digest;
         let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
         let previous_digest = self
@@ -411,10 +443,11 @@ impl ServiceContext {
                 message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        tab.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
-            digest.clone(),
-            channel,
-        ));
+        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
+        tab.pending_delivery = Some(match send_id {
+            Some(send_id) => record.with_send_id(send_id.to_string()),
+            None => record,
+        });
         drop(mux);
         crate::service::session_persist::persist_session_after_mutation(
             self,
@@ -447,59 +480,6 @@ impl ServiceContext {
                     .map(Some)
             }
             _ => Ok(None),
-        }
-    }
-
-    /// Park a user send refused before any byte reached the PTY, so the tab's
-    /// next `AgentReady` transition can deliver it once. The gate lives here and
-    /// not at the call site: `SubmitUnconfirmed` is the only variant whose
-    /// payload may already sit in the PTY, and parking it would risk a second
-    /// write of the same text.
-    pub(crate) fn park_refused_user_send(
-        &self,
-        tab_id: &str,
-        text: &str,
-        error: &delivery_error::DeliveryError,
-    ) {
-        if error.bytes_written() || text.is_empty() {
-            return;
-        }
-        if let Err(store_error) = self.create_pending_delivery(
-            tab_id,
-            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-            text,
-        ) {
-            log::warn!("[chat-send] Tab {tab_id} refused send could not be parked: {store_error}");
-        }
-    }
-
-    /// Deliver a parked user send, once. A send that fails again is reconciled
-    /// and left alone rather than retried, so one park yields at most one write.
-    pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
-        // `Unconfirmed` means the payload already reached the PTY, only its ack is
-        // missing — delivering here would duplicate it; restore replays elsewhere.
-        let already_written = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .is_some_and(|record| {
-                record.state() == crate::multiplexer::types::PendingDeliveryState::Unconfirmed
-            });
-        if already_written {
-            return;
-        }
-        let Ok(Some(text)) = self.resolve_pending_delivery(tab_id) else {
-            return;
-        };
-        let evidence = self
-            .send_chat_text_claimed(tab_id, &text, None)
-            .map(|()| true);
-        if let Err(error) = self.reconcile_pending_delivery(tab_id, evidence) {
-            log::warn!(
-                "[chat-send] parked send for Tab {tab_id} not delivered: {}",
-                error.code()
-            );
         }
     }
 
@@ -660,11 +640,13 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
+        provider_update::on_state_change(self);
         publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish();
     }
 
     pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+        self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
@@ -716,6 +698,7 @@ impl ServiceContext {
     /// The socket handlers use this so fault injection (`frozen`) covers EVERY
     /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
     pub(crate) fn emit_mux_state_changed_empty(&self) {
+        self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {

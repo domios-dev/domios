@@ -93,6 +93,37 @@ async function run() {
     "a choice must not reach the generic action runner that can invoke commands",
   );
 
+  const firstPromptChoice = "choice-alpha";
+  const secondPromptChoice = "choice-beta";
+  const promptIdentity = {
+    kind: "directory_trust" as const,
+    options: [
+      { label: firstPromptChoice, value: "1" },
+      { label: secondPromptChoice, value: "2" },
+    ],
+  };
+  const promptNotice: Notification = {
+    ...asked,
+    id: "prompt-notice",
+    title: "Agent needs your response",
+    actions: [
+      { type: "respond_prompt_option", label: firstPromptChoice, value: "1", identity: promptIdentity },
+      { type: "respond_prompt_option", label: secondPromptChoice, value: "2", identity: promptIdentity },
+    ],
+  };
+  panel = await render(promptNotice);
+  const trust = Array.from(panel.querySelectorAll("button")).find(
+    (button) => button.textContent === firstPromptChoice,
+  ) as HTMLElement;
+  assert(trust, "a prompt response option should render in the notification panel");
+  await act(async () => trust.click());
+  assert(
+    answered[answered.length - 1]?.[0] === promptNotice.id &&
+      answered[answered.length - 1]?.[1] === firstPromptChoice,
+    "a prompt response option should use the notification answer route with its selected label",
+  );
+  assert(invoked.length === 0, "a prompt response option must not enter the generic action runner");
+
   // Once answered the row is a record of the decision, not a live control.
   panel = await render({
     ...asked,
@@ -146,30 +177,6 @@ async function run() {
   assert(
     buttonLabels(panel).length === 0,
     "a standing answer offers no choice buttons, delivered or not",
-  );
-
-  // The pre-existing action kinds still render and still run through the
-  // generic runner, untouched by the new kind.
-  panel = await render({
-    ...asked,
-    actions: [
-      {
-        label: "Update",
-        type: "invoke",
-        command: "respond_provider_update_prompt",
-        args: { promptId: "prompt-1", accept: true },
-      },
-    ],
-    answer: undefined,
-  });
-  const update = Array.from(panel.querySelectorAll("button")).find(
-    (button) => button.textContent === "Update",
-  ) as HTMLElement;
-  assert(update, "an invoke action should still render its button");
-  await act(async () => update.click());
-  assert(
-    invoked.length === 1 && invoked[0].command === "respond_provider_update_prompt",
-    "the pre-existing invoke path should be unchanged",
   );
 
   // The expand control the panel already had is reused, not replaced.

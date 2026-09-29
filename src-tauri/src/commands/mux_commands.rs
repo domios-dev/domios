@@ -71,12 +71,13 @@ pub fn mux_set_active_workspace(
 
 /// Close a workspace and kill all its PTYs.
 #[tauri::command]
-pub fn mux_close_workspace(
+pub async fn mux_close_workspace(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     force: Option<bool>,
 ) -> Result<(), String> {
-    svc.close_workspace_guarded(None, &workspace_id, force.unwrap_or(false))
+    svc.close_workspace_as_human(&workspace_id, force.unwrap_or(false))
+        .await
 }
 
 /// Rename a workspace.
@@ -184,7 +185,7 @@ pub(crate) async fn mux_close_team_service_core(
     svc: &ServiceState,
     team_id: String,
     caller_tab_id: Option<String>,
-) -> Result<Team, String> {
+) -> Result<crate::service::TeamCloseResult, String> {
     svc.close_team(&team_id, close_team_caller(caller_tab_id))
         .await
 }
@@ -198,7 +199,7 @@ pub async fn mux_close_team(
     svc: State<'_, ServiceState>,
     team_id: String,
     caller_tab_id: Option<String>,
-) -> Result<Team, String> {
+) -> Result<crate::service::TeamCloseResult, String> {
     mux_close_team_service_core(svc.inner(), team_id, caller_tab_id).await
 }
 
@@ -684,6 +685,7 @@ pub fn build_agent_launch_command(
         session_id: None,
         structured_prompt_server: None,
         launch_marker: None,
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| {
@@ -775,6 +777,9 @@ pub fn mux_respond_prompt(
         | crate::service::tab::RespondPromptOutcome::Structured
         | crate::service::tab::RespondPromptOutcome::PromptNotOnScreen
         | crate::service::tab::RespondPromptOutcome::NoPty => Ok(()),
+        crate::service::tab::RespondPromptOutcome::StalePrompt => {
+            Err("Prompt is no longer current".into())
+        }
         crate::service::tab::RespondPromptOutcome::InvalidOption => {
             Err("Invalid prompt option".into())
         }

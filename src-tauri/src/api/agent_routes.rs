@@ -13,6 +13,11 @@ use crate::api::{
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
+mod model_error;
+mod pair_headers;
+
+pub(super) use pair_headers::create_orchestration_pair;
+
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
@@ -323,7 +328,15 @@ pub async fn spawn_agent(
         audience: body.audience,
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     };
+    let default_provider = crate::config::default_agent_provider();
+    let provider_id = params.agent.as_deref().unwrap_or(&default_provider);
+    model_error::validate_agent_model(
+        &state.svc.agent_registry,
+        provider_id,
+        params.model.as_deref(),
+    )?;
     let plan_task = params.plan_task.clone();
     let (ready_tx, ready_rx) = if require_delivery_ack {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -468,25 +481,6 @@ fn validate_spawn_role(
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
     Ok(role_probe)
-}
-
-/// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
-/// action. The web-mirror twin of `codeterm team pair` — both call
-/// `ServiceContext::create_orchestration_pair`.
-pub async fn create_orchestration_pair(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<crate::service::OrchestrationPairParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let result = state
-        .svc
-        .create_orchestration_pair(body)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::to_value(result).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-    })?))
 }
 
 #[derive(Deserialize)]
@@ -960,6 +954,10 @@ pub(crate) fn respond_prompt_response(
         | crate::service::tab::RespondPromptOutcome::Structured => {
             (StatusCode::OK, serde_json::json!({"ok": true}))
         }
+        crate::service::tab::RespondPromptOutcome::StalePrompt => (
+            StatusCode::CONFLICT,
+            serde_json::json!({"ok": false, "reason": "stale_prompt"}),
+        ),
         crate::service::tab::RespondPromptOutcome::PromptNotOnScreen => (
             StatusCode::CONFLICT,
             serde_json::json!({"ok": false, "reason": "prompt_not_on_screen"}),

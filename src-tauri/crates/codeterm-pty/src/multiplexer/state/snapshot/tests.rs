@@ -5,6 +5,7 @@ mod merge;
 mod permission_auto_confirm;
 #[path = "tests/restore_verbatim_cwd.rs"]
 mod restore_verbatim_cwd;
+mod restored_agent_boot_stage;
 mod role_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
@@ -1012,6 +1013,39 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
     );
     assert_eq!(tab.model_fallback, Some(fallback));
     assert_eq!(tab.model_identity_mismatch, Some(mismatch));
+}
+
+#[test]
+fn restorable_launch_parameters_round_trip_in_snapshot() {
+    let (mut state, tab_id) = MultiplexerState::new();
+    let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        captured: true,
+        requested_model: Some("gpt-6-luna".into()),
+        model: Some("gpt-6-luna".into()),
+        requested_reasoning_effort: Some("xhigh".into()),
+        resolved_reasoning_effort: Some("xhigh".into()),
+        args: Some(vec!["--opaque-option".into(), "opaque-value".into()]),
+        agent_name: Some("agent-label".into()),
+        identity_instructions: Some("opaque-instruction-fragment".into()),
+        permission_bypass_requested: true,
+    };
+    state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();
+
+    let encoded = serde_json::to_string(&state.to_session_snapshot()).unwrap();
+    let snapshot: SessionSnapshot = serde_json::from_str(&encoded).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let tab = restored.tabs.get(&tab_id).expect("Tab restored");
+
+    assert_eq!(tab.restorable_launch, launch);
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("xhigh")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.resolved.as_deref(),
+        Some("xhigh")
+    );
+    assert_eq!(tab.reasoning_effort_identity.actual, None);
 }
 
 #[test]

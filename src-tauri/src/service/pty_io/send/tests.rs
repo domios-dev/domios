@@ -2,8 +2,8 @@ use super::readiness::composer_input_ready;
 use super::{
     authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
     is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
-    provider_or_generic_tui, public_agent_input_readiness, submit_authenticated_pty_input,
-    wait_for_observed_readiness,
+    provider_or_generic_tui, public_agent_input_readiness, require_submission_result,
+    submit_authenticated_pty_input, wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -32,6 +32,26 @@ fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
     assert!(!delivery_is_unknown(
         "pty_unavailable: recipient PTY missing"
     ));
+}
+
+#[test]
+fn stuck_after_write_reports_submit_unconfirmed_not_ok() {
+    let error = require_submission_result(
+        crate::service::inject_verify::InjectionResult {
+            bytes_written: 12,
+            echo_observed: true,
+            submit_observed: false,
+            submit_anomaly: true,
+            submit_key_writes: 7,
+            elapsed: Duration::from_secs(3),
+        },
+        true,
+    )
+    .unwrap_err();
+    let delivery = crate::service::delivery_error::DeliveryError::from_injection("tab-1", error);
+
+    assert_eq!(delivery.code(), "submit_unconfirmed");
+    assert!(delivery.bytes_written());
 }
 
 #[test]
@@ -360,6 +380,7 @@ fn inferred_question_and_prompt_never_block_ready_agent_input() {
         submit_available: None,
         selected_values: None,
     });
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
 
     assert_eq!(public_agent_input_readiness(tab), Some(Ok(())));
 }

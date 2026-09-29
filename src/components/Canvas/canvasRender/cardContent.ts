@@ -193,7 +193,7 @@ function taskContent(m: TaskModel): CardContent {
     ...resolved.topics.map((t) => ({ text: t, color: null })),
   ].slice(0, 5);
   const fields: CardField[] = [
-    { label: "status", value: task.status_label?.trim() || task.status.replace(/_/g, " "), color: TASK_STATUS_COLORS[task.status] ?? null },
+    { label: "status", value: (task.status === "pending" || task.status === "in_progress") && m.childCount != null && m.childCount > (m.childDone ?? 0) ? "blocked on subtasks" : task.status_label?.trim() || task.status.replace(/_/g, " "), color: TASK_STATUS_COLORS[task.status] ?? null },
     { label: "priority", value: (task.priority ?? "p2").toUpperCase(), color: null },
     executorField(m),
   ];

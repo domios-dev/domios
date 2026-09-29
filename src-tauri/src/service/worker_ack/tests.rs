@@ -5,7 +5,10 @@ use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+mod remote_ack_deadline;
+mod remote_task_startup;
 mod startup_binding;
+mod startup_supervision_honesty;
 
 fn lifecycle_fixture(
     parent_agent: bool,
@@ -479,6 +482,7 @@ fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
         .task_binding = Some(crate::multiplexer::types::TaskBinding {
         plan_id: Some("plan-a".into()),
         task_id: Some("task-a".into()),
+        attempt_id: None,
         spawn_handle: None,
         bound_at: 1,
     });
@@ -1000,6 +1004,7 @@ fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
         "launch-a",
         Some(17),
         Some("synthetic provider rejection"),
+        None,
     );
     assert_eq!(event["kind"], "agent_startup_failed");
     assert_eq!(
@@ -1037,6 +1042,16 @@ fn worker_ack_notice_is_a_short_single_line_with_agent_provider_and_attempt() {
     assert!(notice.contains("task_g94uu5"));
     assert!(notice.contains("attempt_rjd7ab"));
     assert!(notice.len() < 180);
+}
+
+#[test]
+fn startup_notice_treats_awaiting_owner_prompt_as_waiting() {
+    let payload = json!({
+        "kind": "agent_startup_overdue",
+        "attempt_id": "attempt-launch",
+        "waiting_for_owner_prompt": true,
+    });
+    assert!(startup_notice_waits_for_owner(&payload));
 }
 
 #[test]

@@ -33,6 +33,121 @@ fn test_mark_read_nonexistent() {
 }
 
 #[test]
+fn resolving_a_prompt_disables_its_choices_and_spends_channel_posts() {
+    use codeterm_types::notification::NotificationAction;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+
+    let prompt = PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![
+            PromptOption {
+                label: "Choice one".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Choice two".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let identity = PromptIdentity::new(PromptKind::Provider, &prompt);
+    let actions = prompt
+        .options
+        .iter()
+        .map(|option| NotificationAction::RespondPromptOption {
+            label: option.label.clone(),
+            value: option.value.clone(),
+            identity: identity.clone(),
+        })
+        .collect();
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "Agent needs your response".into(),
+        Some("opaque prompt".into()),
+        NotificationSeverity::Warning,
+        NotificationProvenance {
+            tab_id: Some("asking-tab".into()),
+            ..Default::default()
+        },
+        Ask::offering(Some(actions)),
+        Some(true),
+        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+    );
+    store.remember_channel_placement(&id, "telegram", "message-1");
+
+    assert_eq!(
+        store.resolve_prompt_notifications("asking-tab", &identity),
+        vec![id.clone()]
+    );
+    let notification = store.notification(&id).expect("resolved notification");
+    assert!(notification.resolved);
+    assert!(notification.read);
+    assert!(notification.actions.is_none());
+    let spent = store
+        .spent_question(&id)
+        .expect("channel message to update");
+    let rewritten = spent.message_for(crate::notification::push::PushBounds::for_ceiling(4096));
+    assert!(!rewritten.offers_choices());
+    assert!(store
+        .resolve_prompt_notifications("asking-tab", &identity)
+        .is_empty());
+}
+
+#[test]
+fn channel_placement_arriving_after_resolution_is_spent_immediately() {
+    use codeterm_types::notification::NotificationAction;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+
+    let prompt = PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![PromptOption {
+            label: "Choice one".into(),
+            value: "1".into(),
+        }],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let identity = PromptIdentity::new(PromptKind::Provider, &prompt);
+    let action = NotificationAction::RespondPromptOption {
+        label: prompt.options[0].label.clone(),
+        value: prompt.options[0].value.clone(),
+        identity: identity.clone(),
+    };
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        "Agent needs your response".into(),
+        Some(prompt.question),
+        NotificationSeverity::Warning,
+        NotificationProvenance {
+            tab_id: Some("asking-tab".into()),
+            ..Default::default()
+        },
+        Ask::offering(Some(vec![action])),
+        Some(true),
+        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+    );
+
+    assert_eq!(
+        store.resolve_prompt_notifications("asking-tab", &identity),
+        vec![id.clone()]
+    );
+    assert!(store.spent_question(&id).is_none());
+    let spent = store
+        .remember_channel_placement_and_spent_question(&id, "telegram", "late-message")
+        .expect("receipt for the resolved record returns its spent form");
+    assert!(store.notification(&id).unwrap().resolved);
+    assert!(!spent
+        .message_for(crate::notification::push::PushBounds::for_ceiling(4096))
+        .offers_choices());
+}
+
+#[test]
 fn test_clear_specific() {
     let mut store = NotificationStore::new(100);
     let id1 = store.add("A".into(), None, NotificationSeverity::Info, None, None);
@@ -102,250 +217,6 @@ fn test_notification_with_body_and_tab() {
     assert_eq!(n.body.as_deref(), Some("Body text"));
     assert_eq!(n.tab_id.as_deref(), Some("tab-1"));
     assert_eq!(n.workspace_id.as_deref(), Some("ws-1"));
-}
-
-#[test]
-fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
-    let mut store = NotificationStore::new(100);
-    let actions = vec![NotificationAction::Invoke {
-        label: "Update".into(),
-        command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-        args: Some(serde_json::json!({ "promptId": "prompt-1", "accept": true })),
-    }];
-    let provenance = NotificationProvenance {
-        tab_id: Some("tab-1".into()),
-        tab_title: Some("Build".into()),
-        workspace_id: Some("workspace-1".into()),
-        peer_name: None,
-    };
-    let first = store.add_provider_update(
-        "codex".into(),
-        "prompt-1".into(),
-        "Update available".into(),
-        "Install separately".into(),
-        actions.clone(),
-        provenance.clone(),
-    );
-    let second = store.add_provider_update(
-        "codex".into(),
-        "prompt-1".into(),
-        "Duplicate".into(),
-        "Duplicate".into(),
-        actions.clone(),
-        provenance,
-    );
-    let id = match first {
-        DedupAdmission::Added(id) => id,
-        _ => panic!("first provider update must be added"),
-    };
-    assert_eq!(second, DedupAdmission::Duplicate(id.clone()));
-    assert_eq!(store.list(false).len(), 1);
-    assert_eq!(store.list(false)[0].actions, Some(actions));
-    assert_eq!(store.resolve_provider_update("prompt-1"), Some(id));
-    assert!(store.list(false).is_empty());
-}
-
-#[test]
-fn provider_updates_for_one_provider_keep_one_action_pair_and_resolve_together() {
-    let mut store = NotificationStore::new(100);
-    const ACTION_LABELS: [&str; 2] = ["Update Codex", "Not now — Codex"];
-    let actions = |prompt: &str| {
-        vec![
-            NotificationAction::Invoke {
-                label: ACTION_LABELS[0].into(),
-                command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-                args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
-            },
-            NotificationAction::Invoke {
-                label: ACTION_LABELS[1].into(),
-                command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-                args: Some(serde_json::json!({ "promptId": prompt, "accept": false })),
-            },
-        ]
-    };
-    let provenance = NotificationProvenance {
-        tab_id: Some("tab-1".into()),
-        tab_title: Some("Agent".into()),
-        workspace_id: Some("workspace-1".into()),
-        peer_name: None,
-    };
-    let first = store.add_provider_update(
-        "codex".into(),
-        "prompt-a".into(),
-        "Codex update available".into(),
-        "Codex is ready".into(),
-        actions("prompt-a"),
-        provenance.clone(),
-    );
-    let second = store.add_provider_update(
-        "codex".into(),
-        "prompt-b".into(),
-        "Codex update available".into(),
-        "Codex is ready in another tab".into(),
-        actions("prompt-b"),
-        NotificationProvenance {
-            tab_id: Some("tab-2".into()),
-            ..provenance
-        },
-    );
-    let id = match first {
-        DedupAdmission::Added(id) => id,
-        other => panic!("unexpected first admission: {other:?}"),
-    };
-    assert_eq!(second, DedupAdmission::Coalesced(id.clone()));
-    let records = store.list(false);
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].actions.as_ref().map(Vec::len), Some(2));
-    let labels: Vec<&str> = records[0]
-        .actions
-        .as_ref()
-        .unwrap()
-        .iter()
-        .map(|action| match action {
-            NotificationAction::Invoke { label, .. } => label.as_str(),
-            _ => panic!("provider update actions must be invokes"),
-        })
-        .collect();
-    assert_eq!(labels, ACTION_LABELS);
-
-    assert!(store.resolve_provider_update("prompt-b").is_none());
-    assert_eq!(store.list(false).len(), 1);
-    assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
-    assert!(store.list(false).is_empty());
-    assert!(store.resolve_provider_update("prompt-b").is_none());
-}
-
-#[test]
-fn provider_updates_for_different_providers_keep_independent_action_pairs() {
-    let mut store = NotificationStore::new(100);
-    let action = |prompt: &str, label: &str| NotificationAction::Invoke {
-        label: label.into(),
-        command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-        args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
-    };
-    let provenance = NotificationProvenance {
-        tab_id: Some("tab-1".into()),
-        tab_title: Some("Agent".into()),
-        workspace_id: Some("workspace-1".into()),
-        peer_name: None,
-    };
-    let first = store.add_provider_update(
-        "codex".into(),
-        "prompt-a".into(),
-        "Provider update available".into(),
-        "An update is ready".into(),
-        vec![
-            action("prompt-a", "Update Codex"),
-            action("prompt-a", "Not now — Codex"),
-        ],
-        provenance.clone(),
-    );
-    let second = store.add_provider_update(
-        "claude".into(),
-        "prompt-b".into(),
-        "Provider update available".into(),
-        "An update is ready".into(),
-        vec![
-            action("prompt-b", "Update Claude"),
-            action("prompt-b", "Not now — Claude"),
-        ],
-        provenance,
-    );
-    let id = match first {
-        DedupAdmission::Added(id) => id,
-        other => panic!("unexpected first admission: {other:?}"),
-    };
-    let claude_id = match second {
-        DedupAdmission::Added(id) => id,
-        other => panic!("unexpected second admission: {other:?}"),
-    };
-    assert_ne!(id, claude_id);
-    let records = store.list(false);
-    assert_eq!(records.len(), 2);
-    assert!(records
-        .iter()
-        .all(|record| record.actions.as_ref().map(Vec::len) == Some(2)));
-
-    assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
-    assert_eq!(store.list(false).len(), 1);
-    assert_eq!(store.list(false)[0].id, claude_id);
-    assert_eq!(store.resolve_provider_update("prompt-b"), Some(claude_id));
-    assert!(store.list(false).is_empty());
-}
-
-/// Regression for ct#379: a `provider_updates` mapping whose target record
-/// was evicted by the notification cap used to survive forever. Left in
-/// place, it can later be picked instead of a genuinely live mapping and
-/// stack a second visible "update available" record instead of collapsing
-/// onto the one that is still live.
-#[test]
-fn stale_provider_update_mappings_are_pruned_when_their_record_is_evicted() {
-    let mut store = NotificationStore::new(2);
-    let provenance = NotificationProvenance {
-        tab_id: Some("tab-1".into()),
-        tab_title: Some("Codex".into()),
-        workspace_id: Some("workspace-1".into()),
-        peer_name: None,
-    };
-    let action = |prompt: &str| NotificationAction::Invoke {
-        label: format!("Update {prompt}"),
-        command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-        args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
-    };
-
-    let first = store.add_provider_update(
-        "codex".into(),
-        "prompt-a".into(),
-        "Codex update available".into(),
-        "1.2.3 is ready".into(),
-        vec![action("prompt-a")],
-        provenance.clone(),
-    );
-    let id_a = match first {
-        DedupAdmission::Added(id) => id,
-        other => panic!("unexpected first admission: {other:?}"),
-    };
-
-    store.add(
-        "filler 1".into(),
-        None,
-        NotificationSeverity::Info,
-        None,
-        None,
-    );
-    store.add(
-        "filler 2".into(),
-        None,
-        NotificationSeverity::Info,
-        None,
-        None,
-    );
-    assert!(
-        store.notification(&id_a).is_none(),
-        "setup: the provider-update record must actually be evicted"
-    );
-
-    let second = store.add_provider_update(
-        "codex".into(),
-        "prompt-b".into(),
-        "Codex update available".into(),
-        "1.2.4 is ready".into(),
-        vec![action("prompt-b")],
-        provenance,
-    );
-    let id_b = match second {
-        DedupAdmission::Added(id) => id,
-        other => panic!("unexpected second admission: {other:?}"),
-    };
-
-    assert_eq!(
-        store.provider_updates.len(),
-        1,
-        "the dead prompt-a mapping must be pruned once its record is gone — left in \
-         place, it can later mask the live prompt-b mapping and stack a duplicate \
-         notification instead of collapsing onto the one still live"
-    );
-    assert!(store.provider_updates.values().all(|id| id == &id_b));
 }
 
 /// Every test here is synchronous and clock-free by construction: needing a

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
@@ -8,6 +8,27 @@ use super::ServiceContext;
 use crate::multiplexer::types::Tab;
 
 static LEDGER: LazyLock<parking_lot::Mutex<TrustLedger>> = LazyLock::new(Default::default);
+static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
+    LazyLock::new(Default::default);
+
+#[derive(Default)]
+struct SharedTrustCache {
+    generation: u64,
+    trusted: HashMap<(String, String), bool>,
+    checking: HashMap<(String, String), u64>,
+}
+
+impl SharedTrustCache {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.trusted.clear();
+        self.checking.clear();
+    }
+}
+static LAUNCH_ONBOARDING_WORKERS: LazyLock<parking_lot::Mutex<HashMap<String, bool>>> =
+    LazyLock::new(Default::default);
+static LAUNCH_ONBOARDING_NOTICES: LazyLock<parking_lot::Mutex<HashSet<String>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DirectoryTrustRefusal {
@@ -27,190 +48,6 @@ impl DirectoryTrustRefusal {
 }
 
 const NOTE_BUDGET: usize = 16;
-
-pub(crate) fn directory_trust_prompt_candidate(screen: &str) -> bool {
-    let rows = screen.lines().collect::<Vec<_>>();
-    let options = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(index, row)| numbered_menu_option(row).map(|option| (index, option)))
-        .collect::<Vec<_>>();
-    let Some(last_option) = options.last().cloned() else {
-        return false;
-    };
-    let mut active_options = vec![last_option];
-    for option in options.iter().rev().skip(1) {
-        if active_options[0].0.abs_diff(option.0) > 2 {
-            break;
-        }
-        active_options.insert(0, option.clone());
-    }
-    if active_options.len() != 2 {
-        return false;
-    }
-    let first_choice = active_options[0].0;
-    let last_choice = active_options[1].0;
-    let selected = active_options
-        .iter()
-        .filter(|(_, option)| option.highlighted)
-        .count();
-    if selected != 1
-        || active_options[0].1.number != 1
-        || active_options[1].1.number != 2
-        || !active_options[0]
-            .1
-            .label
-            .to_ascii_lowercase()
-            .starts_with("yes")
-        || !active_options[1]
-            .1
-            .label
-            .to_ascii_lowercase()
-            .starts_with("no")
-    {
-        return false;
-    }
-    let footer = (last_choice + 1..rows.len().min(last_choice + 5)).find(|index| {
-        let row = rows[*index].to_ascii_lowercase();
-        row.contains("enter") && (row.contains("continue") || row.contains("select"))
-    });
-    let Some(footer) = footer else {
-        return false;
-    };
-    let last_meaningful = rows.iter().rposition(|row| {
-        let row = row.trim();
-        !row.is_empty() && !row.chars().all(|ch| matches!(ch, '─' | '━' | '═' | '-'))
-    });
-    if last_meaningful != Some(footer) {
-        return false;
-    }
-    let context_rows = &rows[first_choice.saturating_sub(12)..first_choice];
-    if !context_rows.iter().any(|row| directory_context_row(row)) {
-        return false;
-    }
-    let mut preamble_start = first_choice;
-    while preamble_start > 0 && rows[preamble_start - 1].trim().is_empty() {
-        preamble_start -= 1;
-    }
-    while preamble_start > 0 && !rows[preamble_start - 1].trim().is_empty() {
-        preamble_start -= 1;
-    }
-    let preamble = rows[preamble_start..first_choice]
-        .iter()
-        .filter(|row| !directory_context_row(row))
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" ");
-    directory_trust_content(&preamble)
-}
-
-#[derive(Clone)]
-struct NumberedMenuOption {
-    number: usize,
-    label: String,
-    highlighted: bool,
-}
-
-fn numbered_menu_option(row: &str) -> Option<NumberedMenuOption> {
-    let row = row.trim_start();
-    let first = row.chars().next()?;
-    let (row, highlighted) = match first {
-        '>' | '❯' | '▶' | '➤' | '›' => (&row[first.len_utf8()..], true),
-        _ => (row, false),
-    };
-    let row = row.trim_start();
-    let digit_count = row.chars().take_while(char::is_ascii_digit).count();
-    let number = row.get(..digit_count)?.parse::<usize>().ok()?;
-    let suffix = row.get(digit_count..)?.trim_start();
-    let separator = suffix.chars().next()?;
-    if !matches!(separator, '.' | ')') {
-        return None;
-    }
-    let label = suffix.get(separator.len_utf8()..)?.trim_start();
-    (!label.is_empty()).then(|| NumberedMenuOption {
-        number,
-        label: label.to_string(),
-        highlighted,
-    })
-}
-
-fn directory_context_row(row: &str) -> bool {
-    let row = row.trim();
-    let context = row
-        .strip_prefix('>')
-        .or_else(|| row.strip_prefix('❯'))
-        .or_else(|| row.strip_prefix('›'));
-    let Some(context) = context else {
-        return false;
-    };
-    context
-        .split_whitespace()
-        .any(|path| absolute_path_token(path))
-}
-
-fn absolute_path_token(token: &str) -> bool {
-    let path = token.trim_end_matches(|ch| matches!(ch, ')' | ',' | ';'));
-    let bytes = path.as_bytes();
-    path.starts_with('/')
-        || path.starts_with(r"\\")
-        || path.starts_with("//")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && matches!(bytes[2], b'\\' | b'/'))
-}
-
-fn directory_trust_content(preamble: &str) -> bool {
-    let content = preamble.to_ascii_lowercase();
-    let words = content
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>();
-    if ["bypass", "disable", "override"]
-        .iter()
-        .any(|term| words.contains(term))
-        || content.contains("without restrictions")
-    {
-        return false;
-    }
-    let Some((question, explanation)) = content.split_once('?') else {
-        return false;
-    };
-    let has_directory = ["folder", "directory", "workspace"].iter().any(|term| {
-        question
-            .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .any(|word| word == *term)
-    });
-    let has_trust_intent = ["trust", "trusted", "trusting", "load", "loaded", "loading"]
-        .iter()
-        .any(|term| {
-            question
-                .split(|ch: char| !ch.is_ascii_alphanumeric())
-                .any(|word| word == *term)
-        });
-    let has_local_policy = [
-        "guidance",
-        "rules",
-        "config",
-        "configuration",
-        "settings",
-        "policy",
-        "policies",
-        "instructions",
-        "hooks",
-    ]
-    .iter()
-    .any(|term| {
-        explanation
-            .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .any(|word| word == *term)
-    });
-    let explanation_words = explanation
-        .split_whitespace()
-        .filter(|word| !word.is_empty())
-        .count();
-    has_directory && has_trust_intent && has_local_policy && explanation_words >= 8
-}
 
 /// Provenance is host state written by the code that created the directory; a
 /// spawn-supplied cwd never carries it, so it can never self-authorize trust.
@@ -237,12 +74,22 @@ pub(crate) fn inherited_workspace_provenance(
     crate::service::ServiceContext::paths_equal(cwd, provisioned).then(|| provisioned.to_string())
 }
 
-/// The recognizer runs only for an agent in the directory CodeTerm created whose
-/// launch session is not yet authenticated; the trust dialog precedes that binding.
+/// Trust prompts are recognized only before this tab's launch session is authenticated.
 pub(crate) fn directory_trust_check_applies(tab: &Tab) -> bool {
     tab.agent_type.is_some()
         && !tab.launch_session_authenticated()
         && directory_trust_provenance(tab).is_ok()
+}
+
+pub(crate) fn shared_directory_trust_check_applies(tab: &Tab) -> bool {
+    tab.agent_type.is_some()
+        && !tab.launch_session_authenticated()
+        && tab.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
+        && tab.provisioned_cwd.is_none()
+}
+
+pub(crate) fn invalidate_shared_trust_cache() {
+    SHARED_TRUST.lock().invalidate();
 }
 
 /// Why a provisioned agent tab skips the trust responder; `None` when it
@@ -365,6 +212,20 @@ pub(crate) fn decide<R>(
 where
     R: FnOnce(&str) -> Option<DirectoryTrustPromptResponse>,
 {
+    decide_with_frame_identity(applies, tab_id, screen, screen, ledger, recognize)
+}
+
+fn decide_with_frame_identity<R>(
+    applies: bool,
+    tab_id: &str,
+    screen: &str,
+    frame_identity: &str,
+    ledger: &parking_lot::Mutex<TrustLedger>,
+    recognize: R,
+) -> TrustDecision
+where
+    R: FnOnce(&str) -> Option<DirectoryTrustPromptResponse>,
+{
     if !applies {
         return TrustDecision::NotApplicable;
     }
@@ -372,7 +233,7 @@ where
         None => TrustDecision::NoDialog,
         Some(DirectoryTrustPromptResponse::Hold) => TrustDecision::Held,
         Some(DirectoryTrustPromptResponse::Answer { step }) => {
-            if ledger.lock().claim(tab_id, frame_id(screen)) {
+            if ledger.lock().claim(tab_id, frame_id(frame_identity)) {
                 TrustDecision::Answer { step }
             } else {
                 TrustDecision::Waiting
@@ -390,7 +251,59 @@ fn key_name(step: &[u8]) -> &'static str {
 }
 
 impl ServiceContext {
-    fn directory_trust_response(
+    pub(crate) fn respond_to_pending_directory_trust_prompts(&self) {
+        let tabs = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter(|tab| {
+                    tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+                })
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tabs {
+            self.respond_to_directory_trust(&tab_id, None);
+        }
+    }
+
+    pub(crate) fn enqueue_launch_onboarding_screen_check(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return;
+        }
+        {
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if let Some(pending) = workers.get_mut(tab_id) {
+                *pending = true;
+                return;
+            }
+            workers.insert(tab_id.to_string(), false);
+        }
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        let pty_id = pty_id.to_string();
+        let agent_type = agent_type.to_string();
+        std::thread::spawn(move || loop {
+            service.respond_to_launch_onboarding_until_clear(&tab_id, &pty_id, &agent_type);
+            let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
+            if workers.get(&tab_id).copied().unwrap_or(false) {
+                workers.insert(tab_id.clone(), false);
+            } else {
+                workers.remove(&tab_id);
+                break;
+            }
+        });
+    }
+
+    fn provider_directory_trust_response(
         &self,
         agent_type: &str,
         screen: &str,
@@ -402,6 +315,189 @@ impl ServiceContext {
             .flatten()
     }
 
+    fn schedule_shared_trust_lookup(&self, tab_id: &str, agent_type: &str, cwd: &str) {
+        let key = (agent_type.to_string(), cwd.to_string());
+        let generation = {
+            let mut cache = SHARED_TRUST.lock();
+            match cache.trusted.get(&key).copied() {
+                Some(true) => None,
+                Some(false) => return,
+                None => {
+                    if cache.checking.contains_key(&key) {
+                        return;
+                    }
+                    let generation = cache.generation;
+                    cache.checking.insert(key.clone(), generation);
+                    Some(generation)
+                }
+            }
+        };
+        let Some(generation) = generation else {
+            self.schedule_cached_shared_responder(tab_id, cwd);
+            return;
+        };
+        let service = self.clone();
+        let agent = agent_type.to_string();
+        let path = cwd.to_string();
+        let cache_key = key.clone();
+        std::thread::spawn(move || {
+            let result = service.agent_registry.with_provider(&agent, |provider| {
+                provider.is_directory_trusted(&codeterm_paths::strip_verbatim_prefix(&path))
+            });
+            let trusted = match result {
+                Some(Ok(trusted)) => trusted,
+                Some(Err(error)) => {
+                    log::warn!("[directory-trust] Trust lookup failed for Tab path: {error}");
+                    false
+                }
+                None => false,
+            };
+            {
+                let mut cache = SHARED_TRUST.lock();
+                if cache.generation == generation
+                    && cache.checking.get(&cache_key) == Some(&generation)
+                {
+                    cache.checking.remove(&cache_key);
+                    cache.trusted.insert(cache_key, trusted);
+                } else {
+                    return;
+                }
+            }
+            if trusted {
+                service.respond_to_shared_directory_trust_prompts(&path, &agent);
+                service.respond_to_pending_directory_trust_prompts();
+            } else {
+                service.surface_shared_directory_trust_prompts(&path, &agent);
+            }
+        });
+    }
+
+    fn provider_reports_folder_untrusted(&self, agent_type: &str, cwd: &str) -> bool {
+        self.agent_registry
+            .with_provider(agent_type, |provider| {
+                provider.directory_trust_state(&codeterm_paths::strip_verbatim_prefix(cwd), false)
+            })
+            .flatten()
+            == Some(codeterm_plugin::provider::DirectoryTrustState::Untrusted)
+    }
+
+    fn schedule_cached_shared_responder(&self, tab_id: &str, cwd: &str) {
+        let service = self.clone();
+        let tab = tab_id.to_string();
+        let path = cwd.to_string();
+        std::thread::spawn(move || service.respond_to_shared_trust_prompt(&tab, &path));
+    }
+
+    fn respond_to_shared_trust_prompt(&self, tab_id: &str, expected_cwd: &str) {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                (shared_directory_trust_check_applies(tab)
+                    && tab.cwd.as_deref() == Some(expected_cwd))
+                .then(|| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+                .flatten()
+            })
+        };
+        let Some((pty_id, agent_type)) = target else {
+            return;
+        };
+        let trusted = SHARED_TRUST
+            .lock()
+            .trusted
+            .get(&(agent_type.clone(), expected_cwd.to_string()))
+            .copied()
+            .unwrap_or(false);
+        if !trusted {
+            return;
+        }
+        let screen = self
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
+        let Some(response) = self.provider_directory_trust_response(&agent_type, &screen) else {
+            return;
+        };
+        let decision = decide(true, tab_id, &screen, &LEDGER, |_| Some(response));
+        if let TrustDecision::Answer { step } = decision {
+            self.answer_directory_trust_prompt(
+                tab_id,
+                &pty_id,
+                &agent_type,
+                DirectoryTrustPromptResponse::Answer { step },
+            );
+        }
+    }
+
+    pub(crate) fn respond_to_shared_directory_trust_prompts(
+        &self,
+        expected_cwd: &str,
+        agent_type: &str,
+    ) {
+        let tab_ids = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter(|tab| {
+                    shared_directory_trust_check_applies(tab)
+                        && tab.agent_type.as_deref() == Some(agent_type)
+                        && tab.cwd.as_deref() == Some(expected_cwd)
+                })
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for tab_id in tab_ids {
+            self.respond_to_directory_trust(&tab_id, None);
+        }
+    }
+
+    fn surface_shared_directory_trust_prompts(&self, expected_cwd: &str, agent_type: &str) {
+        let targets = {
+            let mux = self.mux.read();
+            mux.all_tabs()
+                .filter(|tab| {
+                    shared_directory_trust_check_applies(tab)
+                        && tab.agent_type.as_deref() == Some(agent_type)
+                        && tab.cwd.as_deref() == Some(expected_cwd)
+                })
+                .filter_map(|tab| {
+                    tab.pty_id
+                        .as_ref()
+                        .map(|pty_id| (tab.id.clone(), pty_id.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (tab_id, pty_id) in targets {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default();
+            let prompt = self
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.parse_directory_trust_prompt(&screen)
+                })
+                .flatten();
+            if let Some(prompt) = prompt {
+                let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
+                    &tab_id,
+                    true,
+                    true,
+                    Some(crate::agent::prompt::ResolvedPrompt {
+                        prompt,
+                        explicit: false,
+                    }),
+                );
+                self.apply_prompt_decision_with_kind(
+                    &decision,
+                    Some(&screen),
+                    codeterm_types::pty::PromptKind::DirectoryTrust,
+                    false,
+                );
+            }
+        }
+    }
+
     pub(crate) fn respond_to_directory_trust(
         &self,
         tab_id: &str,
@@ -410,10 +506,19 @@ impl ServiceContext {
         let target = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .filter(|tab| directory_trust_check_applies(tab))
-                .and_then(|tab| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+                .filter(|tab| {
+                    directory_trust_check_applies(tab) || shared_directory_trust_check_applies(tab)
+                })
+                .and_then(|tab| {
+                    Some((
+                        tab.pty_id.clone()?,
+                        tab.agent_type.clone()?,
+                        tab.cwd.clone()?,
+                        directory_trust_check_applies(tab),
+                    ))
+                })
         };
-        let Some((pty_id, agent_type)) = target else {
+        let Some((pty_id, agent_type, cwd, provisioned)) = target else {
             return TrustDecision::NotApplicable;
         };
         let screen = match screen_text {
@@ -424,8 +529,24 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
+        if provisioned && self.provider_reports_folder_untrusted(&agent_type, &cwd) {
+            // Provenance never grants a repository the owner has not trusted; the owner answers it.
+            self.note_directory_trust(tab_id, "repository is not owner-trusted", Some(&screen));
+            return TrustDecision::NotApplicable;
+        }
+        if !provisioned {
+            self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
+            let cache = SHARED_TRUST.lock();
+            let key = (agent_type, cwd.clone());
+            // An in-flight lookup still publishes the prompt, so the owner can answer it meanwhile.
+            return if cache.trusted.get(&key) == Some(&true) {
+                TrustDecision::Waiting
+            } else {
+                TrustDecision::NotApplicable
+            };
+        }
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
-            self.directory_trust_response(&agent_type, screen)
+            self.provider_directory_trust_response(&agent_type, screen)
         });
         match &decision {
             TrustDecision::NoDialog
@@ -448,21 +569,211 @@ impl ServiceContext {
                 tab_id,
                 key_name(step)
             );
+            self.answer_directory_trust_prompt(
+                tab_id,
+                &pty_id,
+                &agent_type,
+                DirectoryTrustPromptResponse::Answer { step: step.clone() },
+            );
+        }
+        decision
+    }
+
+    fn answer_directory_trust_prompt(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+        response: DirectoryTrustPromptResponse,
+    ) {
+        let DirectoryTrustPromptResponse::Answer { step } = response else {
+            return;
+        };
+        self.prompt_detector.lock().mark_responded(tab_id);
+        let svc = self.clone();
+        let tab = tab_id.to_string();
+        let expected = step.clone();
+        let bound_pty = pty_id.to_string();
+        let agent = agent_type.to_string();
+        super::output::write_bound_prompt_steps(
+            self.pty.clone(),
+            pty_id.to_string(),
+            vec![step.clone()],
+            move || svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &expected),
+        );
+    }
+
+    pub(crate) fn respond_to_launch_onboarding(
+        &self,
+        tab_id: &str,
+        agent_type: &str,
+        screen: &str,
+        response_signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
+    ) -> TrustDecision {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| launch_onboarding_check_applies(tab, agent_type))
+                .and_then(|tab| Some((tab.pty_id.clone()?, tab.agent_type.clone()?)))
+        };
+        let Some((pty_id, agent_type)) = target else {
+            return TrustDecision::NotApplicable;
+        };
+        let response = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| {
+                provider.launch_onboarding_response(screen)
+            })
+            .flatten();
+        let Some(response) = response else {
+            return TrustDecision::NoDialog;
+        };
+        let frame_key = format!("launch-onboarding:{}", response.frame_key);
+        let expected = response.clone();
+        let decision =
+            decide_with_frame_identity(true, tab_id, screen, &frame_key, &LEDGER, |_| {
+                Some(DirectoryTrustPromptResponse::Answer {
+                    step: response.step,
+                })
+            });
+        if let TrustDecision::Answer { step } = &decision {
             self.prompt_detector.lock().mark_responded(tab_id);
-            let svc = self.clone();
+            let service = self.clone();
             let tab = tab_id.to_string();
-            let expected = step.clone();
             let bound_pty = pty_id.clone();
+            let provider_id = agent_type.clone();
+            let response_signal = response_signal.clone();
             super::output::write_bound_prompt_steps(
                 self.pty.clone(),
                 pty_id,
                 vec![step.clone()],
                 move || {
-                    svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent_type, &expected)
+                    let owed = service.launch_onboarding_key_still_owed(
+                        &tab,
+                        &bound_pty,
+                        &provider_id,
+                        &expected,
+                    );
+                    response_signal.mark_changed();
+                    owed
                 },
             );
         }
         decision
+    }
+
+    pub(crate) fn respond_to_launch_onboarding_until_clear(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+    ) -> bool {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        if !applies {
+            return false;
+        }
+        let signal = self.screen_state.lock().subscribe_screen_changes(pty_id);
+        let mut recognized = false;
+        let mut enter_submitted = false;
+        loop {
+            let generation = signal.generation();
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let has_dialog = self
+                .agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider.launch_onboarding_response(&screen).is_some()
+                })
+                .unwrap_or(false);
+            if has_dialog {
+                recognized = true;
+                match self.respond_to_launch_onboarding(tab_id, agent_type, &screen, signal.clone())
+                {
+                    TrustDecision::Answer { step } => {
+                        enter_submitted |= step.as_slice() == b"\r";
+                    }
+                    TrustDecision::Waiting => {}
+                    TrustDecision::NotApplicable => {
+                        recognized = false;
+                        break;
+                    }
+                    TrustDecision::NoDialog | TrustDecision::Held => {
+                        break;
+                    }
+                }
+            } else if recognized {
+                if enter_submitted {
+                    self.notify_launch_onboarding_applied_once(tab_id);
+                }
+                break;
+            } else {
+                break;
+            }
+            if !signal.wait_until_changed(generation) {
+                break;
+            }
+        }
+        self.screen_state
+            .lock()
+            .unsubscribe_screen_changes(pty_id, &signal);
+        recognized
+    }
+
+    pub(crate) fn notify_launch_onboarding_applied_once(&self, tab_id: &str) {
+        if !LAUNCH_ONBOARDING_NOTICES.lock().insert(tab_id.to_string()) {
+            return;
+        }
+        self.create_notification_ext(
+            "Provider onboarding choice applied".into(),
+            Some(format!(
+                "Tab {} completed its provider-declared safe onboarding choice.",
+                tab_id
+            )),
+            Some("info"),
+            None,
+            None,
+            crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+            crate::service::notification::PushIntent::default(),
+            None,
+        );
+    }
+
+    fn launch_onboarding_key_still_owed(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        agent_type: &str,
+        expected: &codeterm_plugin::provider::ProviderPromptKeyStep,
+    ) -> bool {
+        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(pty_id)
+                && launch_onboarding_check_applies(tab, agent_type)
+        });
+        let owed = applies && {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            self.agent_registry
+                .with_provider(agent_type, |provider| {
+                    provider
+                        .launch_onboarding_response(&screen)
+                        .is_some_and(|response| response == *expected)
+                })
+                .unwrap_or(false)
+        };
+        LEDGER.lock().settle(tab_id);
+        if !owed {
+            log::info!("[launch-onboarding] Withheld stale key for Tab {}", tab_id);
+        }
+        owed
     }
 
     fn directory_trust_key_still_owed(
@@ -472,26 +783,51 @@ impl ServiceContext {
         agent_type: &str,
         expected: &[u8],
     ) -> bool {
-        let applies = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            tab.pty_id.as_deref() == Some(pty_id) && directory_trust_check_applies(tab)
+        let cwd = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            (tab.pty_id.as_deref() == Some(pty_id)
+                && (directory_trust_check_applies(tab)
+                    || shared_directory_trust_check_applies(tab)))
+            .then(|| tab.cwd.clone())
+            .flatten()
         });
-        let owed = applies && {
+        let (owed, dialog_still_answerable) = cwd.map_or((false, false), |cwd| {
             let screen = self
                 .screen_state
                 .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
-            matches!(
-                self.directory_trust_response(agent_type, &screen),
-                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected
-            )
-        };
+            let provisioned = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(directory_trust_check_applies);
+            let eligible = provisioned
+                || SHARED_TRUST
+                    .lock()
+                    .trusted
+                    .get(&(agent_type.to_string(), cwd.clone()))
+                    == Some(&true);
+            match self.provider_directory_trust_response(agent_type, &screen) {
+                Some(DirectoryTrustPromptResponse::Answer { step }) => {
+                    (eligible && step == expected, true)
+                }
+                _ => (false, false),
+            }
+        });
         LEDGER.lock().settle(tab_id);
         if !owed {
             log::info!(
                 "[directory-trust] Withheld key for Tab {}: the dialog changed before the write",
                 tab_id
             );
+            // A settled dialog may emit no further frame; respond_to_directory_trust re-decides eligibility.
+            if dialog_still_answerable {
+                let service = self.clone();
+                let tab = tab_id.to_string();
+                std::thread::spawn(move || {
+                    service.respond_to_directory_trust(&tab, None);
+                });
+            }
         }
         owed
     }
@@ -508,7 +844,7 @@ impl ServiceContext {
             return;
         }
         log::info!(
-            "[directory-trust] Not answering provisioned Tab {}: {}; screen tail: {}",
+            "[directory-trust] Not answering Tab {}: {}; screen tail: {}",
             tab_id,
             outcome,
             tail.as_deref().unwrap_or("-")
@@ -518,6 +854,13 @@ impl ServiceContext {
     pub(crate) fn forget_directory_trust(&self, tab_id: &str) {
         LEDGER.lock().forget(tab_id);
     }
+}
+
+pub(crate) fn launch_onboarding_check_applies(tab: &Tab, agent_type: &str) -> bool {
+    tab.agent_type.as_deref() == Some(agent_type)
+        && (tab.role == Some(codeterm_types::agent::roles::AgentRole::Worker)
+            || (tab.role == Some(codeterm_types::agent::roles::AgentRole::Manager)
+                && tab.role_profile.as_deref() == Some("planner")))
 }
 
 #[cfg(test)]

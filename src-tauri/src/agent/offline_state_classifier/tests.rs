@@ -21,12 +21,105 @@ fn extracts_complete_authoritative_auth_message() {
 }
 
 use super::{
-    classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
-    StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
+    classify_state, composer_cursor_ready, offline_picker_is_coherent, prompt_glyph_cursor_ready,
+    ClassifyInput, Motion, StatusElapsedProgress, StatusElapsedTracker, TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
 use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
 use crate::agent::signal_extractor::{SignalExtractor, StreamSignals};
+
+fn render_terminal_fixture(text: &str, cols: u16, rows: u16) -> (Vec<String>, u16) {
+    let mut state = codeterm_pty::pty::screen_state::ScreenState::new();
+    state.resize("fixture", cols, rows);
+    let terminal_text = text.lines().collect::<Vec<_>>().join("\r\n");
+    state.process(
+        "fixture",
+        format!("\x1b[2J\x1b[H{terminal_text}\x1b[?25h").as_bytes(),
+    );
+    let screen_rows = state.get_screen_rows("fixture").expect("screen rows");
+    let composer_row = screen_rows
+        .iter()
+        .position(|line| line.trim_start().starts_with('›'))
+        .expect("captured fixture contains a prompt row") as u16;
+    state.process(
+        "fixture",
+        format!("\x1b[{};1H", composer_row + 1).as_bytes(),
+    );
+    let cursor_row = state
+        .composer_input_state("fixture")
+        .expect("cursor state")
+        .cursor_row;
+    (state.get_screen_rows("fixture").unwrap(), cursor_row)
+}
+
+#[test]
+fn codex_composer_ready_without_footer_and_with_warning_rows() {
+    let (lines, cursor_row) = render_terminal_fixture(
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.154.0.txt"),
+        160,
+        32,
+    );
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
+    assert!(!prompt_glyph_cursor_ready(&lines, false, cursor_row, 1));
+    assert!(!prompt_glyph_cursor_ready(&lines, true, cursor_row - 1, 1));
+}
+
+#[test]
+fn codex_composer_ready_with_footer() {
+    let (lines, cursor_row) = render_terminal_fixture(
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/codex-0.157.1.txt"),
+        160,
+        32,
+    );
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
+}
+
+#[test]
+fn prompt_glyph_in_declared_status_row_is_not_composer_evidence() {
+    let rows = vec!["› composer".to_string(), "› status row".to_string()];
+    assert!(prompt_glyph_cursor_ready(&rows, true, 0, 1));
+    assert!(!prompt_glyph_cursor_ready(&rows, true, 1, 1));
+}
+
+#[test]
+fn selected_dialog_option_is_not_composer_evidence() {
+    let rows = vec![
+        "Do you trust the contents of this directory?".to_string(),
+        "› 1. Yes, continue".to_string(),
+        "  2. No, quit".to_string(),
+        String::new(),
+    ];
+    assert!(!prompt_glyph_cursor_ready(&rows, true, 1, 1));
+    let alternate = vec!["❯ 2) Not now".to_string(), String::new()];
+    assert!(!prompt_glyph_cursor_ready(&alternate, true, 0, 1));
+    let composer = vec!["› 2026 plans for the release".to_string(), String::new()];
+    assert!(prompt_glyph_cursor_ready(&composer, true, 0, 1));
+}
+
+#[test]
+fn wrapped_warning_row_does_not_shift_composer_cursor_match() {
+    let (lines, cursor_row) = render_terminal_fixture(
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/wrapped-warning.txt"),
+        44,
+        20,
+    );
+    assert!(lines.iter().filter(|line| !line.is_empty()).count() > 5);
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 1));
+}
+
+#[test]
+fn composer_last_nonempty_row_with_empty_status_region_is_ready() {
+    let (lines, cursor_row) = render_terminal_fixture(
+        include_str!("../../../../plugins/provider-codex/tests/fixtures/composer-readiness/composer-last-nonempty-row.txt"),
+        100,
+        24,
+    );
+    assert!(lines[cursor_row as usize].trim().starts_with('›'));
+    assert!(lines[cursor_row as usize + 1..]
+        .iter()
+        .all(|line| line.is_empty()));
+    assert!(prompt_glyph_cursor_ready(&lines, true, cursor_row, 2));
+}
 
 fn working() -> TabVerdict {
     TabVerdict {

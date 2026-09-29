@@ -23,6 +23,7 @@
 //! `<data_dir>/models/README.md` on first run.
 
 use std::collections::HashMap;
+#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -33,6 +34,8 @@ use serde::{Deserialize, Serialize};
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
 mod grouping;
+
+pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
 
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
@@ -422,6 +425,14 @@ pub fn prime_from_cache(provider_id: &str) {
     let Some(fetched_at) = cached.fetched_at_system() else {
         return;
     };
+    if cached.schema_version != CACHE_SCHEMA_VERSION {
+        log::info!(
+            "[model_catalog] {provider_id} cache uses schema {}, expected {} — keeping the registered seed until a fresh probe",
+            cached.schema_version,
+            CACHE_SCHEMA_VERSION
+        );
+        return;
+    }
     let current = seed_fingerprint(provider_id);
     if cached.seed_fingerprint.as_deref() != Some(current.as_str()) {
         log::warn!(
@@ -657,6 +668,51 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     models
 }
 
+pub fn has_live_snapshot(provider_id: &str) -> bool {
+    registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|snapshot| snapshot.source == Source::Live)
+}
+
+pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
+    registry()
+        .read()
+        .get(provider_id)
+        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()))
+}
+
+pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {
+    let registry = registry();
+    let guard = registry.read();
+    let snapshot = guard.get(provider_id)?;
+    if snapshot.source != Source::Live {
+        return None;
+    }
+    snapshot
+        .default
+        .as_deref()
+        .and_then(|default| find_model(&snapshot.models, default))
+        .map(|model| model.id.clone())
+        .or_else(|| {
+            snapshot
+                .models
+                .iter()
+                .find(|model| model.available != Some(false))
+                .map(|model| model.id.clone())
+        })
+}
+
+pub fn resolve_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_models(provider_id);
+    find_model(&models, requested).cloned()
+}
+
+pub fn resolve_live_catalog_model(provider_id: &str, requested: &str) -> Option<ModelInfo> {
+    let models = resolve_live_models(provider_id)?;
+    find_model(&models, requested).cloned()
+}
+
 fn registered_models(provider_id: &str) -> Vec<ModelInfo> {
     let snapshot = registry().read().get(provider_id).cloned();
     let Some(snapshot) = snapshot else {
@@ -786,237 +842,33 @@ pub fn try_override_default(provider_id: &str) -> Option<String> {
     load_override(provider_id).and_then(|o| o.default)
 }
 
-/// Result of loading a provider override.
-struct ProviderOverride {
-    default: Option<String>,
-    replace: bool,
-    models: Vec<ModelInfo>,
-    default_effort: Option<String>,
-    efforts: Vec<ReasoningEffortInfo>,
-}
-
-pub fn models_dir() -> PathBuf {
-    // NOTE: `codeterm_paths::data_dir()` must be provided by codeterm-plugin consumers.
-    // This references a `paths` module that needs to be available in this crate's scope.
-    let dir = codeterm_paths::data_dir().join("models");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-fn override_path(provider_id: &str) -> PathBuf {
-    models_dir().join(format!("{}.toml", provider_id))
-}
-
-fn cache_path(provider_id: &str) -> PathBuf {
-    models_dir().join(format!("{}.cache.json", provider_id))
-}
-
-/// On-disk persisted live snapshot. `fetched_at_unix` is wall-clock seconds so
-/// the TTL survives a restart.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CachedSnapshot {
-    fetched_at_unix: u64,
-    #[serde(default)]
-    default: Option<String>,
-    models: Vec<ModelInfo>,
-    /// Fingerprint of the registered seed this snapshot was captured against.
-    /// Absent (legacy cache) or mismatched → the snapshot never primes.
-    #[serde(default)]
-    seed_fingerprint: Option<String>,
-    /// The provider CLI this snapshot describes. Changed underneath → the
-    /// snapshot never primes, because it answers about a file that is gone.
-    #[serde(default)]
-    binary: Option<BinaryFingerprint>,
-    /// Credential files the snapshot's availability depended on. A recorded file
-    /// that moved → the snapshot never primes; the model list it captured was
-    /// scoped to a token that changed.
-    #[serde(default)]
-    credentials: Vec<BinaryFingerprint>,
-}
-
-impl CachedSnapshot {
-    fn fetched_at_system(&self) -> Option<SystemTime> {
-        Some(UNIX_EPOCH + Duration::from_secs(self.fetched_at_unix))
-    }
-}
-
-/// Write a live snapshot to disk (best-effort — a failed write only loses the
-/// next-boot warm start, never the in-memory list).
-fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
-    let Some(fetched_at) = snapshot.fetched_at else {
-        return;
-    };
-    let Ok(secs) = fetched_at.duration_since(UNIX_EPOCH) else {
-        return;
-    };
-    let payload = CachedSnapshot {
-        fetched_at_unix: secs.as_secs(),
-        default: snapshot.default.clone(),
-        models: honest_verdicts(&snapshot.models),
-        seed_fingerprint: Some(seed_fingerprint(provider_id)),
-        binary: snapshot.binary.clone(),
-        credentials: snapshot.credentials.clone(),
-    };
-    let path = cache_path(provider_id);
-    match serde_json::to_string_pretty(&payload) {
-        Ok(json) => {
-            if let Err(e) = std::fs::write(&path, json) {
-                log::warn!("[model_catalog] could not write {}: {}", path.display(), e);
-            }
-        }
-        Err(e) => log::warn!(
-            "[model_catalog] could not serialize {} cache: {}",
-            provider_id,
-            e
-        ),
-    }
-}
-
-fn read_cache(provider_id: &str) -> Option<CachedSnapshot> {
-    let path = cache_path(provider_id);
-    let raw = std::fs::read_to_string(&path).ok()?;
-    match serde_json::from_str::<CachedSnapshot>(&raw) {
-        Ok(c) => Some(c),
-        Err(e) => {
-            log::warn!(
-                "[model_catalog] {} parse error — ignoring cache: {}",
-                path.display(),
-                e
-            );
-            None
-        }
-    }
-}
-
-/// In-memory cache of parsed override files, keyed by provider id. Each
-/// entry remembers the file's last-modified time so we re-read only when
-/// the user actually edits the file. Crucial because `resolve_models` is
-/// called from `describe()`, which is documented as I/O-free and runs
-/// under the agent registry lock — uncached `read_to_string` per call
-/// pegs disk on any settings-panel render burst.
-#[derive(Clone)]
-struct CachedOverride {
-    /// `None` = we verified the file does not exist (no override active).
-    /// `Some` = parsed file body.
-    parsed: Option<std::sync::Arc<ProviderOverrideOwned>>,
-    /// `None` = file did not exist when we checked.
-    mtime: Option<std::time::SystemTime>,
-}
-
-#[derive(Clone)]
-struct ProviderOverrideOwned {
-    default: Option<String>,
-    replace: bool,
-    models: Vec<ModelInfo>,
-    default_effort: Option<String>,
-    efforts: Vec<ReasoningEffortInfo>,
-}
-
-fn override_cache() -> &'static RwLock<HashMap<String, CachedOverride>> {
-    static CACHE: OnceLock<RwLock<HashMap<String, CachedOverride>>> = OnceLock::new();
-    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
-fn load_override(provider_id: &str) -> Option<ProviderOverride> {
-    let path = override_path(provider_id);
-    let current_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-
-    // Fast path: cached entry valid against current mtime.
-    if let Some(cached) = override_cache().read().get(provider_id) {
-        if cached.mtime == current_mtime {
-            return cached.parsed.as_ref().map(|o| ProviderOverride {
-                default: o.default.clone(),
-                replace: o.replace,
-                models: o.models.clone(),
-                default_effort: o.default_effort.clone(),
-                efforts: o.efforts.clone(),
-            });
-        }
-    }
-
-    // Slow path: file changed (or first read) — parse and update the cache.
-    let parsed_arc: Option<std::sync::Arc<ProviderOverrideOwned>> = {
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(_) => None.into_iter().next().unwrap_or_else(String::new),
-        };
-        if raw.is_empty() {
-            None
-        } else {
-            match toml::from_str::<CatalogFile>(&raw) {
-                Err(e) => {
-                    log::warn!(
-                        "[model_catalog] {} parse error — falling back to plugin defaults: {}",
-                        path.display(),
-                        e
-                    );
-                    None
-                }
-                Ok(p) if p.models.is_empty() && p.efforts.is_empty() && !p.replace => {
-                    log::warn!(
-                        "[model_catalog] {} has no `[[models]]` or `[[efforts]]` entries — falling back to plugin defaults",
-                        path.display()
-                    );
-                    None
-                }
-                Ok(p) => Some(std::sync::Arc::new(ProviderOverrideOwned {
-                    default: p.default,
-                    replace: p.replace,
-                    models: p
-                        .models
-                        .into_iter()
-                        .map(|m| ModelInfo {
-                            id: m.id,
-                            display_name: m.display_name,
-                            description: m.description,
-                            available: m.available,
-                            availability: None,
-                            featured: m.featured,
-                            badge: m.badge,
-                            group: m.group,
-                        })
-                        .collect(),
-                    default_effort: p.default_effort,
-                    efforts: p
-                        .efforts
-                        .into_iter()
-                        .map(|effort| ReasoningEffortInfo {
-                            id: effort.id,
-                            display_name: effort.display_name,
-                            description: effort.description,
-                        })
-                        .collect(),
-                })),
-            }
-        }
-    };
-
-    // Re-stat after the read so the cached mtime reflects the file content we parsed — not the mtime we sampled before reading.
-    let cached_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    override_cache().write().insert(
-        provider_id.to_string(),
-        CachedOverride {
-            parsed: parsed_arc.clone(),
-            mtime: cached_mtime,
-        },
-    );
-
-    parsed_arc.map(|o| ProviderOverride {
-        default: o.default.clone(),
-        replace: o.replace,
-        models: o.models.clone(),
-        default_effort: o.default_effort.clone(),
-        efforts: o.efforts.clone(),
-    })
-}
-
+mod storage;
+pub use storage::models_dir;
+#[cfg(test)]
+use storage::{cache_path, override_path, CachedSnapshot};
+use storage::{load_override, override_cache, persist_cache, read_cache};
 /// Merge built-in models with user overrides, by id. Built-in order is
 /// preserved; each user entry either replaces an entry with the same id
 /// (keeping its original position) or, if the id is new, gets appended at
 /// the end. Result: built-in updates flow in automatically, user additions
 /// stick around, user re-titles of built-ins win.
 fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo> {
-    merge_by_id(builtin, overrides, |model| model.id.as_str())
+    let mut merged = merge_by_id(builtin, overrides, |model| model.id.as_str());
+    for model in &mut merged {
+        if model.reasoning_efforts.is_none() {
+            model.reasoning_efforts = builtin
+                .iter()
+                .find(|base| base.id == model.id)
+                .and_then(|base| base.reasoning_efforts.clone());
+        }
+        if model.default_reasoning_effort.is_none() {
+            model.default_reasoning_effort = builtin
+                .iter()
+                .find(|base| base.id == model.id)
+                .and_then(|base| base.default_reasoning_effort.clone());
+        }
+    }
+    merged
 }
 
 /// Overlay an override onto a live catalog: every base model stays, matching
@@ -1042,6 +894,8 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 featured: o.featured.or(model.featured),
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
                 group: o.group.clone().or_else(|| model.group.clone()),
+                reasoning_efforts: model.reasoning_efforts.clone(),
+                default_reasoning_effort: model.default_reasoning_effort.clone(),
             }
         })
         .collect()
@@ -1108,6 +962,7 @@ pub use readme::{ensure_readme_installed, refresh_example_files};
 #[cfg(test)]
 pub(crate) fn model(id: &str, display: &str) -> ModelInfo {
     ModelInfo {
+        default_reasoning_effort: None,
         id: id.into(),
         display_name: display.into(),
         ..ModelInfo::default()

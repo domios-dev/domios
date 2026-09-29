@@ -1,0 +1,5 @@
+┌──────────────────────────────────────────────┐
+│ Runtime diagnostics                           │
+└──────────────────────────────────────────────┘
+⚠ The current workspace contains a warning row whose contents continue beyond the terminal width and wrap onto another physical grid row.
+› Enter a message

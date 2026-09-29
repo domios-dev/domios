@@ -62,6 +62,18 @@ pub struct TauriStructuredSink {
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
+        if let (Some(session_id), Some(binding_nonce)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+        ) {
+            crate::service::public_send_readiness::note_bootstrap_turn(
+                &self.mux,
+                tab_id,
+                session_id,
+                binding_nonce,
+                &messages,
+            );
+        }
         reconcile_current_session_turns(
             &self.app,
             &self.mux,
@@ -71,6 +83,14 @@ impl StructuredSink for TauriStructuredSink {
             self.session_binding_nonce.as_deref(),
             &messages,
         );
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        if let Some(pty_id) = pty_id {
+            crate::service::pty_io::submit_transaction::wake_submit_cycle(&pty_id);
+        }
         emit_chat_msgs(
             &self.app,
             tab_id,
@@ -188,6 +208,18 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         }
         if out.is_empty() {
             return;
+        }
+        if let (Some(session_id), Some(binding_nonce)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+        ) {
+            crate::service::public_send_readiness::note_bootstrap_turn(
+                &self.mux,
+                tab_id,
+                session_id,
+                binding_nonce,
+                &out,
+            );
         }
         reconcile_current_session_turns(
             &self.app,

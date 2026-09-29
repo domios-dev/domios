@@ -87,6 +87,11 @@ impl SpawnTabSpec {
         let agent_command = command.unwrap_or_else(|| {
             TabCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
+                remote_task_bound:
+                    crate::service::orchestrator::remote_task_binding_matches_authority(
+                        params.remote_task_binding.as_ref(),
+                        params.task_launch_authority.as_ref(),
+                    ),
                 planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
                 planned_reasoning_effort: params.planned_reasoning_effort.clone(),
@@ -190,6 +195,7 @@ impl SpawnTabSpec {
             activate: agent.activate,
             audience: self.audience,
             structured_prompt_server: None,
+            remote_task_binding: None,
         })
     }
 }

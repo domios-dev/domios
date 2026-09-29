@@ -81,7 +81,7 @@ pub fn is_codeterm_hook(entry: &Json) -> bool {
         .is_some_and(|hooks| hooks.iter().any(hook_is_codeterm))
 }
 
-fn entry_carries_marker(entry: &Json) -> bool {
+pub fn entry_carries_marker(entry: &Json) -> bool {
     entry
         .get("hooks")
         .and_then(Json::as_array)

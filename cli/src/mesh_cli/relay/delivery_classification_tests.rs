@@ -165,3 +165,89 @@ fn an_unconfirmed_outcome_is_never_hinted_as_a_free_retry() {
         "a payload that may already have landed cannot share the safe-retry hint"
     );
 }
+
+#[test]
+fn offline_peer_list_refusal_is_classified_as_peer_offline() {
+    let body = serde_json::json!({
+        "reason": "peer_name_no_online_record",
+        "name": "peer-a",
+        "candidates": [],
+    });
+    let failure = classify_relay_response(
+        "peer-a",
+        ("GET", "/api/tabs"),
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        body.to_string().as_bytes(),
+    )
+    .expect_err("an offline target must not become an empty tab list");
+
+    assert!(failure.reason.starts_with("peer_offline:"));
+    assert_eq!(failure.retry_hint, "bring the peer online, then retry");
+}
+
+#[test]
+fn remote_get_text_without_pty_has_an_accurate_retry_hint() {
+    let envelope = serde_json::json!({
+        "ok": false,
+        "status": 404,
+        "error": "Tab not found or has no PTY",
+        "data": null,
+    });
+    let failure = classify_relay_response(
+        "peer-a",
+        ("GET", "/api/tabs/remote-tab/text?formatted=false"),
+        reqwest::StatusCode::OK,
+        envelope.to_string().as_bytes(),
+    )
+    .expect_err("a tab without a PTY cannot provide terminal text");
+
+    assert_eq!(
+        failure.retry_hint,
+        "the tab has no PTY; choose a PTY-backed tab"
+    );
+}
+
+#[test]
+fn a_json_http_refusal_is_not_misread_as_null_success() {
+    let failure = classify_relay_response(
+        "peer-a",
+        ("GET", "/api/tabs"),
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        br#"{"error":"peer unavailable"}"#,
+    )
+    .expect_err("a non-success HTTP response must remain a CLI failure");
+
+    assert!(failure.reason.contains("peer unavailable"));
+}
+
+#[test]
+fn mesh_send_every_refuses_peer_without_recurrence_capability() {
+    let refusal = serde_json::json!({
+        "ok": false,
+        "status": 426,
+        "error": "peer_lacks_delayed_recurrence: Peer 'old-peer' (version 1.11.9) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
+        "data": {
+            "ok": false,
+            "error": {
+                "code": "peer_lacks_delayed_recurrence",
+                "message": "Peer 'old-peer' (version 1.11.9) does not advertise delayed_recurrence; update the peer or send a one-shot explicitly",
+                "bytes_written": false
+            }
+        }
+    });
+    let failure = classify_relay_response(
+        "old-peer",
+        ("POST", "/api/tabs/tab-1/delayed-messages"),
+        reqwest::StatusCode::OK,
+        refusal.to_string().as_bytes(),
+    )
+    .expect_err("capability refusal must fail the CLI request");
+
+    assert!(failure.reason.contains("old-peer"));
+    assert!(failure.reason.contains("1.11.9"));
+    assert!(!failure.bytes_written.unwrap_or(true));
+    assert_eq!(
+        failure.retry_hint,
+        "update the peer or send a one-shot explicitly"
+    );
+}

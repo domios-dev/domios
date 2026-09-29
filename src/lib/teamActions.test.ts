@@ -6,9 +6,11 @@ function assert(condition: unknown, message: string): asserts condition {
 
 async function run() {
   const calls: Array<{ command: string; args: unknown }> = [];
+  const inventory = { removed: [], kept: [], orphan_branches: ["lane/inventory-token-4471"] };
   const actions = buildTeamActions({
     invoke: async (command, args) => {
       calls.push({ command, args });
+      return command === "mux_close_team" ? { team: "team-1", inventory } : undefined;
     },
   });
 
@@ -75,7 +77,8 @@ async function run() {
     "orchestrator staffing reaches the same Team member bridge",
   );
   const callsBeforeClose = calls.length;
-  await actions.onCloseTeam("team-1");
+  const closed = await actions.onCloseTeam("team-1");
+  assert(closed === inventory, "close returns the daemon lane inventory");
   assert(calls.length === callsBeforeClose + 1, "close invokes exactly once");
   const closeCall = calls[calls.length - 1];
   assert(closeCall?.command === "mux_close_team", "close uses the bridge command");

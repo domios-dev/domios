@@ -169,7 +169,7 @@ fn generic_retry_hint(status: u16) -> String {
             "transient — retry once; if it repeats, check the peer daemon is up (`codeterm mesh peers`)"
                 .to_string()
         }
-        400..=499 => "request rejected — fix the spawn arguments before retrying".to_string(),
+        400..=499 => "request rejected — verify the requested peer, tab, and operation".to_string(),
         _ => "retry the spawn".to_string(),
     }
 }
@@ -227,6 +227,9 @@ fn delivery_retry_hint(
     bytes_written: Option<bool>,
     status: u16,
 ) -> String {
+    if code == Some("peer_lacks_delayed_recurrence") {
+        return "update the peer or send a one-shot explicitly".to_string();
+    }
     if let Some(hint) = data
         .get("error")
         .and_then(|e| e.get("retry_hint"))
@@ -258,16 +261,28 @@ fn classify_relay_response(
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
     let val: serde_json::Value = serde_json::from_slice(bytes).unwrap_or(serde_json::Value::Null);
 
-    // A bare-status, non-JSON body (e.g. an unstructured axum `(StatusCode,
-    // String)` error) — carry the raw text so the reason is never empty.
-    if !status.is_success() && val.is_null() {
+    // A local relay refusal can itself be JSON without being a RelayResponse.
+    if !status.is_success() && val.get("ok").is_none() {
         let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-        let reason = if preview.trim().is_empty() {
+        let peer_offline = val.get("reason").and_then(serde_json::Value::as_str)
+            == Some("peer_name_no_online_record");
+        let reason = if peer_offline {
+            format!(
+                "peer_offline: no online mesh route for {}",
+                val.get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(peer_name)
+            )
+        } else if preview.trim().is_empty() {
             format!("HTTP {}", status.as_u16())
         } else {
             format!("HTTP {}: {}", status.as_u16(), preview.trim())
         };
-        let mut retry = generic_retry_hint(status.as_u16());
+        let mut retry = if peer_offline {
+            "bring the peer online, then retry".to_string()
+        } else {
+            relay_retry_hint(relayed, status.as_u16())
+        };
         if status.as_u16() >= 500 {
             if let Some(ts) = tailscale_unreachable_hint(&preview) {
                 retry.push_str("\nhint: ");
@@ -300,7 +315,13 @@ fn classify_relay_response(
                 _ => None,
             })
             .unwrap_or_else(|| format!("HTTP {envelope_status}"));
-        let hint = delivery_retry_hint(&data, code.as_deref(), bytes_written, envelope_status);
+        let hint = route_retry_hint(
+            relayed,
+            &data,
+            code.as_deref(),
+            bytes_written,
+            envelope_status,
+        );
         return Err(
             MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
         );
@@ -315,13 +336,42 @@ fn classify_relay_response(
             (None, Some(message)) => message.clone(),
             _ => format!("peer did not confirm delivery (HTTP {envelope_status})"),
         };
-        let hint = delivery_retry_hint(&data, code.as_deref(), bytes_written, envelope_status);
+        let hint = route_retry_hint(
+            relayed,
+            &data,
+            code.as_deref(),
+            bytes_written,
+            envelope_status,
+        );
         return Err(
             MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
         );
     }
 
     Ok(data)
+}
+
+fn relay_retry_hint(relayed: (&str, &str), status: u16) -> String {
+    let path = relayed.1.split('?').next().unwrap_or(relayed.1);
+    if status == 404 && relayed.0.eq_ignore_ascii_case("GET") && path.ends_with("/text") {
+        "the tab has no PTY; choose a PTY-backed tab".to_string()
+    } else {
+        generic_retry_hint(status)
+    }
+}
+
+fn route_retry_hint(
+    relayed: (&str, &str),
+    data: &serde_json::Value,
+    code: Option<&str>,
+    bytes_written: Option<bool>,
+    status: u16,
+) -> String {
+    if code.is_none() && data.get("error").is_none() {
+        relay_retry_hint(relayed, status)
+    } else {
+        delivery_retry_hint(data, code, bytes_written, status)
+    }
 }
 
 /// POST an already-built relay envelope to a resolved peer URL and classify
@@ -687,7 +737,30 @@ pub fn mesh_close_tab_and_forget_remote_worker(
     json_mode: bool,
 ) {
     let path = format!("/api/tabs/{tab_id}/close");
-    let data = mesh_relay_invoke(target, "POST", &path, None, json_mode);
+    let before = mesh_relay_invoke_result(target, "GET", "/api/tabs", None);
+    let before = match before {
+        Ok(tabs) => tabs,
+        Err(failure) => failure.print_and_exit(json_mode),
+    };
+    if remote_tab_exists(&before, tab_id) != Some(true) {
+        MeshSpawnFailure::new(
+            target,
+            "remote tab was not present before close",
+            "check `codeterm tab list --mesh <peer>` and retry with an existing tab id",
+        )
+        .print_and_exit(json_mode);
+    }
+    let close = mesh_relay_invoke_result(target, "POST", &path, None);
+    let after = mesh_relay_invoke_result(target, "GET", "/api/tabs", None);
+    let data = match verified_close_result(Ok(before), close, after, tab_id) {
+        Ok(data) => data,
+        Err(failure) => failure.print_and_exit(json_mode),
+    };
+    let data = if data.is_null() {
+        serde_json::json!({"ok": true, "tab_id": tab_id})
+    } else {
+        data
+    };
 
     if let Ok(local) = crate::build_local_api() {
         let _ = local
@@ -698,12 +771,51 @@ pub fn mesh_close_tab_and_forget_remote_worker(
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
-    } else if data.is_null() {
-        eprintln!("Error: unexpected response from peer (null data)");
-        std::process::exit(1);
     } else {
         crate::cmd::print::print_human(&data);
     }
+}
+
+fn remote_tab_exists(tabs: &serde_json::Value, tab_id: &str) -> Option<bool> {
+    let tabs = tabs.as_array()?;
+    let ids: Option<Vec<_>> = tabs.iter().map(|tab| tab.get("id")?.as_str()).collect();
+    Some(ids?.contains(&tab_id))
+}
+
+pub(crate) fn verified_close_result(
+    before: Result<serde_json::Value, MeshSpawnFailure>,
+    close: Result<serde_json::Value, MeshSpawnFailure>,
+    after: Result<serde_json::Value, MeshSpawnFailure>,
+    tab_id: &str,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let before = before?;
+    if remote_tab_exists(&before, tab_id) != Some(true) {
+        return Err(MeshSpawnFailure::new(
+            "peer",
+            "remote tab was not present before close",
+            "check the remote tab id and retry",
+        ));
+    }
+    let close_failure = close.err();
+    let after = match after {
+        Ok(after) => after,
+        Err(verification_failure) => return Err(close_failure.unwrap_or(verification_failure)),
+    };
+    match remote_tab_exists(&after, tab_id) {
+        Some(false) => Ok(serde_json::json!({"ok": true, "tab_id": tab_id})),
+        Some(true) | None => Err(close_failure.unwrap_or_else(|| {
+            MeshSpawnFailure::new(
+                "peer",
+                "remote tab remains after close",
+                "retry the close after checking the peer tab list",
+            )
+        })),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_close_failure() -> MeshSpawnFailure {
+    MeshSpawnFailure::new("peer", "close failed", "retry")
 }
 
 #[cfg(test)]

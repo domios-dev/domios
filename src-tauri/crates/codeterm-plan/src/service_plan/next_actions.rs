@@ -276,6 +276,8 @@ mod tests {
         OpenLane {
             task_id: id.into(),
             name: format!("name-{id}"),
+            parent_task_id: None,
+            subtasks: vec![],
             status: status.clone(),
             executor_role: None,
             competition: None,

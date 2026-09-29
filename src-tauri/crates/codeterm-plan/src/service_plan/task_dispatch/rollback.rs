@@ -66,15 +66,21 @@ impl PlanStore {
             let mut restored = snapshot.clone();
             if let Some(mut failed_attempt) = failed_attempt {
                 failed_attempt.closed_at = Some(now_ms);
-                restored.lane.destination = task.lane.destination.clone();
+                // Only a destination recorded after dispatch began is integration-owned.
+                if task.lane.destination != failed_attempt.destination {
+                    restored.lane.destination = task.lane.destination.clone();
+                    failed_attempt.destination = task.lane.destination.clone();
+                }
                 restored.lane.cleanup_status = task.lane.cleanup_status.clone();
                 restored.lane.cleanup_hints = task.lane.cleanup_hints.clone();
-                failed_attempt.destination = restored.lane.destination.clone();
                 restored.execution_attempts.push(failed_attempt);
                 restored.updated_at = now_ms;
             }
             restored_task = Some(restored.clone());
             *task = restored;
+            if snapshot.status == crate::plan::TaskStatus::Blocked {
+                super::unblock::annotate_blocked_unblock_rollback(plan, &task_id, attempt_id);
+            }
             plan.mode = plan_mode.clone();
             outcome = Some(DispatchRollback::Restored);
             Ok(())

@@ -6,6 +6,7 @@ use codeterm_types::agent::ReportStatus;
 use super::{PlanError, PlanStore};
 
 mod plan_skill_evidence;
+pub mod remote_dispatch;
 mod report_ingest;
 
 #[cfg(test)]
@@ -51,10 +52,12 @@ pub struct TaskAttemptView {
 pub struct TaskRespawnDraft {
     pub plan_id: String,
     pub task_id: String,
+    pub attempt_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
@@ -75,6 +78,7 @@ pub struct TaskCompeteDraft {
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
@@ -425,12 +429,15 @@ pub fn new_assignment_attempt_with_id(
 ) -> TaskExecutionAttempt {
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: attempt_id
             .map(str::to_string)
             .unwrap_or_else(gen_attempt_id),
         executor_tab_id: tab_id.to_string(),
-        provider,
-        agent_type: provider_name_from_model(task.model.as_deref()),
+        provider: provider.clone(),
+        agent_type: provider,
+        provider_resolved_model: None,
+        requested_model: task.model.clone(),
         model,
         role: role.map(str::to_string),
         mesh_peer: peer.map(str::to_string).or_else(|| task.peer.clone()),
@@ -522,10 +529,6 @@ pub fn accept_exact_attempt(attempt: &mut TaskExecutionAttempt, reason: &str, no
     if attempt.closed_at.is_none() {
         attempt.closed_at = Some(now_ms);
     }
-}
-
-fn provider_name_from_model(value: Option<&str>) -> Option<String> {
-    split_provider_model(value).0
 }
 
 pub(super) fn live_attempt_count(task: &Task) -> usize {
@@ -633,6 +636,169 @@ impl PlanStore {
         })
     }
 
+    pub fn update_attempt_session_model_if_unknown(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        model: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let session_id = session_id.trim();
+        let session_binding_nonce = session_binding_nonce.trim();
+        let model = model.trim();
+        if session_id.is_empty() || session_binding_nonce.is_empty() || model.is_empty() {
+            return Ok(false);
+        }
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .ok_or(PlanError::TaskNotFound)?;
+        if !task.execution_attempts.iter().any(|attempt| {
+            attempt.id == attempt_id
+                && attempt.executor_tab_id == tab_id
+                && attempt.closed_at.is_none()
+                && attempt.retired_at.is_none()
+                && attempt.session_model.is_none()
+                && attempt.session_id.as_deref() == Some(session_id)
+                && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+        }) {
+            return Ok(false);
+        }
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_model.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            attempt.session_model = Some(model.into());
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
+    }
+
+    pub fn update_attempt_model_identity(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        requested_model: Option<String>,
+        provider_resolved_model: Option<String>,
+        session_model: Option<String>,
+        mismatch: Option<crate::plan::AttemptModelIdentityMismatch>,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            let changed = attempt.requested_model != requested_model
+                || attempt.provider_resolved_model != provider_resolved_model
+                || attempt.session_model != session_model
+                || attempt.model_identity_mismatch != mismatch;
+            if !changed {
+                return Ok(None);
+            }
+            attempt.requested_model = requested_model;
+            attempt.provider_resolved_model = provider_resolved_model;
+            attempt.session_model = session_model;
+            attempt.model_identity_mismatch = mismatch;
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
+    }
+
+    pub fn update_dispatched_attempt_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        reasoning_effort: Option<String>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.executor_tab_id == tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                })
+                .ok_or(PlanError::TaskNotFound)?;
+            if attempt.reasoning_effort == reasoning_effort {
+                return Ok(None);
+            }
+            attempt.reasoning_effort = reasoning_effort;
+            task.updated_at = now_ms;
+            Ok(Some(()))
+        })?;
+        Ok(())
+    }
+
+    pub fn update_dispatched_attempt_actual_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        actual_reasoning_effort: String,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.executor_tab_id == tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+                    && attempt.session_id.as_deref() == Some(session_id)
+                    && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+            }) else {
+                return Ok(None);
+            };
+            if attempt.actual_reasoning_effort.as_deref() == Some(actual_reasoning_effort.as_str())
+            {
+                return Ok(None);
+            }
+            attempt.actual_reasoning_effort = Some(actual_reasoning_effort);
+            task.updated_at = now_ms;
+            Ok(Some(true))
+        })
+        .map(|changed| changed.unwrap_or(false))
+    }
+
     pub fn build_task_compete_drafts(
         &self,
         plan_id: &str,
@@ -704,6 +870,7 @@ impl PlanStore {
                 provider,
                 planned_model: task.model.clone(),
                 model,
+                reasoning_effort: None,
                 parent_tab_id: request.parent_tab_id.clone().or(plan.owner.tab_id.clone()),
                 workspace_id: request
                     .workspace_id
@@ -780,6 +947,7 @@ impl PlanStore {
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
+        super::task_dispatch::task_respawn_status(&task.status)?;
         let source = find_attempt(task, &request.attempt_id)
             .cloned()
             .ok_or(PlanError::TaskNotFound)?;
@@ -790,6 +958,7 @@ impl PlanStore {
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
+        let reasoning_effort = source.reasoning_effort.clone();
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let explicit_title = request.title.is_some();
@@ -811,10 +980,12 @@ impl PlanStore {
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
             task_id: task.id.clone(),
+            attempt_id: gen_attempt_id(),
             source_attempt: source.clone(),
             provider,
             planned_model: task.model.clone(),
             model,
+            reasoning_effort,
             parent_tab_id: request
                 .parent_tab_id
                 .or(source.parent_tab_id.clone())
@@ -843,12 +1014,24 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
+            super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;
+            if matches!(
+                plan.tasks[task_index].status,
+                TaskStatus::Pending | TaskStatus::Blocked
+            ) {
                 super::review_gate::validate_dispatch_review_capacity(
                     plan,
                     &plan.tasks[task_index],
                 )?;
             }
+            let attempt_id = draft.attempt_id.clone();
+            super::task_dispatch::record_blocked_task_unblock(
+                plan,
+                task_index,
+                "respawn",
+                Some(&attempt_id),
+                now_ms,
+            );
             let task = &mut plan.tasks[task_index];
             task.assigned_tab_id = Some(tab_id.into());
             task.lane.tab_id = Some(tab_id.into());
@@ -858,10 +1041,13 @@ impl PlanStore {
             task.status_changed_at = now_ms;
             task.status_label = Some("starting".into());
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+            let mut attempt =
+                new_assignment_attempt_with_id(task, tab_id, None, role, Some(&attempt_id), now_ms);
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.provider_resolved_model = draft.model.clone();
+            attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
@@ -907,6 +1093,8 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
+            attempt.provider_resolved_model = draft.model.clone();
+            attempt.reasoning_effort = draft.reasoning_effort.clone();
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());

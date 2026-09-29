@@ -480,6 +480,7 @@ fn selected_instruction_references_name_whole_documents() {
             assert!(
                 [
                     "ORCHESTRATION",
+                    "ORCHESTRATION-TASKS",
                     "ORCHESTRATION-OPERATIONS",
                     "PLANNER",
                     "PLAN-EDITING",

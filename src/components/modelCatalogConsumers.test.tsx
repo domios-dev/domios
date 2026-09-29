@@ -3,7 +3,11 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { OrchestrationPairForm, OrchestrationRoleRow } from "./Sidebar/OrchestrationPairForm";
+import {
+  OrchestrationPairForm,
+  OrchestrationRoleRow,
+  type OrchestrationPairValues,
+} from "./Sidebar/OrchestrationPairForm";
 import { TeamUnit } from "./Sidebar/TeamUnit";
 import { __setInvokeForTest } from "../lib/bridge";
 import type { ModelGroupUsage, ModelInfo, ProviderDescriptor, Team } from "../lib/types";
@@ -306,6 +310,69 @@ test("reasoning-effort selector renders and reports the chosen effort", async ()
   assert(high, "each declared effort renders as an option");
   await click(high);
   assert(changes.join(",") === "high", `chosen effort must be reported, got ${changes.join(",")}`);
+  await act(async () => root.unmount());
+});
+
+test("changing models narrows reasoning efforts and resets an unsupported selection", async () => {
+  const descriptor: ProviderDescriptor = {
+    ...descriptorWith([
+      {
+        id: "wide-model",
+        display_name: "Wide Model",
+        reasoning_efforts: [
+          { id: "low", display_name: "Low" },
+          { id: "high", display_name: "High" },
+          { id: "max", display_name: "Max" },
+        ],
+      },
+      {
+        id: "narrow-model",
+        display_name: "Narrow Model",
+        reasoning_efforts: [
+          { id: "low", display_name: "Low" },
+          { id: "high", display_name: "High" },
+        ],
+      },
+    ]),
+    reasoning_efforts: [
+      { id: "low", display_name: "Low" },
+      { id: "medium", display_name: "Medium" },
+      { id: "high", display_name: "High" },
+      { id: "max", display_name: "Max" },
+    ],
+    default_reasoning_effort: "max",
+  };
+  function PickerHarness() {
+    const [values, setValues] = React.useState<OrchestrationPairValues>({
+      orchestratorProviderId: descriptor.id,
+      orchestratorModelId: "wide-model",
+      orchestratorEffortId: "max",
+      plannerProviderId: descriptor.id,
+      plannerModelId: "wide-model",
+      plannerEffortId: "max",
+    });
+    return (
+      <OrchestrationPairForm
+        providers={[descriptor]}
+        values={values}
+        onChange={setValues}
+        roleTestIds={{ orchestratorModel: "picker-model", orchestratorEffort: "picker-effort" }}
+      />
+    );
+  }
+
+  const { host, root } = await render(<PickerHarness />);
+  await openDropdown(host.querySelector('[data-testid="picker-model"]')!);
+  await click(document.querySelector('[data-testid="picker-model-option-narrow-model"]'));
+
+  const effortTrigger = host.querySelector('[data-testid="picker-effort"]')!;
+  assert(
+    effortTrigger.getAttribute("aria-label") === "Effort: Low",
+    `unsupported max must reset to the selected model's first effort, got ${effortTrigger.getAttribute("aria-label")}`,
+  );
+  await openDropdown(effortTrigger);
+  const offered = dropdownOptionEntries("picker-effort").map((entry) => entry.id);
+  assert(offered.join(",") === "low,high", `only the selected model's efforts are offered, got ${offered}`);
   await act(async () => root.unmount());
 });
 

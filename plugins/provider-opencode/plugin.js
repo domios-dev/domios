@@ -25,7 +25,8 @@ __export(plugin_exports, {
 module.exports = __toCommonJS(plugin_exports);
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
@@ -453,11 +454,18 @@ function cleanToolText(value, fallback) {
   return text.length > 120 ? text.slice(0, 117) + "..." : text;
 }
 function opencodeDbPath() {
-  let base = host.envGet("XDG_DATA_HOME");
-  if (!base) base = host.expandHome("~/.local/share");
+  const windows = host.platform() === "windows";
+  const sep = windows ? "\\" : "/";
+  const configuredDb = host.envGet("OPENCODE_DB");
+  if (configuredDb === ":memory:") return null;
+  if (configuredDb) {
+    const absolute = windows ? /^[A-Za-z]:[\\/]|^[\\/]{1,2}/.test(configuredDb) : configuredDb.startsWith("/");
+    if (absolute) return configuredDb;
+  }
+  const base = host.envGet("XDG_DATA_HOME") || host.expandHome("~/.local/share");
   if (!base) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return base + sep + "opencode" + sep + "opencode.db";
+  const dataDir = base + sep + "opencode";
+  return configuredDb ? dataDir + sep + configuredDb : dataDir + sep + "opencode.db";
 }
 function opencodeSessionRecord(row, db) {
   return {
@@ -502,22 +510,29 @@ function opencodePluginEntryMatches(entry, target) {
   return value.replace(/\\/g, "/") === target;
 }
 function isCurrentOpencodeBindingPluginSource(text) {
+  const currentHeader = "// " + CODETERM_OPENCODE_PLUGIN_MARKER;
+  const hasCurrentHeader = text.startsWith(currentHeader + "\n") || text.startsWith(currentHeader + "\r\n");
   const required = [
-    CODETERM_OPENCODE_PLUGIN_MARKER,
     "CODETERM_API_URL",
     "CODETERM_API_TOKEN",
     "CODETERM_SESSION_BINDING_NONCE",
     "CODETERM_TAB_ID",
     "/api/tabs/",
     "x-codeterm-binding-nonce",
-    "authorization"
+    "authorization",
+    "sessionID === lastReported"
   ];
-  return required.every((value) => text.includes(value)) && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+  return hasCurrentHeader && required.every((value) => text.includes(value)) && !/CODETERM_API_PORT|FALLBACK_PORT|127\.0\.0\.1|localhost|:\d{2,5}/i.test(text);
+}
+function ownsOpencodeBindingPluginSource(text) {
+  const header = "// " + CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX;
+  return text.startsWith(header) && /^\d+(?:\r?\n|$)/.test(text.slice(header.length));
 }
 function opencodeBindingPluginSource() {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
     'const PROVIDER_ID = "opencode";',
+    "let lastReported = null;",
     "",
     "function endpoint() {",
     "  const tab = process.env.CODETERM_TAB_ID;",
@@ -543,16 +558,17 @@ function opencodeBindingPluginSource() {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID) return;",
+    "  if (!sessionID || sessionID === lastReported) return;",
     "  const url = endpoint();",
     "  if (!url) return;",
+    "  lastReported = sessionID;",
     "  const headers = {",
     '    "content-type": "application/json",',
     '    "x-codeterm-agent-provider": PROVIDER_ID,',
     '    "x-codeterm-binding-nonce": process.env.CODETERM_SESSION_BINDING_NONCE,',
     "    authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
     "  };",
-    "  await fetch(url, {",
+    "  const delivered = await fetch(url, {",
     '    method: "POST",',
     "    headers,",
     "    body: JSON.stringify({",
@@ -561,7 +577,8 @@ function opencodeBindingPluginSource() {
     "      source,",
     "      cwd: directory || process.cwd(),",
     "    }),",
-    "  }).catch(() => {});",
+    "  }).then((response) => response.ok, () => false);",
+    "  if (!delivered && lastReported === sessionID) lastReported = null;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -634,6 +651,41 @@ function scanMessagesForModel(db, sql, params) {
   }
   return null;
 }
+function scanMessagesForQualifiedModel(db, sessionId) {
+  try {
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId]
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const raw = rows[i].data;
+      if (!raw) continue;
+      try {
+        const value = JSON.parse(raw);
+        if (value.role === "assistant" && typeof value.providerID === "string" && value.providerID && typeof value.modelID === "string" && value.modelID) {
+          return `${value.providerID}/${value.modelID}`;
+        }
+      } catch (_) {
+      }
+    }
+  } catch (_) {
+  }
+  return null;
+}
+function scanSessionDirectory(db, sessionId) {
+  try {
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    const session = rows.find((row) => row.id === sessionId);
+    return typeof session?.directory === "string" && session.directory.trim() ? session.directory : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // plugins/provider-opencode/src/plugin.ts
 var TITLE_RE = /opencode/i;
@@ -650,12 +702,33 @@ var OUTPUT_SIGNALS = [
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function existingBindingPluginIsUnowned(pluginPath) {
+  if (!host.fs.fileExists(pluginPath)) return false;
+  return !ownsOpencodeBindingPluginSource(String(host.fs.readFile(pluginPath) || ""));
+}
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
+}
+function withPadPermissionConfig(command, instructions, cleanup) {
+  const platform = host.platform();
+  const config = {
+    permission: { external_directory: { "*": "ask" } },
+    ...instructions ? { instructions } : {}
+  };
+  if (platform === "windows") {
+    const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+  }
+  const permissionJson = JSON.stringify({ permission: config.permission });
+  const prefix = permissionJson.slice(0, -3);
+  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const q = (value) => host.shell.quoteFor(value, platform);
+  const finish = cleanup ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status` : `; unset OPENCODE_CONFIG_CONTENT`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
 }
 var plugin = {
   starterPromptText(prompt) {
@@ -757,8 +830,7 @@ var plugin = {
       localTaskPath = `.codeterm/${taskName}`;
       const source = host.shell.quoteFor(taskPath, platform);
       const local = host.shell.quoteFor(localTaskPath, platform);
-      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
-      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
+      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -778,38 +850,41 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    if (localTaskPath) {
-      const local = host.shell.quoteFor(localTaskPath, host.platform());
-      parts.push(host.platform() === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
-    }
-    return parts.join(" ");
+    const cleanup = localTaskPath ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}` : "";
+    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : void 0, cleanup);
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    return parts.join(" ");
+    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const platform = host.platform();
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const parts = launch.parts;
+    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = String(args[i]);
+      if (arg === "-m" || arg === "--model") {
+        parts.push(arg, host.shell.quoteFor(String(args[i + 1] || ""), platform));
+        i++;
+      } else {
+        parts.push(arg.startsWith("-") ? arg : host.shell.quoteFor(arg, platform));
+      }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return parts.join(" ");
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
     const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
     const localTaskPath = `.codeterm/${taskName}`;
     const source = host.shell.quoteFor(taskPath, platform);
     const local = host.shell.quoteFor(localTaskPath, platform);
-    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
-    const prologue = platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
-    const epilogue = platform === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
-    return `${prologue} ${parts.join(" ")} ${epilogue}`;
+    const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
+    const prologue = platform === "windows" ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
+    const cleanup = platform === "windows" ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;` : `rm -f -- ${local}`;
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -855,11 +930,13 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
+    const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false
       };
@@ -869,8 +946,10 @@ var plugin = {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
-        plugin_installed: false
+        plugin_installed: false,
+        integration_state: "unreadable"
       };
     }
     const target = opencodePluginEntry();
@@ -881,6 +960,7 @@ var plugin = {
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
+      plugin_file_owned: pluginOwned,
       plugin_file_current: pluginCurrent,
       plugin_installed: installed
     };
@@ -893,6 +973,9 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
     if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
+    if (existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
+    }
     const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
     if (!json || typeof json !== "object" || Array.isArray(json)) {
       return { ok: false, error: "opencode.json root must be an object" };
@@ -913,6 +996,9 @@ var plugin = {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
+    if (pluginPath && existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
+    }
     if (cfg && host.fs.fileExists(cfg)) {
       const json = host.fs.readJson(cfg);
       if (json && typeof json === "object" && Array.isArray(json.plugin)) {
@@ -935,10 +1021,10 @@ var plugin = {
     if (!db || !host.fs.fileExists(db)) return false;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      "SELECT id FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
-    return rows.length > 0;
+    return rows.some((row) => row.id === sessionId);
   },
   // opencode keeps every session in one sqlite log, so the source carries the
   // session id: the reader must not charge a sibling's tokens to this tab.
@@ -1014,4 +1100,31 @@ var plugin = {
     return { messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   }
 };
+function resumeLaunchArgs(args, sessionId) {
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
+  if (!model) return args.map(String);
+  const retained = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (arg === "-m" || arg === "--model") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
+    retained.push(arg);
+  }
+  retained.push("-m", model);
+  return retained;
+}
+function resumeLaunch(sessionId, skipPermissions) {
+  const platform = host.platform();
+  const db = opencodeDbPath();
+  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const parts = ["opencode"];
+  if (directory) parts.push(host.shell.quoteFor(directory, platform));
+  parts.push("--session", host.shell.quoteFor(sessionId, platform));
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  return { parts, directory };
+}
 var plugin_default = plugin;

@@ -100,17 +100,80 @@ fn deliver_confirmed_general_message(
     }
 }
 
+fn general_agent_first_run_complete(
+    mem: &crate::mem::MemManager,
+    general_dir: &std::path::Path,
+) -> bool {
+    if mem.get("preference_identity").is_err() {
+        return false;
+    }
+    std::fs::read_to_string(general_dir.join("identity.md"))
+        .is_ok_and(|identity| !identity.trim().is_empty())
+}
+
 fn compose_startup_message(
-    _fallback_system_prompt: bool,
-    _system_prompt: String,
-    bootstrap: Option<String>,
+    mem: &crate::mem::MemManager,
+    bootstrap_path: &std::path::Path,
 ) -> Option<String> {
-    bootstrap.map(|body| {
+    if bootstrap_path
+        .parent()
+        .is_some_and(|general_dir| general_agent_first_run_complete(mem, general_dir))
+    {
+        return None;
+    }
+    std::fs::read_to_string(bootstrap_path).ok().map(|body| {
         crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::codeterm_reminder("general-bootstrap"),
         )
         .wrap(&body)
     })
+}
+
+struct GeneralAgentLaunchInstructions {
+    task: Option<String>,
+    startup_message: Option<String>,
+    starter_prompt: crate::agent::provider::StarterPrompt,
+    prompt_delivery: &'static str,
+}
+
+fn compose_launch_instructions(
+    system_prompt: String,
+    startup_message: Option<String>,
+    delivery: &crate::agent::provider::SystemPromptDelivery,
+) -> GeneralAgentLaunchInstructions {
+    use crate::agent::provider::{StarterPrompt, SystemPromptDelivery};
+
+    let prompt_delivery = match delivery {
+        SystemPromptDelivery::CliFlag(_) => "cli_flag",
+        SystemPromptDelivery::SessionConfig => "session_config",
+        SystemPromptDelivery::External => "confirmed_fallback",
+    };
+    match crate::service::launch_delivery::mode_for_descriptor(delivery) {
+        crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt => {
+            let first_turn = startup_message.is_some();
+            let task = startup_message
+                .map(|bootstrap| format!("{system_prompt}\n\n{bootstrap}"))
+                .unwrap_or(system_prompt);
+            GeneralAgentLaunchInstructions {
+                task: Some(task),
+                startup_message: None,
+                starter_prompt: if first_turn {
+                    StarterPrompt::AssignedTask
+                } else {
+                    StarterPrompt::NoStarter
+                },
+                prompt_delivery,
+            }
+        }
+        crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback => {
+            GeneralAgentLaunchInstructions {
+                task: None,
+                startup_message,
+                starter_prompt: StarterPrompt::NoStarter,
+                prompt_delivery,
+            }
+        }
+    }
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -490,19 +553,15 @@ pub fn start_general_agent(
             .and_then(|p| p.cwd.clone())
             .unwrap_or_default();
         let system_prompt = instructions::render_system_prompt(provider_name, Some(&svc.mem));
-        let fallback = svc
+        let system_prompt_delivery = svc
             .agent_registry
-            .with_provider(provider_name, |provider| {
-                matches!(
-                    crate::service::launch_delivery::mode_for_descriptor(
-                        &provider.system_prompt_delivery()
-                    ),
-                    crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                )
-            })
-            .unwrap_or(true);
-        let bootstrap = std::fs::read_to_string(general_dir().join("bootstrap.md")).ok();
-        startup_message = compose_startup_message(fallback, system_prompt.clone(), bootstrap);
+            .with_provider(provider_name, |provider| provider.system_prompt_delivery())
+            .unwrap_or(crate::agent::provider::SystemPromptDelivery::External);
+        let bootstrap_message =
+            compose_startup_message(&svc.mem, &general_dir().join("bootstrap.md"));
+        let launch_instructions =
+            compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
+        startup_message = launch_instructions.startup_message;
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
                 &tab_id,
@@ -515,8 +574,8 @@ pub fn start_general_agent(
         }
         let mut params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
-            task: (!fallback).then_some(system_prompt.clone()),
-            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
+            task: launch_instructions.task,
+            starter_prompt: launch_instructions.starter_prompt,
             args: None,
             skip_permissions: permission_bypass,
             session_id: pre_session_id,
@@ -527,11 +586,19 @@ pub fn start_general_agent(
                 &ga_cwd,
             ),
             launch_marker: None,
+            instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
         let command = match crate::service::launch_session_detection::marked_provider_launch_command(
             &svc.agent_registry,
             provider_name,
             &tab_id,
+            Some(&ga_cwd),
+            crate::service::launch_session_detection::canonical_project_for_tab(
+                &svc.plan_store,
+                &tab_id,
+                &ga_cwd,
+            )
+            .as_deref(),
             &mut params,
         ) {
             Some(cmd) => cmd,
@@ -550,11 +617,7 @@ pub fn start_general_agent(
             params.task.as_deref().or(startup_message.as_deref()),
             Some("General Agent"),
             Some("machine_general"),
-            if fallback {
-                "confirmed_fallback"
-            } else {
-                "system_prompt"
-            },
+            launch_instructions.prompt_delivery,
         );
         command
     };

@@ -26,10 +26,10 @@ export function OrchestrationCreate({
   const [pairValues, setPairValues] = useState<OrchestrationPairValues>({
     orchestratorProviderId: defaultProviderId,
     orchestratorModelId: providers[0]?.default_model ?? "",
-    orchestratorEffortId: resolveEffort(providers[0]),
+    orchestratorEffortId: resolveEffort(providers[0], providers[0]?.default_model),
     plannerProviderId: defaultProviderId,
     plannerModelId: providers[0]?.default_model ?? "",
-    plannerEffortId: resolveEffort(providers[0]),
+    plannerEffortId: resolveEffort(providers[0], providers[0]?.default_model),
   });
   const canConfirm = pairValues.orchestratorProviderId.length > 0 && pairValues.plannerProviderId.length > 0;
 

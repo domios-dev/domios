@@ -11,6 +11,34 @@ use crate::service::plan_batch_authority::{apply_batch_from_socket, BatchWriteEr
 use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
+
+fn plan_project_path(params: &Value, mux: &crate::multiplexer::state::MultiplexerState) -> String {
+    let requested = params
+        .get("project_path")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let team_workspace = params
+        .get("caller_tab_id")
+        .and_then(Value::as_str)
+        .and_then(|tab_id| mux.get_tab(tab_id))
+        .filter(|tab| tab.team_id.is_some())
+        .and_then(|tab| mux.find_workspace_for_tab(&tab.id))
+        .and_then(|workspace_id| mux.get_workspace(&workspace_id))
+        .and_then(|workspace| workspace.cwd.clone());
+    let caller_cwd = params
+        .get("caller_cwd")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    requested
+        .or(team_workspace)
+        .or(caller_cwd)
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default()
+        })
+}
+
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     let data = e.to_json();
     JsonRpcError {
@@ -190,15 +218,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             let title = get_string_param(params, "title")?;
-            let project = body
-                .get("project_path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| {
-                    std::env::current_dir()
-                        .map(|d| d.display().to_string())
-                        .unwrap_or_default()
-                });
+            let project = plan_project_path(body, &svc.mux.read());
             let kinds = body
                 .get("kinds")
                 .and_then(|v| v.as_str())
@@ -239,6 +259,16 @@ pub(super) fn dispatch(
                         code: -32602,
                         message,
                         data: None,
+                    },
+                    TeamPlanCreationError::SessionBindingPending => JsonRpcError {
+                        code: -32003,
+                        message: "session binding is pending for this Team Planner launch; retry after the binding event".into(),
+                        data: Some(json!({ "type": "session_binding_pending", "retryable": true })),
+                    },
+                    TeamPlanCreationError::SessionUnregistered => JsonRpcError {
+                        code: -32003,
+                        message: "the Team Planner has no registered agent session; repair the provider integration".into(),
+                        data: Some(json!({ "type": "plan_binding_session_unregistered", "retryable": false })),
                     },
                 })?;
             let plan = outcome.plan.clone();

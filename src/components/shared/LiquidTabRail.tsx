@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 
 interface LiquidTabRailProps<T extends string> {
   value: T;
@@ -36,6 +36,32 @@ export function LiquidTabRail<T extends string>({
     },
     [activeIndex, onChange, options],
   );
+  const moveFocus = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const current = options.indexOf(value);
+      let next: number;
+      switch (event.key) {
+        case "ArrowRight":
+          next = (current + 1) % options.length;
+          break;
+        case "ArrowLeft":
+          next = (current - 1 + options.length) % options.length;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = options.length - 1;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      select(next);
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+    },
+    [options, select, value],
+  );
   const style = {
     "--rail-count": options.length,
     "--rail-index": activeIndex,
@@ -51,8 +77,10 @@ export function LiquidTabRail<T extends string>({
     <div
       role="tablist"
       aria-label={label}
+      aria-orientation="horizontal"
       className="ct-liquid-tab-rail"
       style={style}
+      onKeyDown={moveFocus}
     >
       <span
         key={travel?.key ?? 0}
@@ -67,6 +95,7 @@ export function LiquidTabRail<T extends string>({
           type="button"
           role="tab"
           aria-selected={index === activeIndex}
+          tabIndex={index === activeIndex ? 0 : -1}
           data-testid={testIdPrefix ? `${testIdPrefix}-${option}` : undefined}
           className={`ct-liquid-tab-rail__tab${touch ? " ct-liquid-tab-rail__tab--touch" : ""}`}
           onClick={() => select(index)}

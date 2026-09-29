@@ -247,6 +247,18 @@ fn review_recovery_pend_plan_task_refusal_uses_structured_remedy_verbs() {
 }
 
 #[test]
+fn review_continuation_refusal_points_to_the_reopen_path() {
+    let message = render_plan_error(
+        &json!({ "type": "review_continuation_attempt_not_found", "task_id": "task_1" }),
+        &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
+    )
+    .unwrap();
+
+    assert!(message.contains("codeterm plan task show plan_1 task_1"));
+    assert!(message.contains("codeterm plan review bounce plan_1 task_1 --note"));
+}
+
+#[test]
 fn plan_tagged_tab_not_found_gets_cross_daemon_hint() {
     let err = crate::client::SocketCallError::Rpc(crate::client::RpcError {
         code: -32603,

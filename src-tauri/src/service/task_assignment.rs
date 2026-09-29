@@ -4,6 +4,11 @@ use crate::service::plan::interruption::TaskMutationAuthority;
 use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
 use crate::service::plan::{PlanError, PlanStore};
 
+pub(crate) struct ExistingTaskAssignment {
+    binding: Option<AssignmentRuntimeBinding>,
+    role: Option<String>,
+}
+
 pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBinding> {
     let session_id = tab.agent_session_id.as_ref()?;
     let nonce = tab.session_binding_nonce.as_ref()?;
@@ -13,20 +18,26 @@ pub(crate) fn authenticated_tab_binding(tab: &Tab) -> Option<AssignmentRuntimeBi
     .then(|| AssignmentRuntimeBinding {
         session_id: session_id.clone(),
         session_binding_nonce: nonce.clone(),
+        provider: tab.agent_type.clone(),
+        model: tab.agent_provider_resolved_model.clone(),
+        reasoning_effort: tab.reasoning_effort_identity.resolved.clone(),
+        session_model: tab
+            .agent_session_model_identity
+            .as_ref()
+            .filter(|identity| {
+                identity.session_id.as_str() == session_id.as_str()
+                    && identity.session_binding_nonce.as_str() == nonce.as_str()
+            })
+            .and_then(|_| tab.agent_session_model.clone()),
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn assign_existing_task(
-    store: &PlanStore,
+pub(crate) fn prepare_existing_task_assignment(
     mux: &MultiplexerState,
-    plan_id: &str,
-    task_id: &str,
     tab_id: &str,
     peer: Option<&str>,
     authority: Option<&TaskMutationAuthority>,
-    now: u64,
-) -> Result<(), PlanError> {
+) -> Result<ExistingTaskAssignment, PlanError> {
     if peer.is_some_and(|peer| peer.trim().is_empty()) {
         return Err(PlanError::Io("assignment peer must not be empty".into()));
     }
@@ -51,16 +62,30 @@ pub(crate) fn assign_existing_task(
             .ok_or_else(|| PlanError::Io("assignment target binding is not verified".into()))?;
         let role = (tab.role == Some(AgentRole::Manager)
             && tab.role_profile.as_deref() == Some("planner"))
-        .then_some("planner");
+        .then_some("planner".to_string());
         (Some(binding), role)
     };
+    Ok(ExistingTaskAssignment { binding, role })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn persist_existing_task_assignment(
+    store: &PlanStore,
+    assignment: ExistingTaskAssignment,
+    plan_id: &str,
+    task_id: &str,
+    tab_id: &str,
+    peer: Option<&str>,
+    authority: Option<&TaskMutationAuthority>,
+    now: u64,
+) -> Result<(), PlanError> {
     store.assign_task_with_runtime_binding(
         plan_id,
         task_id,
         tab_id,
         peer,
-        role,
-        binding.as_ref(),
+        assignment.role.as_deref(),
+        assignment.binding.as_ref(),
         authority,
         now,
     )

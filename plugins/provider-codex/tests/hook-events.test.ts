@@ -158,6 +158,8 @@ console.log("\n--- Windows: one script posting the event name ---\n");
   assert(script.indexOf("powershell") === -1, "the script does not start PowerShell per event");
   const winSession = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
   const winStop = String(writtenJson?.hooks?.Stop?.[0]?.hooks?.[0]?.commandWindows ?? "");
+  assert(winSession.startsWith('cmd.exe /d /s /c call "'),
+    "Windows launches the helper through a shell-neutral cmd wrapper", winSession);
   assert(winSession.indexOf(" session_start ") !== -1, "SessionStart entry passes its event name", winSession);
   assert(winStop.indexOf(" stop ") !== -1, "Stop entry passes its event name", winStop);
   assert(winSession.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,

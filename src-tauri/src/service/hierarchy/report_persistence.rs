@@ -10,6 +10,13 @@ use crate::service::plan_batch_authority::{
     apply_batch_with_authority, BatchAuthority, BatchWriteError,
 };
 use crate::service::ServiceContext;
+use codeterm_types::agent::ReportOutcomeClass;
+
+#[derive(Debug)]
+pub(super) struct ReportPersistenceFailure {
+    pub cause: String,
+    pub report_outcome: ReportOutcomeClass,
+}
 
 pub(super) fn report_persistence_incident(
     tab_id: &str,
@@ -28,6 +35,42 @@ pub(super) fn report_persistence_incident(
     )
 }
 
+fn incident_failure(
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+    cause: &str,
+) -> ReportPersistenceFailure {
+    stale_failure(report_persistence_incident(
+        tab_id,
+        plan_id,
+        Some(task_id),
+        cause,
+    ))
+}
+
+pub(super) fn stale_failure(cause: String) -> ReportPersistenceFailure {
+    ReportPersistenceFailure {
+        cause,
+        report_outcome: ReportOutcomeClass::StaleBindingConflict,
+    }
+}
+
+fn plan_failure(
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+    error: crate::service::plan::PlanError,
+) -> ReportPersistenceFailure {
+    match error {
+        crate::service::plan::PlanError::ReviewEvidenceRequired => ReportPersistenceFailure {
+            cause: crate::service::plan::PlanError::ReviewEvidenceRequired.to_string(),
+            report_outcome: ReportOutcomeClass::MissingReviewEvidence,
+        },
+        other => incident_failure(tab_id, plan_id, task_id, &other.to_string()),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn persist_authorized_local_task_report(
     svc: &ServiceContext,
@@ -40,7 +83,7 @@ pub(super) fn persist_authorized_local_task_report(
     task_status: Option<&str>,
     milestone_kind: Option<&str>,
     now_ms: u64,
-) -> Result<(), String> {
+) -> Result<(), ReportPersistenceFailure> {
     let mux = svc.mux.read();
     let mut effective_details = details.clone();
     if effective_details.caller_session_id.is_none() {
@@ -54,7 +97,8 @@ pub(super) fn persist_authorized_local_task_report(
         });
         effective_details.caller_session_id = live_session;
     }
-    let authority = report_authority(&effective_details, tab_id, plan_id, task_id)?;
+    let authority =
+        report_authority(&effective_details, tab_id, plan_id, task_id).map_err(stale_failure)?;
     let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(&authority.session_id)
             && tab.session_binding_nonce.as_deref() == Some(&authority.session_binding_nonce)
@@ -62,10 +106,10 @@ pub(super) fn persist_authorized_local_task_report(
                 == Some(&authority.session_binding_nonce)
     });
     if !authenticated {
-        return Err(report_persistence_incident(
+        return Err(incident_failure(
             tab_id,
             plan_id,
-            Some(task_id),
+            task_id,
             "report caller binding is stale, spoofed, or rebound",
         ));
     }
@@ -165,7 +209,18 @@ fn report_authority(
     Ok(authority)
 }
 
-pub(super) fn rejected_report_delivery_message(cause: &str, message: &str) -> String {
+pub(super) fn rejected_report_delivery_message(
+    outcome: ReportOutcomeClass,
+    cause: &str,
+    message: &str,
+) -> String {
+    if outcome == ReportOutcomeClass::MissingReviewEvidence {
+        return format!(
+            "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
+             The report was not persisted. Ask the Orchestrator to add exact acceptance and QA evidence, then resubmit with --status in_review; do not retry without a status.\n\
+             Required evidence: {cause}\n\n{message}"
+        );
+    }
     format!(
         "REPORT RECEIVED — TASK TRANSITION REJECTED\n\
          The report itself was delivered and must not be resent.\n\
@@ -185,7 +240,7 @@ pub(super) fn persist_local_task_report(
     task_status: Option<&str>,
     milestone_kind: Option<&str>,
     now_ms: u64,
-) -> Result<(), String> {
+) -> Result<(), ReportPersistenceFailure> {
     let binding = store.task_binding_for_tab(tab_id);
     if binding
         .as_ref()
@@ -198,6 +253,7 @@ pub(super) fn persist_local_task_report(
 
     persist_explicit_report(
         store,
+        tab_id,
         plan_id,
         task_id,
         from,
@@ -207,7 +263,6 @@ pub(super) fn persist_local_task_report(
         milestone_kind,
         now_ms,
     )
-    .map_err(|cause| report_persistence_incident(tab_id, plan_id, Some(task_id), &cause))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -220,7 +275,7 @@ fn persist_bound_report(
     message: &str,
     details: &ReportDetails,
     now_ms: u64,
-) -> Result<(), String> {
+) -> Result<(), ReportPersistenceFailure> {
     let before: HashSet<String> = store
         .get(plan_id)
         .and_then(|plan| plan.tasks.into_iter().find(|task| task.id == task_id))
@@ -235,13 +290,13 @@ fn persist_bound_report(
         test_cmd: details.test_cmd.clone(),
         test_result: details.test_result.clone(),
         skipped: details.skipped.clone(),
-        authority: Some(report_authority(details, tab_id, plan_id, task_id)?),
+        authority: Some(
+            report_authority(details, tab_id, plan_id, task_id).map_err(stale_failure)?,
+        ),
     };
     store
         .ingest_bound_worker_report(plan_id, task_id, from, evidence, now_ms)
-        .map_err(|error| {
-            report_persistence_incident(tab_id, plan_id, Some(task_id), &error.to_string())
-        })?;
+        .map_err(|error| plan_failure(tab_id, plan_id, task_id, error))?;
 
     let milestone_id = store
         .get(plan_id)
@@ -256,10 +311,10 @@ fn persist_bound_report(
         })
         .map(|item| item.id)
         .ok_or_else(|| {
-            report_persistence_incident(
+            incident_failure(
                 tab_id,
                 plan_id,
-                Some(task_id),
+                task_id,
                 "the plan write produced no matching worker_report milestone",
             )
         })?;
@@ -271,11 +326,13 @@ fn persist_bound_report(
         &details.attachments,
         now_ms,
     )
+    .map_err(|cause| incident_failure(tab_id, plan_id, task_id, &cause))
 }
 
 #[allow(clippy::too_many_arguments)]
 fn persist_explicit_report(
     store: &PlanStore,
+    tab_id: &str,
     plan_id: &str,
     task_id: &str,
     from: &AgentRef,
@@ -284,7 +341,7 @@ fn persist_explicit_report(
     task_status: Option<&str>,
     milestone_kind: Option<&str>,
     now_ms: u64,
-) -> Result<(), String> {
+) -> Result<(), ReportPersistenceFailure> {
     let mut ops = Vec::new();
     let blocked_review_note = details.status == Some(ReportStatus::Blocked)
         && store
@@ -328,13 +385,19 @@ fn persist_explicit_report(
         },
     )
     .map_err(|error| match error {
-        BatchWriteError::Plan(e) => e.to_string(),
-        BatchWriteError::Refused(refusal) => refusal.message,
+        BatchWriteError::Plan(error) => plan_failure(tab_id, plan_id, task_id, error),
+        BatchWriteError::Refused(refusal) => {
+            incident_failure(tab_id, plan_id, task_id, &refusal.message)
+        }
     })?;
-    let milestone_id = result
-        .milestone_ids
-        .first()
-        .ok_or_else(|| "the explicit plan write produced no milestone".to_string())?;
+    let milestone_id = result.milestone_ids.first().ok_or_else(|| {
+        incident_failure(
+            tab_id,
+            plan_id,
+            task_id,
+            "the explicit plan write produced no milestone",
+        )
+    })?;
     attach_files(
         store,
         plan_id,
@@ -343,6 +406,7 @@ fn persist_explicit_report(
         &details.attachments,
         now_ms,
     )
+    .map_err(|cause| incident_failure(tab_id, plan_id, task_id, &cause))
 }
 
 fn attach_files(
@@ -368,6 +432,21 @@ mod tests {
     use crate::plan::{OrchestratorRef, Plan};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
+
+    #[test]
+    fn missing_review_evidence_has_its_own_report_outcome() {
+        let failure = plan_failure(
+            "worker",
+            "plan",
+            "task",
+            crate::service::plan::PlanError::ReviewEvidenceRequired,
+        );
+
+        assert_eq!(
+            failure.report_outcome,
+            ReportOutcomeClass::MissingReviewEvidence
+        );
+    }
 
     fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
         store
@@ -602,9 +681,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.contains("ORCHESTRATION PRODUCT INCIDENT"));
-        assert!(error.contains("parent delivery alone cannot prove"));
-        assert!(error.contains("no task-report success was returned"));
+        assert!(error.cause.contains("ORCHESTRATION PRODUCT INCIDENT"));
+        assert!(error.cause.contains("parent delivery alone cannot prove"));
+        assert!(error.cause.contains("no task-report success was returned"));
         assert!(store.get(&plan.id).unwrap().tasks[0].milestones.is_empty());
     }
 
@@ -654,7 +733,7 @@ mod tests {
             3,
         )
         .unwrap_err();
-        assert!(error.contains("stale, spoofed, or rebound"));
+        assert!(error.cause.contains("stale, spoofed, or rebound"));
         assert!(fixture
             .service
             .plan_store

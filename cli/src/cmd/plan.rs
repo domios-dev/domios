@@ -1,8 +1,7 @@
-use std::io::Read;
-
 use crate::args::plan::{
     PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
     PlanKindsAction, PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction,
+    PlanTaskAction,
 };
 use crate::client::{RpcClient, SocketCallError};
 use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
@@ -12,6 +11,7 @@ use crate::cmd::print::CliError;
 mod adopt_search;
 pub(crate) mod caller_context;
 mod gate_cmd;
+mod mesh_dispatch;
 mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
@@ -23,6 +23,7 @@ use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_lanes::render_lane_removed;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
+pub(crate) use mesh_dispatch::handle_mesh_dispatch;
 use serde_json::{json, Value};
 pub(crate) use task_cmd::render_empty_reason;
 
@@ -54,15 +55,7 @@ pub(crate) fn resolve_role_guidance(
 }
 
 fn read_path_or_stdin(path: &str) -> Result<String, String> {
-    if path == "-" {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(|e| format!("failed to read stdin: {}", e))?;
-        Ok(buf)
-    } else {
-        std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {}", path, e))
-    }
+    crate::cmd::payload_source::read_file_or_stdin(path, "message file")
 }
 
 pub(crate) fn owner_from_env() -> Value {
@@ -81,16 +74,20 @@ pub(crate) fn inject_trusted_session(params: &mut Value) {
     CallerContext::from_env().apply_trusted_session(params);
 }
 
-/// The rendered explanation an operator sees, plus the daemon's code, which
-/// `--json` needs and the rendered prose deliberately never carries.
+/// Render human text while preserving the daemon's code and structured data.
 fn plan_call_cli_error(error: SocketCallError, params: &Value) -> CliError {
     let code = match &error {
         SocketCallError::Rpc(rpc) => Some(rpc.code),
         SocketCallError::Transport(_) => None,
     };
+    let data = match &error {
+        SocketCallError::Rpc(rpc) => rpc.data.clone(),
+        SocketCallError::Transport(_) => None,
+    };
     CliError {
         message: render_plan_call_error(error, params),
         code,
+        data,
     }
 }
 
@@ -237,6 +234,23 @@ pub(crate) fn lane_params(
 }
 
 pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
+    let action = match action {
+        PlanAction::Task {
+            action: task @ PlanTaskAction::Dispatch { .. },
+        } => {
+            match task_cmd::run_dispatch(client, json, task, None) {
+                Ok(None) => {}
+                Ok(Some(value)) => print_plan_result(json, &value),
+                Err(error) if json => crate::cmd::print::exit_with_cli_error(true, &error),
+                Err(error) => {
+                    crate::cmd::plan_output::print_plan_error(false, &error.message);
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        other => other,
+    };
     match run_plan(client, json, action) {
         Ok(None) => {}
         Ok(Some(val)) => print_plan_result(json, &val),
@@ -275,8 +289,10 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            if let Some(project) = project.or_else(|| default_project_path(client)) {
+            if let Some(project) = project {
                 params["project_path"] = json!(project);
+            } else if let Some(cwd) = default_project_path(client) {
+                params["caller_cwd"] = json!(cwd);
             }
             if let Some(spec_id) = from_spec {
                 params["from_spec"] = json!(spec_id);

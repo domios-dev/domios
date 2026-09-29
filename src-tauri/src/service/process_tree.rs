@@ -1,21 +1,331 @@
 //! A tab's own PTY process tree, each process paired with its OS start time.
 //! The start time is the PID-reuse guard for every process and every parent link.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use std::collections::VecDeque;
 
 use crate::agent::provider::LaunchProcess;
+use parking_lot::Mutex;
 
 const MAX_DEPTH: u32 = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ProcessEntry {
     pid: u32,
     parent_pid: u32,
+    image_name: String,
 }
 
 /// Descendants of `root` (itself included), shallowest first.
 pub(crate) fn launch_processes(root: u32) -> Vec<LaunchProcess> {
     launch_tree(root, &platform::snapshot(), platform::start_time)
+}
+
+pub(crate) fn may_have_named_process(root: u32, expected_name: &str) -> bool {
+    let entries = platform::snapshot();
+    tree_may_have_named_process(root, &entries, platform::start_time, expected_name)
+}
+
+pub(crate) fn has_named_process(root: u32, expected_name: &str) -> bool {
+    let entries = platform::snapshot();
+    tree_has_named_process(root, &entries, platform::start_time, expected_name)
+}
+
+fn tree_has_named_process(
+    root: u32,
+    entries: &[ProcessEntry],
+    start_time: impl Fn(u32) -> Option<u64>,
+    expected_name: &str,
+) -> bool {
+    let pids = launch_tree(root, entries, start_time)
+        .into_iter()
+        .map(|process| process.pid)
+        .collect::<HashSet<_>>();
+    entries.iter().any(|entry| {
+        pids.contains(&entry.pid) && executable_names_match(&entry.image_name, expected_name)
+    })
+}
+
+pub(crate) struct ProviderTreeWitnesses {
+    observations: Mutex<HashMap<ProviderTreeKey, ProviderTreeHistory>>,
+    #[cfg(test)]
+    scripted: Mutex<HashMap<ProviderTreeKey, VecDeque<ProviderProcessTreeSnapshot>>>,
+    #[cfg(test)]
+    observation_senders:
+        Mutex<HashMap<ProviderTreeKey, std::sync::mpsc::Sender<ProviderTreeObservation>>>,
+}
+
+impl Default for ProviderTreeWitnesses {
+    fn default() -> Self {
+        Self {
+            observations: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            scripted: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            observation_senders: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProviderTreeState {
+    Present,
+    Unknown,
+    AbsentBeforeSeen,
+    GoneAfterSeen,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ProviderTreeKey {
+    pub(crate) tab_id: String,
+    pub(crate) pty_id: String,
+    pub(crate) binding_nonce: Option<String>,
+    pub(crate) executable_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderTreeObservation {
+    key: ProviderTreeKey,
+    state: ProviderTreeState,
+    provider_seen_before: bool,
+    consecutive_absent_observations: usize,
+}
+
+impl ProviderTreeObservation {
+    pub(crate) fn key(&self) -> &ProviderTreeKey {
+        &self.key
+    }
+
+    pub(crate) fn state(&self) -> ProviderTreeState {
+        self.state
+    }
+
+    pub(crate) fn proves_exit_from_finished_marker(&self) -> bool {
+        self.provider_seen_before && self.state == ProviderTreeState::GoneAfterSeen
+    }
+
+    pub(crate) fn proves_exit_from_lifecycle_clear(&self) -> bool {
+        self.state == ProviderTreeState::GoneAfterSeen
+    }
+
+    pub(crate) fn has_distinct_absence_observations(&self) -> bool {
+        self.consecutive_absent_observations >= 2
+    }
+
+    pub(crate) fn evidence(&self) -> &'static str {
+        match self.state {
+            ProviderTreeState::Present => "provider_present_in_tab_tree",
+            ProviderTreeState::Unknown => "tab_tree_unavailable_or_incomplete",
+            ProviderTreeState::AbsentBeforeSeen => "provider_not_seen_before_absence",
+            ProviderTreeState::GoneAfterSeen => "provider_seen_then_absent_snapshot",
+        }
+    }
+}
+
+#[derive(Default)]
+struct ProviderTreeHistory {
+    seen_processes: HashSet<ProcessIdentity>,
+    consecutive_absent_observations: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ProcessIdentity {
+    pub(crate) pid: u32,
+    pub(crate) start_token: String,
+}
+
+pub(crate) enum ProviderProcessTreeSnapshot {
+    Present(HashSet<ProcessIdentity>),
+    Absent,
+    Unknown,
+}
+
+impl ProviderTreeWitnesses {
+    pub(crate) fn observe(
+        &self,
+        key: &ProviderTreeKey,
+        root: u32,
+        expected_name: &str,
+    ) -> ProviderTreeObservation {
+        #[cfg(test)]
+        if let Some(snapshot) = self
+            .scripted
+            .lock()
+            .get_mut(key)
+            .and_then(VecDeque::pop_front)
+        {
+            return self.record(key, snapshot);
+        }
+        let observation = named_process_snapshot(root, expected_name);
+        self.record(key, observation)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn script_snapshot(
+        &self,
+        key: &ProviderTreeKey,
+        snapshot: ProviderProcessTreeSnapshot,
+    ) {
+        self.scripted
+            .lock()
+            .entry(key.clone())
+            .or_default()
+            .push_back(snapshot);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn report_next_observation(
+        &self,
+        key: &ProviderTreeKey,
+        sender: std::sync::mpsc::Sender<ProviderTreeObservation>,
+    ) {
+        self.observation_senders.lock().insert(key.clone(), sender);
+    }
+
+    pub(crate) fn unavailable(&self, key: &ProviderTreeKey) -> ProviderTreeObservation {
+        self.record(key, ProviderProcessTreeSnapshot::Unknown)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_seen(&self, key: &ProviderTreeKey) -> bool {
+        self.observations
+            .lock()
+            .get(key)
+            .is_some_and(|history| !history.seen_processes.is_empty())
+    }
+
+    fn record(
+        &self,
+        key: &ProviderTreeKey,
+        observation: ProviderProcessTreeSnapshot,
+    ) -> ProviderTreeObservation {
+        let mut observations = self.observations.lock();
+        observations.retain(|current, _| current.tab_id != key.tab_id || current == key);
+        let history = observations.entry(key.clone()).or_default();
+        let provider_seen_before = !history.seen_processes.is_empty();
+        let state = match observation {
+            ProviderProcessTreeSnapshot::Present(processes) => {
+                history.consecutive_absent_observations = 0;
+                history.seen_processes.extend(processes);
+                ProviderTreeState::Present
+            }
+            ProviderProcessTreeSnapshot::Absent => {
+                history.consecutive_absent_observations += 1;
+                if provider_seen_before {
+                    ProviderTreeState::GoneAfterSeen
+                } else {
+                    ProviderTreeState::AbsentBeforeSeen
+                }
+            }
+            ProviderProcessTreeSnapshot::Unknown => {
+                history.consecutive_absent_observations = 0;
+                ProviderTreeState::Unknown
+            }
+        };
+        let observation = ProviderTreeObservation {
+            key: key.clone(),
+            state,
+            provider_seen_before,
+            consecutive_absent_observations: history.consecutive_absent_observations,
+        };
+        drop(observations);
+        #[cfg(test)]
+        if let Some(sender) = self.observation_senders.lock().remove(key) {
+            let _ = sender.send(observation.clone());
+        }
+        observation
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_for_test(
+        &self,
+        key: &ProviderTreeKey,
+        observation: ProviderProcessTreeSnapshot,
+    ) -> ProviderTreeObservation {
+        self.record(key, observation)
+    }
+
+    pub(crate) fn clear_tab(&self, tab_id: &str) {
+        self.observations
+            .lock()
+            .retain(|key, _| key.tab_id != tab_id);
+    }
+}
+
+fn named_process_snapshot(root: u32, expected_name: &str) -> ProviderProcessTreeSnapshot {
+    let entries = platform::snapshot();
+    named_process_snapshot_from_entries(root, &entries, platform::start_time, expected_name)
+}
+
+fn named_process_snapshot_from_entries(
+    root: u32,
+    entries: &[ProcessEntry],
+    start_time: impl Fn(u32) -> Option<u64>,
+    expected_name: &str,
+) -> ProviderProcessTreeSnapshot {
+    let tree = launch_tree(root, entries, &start_time);
+    let pids = tree
+        .iter()
+        .map(|process| process.pid)
+        .collect::<HashSet<_>>();
+    if !pids.contains(&root) {
+        return ProviderProcessTreeSnapshot::Unknown;
+    }
+    let matching = tree
+        .iter()
+        .filter(|process| {
+            entries
+                .iter()
+                .find(|entry| entry.pid == process.pid)
+                .is_some_and(|entry| executable_names_match(&entry.image_name, expected_name))
+        })
+        .map(|process| ProcessIdentity {
+            pid: process.pid,
+            start_token: process.start_token.clone(),
+        })
+        .collect::<HashSet<_>>();
+    if !matching.is_empty() {
+        return ProviderProcessTreeSnapshot::Present(matching);
+    }
+    if tree.iter().any(|process| {
+        entries
+            .iter()
+            .find(|entry| entry.pid == process.pid)
+            .is_none_or(|entry| entry.image_name.is_empty())
+    }) || entries.iter().any(|entry| {
+        pids.contains(&entry.parent_pid)
+            && !pids.contains(&entry.pid)
+            && executable_names_match(&entry.image_name, expected_name)
+            && start_time(entry.pid).is_none()
+    }) {
+        ProviderProcessTreeSnapshot::Unknown
+    } else {
+        ProviderProcessTreeSnapshot::Absent
+    }
+}
+
+fn tree_may_have_named_process(
+    root: u32,
+    entries: &[ProcessEntry],
+    start_time: impl Fn(u32) -> Option<u64>,
+    expected_name: &str,
+) -> bool {
+    !matches!(
+        named_process_snapshot_from_entries(root, entries, start_time, expected_name),
+        ProviderProcessTreeSnapshot::Absent
+    )
+}
+
+fn executable_names_match(actual: &str, expected: &str) -> bool {
+    fn base(name: &str) -> &str {
+        let name = name.rsplit(['\\', '/']).next().unwrap_or(name);
+        name.get(name.len().saturating_sub(4)..)
+            .filter(|suffix| suffix.eq_ignore_ascii_case(".exe"))
+            .map_or(name, |_| &name[..name.len() - 4])
+    }
+    base(actual).eq_ignore_ascii_case(base(expected))
 }
 
 fn launch_tree(
@@ -86,6 +396,14 @@ mod platform {
             entries.push(ProcessEntry {
                 pid: entry.th32ProcessID,
                 parent_pid: entry.th32ParentProcessID,
+                image_name: {
+                    let end = entry
+                        .szExeFile
+                        .iter()
+                        .position(|unit| *unit == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    String::from_utf16_lossy(&entry.szExeFile[..end])
+                },
             });
             more = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
         }
@@ -127,7 +445,14 @@ mod platform {
             .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
             .filter_map(|pid| {
                 let (parent_pid, _) = stat_fields(pid)?;
-                Some(ProcessEntry { pid, parent_pid })
+                Some(ProcessEntry {
+                    pid,
+                    parent_pid,
+                    image_name: std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                        .ok()
+                        .map(|name| name.trim().to_string())
+                        .unwrap_or_default(),
+                })
             })
             .collect()
     }
@@ -167,6 +492,15 @@ mod platform {
                 Some(ProcessEntry {
                     pid: pid as u32,
                     parent_pid: info.pbi_ppid,
+                    image_name: String::from_utf8_lossy(
+                        &info
+                            .pbi_name
+                            .iter()
+                            .take_while(|unit| **unit != 0)
+                            .map(|unit| *unit as u8)
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_owned(),
                 })
             })
             .collect()
@@ -214,7 +548,35 @@ mod tests {
     use super::*;
 
     fn entry(pid: u32, parent_pid: u32) -> ProcessEntry {
-        ProcessEntry { pid, parent_pid }
+        ProcessEntry {
+            pid,
+            parent_pid,
+            image_name: String::new(),
+        }
+    }
+
+    fn named_entry(pid: u32, parent_pid: u32, image_name: &str) -> ProcessEntry {
+        ProcessEntry {
+            pid,
+            parent_pid,
+            image_name: image_name.into(),
+        }
+    }
+
+    fn tree_key() -> ProviderTreeKey {
+        ProviderTreeKey {
+            tab_id: "tab-tree-witness".into(),
+            pty_id: "pty-tree-witness".into(),
+            binding_nonce: Some("nonce-tree-witness".into()),
+            executable_name: "opencode".into(),
+        }
+    }
+
+    fn provider_process(pid: u32) -> HashSet<ProcessIdentity> {
+        HashSet::from([ProcessIdentity {
+            pid,
+            start_token: format!("start-{pid}"),
+        }])
     }
 
     fn pids(tree: &[LaunchProcess]) -> Vec<(u32, u32)> {
@@ -240,6 +602,142 @@ mod tests {
             _ => Some(900),
         };
         assert_eq!(pids(&launch_tree(10, &entries, starts)), vec![(10, 0)]);
+    }
+
+    #[test]
+    fn provider_process_must_be_named_and_descend_from_the_tab_root() {
+        let entries = [
+            named_entry(10, 1, "powershell.exe"),
+            named_entry(20, 10, "codex.exe"),
+            named_entry(30, 1, "codex.exe"),
+            named_entry(40, 1, "powershell.exe"),
+        ];
+
+        assert!(tree_has_named_process(
+            10,
+            &entries,
+            |pid| Some(pid.into()),
+            "codex"
+        ));
+        assert!(!tree_has_named_process(
+            40,
+            &entries,
+            |pid| Some(pid.into()),
+            "codex"
+        ));
+    }
+
+    #[test]
+    fn named_process_lookup_is_scoped_to_the_tab_tree_and_normalizes_exe_suffix() {
+        let entries = [
+            named_entry(10, 1, "pwsh.exe"),
+            named_entry(20, 10, "opencode.exe"),
+            named_entry(30, 99, "pwsh.exe"),
+            named_entry(40, 99, "opencode.exe"),
+        ];
+        let has_process = |root, expected| {
+            launch_tree(root, &entries, |pid| Some(u64::from(pid)))
+                .iter()
+                .any(|process| {
+                    entries
+                        .iter()
+                        .find(|entry| entry.pid == process.pid)
+                        .is_some_and(|entry| executable_names_match(&entry.image_name, expected))
+                })
+        };
+
+        assert!(has_process(10, "opencode"));
+        assert!(has_process(10, "OPENCODE.EXE"));
+        assert!(!has_process(30, "opencode"));
+    }
+
+    #[test]
+    fn provider_absent_before_first_seen_is_not_exit_evidence() {
+        let witnesses = ProviderTreeWitnesses::default();
+        let key = tree_key();
+        let first_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
+
+        assert_eq!(first_absence.state, ProviderTreeState::AbsentBeforeSeen);
+        assert!(!first_absence.proves_exit_from_lifecycle_clear());
+        assert!(!first_absence.proves_exit_from_finished_marker());
+
+        let live = witnesses.record(
+            &key,
+            ProviderProcessTreeSnapshot::Present(provider_process(77)),
+        );
+        assert_eq!(live.state, ProviderTreeState::Present);
+        assert!(!live.proves_exit_from_lifecycle_clear());
+
+        let one_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
+        assert_eq!(one_absence.state, ProviderTreeState::GoneAfterSeen);
+        assert!(one_absence.proves_exit_from_finished_marker());
+        assert!(one_absence.proves_exit_from_lifecycle_clear());
+    }
+
+    #[test]
+    fn live_provider_observation_is_seen_before_later_absence() {
+        let witnesses = ProviderTreeWitnesses::default();
+        let key = tree_key();
+        let live = witnesses.record(
+            &key,
+            ProviderProcessTreeSnapshot::Present(provider_process(78)),
+        );
+
+        assert_eq!(live.state(), ProviderTreeState::Present);
+        assert!(witnesses.has_seen(&key));
+
+        let absent = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
+        assert_eq!(absent.state(), ProviderTreeState::GoneAfterSeen);
+        assert_ne!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
+    }
+
+    #[test]
+    fn incomplete_tree_and_live_provider_are_not_exit_evidence() {
+        let entries = [
+            named_entry(10, 1, "powershell.exe"),
+            named_entry(20, 10, "opencode.exe"),
+        ];
+        assert!(matches!(
+            named_process_snapshot_from_entries(10, &entries, |pid| Some(u64::from(pid)), "opencode"),
+            ProviderProcessTreeSnapshot::Present(processes) if processes.contains(&ProcessIdentity { pid: 20, start_token: "20".into() })
+        ));
+        assert!(matches!(
+            named_process_snapshot_from_entries(10, &[], |_| None, "opencode"),
+            ProviderProcessTreeSnapshot::Unknown
+        ));
+    }
+
+    #[test]
+    fn missing_root_or_child_identity_is_conservatively_live() {
+        let entries = [
+            named_entry(10, 1, "pwsh.exe"),
+            named_entry(20, 10, "opencode.exe"),
+        ];
+        assert!(tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { Some(u64::from(pid)) },
+            "opencode"
+        ));
+        assert!(!tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { Some(u64::from(pid)) },
+            "codex"
+        ));
+        assert!(tree_may_have_named_process(10, &[], |_| None, "opencode"));
+        assert!(tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| { (pid != 20).then_some(u64::from(pid)) },
+            "opencode"
+        ));
+        assert!(!tree_may_have_named_process(
+            10,
+            &entries,
+            |pid| Some(u64::from(pid)),
+            "codex"
+        ));
     }
 
     #[test]

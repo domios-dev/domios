@@ -232,16 +232,15 @@ pub enum AgentAction {
     /// somewhere, put the exact report/send command in the task body.
     #[command(verbatim_doc_comment)]
     Spawn {
-        /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
-        #[arg(default_value = "claude")]
-        agent: String,
+        /// Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used.
+        agent: Option<String>,
         /// Tab title
         #[arg(long, num_args = 1)]
         title: Option<Vec<String>>,
         /// Short tab description (max 200 chars)
         #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
-        /// Working directory
+        /// Working directory (required with --mesh; resolves on the peer)
         #[arg(long)]
         cwd: Option<String>,
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
@@ -268,8 +267,8 @@ pub enum AgentAction {
         #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
-        /// Relative paths resolve from --cwd. Content bypasses the caller's shell
-        /// and remains byte-exact. Mutually exclusive with --task.
+        /// Local relative paths resolve from --cwd; mesh paths resolve on the
+        /// caller. Content remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
         /// Extra provider args. Put this after all CodeTerm spawn options.
@@ -286,9 +285,9 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
-        /// Reasoning-effort level (provider-specific, e.g. codex low/medium/high).
-        /// Capability-validated: an unsupported value is rejected, never silently
-        /// downgraded. Run `codeterm agent models <provider>` to see supported levels.
+        /// Reasoning-effort level supported by the selected model. The provider's
+        /// list is used when that model publishes no per-model levels; unsupported
+        /// values are rejected, never silently downgraded.
         #[arg(long = "reasoning-effort")]
         reasoning_effort: Option<String>,
         /// Override the shell system prompt when spawning a chatBackend shell.
@@ -318,6 +317,12 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        /// Create and dispatch a visible exceptional task for this Worker.
+        #[arg(long)]
+        unplanned: bool,
+        /// Why this Worker needs an unplanned task.
+        #[arg(long, allow_hyphen_values = true)]
+        reason: Option<String>,
         /// Attach this roleless agent to an existing Team, mirroring `tab new
         /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
         /// that Team. Rejected together with --plan-task, and with every --role
@@ -542,6 +547,21 @@ mod tests {
     }
 
     #[test]
+    fn spawn_without_provider_keeps_model_routing_available() {
+        let cli = Cli::try_parse_from(["codeterm", "agent", "spawn", "--model", "sonnet"])
+            .expect("provider is optional when a model can identify it");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { agent, model, .. },
+            } => {
+                assert_eq!(agent, None);
+                assert_eq!(model.as_deref(), Some("sonnet"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
     fn spawn_planner_role_maps_to_worker_profile() {
         let cli =
             Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", "Planner"])
@@ -604,6 +624,32 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn agent_spawn_unplanned_parses_reason() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--unplanned",
+            "--reason",
+            "urgent probe",
+        ])
+        .expect("unplanned Worker spawn parses");
+        match action {
+            AgentAction::Spawn {
+                role,
+                unplanned,
+                reason,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert!(unplanned);
+                assert_eq!(reason.as_deref(), Some("urgent probe"));
             }
             _ => panic!("expected agent spawn"),
         }

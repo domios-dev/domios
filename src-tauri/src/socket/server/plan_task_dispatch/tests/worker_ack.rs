@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "worker_ack/remote_deadline.rs"]
+mod remote_deadline;
+
 /// A Worker tab that reached `awaiting_worker_ack`: one live, session-bound
 /// attempt whose task is still pending, which is the state `agent ack` meets.
 fn dispatched_worker_task(
@@ -138,6 +141,98 @@ fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
     assert_eq!(after.status, TaskStatus::InProgress);
     assert_eq!(after.status_label.as_deref(), Some("acknowledged"));
     assert_eq!(after.assigned_tab_id.as_deref(), Some("tab-respawn"));
+}
+
+#[test]
+fn respawned_attempt_is_armed_and_ackable() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, source_attempt_id) =
+        dispatched_worker_task(&store, &project, "blocked-respawn", "tab-first", 1);
+    let block_reason = "awaiting dependency evidence";
+    store
+        .with_plan(&plan_id, 10, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
+            task.status = TaskStatus::Blocked;
+            task.status_label = Some(block_reason.into());
+            task.status_changed_at = 10;
+            Ok(())
+        })
+        .unwrap();
+    let draft = store
+        .build_task_respawn_draft(
+            &plan_id,
+            &task_id,
+            crate::service::plan::task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let replacement = store
+        .record_task_respawn_attempt(
+            &plan_id,
+            &task_id,
+            "tab-respawn",
+            &draft,
+            Some("worker"),
+            11,
+        )
+        .unwrap();
+    let source_after = store
+        .list_task_attempts(&plan_id, &task_id)
+        .unwrap()
+        .into_iter()
+        .find(|view| view.attempt_id == draft.source_attempt.id)
+        .expect("source attempt stays recorded");
+    assert!(source_after.attempt.closed_at.is_some());
+    assert_eq!(replacement.attempt.id, draft.attempt_id);
+    let launch_authority = crate::service::TaskLaunchAuthority {
+        plan_id: draft.plan_id.clone(),
+        task_id: draft.task_id.clone(),
+        attempt_id: draft.attempt_id.clone(),
+        lane_base: None,
+    };
+    let task_identity =
+        crate::service::worker_ack::startup_task_identity_from_env(&launch_authority.env())
+            .unwrap();
+    assert_eq!(task_identity.attempt_id, replacement.attempt.id);
+    assert_eq!(
+        crate::service::launch_delivery::startup_starter_prompt(true, true),
+        None
+    );
+    let pending = store.show_task(&task_id).unwrap().task;
+    assert_eq!(pending.status, TaskStatus::Pending);
+    assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
+        stride.links.iter().any(|link| link == &task_id)
+            && stride.text.starts_with("unblocked by respawn: ")
+            && stride.text.contains(block_reason)
+    }));
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-respawn",
+            &replacement.attempt.id,
+            "session-respawn",
+            "nonce-respawn",
+            pending.lane,
+            12,
+        )
+        .unwrap();
+
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab("tab-respawn", None, None, 13)
+        .unwrap();
+
+    assert_eq!(acknowledged.attempt.id, replacement.attempt.id);
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(13));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
 }
 
 #[test]

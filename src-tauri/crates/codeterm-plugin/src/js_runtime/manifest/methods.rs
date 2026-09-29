@@ -113,51 +113,79 @@ pub fn manifest_settings_sections(m: &PluginManifest) -> Vec<SettingField> {
     {
         let provider_id = m.id.clone();
         let target = integration.settings_path.clone();
+        let plugin_file = integration.kind == IntegrationKind::PluginFile;
+        let description = if plugin_file {
+            format!(
+                "Review and explicitly consent before CodeTerm installs or refreshes its marked plugin file at {target}. Existing unmarked files are preserved."
+            )
+        } else {
+            format!(
+                "Review and explicitly consent before CodeTerm changes {target}. Install creates a recoverable backup and preserves foreign configuration."
+            )
+        };
+        let target_label = if plugin_file {
+            "Target plugin file"
+        } else {
+            "Target configuration"
+        };
+        let install_confirm = if plugin_file {
+            format!(
+                "Install or refresh the CodeTerm-marked plugin file at {target}? Existing unmarked files are left untouched."
+            )
+        } else {
+            format!(
+                "Back up and merge CodeTerm callbacks into {target}? Foreign configuration is preserved."
+            )
+        };
+        let uninstall_confirm = if plugin_file {
+            "Remove only the CodeTerm-owned plugin file and its registration?"
+        } else {
+            "Remove only CodeTerm-owned integration entries?"
+        };
+        let mut fields = vec![
+            SettingField::PathLink {
+                label: target_label.into(),
+                path: target.clone(),
+                open: PathOpenKind::OpenFolder,
+            },
+            SettingField::Action {
+                id: "install_integration".into(),
+                label: "Review and install".into(),
+                command: "install_provider_integration".into(),
+                state_query: Some("check_provider_integration".into()),
+                args: Some(serde_json::json!({
+                    "provider_id": provider_id,
+                    "consent": true,
+                    "precompact_memory_export": false
+                })),
+                confirm: Some(install_confirm),
+                style: ActionStyle::Primary,
+            },
+            SettingField::Action {
+                id: "uninstall_integration".into(),
+                label: "Uninstall CodeTerm entries".into(),
+                command: "uninstall_provider_integration".into(),
+                state_query: None,
+                args: Some(serde_json::json!({ "provider_id": m.id })),
+                confirm: Some(uninstall_confirm.into()),
+                style: ActionStyle::Secondary,
+            },
+        ];
+        if !plugin_file {
+            fields.push(SettingField::Action {
+                id: "restore_integration".into(),
+                label: "Restore pre-install backup".into(),
+                command: "restore_provider_integration".into(),
+                state_query: None,
+                args: Some(serde_json::json!({ "provider_id": m.id })),
+                confirm: Some(format!("Restore the backup over the current {target}?")),
+                style: ActionStyle::Danger,
+            });
+        }
         out.push(SettingField::Section {
             title: "Provider integration".into(),
-            description: Some(format!(
-                "Review and explicitly consent before CodeTerm changes {target}. Install creates a recoverable backup and preserves foreign configuration."
-            )),
-            fields: vec![
-                SettingField::PathLink {
-                    label: "Target configuration".into(),
-                    path: target.clone(),
-                    open: PathOpenKind::OpenFolder,
-                },
-                SettingField::Action {
-                    id: "install_integration".into(),
-                    label: "Review and install".into(),
-                    command: "install_provider_integration".into(),
-                    state_query: Some("check_provider_integration".into()),
-                    args: Some(serde_json::json!({
-                        "provider_id": provider_id,
-                        "consent": true,
-                        "precompact_memory_export": false
-                    })),
-                    confirm: Some(format!(
-                        "Back up and merge CodeTerm callbacks into {target}? Foreign configuration is preserved."
-                    )),
-                    style: ActionStyle::Primary,
-                },
-                SettingField::Action {
-                    id: "uninstall_integration".into(),
-                    label: "Uninstall CodeTerm entries".into(),
-                    command: "uninstall_provider_integration".into(),
-                    state_query: None,
-                    args: Some(serde_json::json!({ "provider_id": m.id })),
-                    confirm: Some("Remove only CodeTerm-owned integration entries?".into()),
-                    style: ActionStyle::Secondary,
-                },
-                SettingField::Action {
-                    id: "restore_integration".into(),
-                    label: "Restore pre-install backup".into(),
-                    command: "restore_provider_integration".into(),
-                    state_query: None,
-                    args: Some(serde_json::json!({ "provider_id": m.id })),
-                    confirm: Some(format!("Restore the backup over the current {target}?")),
-                    style: ActionStyle::Danger,
-                },
-            ],
+            description: Some(description),
+            fields,
         });
     }
     out

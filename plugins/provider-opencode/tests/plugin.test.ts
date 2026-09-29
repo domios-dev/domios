@@ -11,6 +11,7 @@ import plugin from "../src/index";
 import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
+  ownsOpencodeBindingPluginSource,
 } from "../src/helpers";
 
 let passed = 0;
@@ -56,10 +57,96 @@ assert(plugin.titlePattern!.test("opencode"), "titlePattern matches 'opencode'")
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
-assert(
-  isCurrentOpencodeBindingPluginSource(opencodeBindingPluginSource()),
-  "the generated binding plugin source satisfies its currentness contract",
+const bindingPluginSource = opencodeBindingPluginSource();
+assert(isCurrentOpencodeBindingPluginSource(bindingPluginSource), "generated binding plugin is current");
+const previousBindingPluginSource = bindingPluginSource.replace(
+  "codeterm-opencode-session-binding-v3",
+  "codeterm-opencode-session-binding-v2",
 );
+assert(ownsOpencodeBindingPluginSource(previousBindingPluginSource), "older CodeTerm binding versions remain owned");
+assert(!isCurrentOpencodeBindingPluginSource(previousBindingPluginSource), "older binding version is stale");
+assert(!ownsOpencodeBindingPluginSource("// foreign-opencode-plugin\nconst value = true;"), "foreign plugin header is not owned");
+assert(
+  !isCurrentOpencodeBindingPluginSource(`// foreign-opencode-plugin\n${bindingPluginSource}`),
+  "currentness requires the exact CodeTerm header",
+);
+assert(
+  !ownsOpencodeBindingPluginSource("// codeterm-opencode-session-binding-vendor\nconst value = true;"),
+  "non-version marker suffix is not owned",
+);
+
+async function loadGeneratedBindingHooks() {
+  const requests: Array<{ session_id: string; source: string }> = [];
+  const source = opencodeBindingPluginSource().replace(
+    "export default async function CodeTermSessionBindingPlugin",
+    "async function CodeTermSessionBindingPlugin",
+  );
+  const context = {
+    process: {
+      env: {
+        CODETERM_TAB_ID: "tab-1",
+        CODETERM_API_TOKEN: "token",
+        CODETERM_SESSION_BINDING_NONCE: "nonce",
+        CODETERM_API_URL: "http://dev",
+      },
+    },
+    fetch: async (_url: string, options: { body: string }) => {
+      const body = JSON.parse(options.body) as { session_id?: unknown; source?: unknown };
+      if (typeof body.session_id === "string" && typeof body.source === "string") {
+        requests.push({ session_id: body.session_id, source: body.source });
+      }
+      return { ok: true };
+    },
+    module: { exports: undefined as unknown },
+  };
+  new vm.Script(`${source}\nmodule.exports = CodeTermSessionBindingPlugin;`).runInNewContext(context);
+  const makePlugin = context.module.exports as (input: { directory: string }) => Promise<{
+    event: (input: { event: unknown }) => Promise<void>;
+    "chat.message": (input: { sessionID: string }) => Promise<void>;
+    "tool.execute.before": (input: { sessionID: string }) => Promise<void>;
+    "shell.env": (input: { sessionID: string }, output: unknown) => Promise<unknown>;
+  }>;
+  const hooks = await makePlugin({ directory: "/work" });
+  return { hooks, requests };
+}
+
+console.log("\n--- session binding deduplicates by active session ---\n");
+{
+  const { hooks, requests } = await loadGeneratedBindingHooks();
+  const sameSession = "ses_existing";
+  await hooks.event({ event: { type: "session.created", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "session.updated", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "tui.session.select", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: sameSession } } });
+  await hooks.event({ event: { type: "message.part.updated", properties: { sessionID: sameSession } } });
+  await hooks["chat.message"]({ sessionID: sameSession });
+  await hooks["tool.execute.before"]({ sessionID: sameSession });
+  const output = { OPENCODE_TEST_ENV: "1" };
+  eq(await hooks["shell.env"]({ sessionID: sameSession }, output), output, "shell hook preserves its output");
+  eq(
+    requests.map(({ session_id, source: event }) => ({ session_id, source: event })),
+    [{ session_id: sameSession, source: "session.created" }],
+    "repeated event and hook reports for one session make one POST",
+  );
+  const changedSession = "ses_switched";
+  await hooks.event({ event: { type: "session.updated", properties: { sessionID: changedSession } } });
+  await hooks.event({ event: { type: "message.part.updated", properties: { sessionID: changedSession } } });
+  eq(
+    requests.map(({ session_id }) => session_id),
+    [sameSession, changedSession],
+    "a session change creates one new binding POST",
+  );
+}
+
+{
+  const resumed = await loadGeneratedBindingHooks();
+  await resumed.hooks.event({ event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } } });
+  eq(
+    resumed.requests.map(({ session_id }) => session_id),
+    ["ses_resumed"],
+    "the first event in a resumed provider process rebinds its existing session",
+  );
+}
 
 function loadOpencodeWithHost(host: unknown) {
   const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
@@ -84,6 +171,7 @@ const ocHost = (over: Record<string, unknown>) => ({
   fetch: () => JSON.stringify({ error: "no network in tests" }),
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  fs: { fileExists: () => false, readJson: () => null, readFile: () => null },
   ...over,
 });
 
@@ -131,6 +219,36 @@ console.log("\n--- platform-safe session directory normalization ---\n");
     },
   }));
   eq(windows.detectSessionId("C:\\", [], 300000), "ses_drive_root", "Windows drive root is not aliased to drive-relative cwd");
+}
+
+console.log("\n--- restored session lookup follows the configured session store ---\n");
+{
+  const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
+  const savedSession = "ses_restore_owner";
+  const sessions = new Set([savedSession]);
+  const queries: Array<{ db: string; sql: string; params: unknown[] }> = [];
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
+    fs: {
+      fileExists: (candidate: string) => candidate === dbPath,
+      sqliteQuery: (db: string, sql: string, params: unknown[]) => {
+        queries.push({ db, sql, params });
+        const sessionId = params[0];
+        return sessions.has(String(sessionId)) ? [{ id: sessionId }] : [];
+      },
+    },
+  }));
+  eq(p.sessionExists("/work/proj", savedSession), true, "saved session exists in OPENCODE_DB");
+  eq(p.sessionExists("/work/proj", "ses_sibling"), false, "another session cannot prove the saved id");
+  eq(
+    queries.map(({ db, sql, params }) => ({ db, sql, params })),
+    [
+      { db: dbPath, sql: "SELECT id FROM session WHERE id = ?1 LIMIT 1", params: [savedSession] },
+      { db: dbPath, sql: "SELECT id FROM session WHERE id = ?1 LIMIT 1", params: ["ses_sibling"] },
+    ],
+    "lookup queries the configured database by the exact tab session id",
+  );
 }
 
 console.log("\n--- exclusive structured cursor ---\n");
@@ -217,32 +335,162 @@ console.log("\n--- discoverModels ---\n");
     sessionId: "sess 1",
     structuredPromptServer: { hostname: "127.0.0.1", port: 4567 },
   });
+  assert(launch.includes("opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)"), "buildLaunchCommand quotes --session with quoteFor(platform)");
+  assert(p.buildResumeCommand("sess 2").includes("opencode --session Q(windows:sess 2)"), "buildResumeCommand selects the full TUI for session resume");
+  assert(p.buildLaunchCommand({ skipPermissions: true }).includes("opencode --dangerously-skip-permissions"), "buildLaunchCommand applies the centralized full-access policy");
+  assert(p.buildResumeCommand("sess 2", true).includes("opencode --session Q(windows:sess 2) --dangerously-skip-permissions"), "buildResumeCommand applies the centralized full-access policy");
+}
+
+console.log("\n--- per-launch pad-only external directory permission ---\n");
+{
+  const unix = loadOpencodeWithHost(ocHost({
+    platform: () => "linux",
+    shell: { quoteFor: (value: unknown) => `'${String(value)}'`, quote: (value: unknown) => `'${String(value)}'` },
+    fs: { writeTempFile: () => "/tmp/context.md", fileExists: () => false },
+  }));
+  const fresh = unix.buildLaunchCommand({});
+  const restored = unix.buildResumeCommand("ses_restore");
+  const resumed = unix.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
+  for (const [name, command] of [["fresh", fresh], ["restore", restored], ["resume", resumed]] as const) {
+    assert(command.includes('"*":"ask"'), `${name} keeps unmatched external paths at ask`);
+    assert(command.includes("CODETERM_PAD_DIR"), `${name} derives the grant from the tab launch environment`);
+    assert(command.includes('if [ -n "$ct_pad_dir" ]'), `${name} grants nothing when the pad environment value is empty`);
+    assert(command.includes('\\"$ct_pad_dir/*\\":\\"allow\\"'), `${name} allows only the normalized pad subtree`);
+    assert(command.includes("unset OPENCODE_CONFIG_CONTENT"), `${name} clears the per-launch config after OpenCode exits`);
+    assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `${name} does not write a global config path`);
+  }
+  assert(fresh.includes("tr '\\\\' '/'") && fresh.includes("sed 's/\"/\\\\\\\"/g'"), "Unix launch normalizes Windows separators and JSON-quotes the pad path");
+
+  const posixConfig = (command: string) => {
+    const prefix = command.match(/OPENCODE_CONFIG_CONTENT='([^']*)';/);
+    const suffix = command.match(/\$\(printf '%s' '([^']*)'\); export OPENCODE_CONFIG_CONTENT/);
+    assert(!!prefix && !!suffix, "POSIX inline config has safely quoted JSON prefix and suffix");
+    return JSON.parse(`${prefix?.[1]},"/runtime/pads/tab-1/*":"allow"${suffix?.[1]}`) as { permission: { external_directory: Record<string, string> }; instructions?: string[] };
+  };
+  const parsedFresh = posixConfig(fresh);
+  eq(parsedFresh.permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX fresh config grants only the tab pad and asks for all other paths");
+  eq(posixConfig(restored).permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX restore config grants only the tab pad and asks for all other paths");
+  const parsedResume = posixConfig(resumed);
+  eq(parsedResume.instructions, [".codeterm/context.md"], "POSIX resume config retains its instruction path");
+  assert(resumed.includes("cp -- '/tmp/context.md' '.codeterm/context.md' && opencode --session 'ses_resume'"), "POSIX resume executes opencode after staging instructions");
+  assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
+  const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md", fileExists: () => false } }));
+  const windowsFresh = windows.buildLaunchCommand({});
+  const windowsRestore = windows.buildResumeCommand("ses_restore");
+  const windowsResume = windows.buildResumeCommandWithContext({ sessionId: "ses_resume", systemPrompt: "opaque prompt" });
+  const windowsPermission = (name: string, command: string) => {
+    assert(command.includes("([string]$env:CODETERM_PAD_DIR).TrimEnd"), `Windows ${name} reads the tab pad environment`);
+    assert(command.includes("$ct_pad = $ct_pad_native -replace"), `Windows ${name} normalizes the pad path`);
+    assert(command.includes("if ($ct_pad_native)"), `Windows ${name} grants nothing for an empty pad`);
+    const configText = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+    assert(!!configText, `Windows ${name} embeds a quoted config`);
+    const config = JSON.parse(configText || "{}") as { permission: { external_directory: Record<string, string> } };
+    eq(config.permission.external_directory["*"], "ask", `Windows ${name} leaves other external paths at ask`);
+    const patternAdds = [...command.matchAll(/Add-Member -NotePropertyName \((\$ct_pad_native|\$ct_pad) \+ '([^']+)'\) -NotePropertyValue 'allow' -Force/g)];
+    eq(patternAdds.map((m) => [m[1], m[2]]), [["$ct_pad_native", "\\*"], ["$ct_pad", "/*"]], `Windows ${name} adds exactly the native and forward-slash pad patterns`);
+    assert(command.includes("-replace '\\\\', '/'"), `Windows ${name} produces OpenCode's forward-slash path form`);
+  };
+  for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore], ["resume", windowsResume]] as const) {
+    windowsPermission(name, command);
+    assert(command.includes("Remove-Item Env:OPENCODE_CONFIG_CONTENT"), `Windows ${name} clears the per-launch config after OpenCode exits`);
+    assert(!command.includes(".config/opencode") && !command.includes("opencode.json"), `Windows ${name} does not write a global config path`);
+  }
+  const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+  const parsedWindows = JSON.parse(windowsConfigText || "{}") as { instructions?: string[] };
+  eq(parsedWindows.instructions, [".codeterm/context.md"], "Windows resume config retains its instruction path");
+  assert(windowsResume.includes("Copy-Item -LiteralPath 'C:\\Temp\\context.md' -Destination '.codeterm/context.md' -Force; opencode"), "Windows resume executes opencode after staging instructions");
+  for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
+    const embedded = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
+    assert(!!embedded, `Windows ${name} embeds a quoted config`);
+    eq(JSON.parse(embedded || "{}").permission.external_directory, { "*": "ask" }, `Windows ${name} base config is valid JSON with unmatched paths asking`);
+    assert(command.includes("try { opencode"), `Windows ${name} executes opencode outside any copy command`);
+  }
+}
+
+console.log("\n--- restored full-TUI command keeps the saved project, session, and model ---\n");
+{
+  const dbPath = "C:\\Users\\tester\\opencode-profile\\restored.db";
+  const savedSession = "ses_saved";
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
+    fs: {
+      fileExists: (candidate: string) => candidate === dbPath,
+      writeTempFile: () => "C:\\Temp\\restored-context.md",
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        if (sql.startsWith("SELECT id, directory FROM session") && params[0] === savedSession) {
+          return [
+            { id: "ses_sibling", directory: "D:/other/project" },
+            { id: savedSession, directory: "D:/Developer/codeterm-livetest" },
+          ];
+        }
+        if (sql.startsWith("SELECT data FROM message") && params[0] === savedSession) {
+          return [{ data: JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "big-pickle" }) }];
+        }
+        return [];
+      },
+    },
+    shell: {
+      quoteFor: (value: unknown, platform?: unknown) => `Q(${platform}:${String(value)})`,
+      quote: (value: unknown) => `BAD(${String(value)})`,
+    },
+  }));
+  const plainResume = p.buildResumeCommandWithContext({
+      sessionId: savedSession,
+      args: ["-m", "big-pickle", "--variant", "high"],
+    });
   eq(
-    launch,
-    "opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)",
-    "buildLaunchCommand quotes --session with quoteFor(platform)",
+    plainResume.match(/try \{ (opencode .+?) \} finally/)?.[1],
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --variant Q(windows:high) -m Q(windows:opencode/big-pickle)",
+    "resume selects the saved project and exact session in the full TUI inside the config wrapper",
   );
   eq(
-    p.buildResumeCommand("sess 2"),
-    "opencode --session Q(windows:sess 2)",
-    "buildResumeCommand quotes --session with quoteFor(platform)",
+    queries,
+    [
+      {
+        sql: "SELECT id, directory FROM session WHERE id = ?1 LIMIT 1",
+        params: [savedSession],
+      },
+      {
+        sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+        params: [savedSession],
+      },
+    ],
+    "resume project and model lookups are scoped to the tab's saved session id",
   );
-  eq(
-    p.buildLaunchCommand({ skipPermissions: true }),
-    "opencode --dangerously-skip-permissions",
-    "buildLaunchCommand applies the centralized full-access policy",
+  const configured = p.buildResumeCommandWithContext({
+    sessionId: savedSession,
+    systemPrompt: "opaque-context-fragment",
+  });
+  assert(
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item"),
+    "resume stops if it cannot enter the saved project directory before staging configuration",
   );
-  eq(
-    p.buildResumeCommand("sess 2", true),
-    "opencode --session Q(windows:sess 2) --dangerously-skip-permissions",
-    "buildResumeCommand applies the centralized full-access policy",
+  assert(
+    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item") &&
+      configured.includes("Copy-Item -LiteralPath Q(windows:C:\\Temp\\restored-context.md) -Destination Q(windows:.codeterm/restored-context.md) -Force; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    "session-config wrapper preserves the explicit full-TUI resume argv",
   );
+  assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
+}
+
+console.log("\n--- captured full-TUI resume screen matches provider readiness fingerprints ---\n");
+{
+  const fixture = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "resume-full-tui-screen.txt"),
+    "utf8",
+  );
+  const p = loadOpencodeWithHost(ocHost({}));
+  eq(p.screenHasTui(fixture), true, "captured full TUI exposes provider readiness footer fingerprints");
+  eq(p.detectFromOutput(fixture), true, "captured full TUI remains identifiable as OpenCode output");
 }
 
 {
   const p = loadOpencodeWithHost(ocHost({
     platform: () => "windows",
-    fs: { writeTempFile: () => "C:\\Temp\\opencode task.md" },
+    fs: { writeTempFile: () => "C:\\Temp\\opencode task.md", fileExists: () => false },
     shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
   }));
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
@@ -250,7 +498,7 @@ console.log("\n--- discoverModels ---\n");
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
   assert(launch.includes("Copy-Item -LiteralPath 'C:\\Temp\\opencode task.md'"), "OpenCode copies the host task into its workspace");
   assert(launch.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode config references only the workspace-local task file");
-  assert(launch.includes("finally { Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes the workspace-local task file on exit");
+  assert(launch.includes("finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes its inline config and workspace-local task file on exit");
   assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
   assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
@@ -464,6 +712,46 @@ console.log("\n--- discoverModels ---\n");
 }
 
 {
+  const pluginBody = "// foreign-opencode-plugin\nconst value = true;";
+  let fileWrites = 0;
+  let configWrites = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => pluginBody,
+      readJson: () => ({ plugin: [] }),
+      writeFile: () => { fileWrites += 1; return true; },
+      writeJson: () => { configWrites += 1; return true; },
+    },
+  }));
+  const result = p.installIntegration(7686, { consent: true });
+  assert(
+    !!result && result.ok === false && fileWrites === 0 && configWrites === 0,
+    "install refuses an existing unmarked plugin file before changing either file",
+  );
+}
+
+{
+  const pluginBody = "// foreign-opencode-plugin\nconst value = true;";
+  let configWrites = 0;
+  let fileRemovals = 0;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => pluginBody,
+      readJson: () => ({ plugin: [] }),
+      writeJson: () => { configWrites += 1; return true; },
+      removeFile: () => { fileRemovals += 1; return true; },
+    },
+  }));
+  const result = p.uninstallIntegration();
+  assert(
+    !!result && result.ok === false && configWrites === 0 && fileRemovals === 0,
+    "uninstall refuses an existing unmarked plugin file before changing either file",
+  );
+}
+
+{
   let writes = 0;
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -495,14 +783,22 @@ console.log("\n--- discoverModels ---\n");
     old.checkIntegration().plugin_file_current === false,
     "pre-nonce opencode plugin reads as not-current",
   );
+  assert(
+    old.checkIntegration().plugin_file_owned === true,
+    "older CodeTerm plugin versions remain owned and refreshable",
+  );
+  const foreignFile = loadOpencodeWithHost(withBody("// foreign-opencode-plugin\nconst x = 1;"));
+  assert(foreignFile.checkIntegration().plugin_file_owned === false, "foreign plugin files are not refreshable as ours");
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v2\n" +
+      "// codeterm-opencode-session-binding-v3\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
       "process.env.CODETERM_TAB_ID;\n" +
       'const endpoint = "/api/tabs/";\n' +
+      "let lastReported = null;\n" +
+      "sessionID === lastReported;\n" +
       '"x-codeterm-binding-nonce";\n' +
       "authorization;",
     ),
@@ -511,6 +807,7 @@ console.log("\n--- discoverModels ---\n");
     cur.checkIntegration().plugin_file_current === true,
     "opencode plugin carrying the nonce reads as current",
   );
+  assert(cur.checkIntegration().plugin_file_owned === true, "current plugin reports marker ownership");
   const stalePane = loadOpencodeWithHost(
     withBody(
       "// codeterm-opencode-session-binding-v2\n" +
@@ -536,6 +833,23 @@ console.log("\n--- discoverModels ---\n");
     ),
   );
   assert(staleInstance.checkIntegration().plugin_file_current === false, "instance-bound helper is stale");
+  const foreign = loadOpencodeWithHost(withBody("const endpoint = process.env.CODETERM_API_URL;"));
+  assert(foreign.checkIntegration().plugin_file_owned === false, "unmarked file is not CodeTerm-owned");
+  const unreadableConfig = loadOpencodeWithHost(
+    ocHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => "// codeterm-opencode-session-binding-v2",
+        readJson: () => null,
+        writeFile: () => false,
+        writeJson: () => false,
+      },
+    }),
+  );
+  assert(
+    unreadableConfig.checkIntegration().integration_state === "unreadable",
+    "an unreadable config reports a reconciliation state instead of absence",
+  );
 }
 
 console.log("--- permission_request: opencode declared session state ---");

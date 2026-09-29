@@ -179,65 +179,6 @@ impl PlanStore {
         })
     }
 
-    pub fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
-    where
-        F: FnOnce(&mut Plan) -> Result<T, PlanError>,
-    {
-        let _writer_turn = self.mutation_writer.enter();
-        self.with_plan_in_writer(id, now_ms, f)
-    }
-
-    pub(in crate::service_plan) fn with_plan_in_writer<T, F>(
-        &self,
-        id: &str,
-        now_ms: u64,
-        f: F,
-    ) -> Result<T, PlanError>
-    where
-        F: FnOnce(&mut Plan) -> Result<T, PlanError>,
-    {
-        let arc = self
-            .plans
-            .read()
-            .get(id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
-        let mut staged = arc.lock().clone();
-        let previous = staged.clone();
-        let out = f(&mut staged)?;
-        let existing_ids: std::collections::HashSet<_> =
-            previous.tasks.iter().map(|task| task.id.as_str()).collect();
-        for task in &staged.tasks {
-            if !existing_ids.contains(task.id.as_str()) {
-                codeterm_types::plan::work_facet::validate_work_facet(
-                    staged.tag_facets.iter().map(|facet| facet.key.as_str()),
-                    task.tags.iter().map(String::as_str),
-                )
-                .map_err(PlanError::WorkFacetViolation)?;
-            }
-        }
-        staged.updated_at = now_ms;
-        if staged.canonical_project_path.trim().is_empty() {
-            staged.canonical_project_path = staged.project_path.clone();
-        }
-        super::super::store_index::record_lifecycle_events(&mut staged, Some(&previous), now_ms);
-        super::tag_model::normalize_plan(&mut staged);
-        let path = self
-            .persist_plan_and_spec(&staged)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let committed = {
-            let mut guard = arc.lock();
-            *guard = staged;
-            guard.clone()
-        };
-        self.note_plan_write(&committed, &path);
-        self.record_committed_snapshot(&committed);
-        let entry = Self::index_entry(&committed, path);
-        self.index.write().insert(committed.id.clone(), entry);
-        self.reset_bound_tabs(&committed);
-        Ok(out)
-    }
-
     pub fn owner_of(&self, id: &str) -> Option<OrchestratorRef> {
         self.plans.read().get(id).map(|p| p.lock().owner.clone())
     }
@@ -362,8 +303,26 @@ impl PlanStore {
         let verify_sections = !task.section_ids.is_empty();
         let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
+            if let Some(parent_id) = task.parent_task_id.as_deref() {
+                let parent = p
+                    .tasks
+                    .iter()
+                    .find(|candidate| candidate.id == parent_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                if parent.parent_task_id.is_some() {
+                    return Err(PlanError::InvalidSplitParent {
+                        reason: super::SplitParentReason::ChildParent,
+                    });
+                }
+                if matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
+                    return Err(PlanError::InvalidSplitParent {
+                        reason: super::SplitParentReason::TerminalParent,
+                    });
+                }
+            }
             let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
             task.depends_on = resolved_depends_on.clone();
+            super::ensure_group_declared(p, task.group.as_deref());
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }

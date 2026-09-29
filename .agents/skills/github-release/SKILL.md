@@ -479,9 +479,12 @@ mirror.
 ```bash
 WORKSPACE_ID=$(codeterm --mesh BLACKSTAR --json workspace list \
   | python3 -c "import json,sys; print(next(w['id'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
+WORKSPACE_CWD=$(codeterm --mesh BLACKSTAR --json workspace list \
+  | python3 -c "import json,sys; print(next(w['cwd'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
 
 codeterm --mesh BLACKSTAR agent spawn claude \
   --workspace "$WORKSPACE_ID" \
+  --cwd "$WORKSPACE_CWD" \
   --title "v$VER windows release" \
   --role Orchestrator \
   --model haiku \
@@ -637,7 +640,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | delivery already succeeded — `send` returns only after delivery is accepted, so the recipient simply has not answered yet | wait for the reply on the return-address channel the recipient was given (`codeterm send --tab ID --mesh PEER`, or `codeterm agent report` from a Worker). Do not read the recipient's screen to decide whether the message landed — a delivery failure comes back as a structured error code (`tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`, …), not as a silent success |
+| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | `OK (pending)` means the socket accepted background work, not that the payload was written; `OK (sent)` is reserved for a completed write | check the authoritative send outcome before acting; do not re-send while delivery is unknown. A refusal returns a structured error (`tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`, …) with `bytes_written`; do not read the recipient's screen to decide whether the message landed |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\User\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |

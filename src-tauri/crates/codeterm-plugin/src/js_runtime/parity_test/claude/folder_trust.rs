@@ -55,6 +55,15 @@ fn folder_trust_native_js_parity_on_shared_fixtures() {
             "js {file}"
         );
     }
+
+    let screen = std::fs::read_to_string(fixtures_dir().join("quick-safety-no-first.txt"))
+        .expect("active Claude trust fixture");
+    assert!(native.supports_directory_trust_prompt_parsing());
+    assert!(js.supports_directory_trust_prompt_parsing());
+    assert_eq!(
+        native.parse_directory_trust_prompt(&screen),
+        js.parse_directory_trust_prompt(&screen)
+    );
 }
 
 #[test]

@@ -31,12 +31,14 @@ impl MultiplexerState {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_session_model_identity: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
             reasoning_effort_identity: Default::default(),
+            restorable_launch: Default::default(),
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
@@ -61,6 +63,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            pending_prompt_kind: None,
             agent_state: None,
             auto_approve: false,
             permission_auto_confirm: false,
@@ -76,6 +79,8 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             restored_from_snapshot: false,
+            scrollback_seed_pending: false,
+            pending_scrollback_tail: None,
             pending_greeting: None,
             boot_stage: None,
             boot_failure_reason: None,
@@ -476,6 +481,7 @@ mod display_label_tests {
         let binding = TaskBinding {
             plan_id: Some("pl_1".into()),
             task_id: Some("task_9".into()),
+            attempt_id: None,
             spawn_handle: Some("M3 IV-gate".into()),
             bound_at: 100,
         };
@@ -503,11 +509,13 @@ mod display_label_tests {
         let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
         let first = TaskBinding {
             task_id: Some("task_1".into()),
+            attempt_id: None,
             bound_at: 1,
             ..Default::default()
         };
         let second = TaskBinding {
             task_id: Some("task_hijack".into()),
+            attempt_id: None,
             bound_at: 2,
             ..Default::default()
         };

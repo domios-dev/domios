@@ -25,6 +25,7 @@ mod tests {
         let binding = TaskBinding {
             plan_id: Some("plan".into()),
             task_id: Some("task".into()),
+            attempt_id: None,
             ..Default::default()
         };
 
@@ -47,6 +48,7 @@ mod tests {
         if let Some(tab) = mux.get_tab_mut(&tab_id) {
             tab.task_binding = Some(TaskBinding {
                 task_id: Some("task".into()),
+                attempt_id: None,
                 ..Default::default()
             });
         }

@@ -47,21 +47,56 @@ fn strip_fenced_code_blocks(text: &str) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum SendTextOutcome {
     Success(String),
-    Error { msg: String, exit_code: i32 },
+    Pending {
+        message: String,
+        bytes_written: bool,
+    },
+    Error {
+        msg: String,
+        exit_code: i32,
+    },
     Other,
 }
 
 pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome {
-    if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
+    if let Some(err) = value.get("error") {
+        if err
+            .get("bytes_written")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return SendTextOutcome::Pending {
+                message: "OK (pending)".to_string(),
+                bytes_written: true,
+            };
+        }
+        let message = err
+            .as_str()
+            .or_else(|| err.get("message").and_then(serde_json::Value::as_str))
+            .or_else(|| err.get("code").and_then(serde_json::Value::as_str))
+            .unwrap_or("send was refused before the payload was written");
         return SendTextOutcome::Error {
-            msg: err.to_string(),
+            msg: message.to_string(),
             exit_code: 2,
         };
     }
     if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-        return SendTextOutcome::Success("OK (sent)".to_string());
+        return match value.get("delivery").and_then(serde_json::Value::as_str) {
+            Some("sent") => SendTextOutcome::Success("OK (sent)".to_string()),
+            _ => SendTextOutcome::Pending {
+                message: "OK (pending)".to_string(),
+                bytes_written: value
+                    .get("bytes_written")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            },
+        };
     }
     SendTextOutcome::Other
+}
+
+fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
+    value.get("pad_file").and_then(serde_json::Value::as_str)
 }
 
 pub fn handle_send_text_result(
@@ -75,11 +110,29 @@ pub fn handle_send_text_result(
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }
+            let pad_file = pad_file_path(&value);
             match analyze_send_text_response(&value) {
                 SendTextOutcome::Success(msg) => {
                     println!("{}", msg);
+                    if let Some(path) = pad_file {
+                        println!("Pad file: {path}");
+                    }
                     if let Some(text) = resolved_text {
                         println!("{}", resolved_text_echo(text));
+                    }
+                }
+                SendTextOutcome::Pending {
+                    message,
+                    bytes_written,
+                } => {
+                    println!("{}", message);
+                    if let Some(path) = pad_file {
+                        println!("Pad file: {path}");
+                    }
+                    if bytes_written {
+                        if let Some(text) = resolved_text {
+                            println!("{}", resolved_text_echo(text));
+                        }
                     }
                 }
                 SendTextOutcome::Error { msg, exit_code } => {
@@ -251,6 +304,9 @@ fn send_text_to_targets(
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
+    let mut pending_written: Vec<String> = Vec::new();
+    let mut pad_files: Vec<serde_json::Value> = Vec::new();
     let source_tab = std::env::var("CODETERM_TAB_ID")
         .ok()
         .filter(|t| !t.is_empty());
@@ -280,10 +336,25 @@ fn send_text_to_targets(
             }
         };
         match result {
-            Ok(value) => match analyze_send_text_response(&value) {
-                SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
-                _ => delivered.push(tab_id.clone()),
-            },
+            Ok(value) => {
+                if let Some(path) = pad_file_path(&value) {
+                    pad_files.push(serde_json::json!({"tab": tab_id, "path": path}));
+                }
+                match analyze_send_text_response(&value) {
+                    SendTextOutcome::Success(_) => delivered.push(tab_id.clone()),
+                    SendTextOutcome::Pending { bytes_written, .. } => {
+                        pending.push(tab_id.clone());
+                        if bytes_written {
+                            pending_written.push(tab_id.clone());
+                        }
+                    }
+                    SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
+                    SendTextOutcome::Other => failures.push((
+                        tab_id.clone(),
+                        "send route returned no delivery status".into(),
+                    )),
+                }
+            }
             Err(e) => failures.push((tab_id.clone(), e)),
         }
     }
@@ -293,6 +364,9 @@ fn send_text_to_targets(
             serde_json::to_string_pretty(&serde_json::json!({
                 "ok": failures.is_empty(),
                 "delivered": delivered,
+                "pending": pending,
+                "pending_written": pending_written,
+                "pad_files": pad_files,
                 "failed": failures
                     .iter()
                     .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
@@ -304,15 +378,25 @@ fn send_text_to_targets(
         for tab_id in &delivered {
             println!("OK (sent) {tab_id}");
         }
+        for tab_id in &pending {
+            println!("OK (pending) {tab_id}");
+        }
+        for entry in &pad_files {
+            if let (Some(tab), Some(path)) = (entry["tab"].as_str(), entry["path"].as_str()) {
+                println!("Pad file {tab}: {path}");
+            }
+        }
         for (tab_id, err) in &failures {
             eprintln!("Error {tab_id}: {err}");
         }
         println!(
-            "{} of {} target(s) delivered",
+            "{} sent, {} pending, {} refused of {} target(s)",
             delivered.len(),
+            pending.len(),
+            failures.len(),
             targets.len()
         );
-        if failures.is_empty() {
+        if !delivered.is_empty() || !pending_written.is_empty() {
             println!("{}", resolved_text_echo(resolved_text));
         }
     }
@@ -332,6 +416,9 @@ pub fn handle_send_text(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
     require_agent: bool,
     to_shell: bool,
 ) {
@@ -353,16 +440,20 @@ pub fn handle_send_text(
             actions,
             delay,
             at,
+            every,
+            until,
+            count,
         );
         return;
     }
-    if delay.is_some() || at.is_some() {
+    if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
         if actions.is_some() {
-            eprintln!("Error: --actions cannot be queued with --delay/--at");
+            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
             std::process::exit(2);
         }
         crate::cmd::delayed::queue_from_send(
-            client, json, tab, text, from_file, from_pad, from_stdin, delay, at,
+            client, json, tab, text, from_file, from_pad, from_stdin, delay, at, every, until,
+            count,
         );
         return;
     }
@@ -505,14 +596,31 @@ fn send_composite_over_mesh(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    every: Option<String>,
+    until: Option<String>,
+    count: Option<u32>,
 ) {
-    if delay.is_some() || at.is_some() {
-        eprintln!("Error: delayed send to a remote tab is unsupported; deliver now or run on the owning peer");
-        std::process::exit(2);
-    }
     let mut stdin = std::io::stdin();
     let (resolved_text, parsed_actions) =
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
+        if parsed_actions.is_some() {
+            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
+            std::process::exit(2);
+        }
+        crate::cmd::delayed::queue_over_mesh(
+            json,
+            peer,
+            remote_tab,
+            resolved_text,
+            delay,
+            at,
+            every,
+            until,
+            count,
+        );
+        return;
+    }
     let source_tab = std::env::var("CODETERM_TAB_ID").ok();
     let body = remote_send_body(
         &resolved_text,
@@ -766,9 +874,8 @@ pub fn resolve_send_text_input<R: std::io::Read>(
         return Ok((buf, "--stdin"));
     }
     if let Some(path) = from_file {
-        return std::fs::read_to_string(&path)
-            .map(|s| (s, "--from-file"))
-            .map_err(|e| format!("failed to read --from-file {}: {}", path, e));
+        return crate::cmd::payload_source::read_file_or_stdin(&path, "--from-file")
+            .map(|s| (s, "--from-file"));
     }
     let text = text.unwrap_or_default();
     if let Some(refusal) = crate::cmd::quoted_handoff::inline_refusal(
@@ -782,341 +889,4 @@ pub fn resolve_send_text_input<R: std::io::Read>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
-        guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, parse_actions_spec,
-        parse_tab_targets, resolve_send_text_input, SendActionSpec, SendEligibility,
-        SendTextOutcome, TabKind,
-    };
-
-    const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
-
-    #[test]
-    fn classify_agent_tab_from_agent_type() {
-        let record = serde_json::json!({"id": "t1", "agent_type": "claude", "backing_kind": "pty"});
-        assert_eq!(classify_tab_kind(&record), TabKind::Agent);
-    }
-
-    #[test]
-    fn send_after_adopt_delivers_prose_as_agent_not_shell() {
-        let adopted =
-            serde_json::json!({"id": "t1", "agent_type": "mock-pty", "backing_kind": "pty"});
-        assert_eq!(classify_tab_kind(&adopted), TabKind::Agent);
-        assert_eq!(
-            decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
-            SendEligibility::Allow
-        );
-        match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
-            SendEligibility::Refuse(msg) => assert!(msg.contains("--to-shell")),
-            other => panic!("raw shell must still refuse prose, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn classify_raw_shell_when_pty_without_agent() {
-        let record = serde_json::json!({"id": "t1", "agent_type": null, "backing_kind": "pty"});
-        assert_eq!(classify_tab_kind(&record), TabKind::RawShell);
-        let empty = serde_json::json!({"id": "t1", "agent_type": "", "backing_kind": "pty"});
-        assert_eq!(classify_tab_kind(&empty), TabKind::RawShell);
-    }
-
-    #[test]
-    fn classify_chat_backend_and_unknown() {
-        let chat = serde_json::json!({"id": "t1", "backing_kind": "chat_backend"});
-        assert_eq!(classify_tab_kind(&chat), TabKind::ChatBackend);
-        let unknown = serde_json::json!({"id": "t1"});
-        assert_eq!(classify_tab_kind(&unknown), TabKind::Unknown);
-    }
-
-    #[test]
-    fn task_shaped_payload_detects_multiline_and_long() {
-        assert!(is_task_shaped_payload("first line\nsecond line"));
-        assert!(is_task_shaped_payload(&"x".repeat(241)));
-        assert!(!is_task_shaped_payload("git status"));
-        assert!(!is_task_shaped_payload(&"y".repeat(240)));
-    }
-
-    #[test]
-    fn agent_tab_allows_prose() {
-        assert_eq!(
-            decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
-            SendEligibility::Allow
-        );
-    }
-
-    #[test]
-    fn raw_shell_refuses_prose_by_default() {
-        match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
-            SendEligibility::Refuse(msg) => {
-                assert!(msg.contains("raw shell"));
-                assert!(msg.contains("--to-shell"));
-            }
-            other => panic!("expected Refuse, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn raw_shell_allows_short_command() {
-        assert_eq!(
-            decide_send_eligibility(TabKind::RawShell, "git status", false, false),
-            SendEligibility::Allow
-        );
-    }
-
-    #[test]
-    fn to_shell_override_allows_prose_to_shell() {
-        assert_eq!(
-            decide_send_eligibility(TabKind::RawShell, CHARTER, false, true),
-            SendEligibility::Allow
-        );
-    }
-
-    #[test]
-    fn require_agent_refuses_non_agent_targets() {
-        for kind in [TabKind::RawShell, TabKind::ChatBackend, TabKind::Unknown] {
-            assert!(
-                matches!(
-                    decide_send_eligibility(kind, "git status", true, false),
-                    SendEligibility::Refuse(_)
-                ),
-                "require_agent must refuse {:?}",
-                kind
-            );
-        }
-        assert_eq!(
-            decide_send_eligibility(TabKind::Agent, "git status", true, false),
-            SendEligibility::Allow
-        );
-    }
-
-    #[test]
-    fn chat_backend_allows_prose_by_default() {
-        assert_eq!(
-            decide_send_eligibility(TabKind::ChatBackend, CHARTER, false, false),
-            SendEligibility::Allow
-        );
-    }
-
-    #[test]
-    fn ok_response_is_success() {
-        let v = serde_json::json!({ "ok": true });
-        match analyze_send_text_response(&v) {
-            SendTextOutcome::Success(_) => {}
-            other => panic!("expected Success, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn explicit_error_field_exits_two() {
-        let v = serde_json::json!({
-            "ok": false,
-            "error": "PTY closed mid-write",
-        });
-        match analyze_send_text_response(&v) {
-            SendTextOutcome::Error { msg, exit_code } => {
-                assert_eq!(exit_code, 2);
-                assert!(msg.contains("PTY closed"));
-            }
-            other => panic!("expected Error, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn legitimate_text_passes() {
-        assert!(guard_against_shell_mangle("hello world").is_ok());
-        assert!(guard_against_shell_mangle("PR #28 — looks fine").is_ok());
-        assert!(guard_against_shell_mangle("status code: 200").is_ok());
-    }
-
-    #[test]
-    fn bash_command_not_found_rejected() {
-        let payload = "/usr/bin/bash: line 3: mesh: command not found\nactual content";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn bare_command_not_found_rejected() {
-        let payload = "mesh: command not found\nfollowed by intended message";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn syntax_error_rejected() {
-        let payload = "bash: -c: line 1: syntax error near unexpected token `('";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn guard_ignores_marker_inside_fenced_code_block() {
-        let payload = "Here is the repro:\n```\npunset: command not found\n```\nEnd.";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-
-    #[test]
-    fn guard_still_fires_on_marker_outside_code_block() {
-        let payload = "this is just /usr/bin/bash: line 5: foo not in a code block";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn guard_handles_unterminated_fence_safely() {
-        // Unterminated fence treats the rest as code-block — better to skip a potentially-spurious guard than reject legitimate content.
-        let payload = "```\n: command not found\nstill open\n";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-
-    #[test]
-    fn guard_with_multiple_fences_strips_only_inside() {
-        let payload = "outside ok\n```\n: command not found\n```\nbetween\n```\nbash: line 1: x\n```\ntrailing";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-
-    #[test]
-    fn stdin_resolution_preserves_quotes_and_trailing_newline() {
-        let input = "it's got 'quotes' and \"doubles\"\nsecond line\n";
-        let mut stdin = input.as_bytes();
-        let (text, source) = resolve_send_text_input(None, None, None, true, &mut stdin).unwrap();
-        assert_eq!(source, "--stdin");
-        assert_eq!(text, input);
-    }
-
-    #[test]
-    fn action_parser_accepts_keys_delays_and_repeats() {
-        let parsed = parse_actions_spec("esc,delay:200ms,down*3,enter").unwrap();
-        assert_eq!(
-            parsed,
-            vec![
-                SendActionSpec::Key("esc".into()),
-                SendActionSpec::Delay(200),
-                SendActionSpec::Key("down".into()),
-                SendActionSpec::Key("down".into()),
-                SendActionSpec::Key("down".into()),
-                SendActionSpec::Key("enter".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn action_parser_accepts_ctrl_keys() {
-        assert_eq!(key_action_bytes("ctrl-c").unwrap(), vec![3]);
-        assert_eq!(
-            parse_actions_spec("ctrl-c").unwrap(),
-            vec![SendActionSpec::Key("ctrl-c".into())]
-        );
-    }
-
-    #[test]
-    fn actions_parser_accepts_literal_character_keys() {
-        assert_eq!(
-            parse_actions_spec("y,n,A").unwrap(),
-            vec![
-                SendActionSpec::Key("y".into()),
-                SendActionSpec::Key("n".into()),
-                SendActionSpec::Key("A".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn action_parser_rejects_unknown_keys() {
-        assert!(parse_actions_spec("launch-missiles").is_err());
-    }
-
-    #[test]
-    fn composite_tab_id_routes_over_mesh() {
-        use crate::cmd::tab::remote_target::parse_remote_tab_id;
-        assert_eq!(
-            parse_remote_tab_id("mesh:BLACKSTAR/0e39ec9e"),
-            Some(("BLACKSTAR".into(), "0e39ec9e".into()))
-        );
-        assert!(parse_remote_tab_id("0e39ec9e").is_none());
-    }
-
-    #[test]
-    fn remote_send_body_carries_text_and_source() {
-        let body = super::remote_send_body("deliver this", None, Some("af5919cb"));
-        assert_eq!(body["text"], serde_json::json!("deliver this"));
-        assert_eq!(body["source_tab"], serde_json::json!("af5919cb"));
-        assert!(body.get("actions").is_none());
-    }
-
-    #[test]
-    fn remote_send_body_omits_empty_text_and_blank_source() {
-        let actions = parse_actions_spec("enter").unwrap();
-        let body = super::remote_send_body("", Some(&actions), Some(""));
-        assert!(body.get("text").is_none());
-        assert!(body.get("source_tab").is_none());
-        assert_eq!(body["actions"], super::actions_to_json(&actions));
-    }
-
-    /// The resolver is the single seam every coordination send shares, so the
-    /// refusal has to land there, before a tab id is even resolved.
-    #[test]
-    fn quoted_handoff_inline_payload_is_refused_by_the_send_resolver() {
-        let authored = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.";
-        let err = resolve_send_text_input(
-            Some(authored.to_string()),
-            None,
-            None,
-            false,
-            &mut std::io::empty(),
-        )
-        .expect_err("an inline authored send is refused");
-        assert!(err.starts_with(crate::cmd::quoted_handoff::REFUSAL_CODE));
-        assert!(err.contains("--from-pad"));
-    }
-
-    #[test]
-    fn quoted_handoff_scalar_send_and_staged_sources_still_resolve() {
-        let (text, source) = resolve_send_text_input(
-            Some("status?".to_string()),
-            None,
-            None,
-            false,
-            &mut std::io::empty(),
-        )
-        .expect("a scalar argument stays inline");
-        assert_eq!((text.as_str(), source), ("status?", "positional"));
-
-        let staged = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.\n";
-        let (text, source) = resolve_send_text_input(
-            None,
-            None,
-            None,
-            true,
-            &mut std::io::Cursor::new(staged.as_bytes().to_vec()),
-        )
-        .expect("a staged payload is never refused for its shape");
-        assert_eq!((text.as_str(), source), (staged, "--stdin"));
-    }
-
-    #[test]
-    fn multi_tab_send_parses_trims_and_dedupes_in_order() {
-        assert_eq!(
-            parse_tab_targets(" a , b ,a, c ").expect("list parses"),
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            "entries trim, duplicates collapse, first-seen order survives"
-        );
-    }
-
-    #[test]
-    fn multi_tab_send_single_id_yields_exactly_one_target() {
-        assert_eq!(
-            parse_tab_targets("solo").expect("single id parses"),
-            vec!["solo".to_string()],
-            "a comma-less value must stay a one-target list so the single-tab path is unchanged"
-        );
-    }
-
-    #[test]
-    fn multi_tab_send_rejects_empty_entries() {
-        for spec in ["a,,b", "a,", ",b", " , "] {
-            let err = parse_tab_targets(spec).expect_err("empty entry must be refused");
-            assert!(
-                err.contains("empty entry"),
-                "refusal names the defect for {spec}: {err}"
-            );
-        }
-    }
-}
+mod tests;

@@ -117,7 +117,9 @@ fn manifest_launch_template_fixture_matrix_round_trips() {
     let resumed = p.build_resume_command_with_context(&AgentResumeParams {
         session_id: "sid-fixture-2".into(),
         skip_permissions: true,
+        agent_name: None,
         system_prompt: None,
+        instance_id: None,
         args: vec!["--extra".into()],
     });
     assert_eq!(

@@ -5,7 +5,7 @@ import plugin from "../src/plugin";
 import type { ActivityMessage } from "../src/activity";
 
 interface Parser {
-  parseSessionDelta(chunk: string): { messages: ActivityMessage[] };
+  parseSessionDelta(chunk: string, context?: { session_key: string; from_offset: number }): { messages: ActivityMessage[] };
 }
 
 const context = { module: { exports: {} as { default: Parser } }, exports: {}, console };
@@ -102,4 +102,64 @@ for (const parser of parsers) {
   assert.deepEqual(failed.tool_rich_result, { kind: "image", origin: "generated", status: "failed", prompt: imageEnd.revised_prompt });
 }
 
-console.log("Codex web and image result source/bundle fixtures passed");
+const transcriptFixture = fs.readFileSync(new URL("./fixtures/codex-exec-wrapper.jsonl", import.meta.url), "utf8").trim().split("\n");
+const transcriptEntries = transcriptFixture.map((line) => JSON.parse(line) as {
+  id?: string;
+  payload?: Record<string, unknown>;
+});
+
+function repeatedTranscript(callId: string, suffix: string): string[] {
+  return transcriptEntries.map((entry) => {
+    const copy = JSON.parse(JSON.stringify(entry)) as { id?: string; payload?: Record<string, unknown> };
+    const payload = copy.payload;
+    if (payload?.type === "custom_tool_call" || payload?.type === "custom_tool_call_output") {
+      payload.call_id = callId;
+      if (copy.id) copy.id = `fixture-${suffix}-${copy.id}`;
+    }
+    if (payload?.type === "item_completed" && payload.item && typeof payload.item === "object") {
+      (payload.item as Record<string, unknown>).id = `exec-${suffix}`;
+    }
+    return JSON.stringify(copy);
+  });
+}
+
+for (const parser of parsers) {
+  const parse = (lines: string[], context?: { session_key: string; from_offset: number }) => JSON.parse(JSON.stringify(parser.parseSessionDelta(lines.join("\n"), context))).messages as ActivityMessage[];
+  const toolUses = (messages: ActivityMessage[]) => messages.flatMap((message) => message.blocks.filter((block) => block.kind === "tool_use"));
+  const toolResults = (messages: ActivityMessage[]) => messages.flatMap((message) => message.blocks.filter((block) => block.kind === "tool_result"));
+  const callId = String(transcriptEntries.find((entry) => entry.payload?.type === "custom_tool_call")?.payload?.call_id);
+
+  const restored = parse(transcriptFixture);
+  assert.equal(toolUses(restored).length, 1, "the restored session keeps only the logical exec call");
+  assert.equal(toolResults(restored).length, 1, "the logical exec call keeps its result");
+  assert.equal(toolUses(restored)[0].data.id, callId);
+  assert.equal(toolUses(restored)[0].data.tool_summary, "codeterm agent startup-ack --help");
+  assert.equal(toolResults(restored)[0].data.tool_use_id, callId);
+  assert.ok(String(toolResults(restored)[0].data.tool_wrapper_detail).includes("-Command"), "the shell wrapper remains in result detail");
+
+  const live: ActivityMessage[] = [];
+  let offset = 0;
+  for (const line of transcriptFixture) {
+    live.push(...parse([line], { session_key: "rich-results-live", from_offset: offset }));
+    offset += Buffer.byteLength(line + "\n", "utf8");
+  }
+  assert.equal(toolUses(live).length, 1, "the live tail pairs events across parser chunks");
+  assert.equal(toolResults(live).length, 1, "the live logical call receives its result");
+
+  const repeated = parse([...transcriptFixture, ...repeatedTranscript("call-repeat-two", "two")]);
+  assert.equal(toolUses(repeated).length, 2, "two identical sequential calls stay separate");
+  assert.equal(toolResults(repeated).length, 2, "each repeated call keeps its own result");
+  assert.deepEqual(toolUses(repeated).map((block) => block.data.id).sort(), [callId, "call-repeat-two"].sort());
+  assert.deepEqual(toolResults(repeated).map((block) => block.data.tool_use_id).sort(), [callId, "call-repeat-two"].sort());
+
+  const threeCalls = parse([
+    ...transcriptFixture,
+    ...repeatedTranscript("call-repeat-two", "two"),
+    ...repeatedTranscript("call-repeat-three", "three"),
+  ]);
+  assert.equal(toolUses(threeCalls).length, 3, "three calls from the captured event shape produce three entries");
+  assert.equal(toolResults(threeCalls).length, 3, "every captured-shape call has a result");
+  assert.deepEqual(toolUses(threeCalls).map((block) => block.data.id).sort(), [callId, "call-repeat-two", "call-repeat-three"].sort());
+}
+
+console.log("Codex rich result and transcript source/bundle fixtures passed");

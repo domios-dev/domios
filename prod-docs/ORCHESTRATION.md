@@ -15,7 +15,8 @@ codeterm task show <task>
 
 Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a specific discrepancy that compact status cannot explain.
 
-Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. Read a related playbook when its responsibility becomes active:
+Use `codeterm docs <NAME>` for the full document; bare `codeterm docs` or
+`codeterm docs --help` lists names. Read related playbooks when needed:
 
 | Need | Read |
 |---|---|
@@ -24,6 +25,7 @@ Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs
 | Narrow plan edits | `codeterm docs PLAN-EDITING` |
 | Bounce evidence and retry limits | `codeterm docs BOUNCE` |
 | Test authoring | `codeterm docs TEST-AUTHORING` |
+| Task lifecycle, groups, dispatch | `codeterm docs ORCHESTRATION-TASKS` |
 | Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
 | CLI syntax | `codeterm <command> --help` |
 
@@ -42,11 +44,22 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
-The Orchestrator states the GOAL and delegates planning by default; the Planner drafts structure, and the Orchestrator approves or revises it, dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
-A bound Planner's authority over sections and tasks is durable, not phase-scoped: it survives approval. Approval and dispatch stay the Orchestrator's alone.
-The Orchestrator may implement a genuinely small local change when delegation
-would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
-When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
+The Orchestrator states the GOAL and delegates structure to the Planner, then
+approves or revises it, dispatches, judges reports, integrates accepted lanes,
+and owns cleanup. A bound Planner keeps section/task authority after approval;
+approval and dispatch remain the Orchestrator's.
+For oversized in-progress work, the Orchestrator can use `codeterm plan task
+split <plan> <task> --child <name>` to add approved child tasks, then dispatch
+each child into its own lane. Child status rolls up on the parent, which stays
+open until every child is done or cancelled. Workers can propose a split in
+their report but cannot spawn sub-Workers.
+Directly implement a genuinely small, local, low-risk change already authorized
+in canonical when delegation costs more. Worker dispatch remains default for
+plan-owned source work; never self-assign normal implementation work merely
+because canonical is writable.
+Team utility shells and cron jobs inherit that Team for cleanup. Use `--no-team`
+only when a resource must outlive it deliberately.
+Adopting a plan into a Team binds that Team's unique live Planner to the plan.
 
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
@@ -85,9 +98,8 @@ Run this loop after every report, reminder, task close, tab death, or gate:
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
-Discovery is an intermediate wave. It must produce decisions and follow-up
-implementation/review/verification tasks; research alone does not complete the
-goal.
+Discovery must produce decisions and follow-up implementation, review, or
+verification tasks; research alone does not complete the goal.
 
 ## Planning ownership
 
@@ -107,78 +119,25 @@ When a Planner is present:
 - draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
 
-Judge structure before dispatch against the plan-shape contract in your role
-brief. If the Planner is intentionally waived, record that explicitly on the plan.
-
-## Task lifecycle
-
-```text
-pending → in_progress → in_review → done
-              ↘ blocked
-pending/in_progress/blocked → paused   (system holds only)
-any open state → cancelled
-```
-
-- `in_progress` requires both a live runtime binding and the Worker's durable
-  `codeterm agent ack`; either may arrive first.
-- `dispatch_ready` proves PTY, session, and lane readiness but does not start
-  the task. A missing ACK emits `worker_ack_timeout` after the bounded deadline.
-- `codeterm agent report --status in_review` atomically records the handoff,
-  moves the bound task to `in_review`, and pushes the report into the
-  Orchestrator tab. Workers never poll or separately update task status.
-- The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
-  records a reason while preserving its assignment and lane; `bounce` returns it
-  to the assigned Worker for another pass.
-- `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
-  reason) or provider exhaustion with a resumable checkpoint. It is excluded
-  from open work and resumes when the gate is answered or the provider recovers.
-
-## Group milestones
-
-Group tasks with `--group` and declare the groups with `codeterm plan groups
-set`. The group close the task sequencing contract requires has two records,
-and dispatch waits for both once every task in the group is terminal and at
-least one is done:
-
-1. the regression run: `codeterm plan qa next <plan> --group <group> --note "<evidence>"`;
-2. the retrospective: `codeterm plan groups close <plan> <group> --note "<what worked, what failed, what changes next>"`.
-
-An authorized `codeterm plan qa override` waives only the regression run, never
-the retrospective. Tasks tagged `regression-gate` or `release-blocking` still
-dispatch. Plan pause and resume are part of the same contract.
-
+Judge structure against your role brief's plan-shape contract before dispatch.
+If the Planner is waived, record that on the plan.
 ## Dispatch contract
 
-Before a wave:
+Before each wave, check provider headroom (reuse live Workers near 95%), map disjoint task/file/branch/oracle/gate ownership, and run plan doctor. Each Worker needs `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a brief with exact acceptance and test commands; it ACKs before work and reports last. For a paired peer with Full access, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Review the persisted report on the origin before merging the exact accepted SHA to its clean dispatch-time branch.
 
-1. Check provider headroom; near 95%, reuse live Workers instead of spawning
-   cold duplicates.
-2. Define a disjoint lane map: task, files, branch/worktree, expected output,
-   focused oracle, and central gates requested.
-3. Run plan doctor.
-4. Dispatch through `codeterm plan task dispatch`; lanes by default,
-   `--canonical-writer` only by deliberate choice (operations playbook).
-5. Wait for the pushed `worker_ack` described in Task lifecycle.
-6. If dispatch fails, alert the user immediately and verify rollback. Never
-   blind-retry a write.
+If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
 
-Every Worker is visible under the Orchestrator with a clear title and description,
-`CODETERM_PLAN_ID` and `CODETERM_TASK_ID`, the checkout the Orchestrator chose, and a
-self-contained brief with exact acceptance and test commands; it acks first and reports last.
+## Task lifecycle, milestones, and dispatch
 
-`plan task dispatch` is local-only. A Worker spawned with `agent spawn --mesh PEER`
-has no attempt on the origin plan store and no plan/task env, so it reports with
-explicit `--plan <origin-plan> --task <task>` to home the report back, or the
-Orchestrator attaches the arriving tab message by hand. Full cross-mesh dispatch is
-out of scope; see the spawn-then-bind pattern in `codeterm docs MESH`.
+The task guide covers lifecycle and dispatch; the operations guide covers review, verification, and closeout.
 
 ## Review capacity
 
-Choose review granularity from backlog and diff size. A few large changes merit
-individual review; a growing queue of compatible small changes should share one
-review wave and canonical QA group. After real merge, the Orchestrator may fix a
-bounded mechanical integration defect directly in canonical. Bounce ownership,
-correctness, authority, scope, or design defects instead of grinding tiny edits.
+Choose review granularity by backlog and diff: review a few large changes
+individually; batch compatible small ones in one wave and canonical QA. After
+real merge, directly fix bounded mechanical integration defects in canonical;
+bounce ownership, correctness, authority, scope, or design defects rather than
+grinding tiny edits.
 
 Review backlog and credit debt are advisory, not dispatch blockers. At the default five-review threshold, status and heartbeats warn the Orchestrator to prioritize review closures and avoid growing the backlog.
 Ordinary dispatch, competition, and respawn remain allowed without a capacity grant. Authorization, dependency, regression, and review-acceptance checks remain enforced; never fake acceptance or adjust credit merely to silence a warning.
@@ -193,9 +152,10 @@ codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 
 Generic task updates, decision gates, and removals cannot move a task out
 of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
-"…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
-the assignment and lane intact, and every verdict requires `--note`, never
-`--reason`. Review credit repair, task-less evidence reporters, and Planner parent
-resolution are plan surface contracts (API-PLAN).
+"…"`: `bounce` returns work to a live Worker or reopens it as pending when the
+Worker is gone, `hold` keeps the review open with the assignment and lane intact,
+and every verdict requires `--note`, never `--reason`. Review credit repair,
+task-less evidence reporters, and Planner parent resolution are plan surface
+contracts (API-PLAN).
 
-<!-- revision: 84 -->
+<!-- revision: 96 -->

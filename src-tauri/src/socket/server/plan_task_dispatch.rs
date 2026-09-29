@@ -1,8 +1,3 @@
-use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use tauri::AppHandle;
-
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
@@ -12,6 +7,10 @@ use crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
 use crate::service::{
     verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
 };
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tauri::AppHandle;
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
@@ -27,9 +26,11 @@ mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
 mod recovery;
+pub(super) mod remote;
 mod routing;
 mod startup;
 mod tab_reservation;
+mod unplanned;
 mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
@@ -56,14 +57,12 @@ use lane_safety::{
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;
-use routing::{
-    dispatch_worker_identity, provider_mismatch_error, resolve_dispatch_routing,
-    unqualified_model_error,
-};
+use routing::dispatch_worker_identity;
 pub(super) use tab_reservation::dispatch_startup_owner_is_live;
 use tab_reservation::{
     close_tab_if_present, refuse_live_dispatch_startup_owner, DispatchReservationTab,
 };
+pub(crate) use unplanned::dispatch_unplanned;
 use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
@@ -331,7 +330,7 @@ fn worker_ack_timeout_event(
 
 #[cfg(test)]
 use startup::complete_dispatch_transaction;
-pub(super) use startup::DispatchStartup;
+pub(crate) use startup::DispatchStartup;
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
     gates
@@ -407,6 +406,42 @@ where
     ) -> Result<crate::service::SpawnResult, String>,
     O: FnOnce(),
 {
+    if params
+        .as_ref()
+        .and_then(|value| value.get("mesh_peer"))
+        .and_then(Value::as_str)
+        .is_some_and(|peer| !peer.trim().is_empty())
+    {
+        return remote::dispatch(params, app, svc, now);
+    }
+    dispatch_with_spawn_approval_exemption(
+        params,
+        app,
+        svc,
+        now,
+        None,
+        spawn_agent,
+        after_startup_owner_observation,
+    )
+}
+
+fn dispatch_with_spawn_approval_exemption<S, O>(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+    now: u64,
+    approval_exempt_task_id: Option<&str>,
+    spawn_agent: S,
+    after_startup_owner_observation: O,
+) -> Result<Value, JsonRpcError>
+where
+    S: FnOnce(
+        &ServiceState,
+        SpawnAgentParams,
+        Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<crate::service::SpawnResult, String>,
+    O: FnOnce(),
+{
     let store = &svc.plan_store;
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
@@ -421,14 +456,19 @@ where
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-    svc.authorize_execution_action(
-        &plan_id,
-        &crate::service::AuthenticatedPlanCaller {
-            tab_id: owned_str(p, "caller_tab_id"),
-            session_id: owned_str(p, "session_id"),
-            binding_nonce: owned_str(p, "session_binding_nonce"),
-        },
-    )
+    let caller = crate::service::AuthenticatedPlanCaller {
+        tab_id: owned_str(p, "caller_tab_id"),
+        session_id: owned_str(p, "session_id"),
+        binding_nonce: owned_str(p, "session_binding_nonce"),
+    };
+    let unplanned_dispatch = approval_exempt_task_id == Some(task_id.as_str())
+        && detail.task.tags.iter().any(|tag| tag == "unplanned")
+        && detail.task.kind == "unplanned";
+    (if unplanned_dispatch {
+        svc.authorize_plan_orchestrator(&plan_id, &caller)
+    } else {
+        svc.authorize_execution_action(&plan_id, &caller)
+    })
     .map_err(|message| JsonRpcError {
         code: -32003,
         message,
@@ -448,7 +488,10 @@ where
     }
     // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
-    if detail.task.status == crate::plan::TaskStatus::Pending {
+    if matches!(
+        detail.task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
+    ) {
         preflight_review_capacity(&plan, &detail.task).map_err(plan_rpc_err)?;
     }
 
@@ -465,21 +508,16 @@ where
         parent.as_deref(),
         caller_tab_id.as_deref(),
     )?;
-    let routing = resolve_dispatch_routing(
-        owned_str(p, "agent"),
-        owned_str(p, "model"),
-        detail.task.model.clone(),
-        &svc.agent_registry.provider_ids(),
-    );
-    if let Some(error) = provider_mismatch_error(&routing) {
-        return Err(error);
-    }
-
-    // Surface an unknown-model fallback loudly instead of silently downgrading.
-    let resolved_provider = routing
-        .agent
-        .clone()
-        .unwrap_or_else(crate::config::default_agent_provider);
+    let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
+    let model_selection = crate::service::spawn::resolve_agent_model_selection(
+        &svc.agent_registry,
+        owned_str(p, "agent").as_deref(),
+        requested_model.as_deref(),
+        &crate::config::default_agent_provider(),
+    )
+    .map_err(super::model_errors::invalid_model_rpc_error)?;
+    let resolved_provider = model_selection.provider_id;
+    let selected_model = model_selection.model;
     let execution_intent = match owned_str(p, "execution_intent").as_deref() {
         Some("read_only") => crate::plan::ExecutionIntent::ReadOnly,
         Some("mutating") => crate::plan::ExecutionIntent::Mutating,
@@ -535,23 +573,17 @@ where
         now,
     )
     .map_err(plan_rpc_err)?;
-    if let Some(notice) = crate::service::spawn::resolve_fresh_agent_model_with_notice(
+    let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
         &svc.agent_registry,
         &resolved_provider,
-        routing.model.clone(),
+        selected_model.clone(),
         None,
-    )
-    .fallback_notice
-    {
-        if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
-            return Err(error);
-        }
-        warnings.push(format!(
-            "requested model '{}' is not available for provider '{}'; spawning with '{}' instead",
-            notice.requested_model, resolved_provider, notice.provider_resolved_model
-        ));
+    );
+    let dispatched_model = model_resolution.model.clone();
+    let dispatched_provider_resolved_model = model_resolution.provider_resolved_model.clone();
+    if let Some(warning) = model_resolution.warning.clone() {
+        warnings.push(warning);
     }
-
     // A personality is the executor persona: it names the tab and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
@@ -682,8 +714,9 @@ where
         )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
+    let dispatched_reasoning_effort = reasoning_effort.clone();
     let mut spawn_params = SpawnAgentParams {
-        agent: routing.agent.clone(),
+        agent: Some(resolved_provider.clone()),
         cwd: Some(spawn_cwd),
         title: explicit_persona,
         title_provenance,
@@ -695,7 +728,7 @@ where
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
-        model: routing.model.clone(),
+        model: selected_model.clone(),
         planned_model: detail.task.model.clone(),
         planned_reasoning_effort,
         reasoning_effort,
@@ -874,10 +907,15 @@ where
             allowance,
             Some(&resolved_provider),
             &reserved_attempt_id,
-            authorized_gates.clone(),
+            Some(authorized_gates.clone()),
             placement,
+            dispatched_model,
+            selected_model.clone(),
+            dispatched_provider_resolved_model,
+            dispatched_reasoning_effort,
             begin_owner,
             begin_owner_is_live,
+            true,
             now,
         )
     };
@@ -970,6 +1008,22 @@ where
     reservation_tab.mark_spawned();
     let tab_id = spawn.tab_id.clone();
     drop(dispatch_reservation);
+    // The resolved effort is attempt telemetry; failing to record it must not kill a live Worker.
+    if let Err(error) = svc.persist_dispatched_attempt_reasoning_effort(
+        &plan_id,
+        &task_id,
+        &tab_id,
+        &attempt_id,
+        now,
+    ) {
+        log::warn!(
+            "[task-dispatch] attempt_reasoning_effort_not_recorded plan={} task={} tab={} attempt={} cause={error}",
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id
+        );
+    }
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now)
     {
@@ -1028,6 +1082,7 @@ where
             },
         ));
     }
+    svc.persist_current_attempt_session_model(&tab_id);
     emit_plan_changed(app, &plan_id);
     let startup = DispatchStartup {
         app: app.clone(),

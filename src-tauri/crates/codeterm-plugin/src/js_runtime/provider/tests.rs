@@ -1,5 +1,11 @@
+use super::wire::encode_cwd_dashed;
 use super::*;
+use crate::provider::{
+    AgentLaunchParams, BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy,
+};
 use serde_json::json;
+use std::path::PathBuf;
+use std::time::Duration;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
     let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");
@@ -415,6 +421,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
     crate::model_catalog::put_live(
         "am",
         vec![crate::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: Some("from catalog".into()),
@@ -423,6 +430,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );
@@ -460,6 +468,7 @@ fn settings_model_options_follow_catalog_changes() {
     crate::model_catalog::put_live(
         "dynamic-settings-models",
         vec![crate::provider::ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: None,
@@ -468,6 +477,7 @@ fn settings_model_options_follow_catalog_changes() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );

@@ -653,6 +653,7 @@ fn tab_summary_exposes_task_binding_and_roleless_flag() {
     tab.task_binding = Some(TaskBinding {
         plan_id: Some("pl_1".into()),
         task_id: Some("task_9".into()),
+        attempt_id: None,
         spawn_handle: Some("M3 IV-gate".into()),
         bound_at: 5,
     });

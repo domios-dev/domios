@@ -115,6 +115,26 @@ async function testCodexIntegrationStatesStayDistinguishable() {
   }
 }
 
+async function testUnknownIntegrationStateStaysUnverified() {
+  await withInvoke(async () => ({
+    integration_state: "unknown",
+    session_start_hook: true,
+    stop_hook: true,
+  }), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(
+      host.querySelector('[data-provider-integration-state="unknown"]'),
+      "an unknown integration verdict must stay unverified even when hook content appears current",
+    );
+    assert(
+      !host.querySelector('[data-provider-integration-action="uninstall"]'),
+      "an unknown integration verdict must not expose healthy-only actions",
+    );
+    await cleanup(root);
+  });
+}
+
 async function testHealthyHookHasNoRepairAction() {
   await withInvoke(async () => ({ hooks_installed: true, session_start_hook: true }), async () => {
     const { host, root } = await renderCard();
@@ -123,6 +143,20 @@ async function testHealthyHookHasNoRepairAction() {
     assert(!host.querySelector('[data-provider-integration-action="repair"]'), "healthy integration must not offer repair");
     const uninstall = host.querySelector('[data-provider-integration-action="uninstall"]') as HTMLButtonElement | null;
     assert(uninstall && !uninstall.disabled, "healthy integration must expose an enabled uninstall control");
+    await cleanup(root);
+  });
+}
+
+async function testFallbackBindingIsVisibleInIntegrationStatus() {
+  await withInvoke(async () => ({
+    integration_state: "installed",
+    codeterm_binding_fallback_source: "launch_marker",
+  }), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(host.querySelector('[data-provider-integration-state="healthy"]'), "installed hook health remains distinct from launch binding evidence");
+    const fallback = host.querySelector('[data-provider-integration-binding-fallback="launch_marker"]');
+    assert(fallback?.textContent?.trim(), "integration status surfaces the observed fallback binding source");
     await cleanup(root);
   });
 }
@@ -219,7 +253,7 @@ async function testRepairRefetchesIntoHealthyState() {
       "repair must invoke install once and then re-check once",
     );
     assert(installArgs?.consent === true, "repair must send explicit user consent to the existing installer");
-    assert(installArgs?.precompactMemoryExport === true, "repair must preserve the checked pre-compact hook state");
+    assert(installArgs?.precompactMemoryExport === undefined, "repair delegates PreCompact preservation to the daemon");
     assert(host.querySelector('[data-provider-integration-state="healthy"]'), "refetched health must update the UI without remounting");
     assert(!host.querySelector('[data-provider-integration-action="repair"]'), "reactive healthy state must remove the repair control");
     await cleanup(root);
@@ -234,23 +268,27 @@ async function testBridgeWrappersUseRegisteredCommands() {
   }, async () => {
     await checkProviderIntegration("provider-beta");
     await installProviderIntegration("provider-beta", true);
+    await installProviderIntegration("provider-beta");
     await uninstallProviderIntegration("provider-beta");
   });
   assert(
     calls.map((call) => call.command).join(",") ===
-      "check_provider_integration,install_provider_integration,uninstall_provider_integration",
+      "check_provider_integration,install_provider_integration,install_provider_integration,uninstall_provider_integration",
     "bridge wrappers must call the registered provider integration commands",
   );
   assert(calls.every((call) => call.args?.providerId === "provider-beta"), "wrappers must forward the selected provider id");
   assert(calls[1]?.args?.consent === true, "the user-triggered install wrapper must record explicit consent");
   assert(calls[1]?.args?.precompactMemoryExport === true, "repair must preserve the checked pre-compact hook state");
+  assert(calls[2]?.args?.precompactMemoryExport === undefined, "an omitted choice stays omitted through the bridge");
 }
 
 async function main() {
   await testCapabilitySelectsIntegrationProviders();
   await testStaleHookIsActionable();
   await testCodexIntegrationStatesStayDistinguishable();
+  await testUnknownIntegrationStateStaysUnverified();
   await testHealthyHookHasNoRepairAction();
+  await testFallbackBindingIsVisibleInIntegrationStatus();
   await testMissingStopHookIsDegraded();
   await testStopHookHealthyWithSessionStart();
   await testAbsentStopHookFieldIsNotDegraded();

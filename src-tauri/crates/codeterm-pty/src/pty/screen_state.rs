@@ -46,7 +46,7 @@ impl ScreenChangeSignal {
         self.state.lock().generation
     }
 
-    fn mark_changed(&self) {
+    pub fn mark_changed(&self) {
         let mut state = self.state.lock();
         state.generation = state.generation.wrapping_add(1);
         self.cv.notify_all();
@@ -68,6 +68,14 @@ impl ScreenChangeSignal {
         }
         let _ = self.cv.wait_for(&mut state, timeout);
         !state.closed && state.generation != generation
+    }
+
+    pub fn wait_until_changed(&self, generation: u64) -> bool {
+        let mut state = self.state.lock();
+        while !state.closed && state.generation == generation {
+            self.cv.wait(&mut state);
+        }
+        !state.closed
     }
 }
 
@@ -153,9 +161,8 @@ impl ShellReadySignal {
     }
 }
 
-/// Per-PTY VT100 screen parser state — tracks what the user sees on screen.
-/// Separated from OutputBuffer to avoid lock contention: output processing
-/// (which reads screen state) doesn't block chat view (which reads full history).
+/// Current VT100 screen grid per PTY; historical output remains in `OutputBuffer`.
+/// Lines that scroll beyond the visible grid are not available through this state.
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
@@ -259,6 +266,21 @@ impl ScreenState {
 
     pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
+    }
+
+    pub fn get_screen_rows(&self, pty_id: &str) -> Option<Vec<String>> {
+        let screen = self.parsers.get(pty_id)?.screen();
+        let (rows, cols) = screen.size();
+        Some(
+            (0..rows)
+                .map(|row| {
+                    screen
+                        .contents_between(row, 0, row, cols)
+                        .trim_end()
+                        .to_string()
+                })
+                .collect(),
+        )
     }
 
     pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {

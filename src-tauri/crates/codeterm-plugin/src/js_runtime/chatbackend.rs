@@ -316,6 +316,7 @@ impl ChatBackendProvider for JsChatBackend {
         Ok(models
             .into_iter()
             .map(|m| ModelInfo {
+                default_reasoning_effort: None,
                 display_name: m.display_name.unwrap_or_else(|| m.id.clone()),
                 id: m.id,
                 description: m.description,
@@ -324,6 +325,7 @@ impl ChatBackendProvider for JsChatBackend {
                 featured: None,
                 badge: None,
                 group: m.group,
+                reasoning_efforts: None,
             })
             .collect())
     }

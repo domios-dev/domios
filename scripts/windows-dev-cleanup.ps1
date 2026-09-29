@@ -14,6 +14,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+function Remove-VerbatimPrefix([string] $path) {
+  # Win32_Process can report image paths with the \\?\ prefix, which breaks prefix matching.
+  if ($path.StartsWith('\\?\')) { return $path.Substring(4) }
+  return $path
+}
+
 $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
 $dataDirPath = [IO.Path]::GetFullPath($DataDir)
@@ -76,15 +82,20 @@ if (-not $OwnedOnly) {
       continue
     }
     $cmd = [string]$proc.CommandLine
-    $exe = [string]$proc.ExecutablePath
+    $exe = Remove-VerbatimPrefix ([string]$proc.ExecutablePath)
     $name = [string]$proc.Name
     $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
     $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
       ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
     $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
-    $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
+    $instanceConptyPath = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
       (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
         ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
+    $parentGone = -not $parentByPid.ContainsKey([int]$proc.ParentProcessId)
+    $parentIsThisDaemon = @($listeners | Where-Object {
+        [int]$_.port -eq $ApiPort -and [int]$_.process_id -eq [int]$proc.ParentProcessId
+      }).Count -gt 0
+    $matchesInstanceConpty = $instanceConptyPath -and ($parentGone -or $parentIsThisDaemon)
     $ownsApi = $procPorts -contains $ApiPort
     $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
     $matchesWebView = $cmd -and
@@ -106,6 +117,34 @@ if (-not $OwnedOnly) {
   foreach ($port in @($ApiPort, $VitePort, $CdpPort)) {
     foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
       [void]$victimRoots.Add([int]$listener.process_id)
+    }
+  }
+}
+
+$conptyRoot = (Join-Path $targetDebugPath "conpty")
+$conptyPrefix = $conptyRoot.TrimEnd('\', '/') + '\'
+if (-not $OwnedOnly) {
+  $daemonPids = New-Object System.Collections.Generic.HashSet[int]
+  foreach ($listener in $listeners) {
+    if ([int]$listener.port -eq $ApiPort) {
+      [void]$daemonPids.Add([int]$listener.process_id)
+    }
+  }
+  foreach ($proc in $all) {
+    if (-not ([string]$proc.Name).Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase)) {
+      continue
+    }
+    $procId = [int]$proc.ProcessId
+    if ($selfAncestry.Contains($procId)) {
+      continue
+    }
+    $parentId = [int]$proc.ParentProcessId
+    $imagePath = Remove-VerbatimPrefix ([string]$proc.ExecutablePath)
+    $underThisTarget = $imagePath.StartsWith($conptyPrefix, [StringComparison]::OrdinalIgnoreCase)
+    $parentGone = -not $parentByPid.ContainsKey($parentId)
+    $parentIsThisDaemon = $daemonPids.Contains($parentId)
+    if ($underThisTarget -and ($parentGone -or $parentIsThisDaemon)) {
+      [void]$victimRoots.Add($procId)
     }
   }
 }

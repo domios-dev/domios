@@ -3,6 +3,8 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
+mod delayed;
+
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
         action,
@@ -900,6 +902,9 @@ fn send_text_is_fire_and_forget_on_mesh() {
         actions: None,
         delay: None,
         at: None,
+        every: None,
+        until: None,
+        count: None,
         require_agent: false,
         to_shell: false,
     };
@@ -925,6 +930,9 @@ fn send_delay_maps_to_delayed_messages() {
         actions: None,
         delay: Some("1m".into()),
         at: None,
+        every: None,
+        until: None,
+        count: None,
         require_agent: false,
         to_shell: false,
     };
@@ -1157,15 +1165,15 @@ fn parse_spawn_command(args: &[&str]) -> Commands {
         .command
 }
 
-/// `plan task dispatch` is local-only, so a Worker staffed on a peer owns no
-/// task and reaches that peer through this map alone. `role` is the field the
-/// peer resolves the Worker doctrine from, so a relay that dropped it would
-/// hand the remote agent no reporting contract at all.
+/// A generic task-less mesh Worker still relies on `role` for its Worker
+/// doctrine; plan-bound dispatch uses the separate origin-owned protocol.
 #[test]
 fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
     let _guard = crate::test_env_lock().lock().unwrap();
     let (method, path, body) = cli_command_to_api(&parse_spawn_command(&[
         "claude",
+        "--cwd",
+        "D:/peer/workspace",
         "--role",
         "Worker",
         "--task",
@@ -1186,3 +1194,5 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
         "no declared intent is its own shape: {body}"
     );
 }
+#[path = "tests/mesh_spawn_close.rs"]
+mod mesh_spawn_close;

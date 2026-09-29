@@ -43,6 +43,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::WaitingFocusRequiresOpenGate
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
+        | PlanError::InvalidSplitParent { .. }
         | PlanError::TransitionDenied { .. }
         | PlanError::DependencyTaskNotFound { .. }
         | PlanError::DependencyTaskReferenced { .. }
@@ -185,13 +186,12 @@ pub async fn take(
             Json(json!({ "error": "X-CodeTerm-Tab-Id is required" })),
         )
     })?;
-    let (plan_id, task_id) = state
-        .svc
-        .authorize_task_execution_action(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    let (plan_id, task_id) = crate::api::plan_routes::authorize_task_execution_action_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     state
         .svc
         .plan_store
@@ -217,13 +217,12 @@ pub async fn drop_task(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> TaskRouteResult {
-    let (plan_id, task_id) = state
-        .svc
-        .authorize_task_execution_action(
-            &id,
-            &crate::api::tab_routes::authenticated_plan_caller(&headers),
-        )
-        .map_err(|message| (StatusCode::FORBIDDEN, Json(json!({ "error": message }))))?;
+    let (plan_id, task_id) = crate::api::plan_routes::authorize_task_execution_action_http(
+        &state.svc,
+        &id,
+        crate::api::tab_routes::authenticated_plan_caller(&headers),
+    )
+    .await?;
     state
         .svc
         .plan_store

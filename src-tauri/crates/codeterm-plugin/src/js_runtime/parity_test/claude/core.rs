@@ -255,7 +255,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
     let params = crate::provider::AgentResumeParams {
         session_id: "abc-def-123-456".into(),
         skip_permissions: true,
+        agent_name: None,
         system_prompt: Some(prompt.into()),
+        instance_id: None,
         args: vec!["--model".into(), "parity-model".into()],
     };
 
@@ -303,6 +305,7 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     let pre = provider.check_integration();
     assert_eq!(pre["settings_exists"], false);
     assert_eq!(pre["hooks_installed"], false);
+    assert_eq!(pre["integration_owned"], false);
 
     // Install.
     provider
@@ -339,8 +342,18 @@ fn integration_install_creates_all_four_hooks_with_markers() {
 
     // checkIntegration now reports installed.
     let post = provider.check_integration();
+    let native = crate::agent_claude::provider::integration::check_integration_at(
+        &dir.path().join("settings.json"),
+    );
     assert_eq!(post["settings_exists"], true);
     assert_eq!(post["hooks_installed"], true);
+    assert_eq!(post["integration_owned"], true);
+    assert_eq!(native["integration_owned"], post["integration_owned"]);
+    assert_eq!(native["precompact_hook"], post["precompact_hook"]);
+    assert_eq!(
+        native["hook_contract_current"],
+        post["hook_contract_current"]
+    );
     assert_eq!(post["notification_hook"], true);
     assert_eq!(post["stop_hook"], true);
     assert_eq!(post["precompact_hook"], true);

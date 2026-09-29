@@ -4,6 +4,42 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCatalogueAuthority {
+    FreeForm,
+    Authoritative,
+}
+
+impl Default for ModelCatalogueAuthority {
+    fn default() -> Self {
+        Self::FreeForm
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct ModelCatalogueCapability {
+    pub authority: ModelCatalogueAuthority,
+    pub live_discovery_required: bool,
+}
+
+impl ModelCatalogueCapability {
+    pub const fn authoritative() -> Self {
+        Self {
+            authority: ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: false,
+        }
+    }
+
+    pub const fn authoritative_live() -> Self {
+        Self {
+            authority: ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: true,
+        }
+    }
+}
+
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
 /// Replaces the old injected `kind` string and is the spawn discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,21 +90,6 @@ impl ContextOwner {
     pub fn is_plugin(&self) -> bool {
         matches!(self, Self::Plugin)
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderSelfUpdateCapability {
-    pub in_session: bool,
-    pub restart_required: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderUpdateCompletionSignal {
-    ProviderClassification,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -210,9 +231,19 @@ pub fn install_integration_with_trust_grant(
     options: &super::IntegrationInstallOptions,
 ) -> Result<Option<serde_json::Value>, String> {
     provider.install_integration(api_port, options)?;
-    Ok(provider
-        .integration_trust_grant_capability()
-        .map(|capability| provider.grant_integration_trust(&capability.managed_keys)))
+    let Some(capability) = provider.integration_trust_grant_capability() else {
+        return Ok(None);
+    };
+    let outcome = provider.grant_integration_trust(&capability.managed_keys);
+    if outcome.get("granted").and_then(serde_json::Value::as_bool) != Some(true) {
+        let reason = outcome
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or("provider did not confirm hook trust");
+        return Err(format!("provider integration trust grant failed: {reason}"));
+    }
+    Ok(Some(outcome))
 }
 
 /// Marker prefix on a provider error meaning the plugin was denied a sandbox

@@ -30,6 +30,7 @@ export function providerIntegrationState(
   health: ProviderIntegrationHealth | null,
 ): Exclude<ProviderIntegrationState, "checking" | "error"> {
   if (!health) return "unknown";
+  if (health.integration_state === "unknown") return "unknown";
   if (health.integration_state === "absent") return "absent";
   if (health.integration_state === "stale_version") return "stale-version";
   if (health.integration_state === "untrusted_hash") return "untrusted-hash";
@@ -98,14 +99,14 @@ export function ProviderIntegrationHealthCard({
     setAction("repair");
     setError(null);
     try {
-      await installProviderIntegration(provider.id, health?.precompact_hook);
+      await installProviderIntegration(provider.id);
       applyHealth(await checkProviderIntegration(provider.id));
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
       setAction(null);
     }
-  }, [applyHealth, health?.precompact_hook, provider.id]);
+  }, [applyHealth, provider.id]);
 
   const uninstall = useCallback(async () => {
     setAction("uninstall");
@@ -159,6 +160,16 @@ export function ProviderIntegrationHealthCard({
               : staleStopHook
                 ? "The stop hook is missing or stale. Repair the integration to restore agent stop callbacks."
                 : "The provider hook integration is incomplete and needs repair."}
+          </div>
+        )}
+
+        {health?.codeterm_binding_fallback_source && (
+          <div
+            role="status"
+            data-provider-integration-binding-fallback={health.codeterm_binding_fallback_source}
+            className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
+          >
+            The last session bound through {health.codeterm_binding_fallback_source}; its session hook may not have run.
           </div>
         )}
 

@@ -165,12 +165,27 @@ fn opaque_failure_defaults_to_admitting_the_write() {
 
 #[test]
 fn opaque_boot_refusal_is_recognised_as_zero_byte() {
-    let err = DeliveryError::from_opaque(
-        "p1",
-        "Agent in Tab p1 is still booting — input would be lost",
-    );
+    let typed = DeliveryError::TabBusyRefused {
+        tab: "p1".into(),
+        detail: "Agent in Tab p1 is still booting — input would be lost".into(),
+    };
+    let err = DeliveryError::from_opaque("p1", typed.ledger_message());
     assert_eq!(err.code(), "tab_busy_refused");
     assert!(!err.bytes_written());
+}
+
+#[test]
+fn opaque_submit_code_wins_over_zero_write_phrases_in_screen_tail() {
+    let typed = DeliveryError::SubmitUnconfirmed {
+        tab: "p1".into(),
+        detail: "screen_tail: refused delivery (nothing written): stale; has no usable PTY: stale"
+            .into(),
+    };
+    let err = DeliveryError::from_opaque("p1", typed.ledger_message());
+
+    assert_eq!(err.code(), "submit_unconfirmed");
+    assert!(err.bytes_written());
+    assert_eq!(err.status(), StatusCode::BAD_GATEWAY);
 }
 
 mod payload_preflight_bound_tests {

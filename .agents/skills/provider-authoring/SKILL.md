@@ -106,6 +106,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
+| `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, CodeTerm preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
 | `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
@@ -131,6 +132,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `taskDelivery` | `"inline_flag"` \| `"pty_input"` | `pty_input` | Whether the task rides the launch command line or is typed into the PTY after launch. |
 | `systemPromptDelivery` | `{"kind":"external"}` \| `{"kind":"cli_flag","flag":"--append-system-prompt"}` \| `{"kind":"session_config"}` | `external` | How the composed system prompt reaches the agent. |
 | `providerReadiness` | `{"kind":"tui_frame","timeoutSecs":N}` \| `{"kind":"structural_composer","timeoutSecs":N}` | `tui_frame` / 30 s | When the agent TUI itself counts as ready (post-spawn). |
+| `composerCursorPosition` | `"bottom_region"` \| `"visible_anywhere"` | `bottom_region` | Where the composer cursor appears. `visible_anywhere` allows lazy-session readiness to use a visible cursor anywhere on the provider's alternate-screen TUI. |
 | `verifySubmit` | `{"kind":"shell_prompt","timeoutSecs":N}` \| `{"kind":"tui_input_drained","initialKeyDelayMs":N}` \| `{"kind":"none"}` | `shell_prompt` / 5 s | How the host verifies a submitted message actually went in. `initialKeyDelayMs` defaults to 0. |
 | `busySubmit` | `{"kind":"submit_normally"}` \| `{"kind":"key","key":"<bytes>"}` | `submit_normally` | What to send when submitting while the agent is generating. |
 | `sessionIdInjection` | `"none"` \| `"fresh"` \| `"fresh_and_fork"` | `none` | Whether the host generates and injects a session id at launch (and on fork). |
@@ -138,6 +140,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `agentStateStatusReconciliation` | bool | false | Provider participates in agent-state ↔ status reconciliation. |
 | `supportsLazySkills` | bool | false | Provider can lazy-load skills via trigger words; otherwise skills merge into the system prompt up-front. |
 | `hasHooks` | bool | false | Provider has hook-based detection. |
+| `sessionStartsOnFirstUserTurn` | bool | false | The provider emits its session binding only after its first user turn; launches without a startup task accept input from declared composer readiness. |
 | `hookEventRoster` | `[{event, route}]`? | absent | Declared hook events: each entry names an `event` and a core ingestion `route`. Unknown routes fail the **whole roster** closed. Absent ⇒ native fallback's roster, else SessionStart-only when `hasHooks`. |
 | `interactiveEvents` | bool | false | Plugin exports `parseInteractiveEvents`; host calls it to extract interactive prompts. False ⇒ native fallback handles it. |
 | `supportsStructuredPrompts` | bool | false | Provider exposes a structured prompt source; host builds `pending_prompt` from it instead of scraping the PTY. **JS-only providers cannot serve this** — see caveats. |
@@ -169,12 +172,13 @@ All fields optional.
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`. Absent ⇒ provider has no scriptable effort flag even if it lists effort levels. |
+| `additionalWritableDirFlag` | string? | CLI flag accepting one extra writable directory. For a sandboxed linked worktree, core supplies the lane gitdir plus the canonical project's `objects`, `refs`, and `logs` directories; it never supplies the common `.git` directory. Applied on spawn, dispatch, restore, and resume after validating the worktree against its canonical project. |
 
 ### `integration`
 
 | Field | Type / legal values | Meaning |
 |---|---|---|
-| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `none`: PTY parser does it all. |
+| `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"plugin_file"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `plugin_file`: provider owns a marked plugin file that core may refresh only while its ownership marker remains. `none`: PTY parser does it all. |
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
 
@@ -229,7 +233,9 @@ instead.
 |---|---|---|---|
 | `parsePrompt(text)` | screen text | `{question, options: [[id, label], …]}` or `null` | universal permission-prompt parser. |
 | `buildPromptResponse(optionIndex, screen)` | selected index, live screen | array of **base64-encoded** byte strings, one per PTY write step (vim j/k, arrows, escape sequences — whatever the TUI expects; `screen` lets you navigate relative to the live highlight) | arrow-down × index + Enter. |
-| `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core asks only for an agent tab in the directory CodeTerm created whose launch session is not yet authenticated, and writes one key per observed frame. | `null` — directory-trust dialogs stay with the user. |
+| `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core writes one key per observed frame only when `isDirectoryTrusted(cwd)` confirms the exact current folder. | `null` — directory-trust dialogs stay with the user. |
+| `isDirectoryTrusted(cwd)` | current tab working directory | bool — true only when the provider's shared configuration explicitly trusts this exact folder; core fails closed on false or errors. | `false` — automatic trust responses stay disabled. |
+| `launchOnboardingResponse(screen)` | live clean screen text | `{frameKey, step}` for the next declared safe key (`step` is base64), or `null` | `null` — owner-facing prompts stay with the owner. Core checks delegated Worker/Planner screen changes off the PTY output path, deduplicates each focus frame, and re-observes after each key. |
 | `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
 
 ### Session discovery

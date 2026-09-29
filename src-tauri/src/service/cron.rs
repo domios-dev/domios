@@ -26,7 +26,11 @@ impl ServiceContext {
             .filter(|agent| !agent.trim().is_empty())
             .map(str::to_string)
             .unwrap_or_else(crate::config::default_agent_provider);
-        self.validate_cron_reasoning_effort(&provider, params.reasoning_effort.as_deref())?;
+        self.validate_cron_reasoning_effort(
+            &provider,
+            params.model.as_deref(),
+            params.reasoning_effort.as_deref(),
+        )?;
         let job = cron.lock().create(params)?;
         wake.notify_all();
         self.emit_cron_changed();
@@ -70,6 +74,7 @@ impl ServiceContext {
     fn validate_cron_reasoning_effort(
         &self,
         provider: &str,
+        model: Option<&str>,
         effort: Option<&str>,
     ) -> Result<(), String> {
         if effort
@@ -80,9 +85,12 @@ impl ServiceContext {
             return Ok(());
         }
         self.require_agent_provider_ready(provider)?;
+        let model =
+            model.map(|model| crate::agent::model_catalog::resolve_model(provider, Some(model)).id);
         crate::service::spawn::validate_agent_reasoning_effort(
             &self.agent_registry,
             provider,
+            model.as_deref(),
             effort,
         )
     }
@@ -109,7 +117,7 @@ impl ServiceContext {
         id: &str,
         patch: CronUpdateParams,
     ) -> Result<CronJob, String> {
-        let (provider, effort) = {
+        let (provider, model, effort) = {
             let store = cron.lock();
             let job = store
                 .get(id)
@@ -124,9 +132,10 @@ impl ServiceContext {
                 .reasoning_effort
                 .clone()
                 .or_else(|| job.reasoning_effort.clone());
-            (provider, effort)
+            let model = patch.model.clone().or_else(|| job.model.clone());
+            (provider, model, effort)
         };
-        self.validate_cron_reasoning_effort(&provider, effort.as_deref())?;
+        self.validate_cron_reasoning_effort(&provider, model.as_deref(), effort.as_deref())?;
         let job = cron.lock().update(id, patch)?;
         wake.notify_all();
         self.emit_cron_changed();

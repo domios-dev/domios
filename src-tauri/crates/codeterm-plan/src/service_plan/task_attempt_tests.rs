@@ -4,8 +4,11 @@ use crate::plan::{
 };
 use codeterm_types::agent::ReportStatus;
 
+mod blocked_dispatch_tests;
 mod plan_skill_evidence;
+mod session_model_replay;
 mod task_attempt_respawn_tests;
+mod unplanned_reports;
 
 pub(super) fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -105,6 +108,56 @@ fn dispatched_attempt_records_worktree_path_and_base() {
     assert_eq!(attempt.worktree_path.as_deref(), Some("/lanes/task-a"));
     assert_eq!(attempt.base.as_deref(), Some("basecommit"));
     assert_eq!(attempt.branch.as_deref(), Some("lane/task-a"));
+}
+
+#[test]
+fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let block_reason = "awaiting dependency evidence";
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status = TaskStatus::Blocked;
+            task.status_label = Some(block_reason.into());
+            task.status_changed_at = 4;
+            Ok(())
+        })
+        .unwrap();
+
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "worker-next", "Worker", lane.clone(), 5)
+        .unwrap();
+    let pending = store.get(&plan_id).unwrap();
+    let task = crate::plan::task_key::find_task(&pending.tasks, &task_id).unwrap();
+    assert_eq!(task.status, TaskStatus::Pending);
+    assert!(pending.strides.iter().any(|stride| {
+        stride.links.iter().any(|link| link == &task_id)
+            && stride.text.contains("unblocked by dispatch")
+            && stride.text.contains(block_reason)
+    }));
+
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "worker-next",
+            &attempt_id,
+            "session-next",
+            "nonce-next",
+            lane,
+            6,
+        )
+        .unwrap();
+    let ack = store
+        .acknowledge_live_task_attempt_for_tab("worker-next", Some(&plan_id), Some(&task_id), 7)
+        .unwrap();
+    assert_eq!(ack.attempt.id, attempt_id);
+    assert_eq!(ack.attempt.acknowledged_at, Some(7));
 }
 
 #[test]
@@ -381,6 +434,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
 
     let mut attempts = redispatched.execution_attempts;
     let replacement = TaskExecutionAttempt {
+        actual_reasoning_effort: None,
         id: "later-replacement".into(),
         executor_tab_id: "later-worker".into(),
         ..Default::default()

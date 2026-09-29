@@ -130,6 +130,66 @@ impl PlanStore {
         None
     }
 
+    pub fn open_attempt_task_for_tab(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+    ) -> Option<(String, String, String)> {
+        self.find_open_attempt_task_for_tab(tab_id, session_id, session_binding_nonce, true)
+    }
+
+    pub fn open_attempt_task_for_effort_for_tab(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+    ) -> Option<(String, String, String)> {
+        self.find_open_attempt_task_for_tab(tab_id, session_id, session_binding_nonce, false)
+    }
+
+    fn find_open_attempt_task_for_tab(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        require_unknown_model: bool,
+    ) -> Option<(String, String, String)> {
+        if tab_id.trim().is_empty()
+            || session_id.trim().is_empty()
+            || session_binding_nonce.trim().is_empty()
+        {
+            return None;
+        }
+        let mut matched = None;
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            for task in plan
+                .tasks
+                .iter()
+                .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+            {
+                for attempt in task.execution_attempts.iter().filter(|attempt| {
+                    attempt.executor_tab_id == tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                        && (!require_unknown_model || attempt.session_model.is_none())
+                        && attempt.session_id.as_deref() == Some(session_id)
+                        && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
+                }) {
+                    if matched.is_some() {
+                        return None;
+                    }
+                    matched = Some((plan.id.clone(), task.id.clone(), attempt.id.clone()));
+                }
+            }
+        }
+        matched
+    }
+
     pub fn report_pending_task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
         if tab_id.trim().is_empty() {
             return None;

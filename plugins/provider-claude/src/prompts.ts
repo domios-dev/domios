@@ -87,7 +87,7 @@ export function parseWizardOptions(body: string): ParsedOptionState[] {
 
 export function parseNumberedOptions(text: string): ParsedOptionState[] {
   const options: ParsedOptionState[] = [];
-  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
+  const re = /^\s*[❯>]?\s*(\d+)\.[ ]+([^\r\n]*)/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -133,7 +133,7 @@ export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
   if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
   const options = parseNumberedOptions(raw);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
   const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
   const question = findQuestion(before) || "Choose an option";
   return {
@@ -276,6 +276,69 @@ export function buildClaudePromptResponse(optionIndex: number, screen: string): 
   steps.push("DQ==");
   if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
   return steps;
+}
+
+export interface ClaudeOnboardingPrompt {
+  question: string;
+  options: [string, string][];
+  frameKey: string;
+  step: string;
+}
+
+export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt | null {
+  const lines = String(screen || "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .split(/\r?\n/)
+    .map(onboardingRow);
+  const candidates = lines.flatMap((line, index) => {
+    const match = /^\s*([❯>])?\s*(\d+)\.[ ]+(.*?)\s*$/.exec(line);
+    return match ? [{ focused: Boolean(match[1]), number: match[2], label: match[3].trim(), line: index }] : [];
+  });
+  const options = candidates.slice(-3);
+  if (options.length !== 3 || options.some((option, index) => option.number !== String(index + 1))) return null;
+  if (options.filter((option) => option.focused).length !== 1) return null;
+  const first = options[0].line;
+  const last = options[2].line;
+  if (last - first > 4) return null;
+  const footer = lines.slice(last + 1, last + 4).join(" ").toLowerCase();
+  if (!footer.includes("enter") || !footer.includes("esc")) return null;
+  let question = "";
+  for (let index = first - 1; index >= Math.max(0, first - 5); index--) {
+    if (lines[index].endsWith("?")) {
+      question = lines[index];
+      break;
+    }
+  }
+  const questionWords = question.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!questionWords.includes("auto") || !questionWords.includes("environment")) return null;
+  const labels = options.map((option) => normalizeOnboardingLabel(option.label));
+  const target = labels.findIndex((label) => label.startsWith("not now"));
+  if (target < 0 || labels.filter((label) => label.startsWith("yes")).length !== 1) return null;
+  if (labels.filter((label) => label.startsWith("don't show again")).length !== 1) return null;
+  const current = options.findIndex((option) => option.focused);
+  const step = current === target ? "DQ==" : target > current ? "ag==" : "aw==";
+  return {
+    question,
+    options: options.map((option) => [option.label, option.number]),
+    frameKey: `onboarding:focus-${current}:target-${target}`,
+    step,
+  };
+}
+
+export function claudeOnboardingNotNowStep(screen: string): { frameKey: string; step: string } | null {
+  const prompt = claudeOnboardingPrompt(screen);
+  return prompt ? { frameKey: prompt.frameKey, step: prompt.step } : null;
+}
+
+function onboardingRow(row: string): string {
+  return row
+    .replace(/^\s*[│┃║]\s*/, "")
+    .replace(/\s*[│┃║]\s*$/, "")
+    .trim();
+}
+
+function normalizeOnboardingLabel(label: string): string {
+  return label.toLowerCase().replace(/[’‘]/g, "'").trim();
 }
 
 export function moveToOption(targetIndex: number, screen: string): string[] {

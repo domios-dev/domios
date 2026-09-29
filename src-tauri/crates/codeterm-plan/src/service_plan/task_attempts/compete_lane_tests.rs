@@ -33,6 +33,7 @@ fn draft(plan_id: &str, task_id: &str, lane: u32, branch: Option<&str>) -> TaskC
         provider: "claude".into(),
         planned_model: None,
         model: None,
+        reasoning_effort: None,
         parent_tab_id: Some("orch".into()),
         workspace_id: None,
         title: None,

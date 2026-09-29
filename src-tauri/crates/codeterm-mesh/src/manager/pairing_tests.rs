@@ -21,11 +21,9 @@ fn paired_peer_named(id: &str, name: &str, addresses: Vec<&str>) -> PairedPeer {
     }
 }
 
-/// codeterm#434: a peer that re-minted its instance_id and re-pairs under the
-/// same name + host must not leave the old id behind as a dead resolution
-/// candidate — `complete_explicit_pairing` supersedes (removes) it.
+/// Pairing records are keyed by identity, never by a matching name or host.
 #[test]
-fn re_pairing_under_the_same_name_and_host_supersedes_the_old_record() {
+fn pairing_dedupe_never_replaces_another_local_instance() {
     let mut mesh = MeshManager::new("local".into(), 7685);
     mesh.disk_persist = false;
     // `MeshManager::new` loads real disk state — start from empty so this
@@ -44,12 +42,53 @@ fn re_pairing_under_the_same_name_and_host_supersedes_the_old_record() {
         vec!["100.65.0.30"],
     ));
 
-    assert!(
-        !mesh.paired_peers.contains_key("a4db6f3d-dead"),
-        "the old identity must stop being a resolution candidate"
-    );
+    assert!(mesh.paired_peers.contains_key("a4db6f3d-dead"));
     assert!(mesh.paired_peers.contains_key("2556b3f9-live"));
-    assert_eq!(mesh.paired_peers.len(), 1);
+    assert_eq!(mesh.paired_peers.len(), 2);
+}
+
+#[test]
+fn unrevoke_requires_an_existing_revocation_and_clears_tombstone() {
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    let id = "a4db6f3d-0000-0000-0000-000000000000";
+    mesh.revocation_list.revoked.push(id.into());
+    mesh.revocation_list.tombstones.insert(id.into(), 4);
+
+    mesh.unrevoke(id).unwrap();
+
+    assert!(!mesh.is_revoked(id));
+    assert!(mesh.unrevoke(id).is_err());
+}
+
+#[test]
+fn revoked_peer_can_re_pair_after_explicit_unrevoke() {
+    let id = "a4db6f3d-0000-0000-0000-000000000000";
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.pairing_targets
+        .insert("request".into(), ("127.0.0.1".into(), 7685, id.into()));
+    mesh.revocation_list.revoked.push(id.into());
+    mesh.revocation_list.tombstones.insert(id.into(), 1);
+
+    assert!(mesh
+        .validate_pairing_accept_identity("request", id)
+        .is_err());
+    mesh.unrevoke(id).unwrap();
+    assert!(mesh.validate_pairing_accept_identity("request", id).is_ok());
+}
+
+#[test]
+fn completing_a_pair_does_not_lift_revocation() {
+    let id = "a4db6f3d-0000-0000-0000-000000000000";
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.revocation_list.revoked.push(id.into());
+    mesh.revocation_list.tombstones.insert(id.into(), 1);
+
+    mesh.complete_explicit_pairing(paired_peer_named(id, "peer", vec!["100.65.0.30"]));
+
+    assert!(mesh.is_revoked(id));
 }
 
 /// A same-named peer at a DIFFERENT host is a distinct machine, not a

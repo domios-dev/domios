@@ -5,23 +5,40 @@ import type {
   ModelInfo,
   ParsedPrompt,
   PluginModule,
+  ResumeParams,
+  SessionDeltaContext,
+  TabState,
 } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import { detectCodexLaunchSession, withLaunchMarker } from "./launchSession";
 import {
   classifyCodexFolderTrustPrompt,
+  parseMenuOptions,
   parseCodexFolderTrustPrompt,
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
+import { checkCodexUpdate } from "./update";
+import { execScriptCommands, summarizeExecScript, unwrapCommandExecution, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
 import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
 import { codexFileDiffs } from "./fileDiffs";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
+import {
+  codexDirectoryTrustState,
+  codexProfileInstanceId,
+  codexProfileTabId,
+  carryCodexProjectTrustForTab,
+  isCodexDirectoryTrusted,
+  inspectCodexProfiles,
+  manageCodexProfiles,
+  releaseCodexProfile,
+  sweepCodexProfiles,
+  type ProfileSweepHost,
+} from "./profile-sweep";
 import {
   classifyCodexTabState,
   type TabStateClassification,
@@ -30,6 +47,7 @@ import {
 import {
   detectSessionId as detectCodexSessionId,
   detectSessionModel as detectCodexSessionModel,
+  detectSessionReasoningEffort as detectCodexSessionReasoningEffort,
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
   findSession as findCodexSession,
@@ -45,8 +63,32 @@ import {
   uninstallIntegration as uninstallCodexIntegration,
   type CodexIntegrationInstallOptions,
 } from "./integration";
-// Not yet called from ensureIntegrationOnStartup — apiPort alone carries no safe live-tab-id source.
-export { sweepCodexProfiles, codexProfileTabId, codexProfilesToSweep, type SweepHost } from "./profile-sweep";
+export {
+  codexProfileInstanceId,
+  codexProfileTabId,
+  inspectCodexProfiles,
+  manageCodexProfiles,
+  releaseCodexProfile,
+  sweepCodexProfiles,
+};
+
+function profileSweepHost(): ProfileSweepHost {
+  return {
+    platform: () => host.platform(),
+    homeDir: () => host.homeDir(),
+    log: (level, message) => host.log(level, message),
+    fs: {
+      fileExists: (path) => host.fs.fileExists(path),
+      isSymlink: (path) => host.fs.isSymlink(path),
+      readDir: (path) => host.fs.readDir(path),
+      readFile: (path) => host.fs.readFile(path),
+      removeFile: (path) => host.fs.removeFile(path),
+      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
+      lockFile: (path) => host.fs.lockFile(path),
+      unlockFile: (id) => host.fs.unlockFile(id),
+    },
+  };
+}
 
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
@@ -69,6 +111,42 @@ function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
+}
+
+function windowsProfileCommand(parts: string[], taskPath: string | null, instanceId: string): string {
+  const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
+  const taskSetup = taskPath
+    ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); `
+      + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
+    : "$ctTaskJson = $null; ";
+  const profileValue = taskPath
+    ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)"
+    : "('# codeterm-instance: ' + $ctInstanceId)";
+  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
+    + taskSetup
+    + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
+    + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
+    + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+    + `$ctInstanceId = ${quotedInstanceId}; `
+    + "if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
+    + "$ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
+    + "$ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
+    + "$ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; "
+    + "if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; "
+    + "if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); "
+    + "$ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; "
+    + "if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; "
+    + "if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+    + "Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; "
+    + `[System.IO.File]::WriteAllText($ctProfilePath, ${profileValue}, [System.Text.UTF8Encoding]::new($false)); `
+    + "$ctProfileReleased = $false; try { try { ";
+  const suffix = " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; "
+    + "try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { "
+    + "$ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; "
+    + "$ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; "
+    + "$ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
+    + "} } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
+  return prefix + parts.join(" ") + suffix;
 }
 
 function hasPromptAndStatusFooter(screen: string): boolean {
@@ -169,6 +247,9 @@ const plugin: PluginModule = {
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
     if (prompt.affirmativeIndex !== 0) return [];
+    if (!prompt.affirmativeSelected && responseKeysForIndex(prompt.affirmativeIndex, view)[0] === "DQ==") {
+      return [];
+    }
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
 
@@ -177,11 +258,44 @@ const plugin: PluginModule = {
     return discoverCodexModels();
   },
 
+  checkForUpdate() {
+    return checkCodexUpdate(host);
+  },
+
+  releaseTabLaunchArtifacts(tabId: string, instanceId: string): boolean {
+    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+
+  folderTrustAnswered(tabId: string, instanceId: string): boolean {
+    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  },
+
+  isDirectoryTrusted(path: string): boolean {
+    return isCodexDirectoryTrusted(profileSweepHost(), path);
+  },
+
+  directoryTrustState(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown" {
+    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
+  },
+
+  sweepLaunchArtifacts(request: {
+    instanceId: string;
+    liveTabIds: string[];
+    confirm: boolean;
+    includeLegacy: boolean;
+  }) {
+    return manageCodexProfiles(
+      profileSweepHost(),
+      request.liveTabIds,
+      request.instanceId,
+      request.confirm,
+      request.includeLegacy,
+    );
+  },
+
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts: string[] = [];
-    let prefix = "";
-    parts.push("codex");
+    const parts: string[] = ["codex", "-c", "check_for_update_on_startup=false"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -191,18 +305,17 @@ const plugin: PluginModule = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
+        ? p.instanceId
+        : null;
+      if (host.platform() === "windows" && !instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : undefined);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); `
-          + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
-          + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
-          + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
-          + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
-          + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
-          + "try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -215,21 +328,47 @@ const plugin: PluginModule = {
         parts.push(host.shell.quoteFor(prompt, host.platform()));
       }
       if (host.platform() === "windows") {
-        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+        return windowsProfileCommand(parts, taskPath, instanceId!);
       }
     }
-    return prefix + parts.join(" ");
+    return parts.join(" ");
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
     }
     // session_id accepts UUID or rollout filename stem.
     const uuid = extractSessionUuid(sessionId) || sessionId;
-    parts.push(host.shell.quoteFor(uuid, host.platform()));
+    parts.push(host.shell.quoteFor(uuid, host.platform()), "--no-daemon");
+    return parts.join(" ");
+  },
+
+  buildResumeCommandWithContext(params: ResumeParams): string {
+    const p = params || ({} as ResumeParams);
+    const platform = host.platform();
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    if (p.skipPermissions) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
+      parts.push("--dangerously-bypass-hook-trust");
+    }
+    const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
+    parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
+    if (Array.isArray(p.args)) {
+      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+    }
+    if (platform === "windows") {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
+        ? p.instanceId
+        : null;
+      if (!instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex resume: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
+      parts.push("--profile", "$ctProfileName");
+      return windowsProfileCommand(parts, null, instanceId);
+    }
     return parts.join(" ");
   },
 
@@ -251,8 +390,9 @@ const plugin: PluginModule = {
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  parseSessionDelta(chunk: string): unknown {
+  parseSessionDelta(chunk: string, context?: SessionDeltaContext): unknown {
     const out: unknown[] = [];
+    const commandPairing = commandPairingState(context);
     const activityIds = new Set<string>();
     // One source record can be reported twice (completion event and response item) under one id.
     const pushOnce = (row: { uuid?: string } | null) => {
@@ -318,6 +458,7 @@ const plugin: PluginModule = {
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
+        clearTurnPairings(commandPairing, turnId);
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
@@ -327,6 +468,7 @@ const plugin: PluginModule = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
         pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
         continue;
       }
@@ -401,9 +543,14 @@ const plugin: PluginModule = {
         });
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : undefined;
+        if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: {
+            content: codexToolOutputText(p.output), tool_use_id: callId,
+            ...(pending ? commandPairingResult(pending) : {}),
+          } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -432,13 +579,33 @@ const plugin: PluginModule = {
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
-        out.push({
+        const message = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
-        });
+        };
+        const commands = name === "exec" && callId && typeof input.raw === "string"
+          ? execScriptCommands(input.raw)
+          : [];
+        out.push(message);
+        if (commands.length > 0) {
+          const turnId = callTurnId(p);
+          if (!turnId) continue;
+          commandPairing.pending.delete(callId);
+          commandPairing.pending.set(callId, {
+            commandCount: commands.length,
+            commands,
+            completedCommands: new Set(),
+            commandResults: [],
+            turnId,
+          });
+          trimPendingCalls(commandPairing);
+        }
       }
+    }
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+      commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
     return { messages: out };
@@ -501,6 +668,10 @@ const plugin: PluginModule = {
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd: string, sessionId: string): string | null {
     return detectCodexSessionModel(cwd, sessionId);
+  },
+
+  detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
+    return detectCodexSessionReasoningEffort(cwd, sessionId);
   },
 
   // Mirror native parse_session_messages for response_item message blocks.
@@ -567,17 +738,13 @@ const plugin: PluginModule = {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
 
-  providerSelfUpdateCapability(): {
-    inSession: boolean;
-    restartRequired: boolean;
-    completionSignal: "provider_classification";
-  } {
-    return {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification",
-    };
+  classifiedPromptAutoResponse(state: TabState, screen: string): "skip" | null {
+    if (state !== "update_prompt") return null;
+    const options = parseMenuOptions(screen);
+    if (!options.some((option) => /\bupdate\b/i.test(option.label))) return null;
+    return options.filter((option) => option.label === "Skip").length === 1 ? "skip" : null;
   },
+
 };
 
 // types shared by the parsers above
@@ -610,6 +777,118 @@ interface CodexPayload {
   changes?: unknown;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
+
+interface PendingCommandPairing {
+  commandCount: number;
+  commands: string[];
+  completedCommands: Set<number>;
+  commandResults: Record<string, unknown>[];
+  turnId: string;
+}
+
+interface CommandPairingState {
+  pending: Map<string, PendingCommandPairing>;
+  sessionKey?: string;
+  lastOffset?: number;
+}
+
+const commandPairingSessions = new Map<string, CommandPairingState>();
+const MAX_PAIRING_SESSIONS = 32;
+const MAX_PENDING_CALLS_PER_SESSION = 64;
+
+function commandPairingState(context?: SessionDeltaContext): CommandPairingState {
+  const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
+  const offset = context?.from_offset;
+  if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
+    return { pending: new Map() };
+  }
+  let state = commandPairingSessions.get(sessionKey);
+  if (state && state.lastOffset !== undefined && offset <= state.lastOffset) {
+    commandPairingSessions.delete(sessionKey);
+    state = undefined;
+  }
+  if (!state) state = { pending: new Map(), sessionKey };
+  state.lastOffset = offset;
+  commandPairingSessions.delete(sessionKey);
+  commandPairingSessions.set(sessionKey, state);
+  while (commandPairingSessions.size > MAX_PAIRING_SESSIONS) {
+    const oldest = commandPairingSessions.keys().next().value;
+    if (typeof oldest !== "string") break;
+    commandPairingSessions.delete(oldest);
+  }
+  return state;
+}
+
+function trimPendingCalls(state: CommandPairingState): void {
+  while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.pending.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.pending.delete(oldest);
+  }
+}
+
+function clearTurnPairings(state: CommandPairingState, turnId: string): void {
+  for (const [callId, call] of state.pending) {
+    if (call.turnId === turnId) state.pending.delete(callId);
+  }
+}
+
+function commandPairingResult(call: PendingCommandPairing): Record<string, unknown> {
+  if (call.commandResults.length === 0) return {};
+  const results = [...call.commandResults].sort((left, right) => Number(left.command_index) - Number(right.command_index));
+  const failed = results.find((result) => result.tool_status === "error");
+  const complete = results.length === call.commandCount;
+  const durations = results.map((result) => result.tool_duration_ms);
+  const completeDurations = complete && durations.every((duration) => typeof duration === "number");
+  const failureCode = failed && typeof failed.tool_exit_code === "number" && failed.tool_exit_code !== 0
+    ? failed.tool_exit_code
+    : undefined;
+  return {
+    tool_wrapper_detail: results.map((result) => result.wrapper_detail).join("\n\n"),
+    tool_command_results: results,
+    ...(failed ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {}),
+    ...(failureCode !== undefined ? { tool_exit_code: failureCode } : complete ? { tool_exit_code: 0 } : {}),
+    ...(completeDurations ? { tool_duration_ms: durations.reduce((sum, duration) => sum + Number(duration), 0) } : {}),
+  };
+}
+
+function callTurnId(payload: CodexPayload): string | undefined {
+  if (typeof payload.turn_id === "string") return payload.turn_id;
+  const metadata = payload.internal_chat_message_metadata_passthrough;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const turnId = (metadata as Record<string, unknown>).turn_id;
+  return typeof turnId === "string" && turnId ? turnId : undefined;
+}
+
+function pairCommandExecution(item: unknown, turnId: unknown, state: CommandPairingState): boolean {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const execution = item as Record<string, unknown>;
+  if (execution.type !== "CommandExecution") return false;
+  const wrapper = unwrapCommandExecution(execution.command);
+  const currentTurn = typeof turnId === "string" ? turnId : "";
+  if (!wrapper || !currentTurn) return false;
+  const candidates = Array.from(state.pending.values()).filter((call) =>
+    call.turnId === currentTurn && call.commands.some((command, index) =>
+      command === wrapper.command && !call.completedCommands.has(index)));
+  if (candidates.length !== 1) return false;
+  const call = candidates[0];
+  const commandIndex = call.commands.findIndex((command, index) =>
+    command === wrapper.command && !call.completedCommands.has(index));
+  const activity = completedActivity(item, null, null, turnId);
+  const toolData = activity?.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (!toolData) return false;
+  call.completedCommands.add(commandIndex);
+  call.commandResults.push({
+    command_index: commandIndex,
+    command: wrapper.command,
+    wrapper_detail: wrapper.detail,
+    ...(toolData.tool_status !== undefined ? { tool_status: toolData.tool_status } : {}),
+    ...(toolData.tool_exit_code !== undefined ? { tool_exit_code: toolData.tool_exit_code } : {}),
+    ...(toolData.tool_duration_ms !== undefined ? { tool_duration_ms: toolData.tool_duration_ms } : {}),
+  });
+  return true;
+}
+
 export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 
 function nestedApplyPatch(raw: string): string | null {

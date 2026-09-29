@@ -17,18 +17,20 @@ $env:GA_PROVIDER='cursor'; npm run test:general-agent-provider
 Claude, Codex, and OpenCode must:
 
 1. replace the untouched Get started surface;
-2. bind an authoritative session and confirm bootstrap delivery;
+2. bind an authoritative session; providers with a system-prompt channel carry
+   bootstrap there and create no interactive PTY delivery, while providers
+   without one confirm the fallback delivery;
 3. produce a first assistant reply;
 4. restart with the same Tab and session, a new PTY, and produce an exact
    post-resume reply.
 
 Cursor is intentionally launch-only because a limited account may not produce
-a model reply. It must still reach `agent_ready`, bind a session, and confirm
-the combined system/bootstrap delivery.
+a model reply. It must still reach `agent_ready`, bind a session, and use the
+delivery surface declared by its provider capability.
 
 The runner refuses a reused profile. Before each invocation, stop dev with
 `.\build.ps1 kill`, preserve or remove only `~/.codeterm-dev`, then start a
 fresh visible dev instance with `.\build.ps1 dev`. Never remove
 `~/.codeterm`, which is prod.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

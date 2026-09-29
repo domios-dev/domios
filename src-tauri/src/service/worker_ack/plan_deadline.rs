@@ -5,8 +5,113 @@ use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin,
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 use std::sync::Arc;
+use tauri::Manager;
 
 impl ServiceContext {
+    pub(crate) fn acknowledge_remote_worker_ack(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        peer_id: &str,
+        worker_tab_id: &str,
+    ) {
+        let identity =
+            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
+        self.worker_ack.acknowledge(&identity);
+    }
+
+    pub(crate) fn arm_remote_worker_ack_deadline(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        peer_id: &str,
+        peer_name: &str,
+        worker_tab_id: &str,
+        parent_tab_id: &str,
+    ) {
+        let identity =
+            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
+        let arm = self.worker_ack.arm(identity.clone());
+        let Some(receiver) = arm.receiver.filter(|_| arm.starts_supervisor) else {
+            return;
+        };
+        let service = Arc::new(self.clone());
+        let plan_id = plan_id.to_string();
+        let task_id = task_id.to_string();
+        let attempt_id = attempt_id.to_string();
+        let peer_id = peer_id.to_string();
+        let peer_name = peer_name.to_string();
+        let worker_tab_id = worker_tab_id.to_string();
+        let parent_tab_id = parent_tab_id.to_string();
+        std::thread::spawn(move || {
+            if await_remote_worker_ack(&receiver, REMOTE_WORKER_ACK_DEADLINE) {
+                return;
+            }
+            if !service.worker_ack.expire(&identity) {
+                return;
+            }
+            let peer_online = service
+                .app_handle
+                .state::<crate::MeshStateHandle>()
+                .lock()
+                .paired_peers
+                .get(&peer_id)
+                .is_some_and(|peer| peer.online);
+            let finalized = if peer_online {
+                service.plan_store.mark_remote_ack_timeout(
+                    &plan_id,
+                    &task_id,
+                    &attempt_id,
+                    &peer_id,
+                    &worker_tab_id,
+                    epoch_ms(),
+                )
+            } else {
+                service.plan_store.mark_remote_peer_offline_before_ack(
+                    &plan_id,
+                    &task_id,
+                    &attempt_id,
+                    &peer_id,
+                    &worker_tab_id,
+                    epoch_ms(),
+                )
+            }
+            .unwrap_or(false);
+            if !finalized {
+                return;
+            }
+            crate::api::events::emit_everywhere(
+                &service.app_handle,
+                "plan-changed",
+                json!({"plan_id": plan_id}),
+            );
+            let payload = json!({
+                "kind": if peer_online { "remote_ack_timeout" } else { "remote_peer_offline" },
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "peer_id": peer_id,
+                "peer_name": peer_name,
+                "tab_id": worker_tab_id,
+                "impact": if peer_online {
+                    "Remote Worker did not acknowledge before the origin deadline; the task is dispatchable again."
+                } else {
+                    "Remote peer went offline before Worker ACK; the task is dispatchable again."
+                },
+            });
+            service.publish_worker_lifecycle_report(
+                &parent_tab_id,
+                &worker_tab_id,
+                &format!("Worker@{peer_name}"),
+                &plan_id,
+                &task_id,
+                payload,
+            );
+        });
+    }
+
     fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {
         self.screen_state
             .lock()
@@ -17,6 +122,101 @@ impl ServiceContext {
                 )
             })
             .filter(|output| !output.trim().is_empty())
+    }
+
+    pub(super) fn startup_prompt_failure_reason(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Option<String> {
+        let (agent_type, cwd, trust_provenance) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id)?;
+            if tab.pty_id.as_deref() != Some(attempt_id) || tab.launch_session_authenticated() {
+                return None;
+            }
+            let agent_type = tab.agent_type.clone()?;
+            let trust_provenance =
+                match crate::service::directory_trust::directory_trust_provenance(tab) {
+                    Ok(()) => "directory-trust provenance is available",
+                    Err(crate::service::directory_trust::DirectoryTrustRefusal::NoProvenance) => {
+                        "no provenance to auto-answer"
+                    }
+                    Err(reason) => reason.reason(),
+                };
+            (agent_type, tab.cwd.clone(), trust_provenance)
+        };
+        let screen_text = self.screen_state.lock().get_screen_text(attempt_id)?;
+        let snapshot = crate::agent::tab_state::TabStateSnapshot {
+            tab_id: tab_id.to_string(),
+            agent_type: agent_type.clone(),
+            session_id: None,
+            cwd,
+            screen_text: screen_text.clone(),
+        };
+        self.agent_registry
+            .with_provider(&agent_type, |provider| {
+                if provider.parse_directory_trust_prompt(&screen_text).is_some() {
+                    return Some(format!(
+                        "blocked on provider directory-trust prompt; {trust_provenance}; no session binding"
+                    ));
+                }
+                if let Some(classification) = provider.classify_tab_state(&snapshot) {
+                    if classification.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD {
+                        let prompt = match classification.state {
+                            crate::agent::tab_state::TabState::WaitingOnAuth => {
+                                Some("provider authentication prompt")
+                            }
+                            crate::agent::tab_state::TabState::UpdatePrompt => {
+                                Some("provider update prompt")
+                            }
+                            crate::agent::tab_state::TabState::RateLimited => {
+                                Some("provider rate-limit prompt")
+                            }
+                            crate::agent::tab_state::TabState::ClarifyingQuestion => {
+                                Some("provider question prompt")
+                            }
+                            _ => None,
+                        };
+                        if let Some(prompt) = prompt {
+                            return Some(format!("blocked on {prompt}; no session binding"));
+                        }
+                    }
+                }
+                provider
+                    .parse_prompt(&screen_text)
+                    .map(|_| "blocked on provider permission prompt; no session binding".into())
+            })
+            .flatten()
+    }
+
+    pub(super) fn agent_startup_failure_payload(
+        &self,
+        authority: &StartupAuthority,
+        agent_title: &str,
+        exit_code: Option<i32>,
+    ) -> Option<Value> {
+        if !self.startup_attempt_is_current(authority) {
+            return None;
+        }
+        let failure_reason = self
+            .startup_prompt_failure_reason(&authority.child_tab_id, &authority.attempt_id)
+            .filter(|reason| self.record_startup_failure_reason(authority, reason));
+        if let Some(reason) = failure_reason.as_deref() {
+            log::warn!(
+                "[startup-supervision] Tab {} startup deadline failed: {reason}",
+                authority.child_tab_id
+            );
+        }
+        let provider_output = self.startup_provider_output(&authority.attempt_id);
+        Some(agent_startup_failed_event(
+            &authority.child_tab_id,
+            agent_title,
+            &authority.attempt_id,
+            exit_code,
+            provider_output.as_deref(),
+            failure_reason.as_deref(),
+        ))
     }
 
     pub(crate) fn register_agent_startup_supervision(
@@ -137,7 +337,7 @@ impl ServiceContext {
         binding_nonce: &str,
         expected_task_identity: Option<&StartupTaskIdentity>,
     ) -> Result<(), String> {
-        let (session_id, task_binding) = {
+        let (session_id, task_binding, remote_task_bound) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(agent_tab_id) else {
                 return Err(format!("task-bound startup tab {agent_tab_id} disappeared"));
@@ -149,8 +349,26 @@ impl ServiceContext {
                     "startup waiter binding for Tab {agent_tab_id} does not own PTY {attempt_id}"
                 ));
             }
-            (tab.agent_session_id.clone(), tab.task_binding.clone())
+            let task_binding = tab.task_binding.clone();
+            let remote_task_bound = expected_task_identity.is_some_and(|identity| {
+                tab.report_target_mesh_peer
+                    .as_ref()
+                    .is_some_and(|peer| !peer.is_empty())
+                    && task_binding.as_ref().is_some_and(|binding| {
+                        binding.plan_id.as_deref() == Some(identity.plan_id.as_str())
+                            && binding.task_id.as_deref() == Some(identity.task_id.as_str())
+                            && binding.attempt_id.as_deref() == Some(identity.attempt_id.as_str())
+                    })
+            });
+            (
+                tab.agent_session_id.clone(),
+                task_binding,
+                remote_task_bound,
+            )
         };
+        if remote_task_bound {
+            return Ok(());
+        }
         let task_bound = expected_task_identity.is_some()
             || task_binding
                 .as_ref()
@@ -318,18 +536,12 @@ impl ServiceContext {
                 "startup acknowledgement does not own attempt {attempt_id} for Tab {caller_tab_id}"
             ));
         };
-        self.worker_ack
-            .acknowledge_startup_for_binding(
-                caller_tab_id,
-                attempt_id,
-                session_id.as_deref(),
-                Some(binding_nonce),
-            )
-            .ok_or_else(|| {
-                format!(
-                    "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
-                )
-            })
+        self.worker_ack.resolve_startup_ack_for_binding(
+            caller_tab_id,
+            attempt_id,
+            session_id.as_deref(),
+            binding_nonce,
+        )
     }
 
     pub(crate) fn observe_agent_startup_launch_command_finished(
@@ -414,16 +626,32 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&authority) {
                 return;
             }
-            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
+            let mut notice = agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id);
+            let waiting_for_owner_prompt =
+                crate::service::launch_readiness::owner_prompt_is_active(&agent_tab_id);
+            if waiting_for_owner_prompt {
+                notice["waiting_for_owner_prompt"] = serde_json::Value::Bool(true);
+            }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
                 &agent_title,
-                agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
+                notice,
             );
             if !service.startup_attempt_is_current(&authority) {
                 return;
             }
+            if waiting_for_owner_prompt {
+                if crate::service::launch_readiness::await_owner_prompt_resolution(&agent_tab_id)
+                    .is_some()
+                {
+                    return;
+                }
+                if !service.startup_attempt_is_current(&authority) {
+                    return;
+                }
+            }
+            service.nudge_unacknowledged_startup(&agent_tab_id, &attempt_id);
             loop {
                 match await_agent_startup_notice_with_generation(
                     &receiver,
@@ -448,22 +676,16 @@ impl ServiceContext {
                     WaiterExpiry::NoLongerCurrent => return,
                 }
             }
-            if !service.startup_attempt_is_current(&authority) {
-                return;
-            }
-            let provider_output = service.startup_provider_output(&attempt_id);
-            service.publish_agent_startup_report(
-                &supervisor_tab_id,
-                &agent_tab_id,
-                &agent_title,
-                agent_startup_failed_event(
+            if let Some(payload) =
+                service.agent_startup_failure_payload(&authority, &agent_title, exit_code)
+            {
+                service.publish_agent_startup_report(
+                    &supervisor_tab_id,
                     &agent_tab_id,
                     &agent_title,
-                    &attempt_id,
-                    exit_code,
-                    provider_output.as_deref(),
-                ),
-            );
+                    payload,
+                );
+            }
         });
     }
 
@@ -576,6 +798,7 @@ impl ServiceContext {
         };
         self.worker_ack
             .acknowledge_task_startup(tab_id, &task_identity, &identity);
+        self.schedule_session_model_refresh_for_current_tab(tab_id);
         acknowledged
     }
 
@@ -889,6 +1112,24 @@ impl ServiceContext {
             spawn_command,
         );
         Ok(true)
+    }
+}
+
+fn remote_worker_ack_identity(
+    plan_id: &str,
+    task_id: &str,
+    attempt_id: &str,
+    peer_id: &str,
+    worker_tab_id: &str,
+) -> WorkerAckIdentity {
+    WorkerAckIdentity {
+        plan_id: plan_id.to_string(),
+        task_id: task_id.to_string(),
+        attempt_id: attempt_id.to_string(),
+        tab_id: format!("remote:{peer_id}:{worker_tab_id}"),
+        startup_attempt_id: None,
+        session_id: None,
+        binding_nonce: None,
     }
 }
 

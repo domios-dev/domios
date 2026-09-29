@@ -12,6 +12,7 @@ pub mod integration;
 mod interactive;
 mod launch;
 pub(crate) mod launch_session;
+mod onboarding;
 mod permission_prompt;
 mod schemas;
 mod sessions;
@@ -29,7 +30,8 @@ use std::time::Duration;
 use crate::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
     SessionIdInjection, SessionMessage, SessionMetadata, SettingField, StarterPrompt,
-    SystemPromptDelivery, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
+    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
+    VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -139,6 +141,15 @@ impl AgentProvider for ClaudeProvider {
             // The composer swallows a submit key glued to a paste it is still
             // ingesting, which leaves the text sitting unsent.
             initial_key_delay: Duration::from_millis(100),
+            retry_offsets: crate::provider::DEFAULT_SUBMIT_RETRY_OFFSETS,
+        }
+    }
+
+    fn turn_evidence_normalization(&self) -> TurnEvidenceNormalization {
+        TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
         }
     }
 
@@ -256,7 +267,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
-        folder_trust::parse_prompt(text)
+        onboarding::parse(text)
+            .map(|prompt| (prompt.question, prompt.options))
+            .or_else(|| folder_trust::parse_prompt(text))
             .or_else(|| crate::detector::parse_permission_prompt(text))
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
@@ -287,6 +300,25 @@ impl AgentProvider for ClaudeProvider {
         screen: &str,
     ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
         folder_trust::response(screen)
+    }
+
+    fn parse_directory_trust_prompt(
+        &self,
+        screen: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        folder_trust::parse_prompt(screen)
+            .map(|(question, options)| crate::prompt::build_prompt(question, options))
+    }
+
+    fn supports_directory_trust_prompt_parsing(&self) -> bool {
+        true
+    }
+
+    fn launch_onboarding_response(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderPromptKeyStep> {
+        onboarding::response(screen)
     }
 
     fn permission_prompt_response(
@@ -379,6 +411,10 @@ impl AgentProvider for ClaudeProvider {
         schemas::available_models()
     }
 
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::authoritative()
+    }
+
     fn default_model(&self) -> Option<String> {
         crate::model_catalog::resolve_default("claude")
     }
@@ -403,8 +439,8 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
-    fn has_installable_integration(&self) -> bool {
-        true
+    fn integration_kind(&self) -> crate::provider::IntegrationKind {
+        crate::provider::IntegrationKind::ClaudeSettingsJson
     }
 
     fn install_integration(

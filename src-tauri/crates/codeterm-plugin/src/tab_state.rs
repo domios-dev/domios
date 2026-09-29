@@ -16,8 +16,6 @@ pub enum TabState {
     WaitingOnAuth,
     /// A CLI self-update / version prompt parked on a default we may not want.
     UpdatePrompt,
-    /// The provider structurally observed its authorized update complete.
-    ProviderUpdateCompleted,
     /// Provider hit a usage/rate limit; may carry a reset time for a resume.
     RateLimited,
     /// Agent is asking the user a question that needs surfacing (not answering).
@@ -77,13 +75,6 @@ pub struct Surface {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderUpdatePromptAction {
-    pub install_keys: Vec<String>,
-    pub decline_keys: Vec<String>,
-}
-
 /// The action a classifier recommends. Any combination may be present; the
 /// reactor branches ONLY on these generic fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,8 +90,6 @@ pub struct TabStateAction {
     /// A user-facing surface (questions / limit notice / auth prompt).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface: Option<Surface>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_update: Option<ProviderUpdatePromptAction>,
 }
 
 /// The generic classification verdict returned by a provider.

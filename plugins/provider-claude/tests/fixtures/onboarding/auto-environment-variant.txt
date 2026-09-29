@@ -1,0 +1,7 @@
+Teach auto mode about your environment?
+
+  1. Yes
+❯ 2. Not now
+  3. Don't show again
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

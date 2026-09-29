@@ -23,3 +23,27 @@ fn optional_body_contract_missing_workspace_close_remains_not_found() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(message.contains(workspace_id));
 }
+
+#[test]
+fn partial_team_teardown_workspace_close_failure_is_internal_error() {
+    let error = format!(
+        "{}: team lane cleanup failed",
+        crate::service::WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX
+    );
+    let (status, message) = map_close_error(error);
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(message.contains("team lane cleanup failed"));
+}
+
+#[test]
+fn team_close_authorization_refusal_is_forbidden() {
+    let error = format!(
+        "{}: agent is not a Team manager",
+        crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+    );
+    let (status, message) = map_close_error(error);
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(message.contains("not a Team manager"));
+}

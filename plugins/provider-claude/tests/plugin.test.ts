@@ -102,6 +102,34 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
+console.log("\n--- session model detection ---\n");
+{
+  const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
+  let fullReads = 0;
+  let tailBytes = 0;
+  const p = loadClaudeWithHost(baseHost({
+    fs: {
+      fileExists: () => true,
+      readFile: () => { fullReads += 1; return transcript; },
+      readFileTail: (_path: string, maxBytes: number) => {
+        tailBytes = maxBytes;
+        return transcript;
+      },
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+  }));
+
+  eq(
+    p.detectSessionModel("/fixture/project", "session-model"),
+    "Opus",
+    "session model uses the exact session transcript",
+  );
+  eq(fullReads, 0, "session model avoids loading the full transcript");
+  eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
+}
+
 console.log("\n--- meta ---\n");
 
 eq(plugin.meta.id, "claude", "meta.id is 'claude'");
@@ -196,6 +224,63 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 }
 
 {
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "onboarding");
+  const files = [
+    "auto-environment-captured.txt",
+    "auto-environment-not-now.txt",
+    "auto-environment-boxed-curly.txt",
+    "auto-environment-variant.txt",
+  ];
+  const cleanRow = (row: string) => row
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/^\s*[│┃║]\s*/, "")
+    .replace(/\s*[│┃║]\s*$/, "")
+    .trim();
+  for (const file of files) {
+    const screen = fs.readFileSync(path.join(dir, file), "utf8");
+    const rows = screen.split(/\r?\n/).map(cleanRow);
+    const optionRows = rows.flatMap((row) => {
+      const match = /^\s*([❯>])?\s*(\d+)\.\s*(.*?)\s*$/.exec(row);
+      return match ? [{ focused: Boolean(match[1]), label: match[3], value: match[2] }] : [];
+    }).slice(-3);
+    const first = rows.findIndex((row) => /^\s*([❯>])?\s*1\.\s/.test(row));
+    const question = rows.slice(Math.max(0, first - 5), first).reverse().find((row) => row.endsWith("?"));
+    const parsed = hostPlugin.parsePrompt(screen);
+    const response = hostPlugin.launchOnboardingResponse(screen);
+    assert(Boolean(response), `onboarding capability recognizes ${file}`);
+    eq(parsed?.question, question, `pending prompt question comes from the dialog row in ${file}`);
+    eq(parsed?.options?.map(([label, value]) => [label, value]), optionRows.map(({ label, value }) => [label, value]), `pending prompt choices preserve captured order in ${file}`);
+    const focused = optionRows.findIndex((option) => option.focused);
+    eq(response?.frameKey, `onboarding:focus-${focused}:target-1`, `stable onboarding identity tracks focus in ${file}`);
+    eq(response?.step, focused === 1 ? "DQ==" : "ag==", `one next key moves only toward the safe choice in ${file}`);
+  }
+
+  const captured = fs.readFileSync(path.join(dir, files[0]), "utf8");
+  const capturedQuestion = captured.split(/\r?\n/).find((row) => cleanRow(row).endsWith("?"));
+  assert(Boolean(capturedQuestion), "captured dialog has a structural question row");
+  const firstOption = captured.indexOf("1. Yes");
+  const focus = captured.lastIndexOf("❯", firstOption);
+  assert(firstOption >= 0 && focus >= 0, "captured default focus is on the first option");
+  eq(hostPlugin.launchOnboardingResponse(captured.slice(0, focus) + captured.slice(focus + 1)), null, "ambiguous focus is left unanswered");
+  eq(
+    hostPlugin.launchOnboardingResponse(`${captured}\nstatus refreshed`)?.frameKey,
+    hostPlugin.launchOnboardingResponse(captured)?.frameKey,
+    "incidental status redraw retains the same choice/focus identity",
+  );
+  for (const file of ["auto-environment-no-space.txt", "auto-environment-empty-label.txt"]) {
+    const malformed = fs.readFileSync(path.join(dir, file), "utf8");
+    eq(hostPlugin.launchOnboardingResponse(malformed), null, `unsafe option syntax is refused in ${file}`);
+    const rows = malformed.split(/\r?\n/).map(cleanRow);
+    const recognizedOption = rows.findIndex((row) => /^\s*[❯>]?\s*\d+\.\s+\S/.test(row));
+    const structuralQuestion = rows.slice(0, recognizedOption).reverse().find((row) => row.endsWith("?"));
+    const parsed = hostPlugin.parsePrompt(malformed);
+    eq(parsed?.question, structuralQuestion, `fallback prompt question follows the first recognized option in ${file}`);
+    eq(parsed?.options?.map(([, value]) => value), ["2", "3"], `fallback options omit malformed first row in ${file}`);
+  }
+  eq(hostPlugin.launchOnboardingResponse(captured.replace(capturedQuestion!, "A different startup question?")), null, "unclassified startup dialog is left alone");
+}
+
+{
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "folder-trust");
   const cases = JSON.parse(fs.readFileSync(path.join(dir, "cases.json"), "utf8")) as Array<{ file: string; expect: string }>;
   const keys: Record<string, string[] | null> = {
@@ -213,8 +298,10 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 
   const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
   const parsed = hostPlugin.parsePrompt(unnumbered);
+  const trustPrompt = hostPlugin.parseDirectoryTrustPrompt(unnumbered);
   assert(Boolean(parsed?.question.trim()), "folder trust exposes a parsed prompt question");
   eq(parsed?.options?.map(([, value]) => value), ["1", "2"], "folder trust options retain screen order");
+  eq(trustPrompt, parsed, "dedicated trust parser exposes the same classified choices");
   eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
   eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
@@ -237,6 +324,13 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   const titleless = fs.readFileSync(path.join(dir, "trust-without-title.txt"), "utf8");
   eq(claudeFolderTrustPrompt(titleless), null, "an untitled folder trust prompt is refused");
   eq(claudeFolderTrustHighlightedOptionIndex(titleless), null, "an untitled prompt has no trusted focus");
+  const updateDialogPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../provider-codex/tests/fixtures/directory-trust/codex-update-available.txt",
+  );
+  const updateDialog = fs.readFileSync(updateDialogPath, "utf8");
+  eq(hostPlugin.directoryTrustPromptResponse(updateDialog), null, "Claude trust responder refuses the unrelated update menu");
+  eq(claudeFolderTrustPrompt(updateDialog), null, "Claude folder-trust parser refuses the unrelated update menu");
   const underscoreTrust = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8")
     .replace(/^([ \t]*Yes\b[^\r\n]*)\btrust\b/im, "$1_trust");
   eq(claudeFolderTrustPrompt(underscoreTrust), null, "underscore is part of the trust token");

@@ -9,9 +9,7 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
   get_recovery_state:
     "Native crash recovery state is sourced from the desktop supervisor",
   get_tab_history_raw:
-    "Native xterm scrollback replay on remount; web uses read_pty tail instead",
-  load_scrollback_tail:
-    "Daemon-restart sidecar replay is a native desktop restore; web tabs replay via read_pty/stream tails",
+    "Native xterm reads seeded backend history on remount; web output stream replays the backend buffer",
   materialize_dropped_files:
     "Native Tauri webview file-drop paths must be materialized on the host",
   read_clipboard_files:
@@ -36,8 +34,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "The model probe execs the provider CLI on the daemon host; the web mirror cannot spawn a host subprocess and receives the refreshed catalog through models-updated and the binary watcher instead",
   provider_model_usage:
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
-  respond_provider_update_prompt:
-    "Applying a provider update is a desktop-host action with no REST route; the web mirror shows the prompt and answers it on the machine that owns the install",
   restart_rest_api:
     "An HTTP client cannot restart the listener carrying its own request",
   check_provider_integration:

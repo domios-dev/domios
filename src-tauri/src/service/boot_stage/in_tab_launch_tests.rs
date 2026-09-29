@@ -1,8 +1,10 @@
 use super::*;
 use crate::agent::live_state::observe_tab_liveness;
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey};
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::pty::{classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence};
+use std::collections::HashSet;
 
 const SHELL_STAGES: [Option<BootStage>; 6] = [
     None,
@@ -123,6 +125,9 @@ fn service_with_live_shell(stage: BootStage) -> (ServiceFixture, String) {
         tab.shell_integration_nonce = Some("shell-nonce".into());
     }
     let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude").with_launch_binary("claude"),
+    ));
     fixture
         .service
         .pty
@@ -137,6 +142,38 @@ fn service_with_live_shell(stage: BootStage) -> (ServiceFixture, String) {
         )
         .expect("spawn live backing PTY");
     (fixture, tab_id)
+}
+
+fn provider_tree_key(fixture: &ServiceFixture, tab_id: &str) -> ProviderTreeKey {
+    fixture
+        .service
+        .provider_tree_key_for_tab(tab_id, "pty-shell")
+        .expect("tab provider tree key")
+}
+
+fn reconcile_and_wait_for_provider_tree(
+    fixture: &ServiceFixture,
+    tab_id: &str,
+    key: &ProviderTreeKey,
+) -> crate::service::process_tree::ProviderTreeObservation {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .report_next_observation(key, sender);
+    fixture
+        .service
+        .reconcile_boot_stage_with_session_binding(tab_id);
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("provider readiness tree snapshot completes off the runtime")
+}
+
+fn observed_provider_process() -> ProviderProcessTreeSnapshot {
+    ProviderProcessTreeSnapshot::Present(HashSet::from([ProcessIdentity {
+        pid: 77,
+        start_token: "provider-start".into(),
+    }]))
 }
 
 #[test]
@@ -171,8 +208,42 @@ fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
     );
 }
 
-/// Once observed ready, the provider's later exit to the shell is itself
-/// observable, so the tab's record never keeps claiming a gone agent.
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn provider_tree_live_readiness_observation_is_seen_before_later_absence() {
+    let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
+    let key = provider_tree_key(&fixture, &tab_id);
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
+
+    let observed = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
+    assert_eq!(
+        observed.state(),
+        crate::service::process_tree::ProviderTreeState::Present
+    );
+    assert!(fixture.service.provider_tree_witnesses.has_seen(&key));
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    let absent = fixture
+        .service
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .expect("the ready tab has a provider process tree");
+    assert_eq!(
+        absent.state(),
+        crate::service::process_tree::ProviderTreeState::GoneAfterSeen
+    );
+    assert_eq!(absent.evidence(), "provider_seen_then_absent_snapshot");
+}
+
+/// A provider observed under this tab's shell and then absent from one
+/// finished-marker snapshot proves exit, so the tab no longer claims it.
 #[test]
 #[cfg_attr(
     not(windows),
@@ -180,9 +251,20 @@ fn restore_contract_verified_in_tab_relaunch_is_observed_live_and_ready() {
 )]
 fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
     let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
+    let key = provider_tree_key(&fixture, &tab_id);
+    let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
     fixture
         .service
-        .reconcile_boot_stage_with_session_binding(&tab_id);
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
+    assert!(fixture
+        .service
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .is_some());
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
     fixture
         .service
@@ -196,6 +278,42 @@ fn restore_contract_in_tab_relaunch_exit_is_observed_after_promotion() {
     let tab = mux.get_tab(&tab_id).unwrap();
     assert!(tab.agent_type.is_none());
     assert_eq!(tab.boot_stage, Some(BootStage::ShellReady));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn restore_contract_in_tab_relaunch_finished_marker_keeps_live_provider_live() {
+    let (fixture, tab_id) = service_with_live_shell(BootStage::ShellReady);
+    let key = provider_tree_key(&fixture, &tab_id);
+    let _ = reconcile_and_wait_for_provider_tree(&fixture, &tab_id, &key);
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
+    assert!(fixture
+        .service
+        .observe_provider_process_tree(&tab_id, "pty-shell")
+        .is_some());
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, observed_provider_process());
+
+    fixture
+        .service
+        .process_pty_output("pty-shell", b"\x1b]633;E;;shell-nonce\x07\x1b]633;D\x07");
+
+    assert_eq!(
+        observe_tab_liveness(&fixture.service, &tab_id),
+        AgentLiveness::Live
+    );
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
 }
 
 #[test]

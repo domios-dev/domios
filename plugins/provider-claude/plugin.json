@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.11.9",
-  "minCodeterm": "1.11.9",
+  "version": "1.11.10",
+  "minCodeterm": "1.11.10",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -19,12 +19,18 @@
       "flag": "--append-system-prompt-file"
     },
     "verifySubmit": {
-      "kind": "tui_input_drained"
+      "kind": "tui_input_drained",
+      "initialKeyDelayMs": 100
+    },
+    "turnEvidenceNormalization": {
+      "unwrapPastedContentWrapper": true,
+      "collapseHorizontalWhitespace": true
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": true,
+    "supportsDirectoryTrustPromptParsing": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"
   },
@@ -63,6 +69,9 @@
     }
   ],
   "defaultModel": "sonnet",
+  "modelCatalogue": {
+    "authority": "authoritative"
+  },
   "reasoningEfforts": [
     {
       "id": "low",

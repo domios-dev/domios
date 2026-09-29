@@ -59,6 +59,17 @@ dev_default_data_dir() {
   printf '%s\n' "$HOME/.codeterm-dev"
 }
 
+dev_requested_data_dir() {
+  local instance slug
+  instance="${EVAL_LIB_REQUESTED_INSTANCE:-}"
+  if [ -z "$instance" ]; then
+    dev_default_data_dir
+    return
+  fi
+  slug="$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+  printf '%s\n' "$HOME/.codeterm-dev-$slug"
+}
+
 dev_resolution_error() {
   local resolved_path="$1" expected_data_dir="$2"
   printf "ERROR [dev-resolution]: instance='%s' resolved_path='%s' expected_data_dir='%s'\n" \
@@ -66,20 +77,21 @@ dev_resolution_error() {
 }
 
 dev_bootstrap_cli() {
-  local candidate
+  local candidate data_dir
+  data_dir="$(dev_requested_data_dir)"
   if [ -n "${CODETERM_CLI_PATH:-}" ] && [ -x "$CODETERM_CLI_PATH" ]; then
     printf '%s\n' "$CODETERM_CLI_PATH"
     return
   fi
   for candidate in \
-    "$(dev_default_data_dir)/bin/codeterm" \
-    "$(dev_default_data_dir)/bin/codeterm.exe"; do
+    "$data_dir/bin/codeterm" \
+    "$data_dir/bin/codeterm.exe"; do
     if [ -x "$candidate" ]; then
       printf '%s\n' "$candidate"
       return
     fi
   done
-  dev_resolution_error '<unresolved>' "$(dev_default_data_dir)"
+  dev_resolution_error '<unresolved>' "$data_dir"
   return 7
 }
 
@@ -223,7 +235,8 @@ dev_run() {
     "CODETERM_TAB_ID=$caller_tab_id"
     "CODETERM_PARENT_TAB_ID="
   )
-  env "${dev_vars[@]}" "$@"
+  # A prod tab's own identity (attempt, nonce, session, team, plan, task) must never reach dev.
+  env -u CODETERM_STARTUP_ATTEMPT_ID -u CODETERM_SESSION_BINDING_NONCE -u CODETERM_SESSION_ID     -u CODETERM_TEAM_ID -u CODETERM_PLAN_ID -u CODETERM_TASK_ID -u CODETERM_ATTEMPT_ID     "${dev_vars[@]}" "$@"
 }
 
 dev_api_url() {

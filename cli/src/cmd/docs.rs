@@ -205,6 +205,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/ORCHESTRATION.md"
     ),
     doc!(
+        "ORCHESTRATION-TASKS",
+        "Orchestration task lifecycle, milestones, and dispatch",
+        "../../../prod-docs/ORCHESTRATION-TASKS.md"
+    ),
+    doc!(
         "ORCHESTRATION-OPERATIONS",
         "Orchestration verification, integration, heartbeat, and closeout",
         "../../../prod-docs/ORCHESTRATION-OPERATIONS.md"
@@ -432,8 +437,9 @@ mod tests {
                 "{} exceeds 240 lines",
                 document.name
             );
+            // A Windows checkout may carry CRLF; the reading budget counts the committed LF text.
             assert!(
-                document.body.len() <= 24 * 1024,
+                document.body.replace("\r\n", "\n").len() <= 24 * 1024,
                 "{} exceeds 24 KiB",
                 document.name
             );

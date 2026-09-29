@@ -30,6 +30,8 @@ const COLD_START_MEASUREMENT_METHOD: &str =
 pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
 pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
 pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+pub(crate) const REMOTE_WORKER_ACK_DEADLINE: Duration =
+    Duration::from_secs(COLD_START_DEADLINE_SECS * 2);
 const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
@@ -72,6 +74,7 @@ pub(crate) enum AgentStartupSignal {
 pub(crate) enum AgentStartupAcknowledgement {
     Acknowledged,
     AlreadyAcknowledged,
+    NotRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +87,16 @@ enum AgentStartupNoticeOutcome {
 enum WorkerAckWaitOutcome {
     Resolved,
     Overdue,
+}
+
+pub(crate) fn await_remote_worker_ack(
+    receiver: &Receiver<WorkerAckSignal>,
+    timeout: Duration,
+) -> bool {
+    matches!(
+        receiver.recv_timeout(timeout),
+        Ok(WorkerAckSignal::Acknowledged | WorkerAckSignal::Superseded)
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +210,15 @@ fn startup_ack_owns_attempt(
         && tab.session_binding_nonce.as_deref() == Some(binding_nonce)
 }
 
+fn startup_authority_matches_binding(
+    authority: &StartupAuthority,
+    session_id: Option<&str>,
+    binding_nonce: &str,
+) -> bool {
+    (authority.session_id.is_none() || authority.session_id.as_deref() == session_id)
+        && authority.binding_nonce.as_deref() == Some(binding_nonce)
+}
+
 pub(crate) fn startup_task_identity_from_env(
     env: &HashMap<String, String>,
 ) -> Option<StartupTaskIdentity> {
@@ -212,6 +234,7 @@ pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<WorkerAckState>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_acknowledged: Mutex<HashMap<String, StartupAuthority>>,
+    finalized_startups: Mutex<HashMap<String, StartupAuthority>>,
     pending_task_startup_acks: Mutex<HashMap<String, registry::PendingTaskStartupAck>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
@@ -221,6 +244,9 @@ impl WorkerAckRegistry {
     fn arm_startup(&self, authority: StartupAuthority) -> AgentStartupArm {
         let (sender, receiver) = mpsc::channel();
         let mut startup_waiters = self.startup_waiters.lock();
+        self.finalized_startups
+            .lock()
+            .remove(&authority.child_tab_id);
         if let Some(waiter) = startup_waiters
             .get_mut(&authority.child_tab_id)
             .filter(|waiter| waiter.authority == authority)
@@ -289,6 +315,7 @@ impl WorkerAckRegistry {
         })
     }
 
+    #[cfg(test)]
     fn acknowledge_startup_for_binding(
         &self,
         tab_id: &str,
@@ -301,6 +328,78 @@ impl WorkerAckRegistry {
             (authority.session_id.is_none() || authority.session_id.as_deref() == session_id)
                 && authority.binding_nonce.as_deref() == binding_nonce
         })
+    }
+
+    fn resolve_startup_ack_for_binding(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        session_id: Option<&str>,
+        binding_nonce: &str,
+    ) -> Result<AgentStartupAcknowledgement, String> {
+        let (acknowledgement, completed_authority) = {
+            let mut waiters = self.startup_waiters.lock();
+            if let Some(waiter) = waiters.get(tab_id) {
+                let authority = &waiter.authority;
+                if authority.attempt_id != attempt_id {
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} was superseded by {}",
+                        authority.attempt_id
+                    ));
+                }
+                if !startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                    ));
+                }
+                let waiter = waiters.remove(tab_id).expect("waiter inspected above");
+                let AgentStartupWaiter {
+                    authority, sender, ..
+                } = waiter;
+                let _ = sender.send(AgentStartupSignal::Ready);
+                self.startup_acknowledged
+                    .lock()
+                    .insert(tab_id.to_string(), authority.clone());
+                (AgentStartupAcknowledgement::Acknowledged, Some(authority))
+            } else {
+                let acknowledged = self.startup_acknowledged.lock();
+                if let Some(authority) = acknowledged
+                    .get(tab_id)
+                    .filter(|authority| authority.attempt_id == attempt_id)
+                {
+                    if startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                        return Ok(AgentStartupAcknowledgement::AlreadyAcknowledged);
+                    }
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                    ));
+                }
+                drop(acknowledged);
+
+                let finalized = self.finalized_startups.lock();
+                if let Some(authority) = finalized
+                    .get(tab_id)
+                    .filter(|authority| authority.attempt_id == attempt_id)
+                {
+                    if !startup_authority_matches_binding(authority, session_id, binding_nonce) {
+                        return Err(format!(
+                            "startup attempt {attempt_id} for Tab {tab_id} does not own this binding"
+                        ));
+                    }
+                    return Err(format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} is finalized and not awaiting acknowledgement"
+                    ));
+                }
+                (AgentStartupAcknowledgement::NotRequired, None)
+            }
+        };
+        if let Some(authority) = completed_authority.as_ref() {
+            self.clear_startup_supervisor(authority);
+            if let Some(team_id) = authority.team_id.as_deref() {
+                self.release_startup_lease(team_id);
+            }
+        }
+        Ok(acknowledgement)
     }
 
     fn acknowledge_task_startup(
@@ -366,6 +465,7 @@ impl WorkerAckRegistry {
         Some(acknowledgement)
     }
 
+    #[cfg(test)]
     fn acknowledge_startup_matching(
         &self,
         tab_id: &str,
@@ -432,6 +532,9 @@ impl WorkerAckRegistry {
             Err(refusal) => return Err((refusal, supervised)),
         };
         let waiter = waiters.remove(tab_id).expect("waiter authorized above");
+        self.finalized_startups
+            .lock()
+            .insert(tab_id.to_string(), authority.clone());
         drop(waiters);
         self.clear_startup_supervisor(&authority);
         if let Some(team_id) = authority.team_id.as_deref() {
@@ -501,11 +604,15 @@ impl WorkerAckRegistry {
         let expired = waiters
             .remove(&authority.child_tab_id)
             .map(|waiter| waiter.authority);
-        drop(waiters);
         if let Some(expired) = expired {
+            self.finalized_startups
+                .lock()
+                .insert(expired.child_tab_id.clone(), expired.clone());
+            drop(waiters);
             self.clear_startup_supervisor(&expired);
             WaiterExpiry::Expired
         } else {
+            drop(waiters);
             WaiterExpiry::NoLongerCurrent
         }
     }
@@ -576,6 +683,15 @@ impl WorkerAckRegistry {
     }
 
     fn cancel_startup_supervisor(&self, tab_id: &str) {
+        let waiter = {
+            let mut waiters = self.startup_waiters.lock();
+            let waiter = waiters.remove(tab_id);
+            self.finalized_startups.lock().remove(tab_id);
+            waiter
+        };
+        if let Some(waiter) = waiter {
+            let _ = waiter.sender.send(AgentStartupSignal::Superseded);
+        }
         self.startup_supervisors.lock().remove(tab_id);
         self.pending_task_startup_acks.lock().remove(tab_id);
     }
@@ -643,6 +759,7 @@ fn agent_startup_failed_event(
     attempt_id: &str,
     exit_code: Option<i32>,
     provider_output: Option<&str>,
+    failure_reason: Option<&str>,
 ) -> Value {
     json!({
         "kind": "agent_startup_failed",
@@ -659,6 +776,7 @@ fn agent_startup_failed_event(
             "selected_phase_seconds": COLD_START_DEADLINE_SECS,
         },
         "provider": { "exit_code": exit_code, "output": provider_output },
+        "failure_reason": failure_reason,
         "impact": "Provider startup expired; the tab remains alive for inspection.",
         "fallback": "Invoke recovery.capability for this exact tab and attempt before spawning a replacement.",
     })
@@ -697,6 +815,14 @@ fn worker_lifecycle_notice(
         .get("task_id")
         .and_then(Value::as_str)
         .map(|task| compact_notice_text(task, 40));
+    let peer_name = payload
+        .get("peer_name")
+        .and_then(Value::as_str)
+        .map(|peer| compact_notice_text(peer, 32));
+    let remote_tab = payload
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .map(|tab| compact_notice_text(tab, 40));
     let kind = payload
         .get("kind")
         .and_then(Value::as_str)
@@ -710,23 +836,45 @@ fn worker_lifecycle_notice(
             "did not acknowledge task {}",
             task_id.as_deref().unwrap_or("unknown task")
         ),
+        "remote_ack_timeout" => format!(
+            "did not acknowledge task {} on peer {} tab {}",
+            task_id.as_deref().unwrap_or("unknown task"),
+            peer_name.as_deref().unwrap_or("unknown peer"),
+            remote_tab.as_deref().unwrap_or("unknown tab")
+        ),
+        "remote_peer_offline" => format!(
+            "peer {} went offline before acknowledging task {} on tab {}",
+            peer_name.as_deref().unwrap_or("unknown peer"),
+            task_id.as_deref().unwrap_or("unknown task"),
+            remote_tab.as_deref().unwrap_or("unknown tab")
+        ),
         "agent_startup_failed" => "failed to start".to_string(),
+        "agent_startup_overdue" if startup_notice_waits_for_owner(payload) => {
+            "is waiting for your response".to_string()
+        }
         "agent_startup_overdue" => "is still starting".to_string(),
         _ => "reported a lifecycle update".to_string(),
     };
     let detail = if matches!(kind, "agent_startup_failed" | "worker_ack_startup_failed") {
         payload
-            .pointer("/provider/output")
+            .get("failure_reason")
             .and_then(Value::as_str)
-            .map(compact_provider_failure)
-            .filter(|detail| !detail.is_empty())
-            .or_else(|| provider_output.map(compact_provider_failure))
+            .map(|reason| compact_notice_text(reason, 120))
             .filter(|detail| !detail.is_empty())
             .or_else(|| {
                 payload
-                    .pointer("/provider/exit_code")
-                    .and_then(Value::as_i64)
-                    .map(|code| format!("provider exit code {code}"))
+                    .pointer("/provider/output")
+                    .and_then(Value::as_str)
+                    .map(compact_provider_failure)
+                    .filter(|detail| !detail.is_empty())
+                    .or_else(|| provider_output.map(compact_provider_failure))
+                    .filter(|detail| !detail.is_empty())
+                    .or_else(|| {
+                        payload
+                            .pointer("/provider/exit_code")
+                            .and_then(Value::as_i64)
+                            .map(|code| format!("provider exit code {code}"))
+                    })
             })
     } else {
         None
@@ -738,6 +886,13 @@ fn worker_lifecycle_notice(
         None => format!("Agent {title} ({provider}) {action}, attempt {attempt_id}."),
     };
     compact_notice_text(&message, 280)
+}
+
+fn startup_notice_waits_for_owner(payload: &Value) -> bool {
+    payload
+        .get("waiting_for_owner_prompt")
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 fn epoch_ms() -> u64 {

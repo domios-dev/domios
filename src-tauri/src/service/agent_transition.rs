@@ -203,16 +203,16 @@ impl ServiceContext {
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
-        let tab_id = request.tab_id.clone();
         let mut mux = self.mux.write();
+        let bindings_before = role_team_bindings(&mux);
         let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
-        let parent_tab_id = mux
-            .get_tab(&tab_id)
-            .and_then(|tab| tab.parent_tab_id.clone());
+        let changed_bindings = role_team_bindings(&mux)
+            .into_iter()
+            .filter_map(|(id, binding)| (bindings_before.get(&id) != Some(&binding)).then_some(id))
+            .collect::<Vec<_>>();
         drop(mux);
-        self.record_role_transition(&tab_id);
-        if let Some(parent_tab_id) = parent_tab_id {
-            self.record_role_transition(&parent_tab_id);
+        for changed_tab_id in changed_bindings {
+            self.record_role_transition(&changed_tab_id);
         }
         self.emit_state_changed();
         for plan_id in &changed_plan_ids {
@@ -241,31 +241,27 @@ impl ServiceContext {
             });
         }
 
-        let current = self
+        let plan = self
             .plan_store
             .get(plan_id)
-            .ok_or_else(|| format!("Plan {plan_id} not found"))?
-            .planner;
-        let old_tab_id = match current {
-            Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id),
-            _ => None,
-        };
-        if let Some(tab_id) = old_tab_id.as_ref() {
-            if self.mux.read().get_tab(&tab_id).is_some() {
-                return self.transition_agent(AgentTransitionRequest {
-                    tab_id: tab_id.clone(),
-                    destination: AgentPlacement::Roleless,
-                    plan_binding: None,
-                    require_verified_session: false,
-                    planner_replacement: Some((plan_id.to_string(), planner)),
-                    plan_rebind: None,
-                });
+            .ok_or_else(|| format!("Plan {plan_id} not found"))?;
+        if planner.is_none() {
+            if let Some(PlannerRef::Tab { tab_id, .. }) = plan.planner {
+                if self.mux.read().get_tab(&tab_id).is_some() {
+                    return self.transition_agent(AgentTransitionRequest {
+                        tab_id,
+                        destination: AgentPlacement::Roleless,
+                        plan_binding: None,
+                        require_verified_session: false,
+                        planner_replacement: Some((plan_id.to_string(), None)),
+                        plan_rebind: None,
+                    });
+                }
             }
         }
-
         let mux = self.mux.write();
         let change = AgentLifecyclePlanChange {
-            tab_id: old_tab_id.unwrap_or_default(),
+            tab_id: String::new(),
             preserve_owned_plans: true,
             retain_owned_plan_for_team_recovery: None,
             preserve_task_bindings_for_owner: None,
@@ -285,6 +281,36 @@ impl ServiceContext {
     }
 }
 
+fn role_team_bindings(
+    mux: &MultiplexerState,
+) -> std::collections::HashMap<
+    String,
+    (
+        Option<AgentRole>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        bool,
+        u8,
+    ),
+> {
+    mux.all_tabs()
+        .map(|tab| {
+            (
+                tab.id.clone(),
+                (
+                    tab.role,
+                    tab.role_profile.clone(),
+                    tab.team_id.clone(),
+                    tab.parent_tab_id.clone(),
+                    tab.can_spawn,
+                    tab.depth,
+                ),
+            )
+        })
+        .collect()
+}
+
 pub(crate) fn transition_plan_to_orchestrator_core(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
@@ -293,10 +319,20 @@ pub(crate) fn transition_plan_to_orchestrator_core(
     team_id: &str,
     reason: &str,
     activate: bool,
+    planner: Option<PlannerRef>,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     transition_plan_owner(
-        mux, plan_store, plan_id, owner, team_id, reason, activate, true, now_ms,
+        mux,
+        plan_store,
+        plan_id,
+        owner,
+        team_id,
+        reason,
+        activate,
+        true,
+        Some((plan_id.to_string(), planner)),
+        now_ms,
     )
 }
 
@@ -312,7 +348,7 @@ pub(crate) fn recover_plan_ownership_for_new_orchestrator(
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     transition_plan_owner(
-        mux, plan_store, plan_id, owner, team_id, reason, true, false, now_ms,
+        mux, plan_store, plan_id, owner, team_id, reason, true, false, None, now_ms,
     )
 }
 
@@ -326,6 +362,7 @@ fn transition_plan_owner(
     reason: &str,
     activate: bool,
     clear_planner: bool,
+    planner_replacement: Option<(String, Option<PlannerRef>)>,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
     let tab_id = owner
@@ -350,7 +387,7 @@ fn transition_plan_owner(
             destination: AgentPlacement::orchestrator(Some(true)),
             plan_binding: None,
             require_verified_session: false,
-            planner_replacement: None,
+            planner_replacement,
             plan_rebind: Some(rebind.clone()),
         },
         TransitionFailurePoint::None,
@@ -439,6 +476,13 @@ fn prepare_transition(
         request.plan_binding.as_ref(),
         plan_rebind.as_ref(),
         &request.tab_id,
+        request
+            .planner_replacement
+            .as_ref()
+            .and_then(|(_, planner)| match planner {
+                Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
+                _ => None,
+            }),
     );
     if let Some(incumbent_id) = incumbent.as_deref() {
         if staged.get_tab(incumbent_id).is_some() {
@@ -878,6 +922,7 @@ fn planner_incumbent(
     plan_binding: Option<&String>,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_tab_id: &str,
+    replacement_tab_id: Option<&str>,
 ) -> Option<String> {
     let plan_id = match plan_binding {
         Some(plan_id) if destination.is_planner() => plan_id,
@@ -890,7 +935,7 @@ fn planner_incumbent(
     let Some(PlannerRef::Tab { tab_id, .. }) = plan_store.get(plan_id)?.planner else {
         return None;
     };
-    (tab_id != target_tab_id).then_some(tab_id)
+    (tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id)
 }
 
 fn verify_destination(

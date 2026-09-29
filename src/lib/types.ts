@@ -146,6 +146,7 @@ export type BootStage =
   | "preparing_role_instructions"
   | "delivering_instructions"
   | "agent_ready"
+  | "awaiting_owner_prompt"
   | "pty_reattached"
   | "launch_deadline_elapsed"
   | "launch_binding_unconfirmed"
@@ -307,31 +308,27 @@ export interface PtyInfo {
   status: "running" | "dead";
 }
 
-/**
- * The fixed set of commands the daemon may put behind a notification button.
- * Mirrors the Rust `DaemonCommand`: an invoke action names a member of this set
- * and nothing else, so there is no free-form command target on the wire.
- */
-export type DaemonCommand = "respond_provider_update_prompt";
-
-/**
- * What one notification button does, as the daemon stores and emits it. A
- * closed union mirroring the Rust set.
- */
+/** What one notification button does, as the daemon stores and emits it. */
 export type NotificationAction =
-  /** Calls one allowlisted Tauri command. Daemon-constructed only. */
-  | { type: "invoke"; label: string; command: DaemonCommand; args?: Record<string, unknown> }
-  | { type: "url"; label: string; value: string }
+  { type: "url"; label: string; value: string }
   | { type: "dismiss"; label: string }
-  /** One offered choice. The label is its entire payload — no command, no args. */
-  | { type: "answer"; label: string };
+  | { type: "answer"; label: string }
+  | {
+      type: "respond_prompt_option";
+      label: string;
+      value: string;
+      identity: NotificationPromptIdentity;
+    };
 
-/**
- * What a CALLER may ask a notification button to do. Mirrors the Rust
- * `CallerAction`: the invoke member is absent, so a caller-supplied action has
- * no field a command name could live in.
- */
-export type CallerNotificationAction = Exclude<NotificationAction, { type: "invoke" }>;
+export type CallerNotificationAction =
+  | Extract<NotificationAction, { type: "url" }>
+  | Extract<NotificationAction, { type: "dismiss" }>
+  | Extract<NotificationAction, { type: "answer" }>;
+
+export interface NotificationPromptIdentity {
+  kind: "provider" | "directory_trust" | "structured" | "manual_update";
+  options: Array<{ label: string; value: string }>;
+}
 
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */
@@ -370,6 +367,7 @@ export interface Notification {
   actions?: NotificationAction[];
   /** Present when the notification offers a choice */
   answer?: NotificationAnswer;
+  resolved?: boolean;
   /** Persist toast — don't auto-dismiss, require explicit action */
   sticky?: boolean;
 }
@@ -820,6 +818,10 @@ export interface ModelInfo {
   badge?: string | null;
   /** Provider-declared picker section; models sharing it render together. */
   group?: string | null;
+  /** Omitted uses provider reasoning_efforts; [] means no selector. */
+  reasoning_efforts?: ReasoningEffortInfo[] | null;
+  /** Provider-reported default for this model, before provider-wide fallback. */
+  default_reasoning_effort?: string;
 }
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
@@ -935,6 +937,11 @@ export type SettingField =
 
 export type ProviderAvailability = "available" | "unavailable" | "unknown";
 
+export interface ModelCatalogueCapability {
+  authority: "authoritative" | "free_form";
+  liveDiscoveryRequired: boolean;
+}
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -951,6 +958,7 @@ export interface ProviderDescriptor {
   icon_svg?: string;
   icon_color?: string;
   available_models: ModelInfo[];
+  model_catalogue?: ModelCatalogueCapability;
   /** Provider-owned groupings of `available_models`; empty ⇒ one flat list. */
   model_groups?: ModelGroup[];
   default_model?: string;
@@ -993,11 +1001,6 @@ export interface ProviderDescriptor {
   /// Provider-declared in-agent context-compaction command. Consumed
   /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
   compact_command?: string | null;
-  self_update?: {
-    inSession: boolean;
-    restartRequired: boolean;
-    completionSignal?: "provider_classification" | null;
-  } | null;
   /// Optional `integration.trust_grant` capability: core invokes the
   /// provider-owned hook-trust grant once per integration install, scoped to
   /// these managed key(s). Informational on the wire.

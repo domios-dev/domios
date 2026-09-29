@@ -3,6 +3,9 @@
 
 use super::*;
 
+mod cache_schema;
+mod model_resolution;
+
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
 // test depends on the registry being empty or seeing another test's writes.
 
@@ -13,6 +16,7 @@ fn register_and_read_back() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "m1".into(),
                 display_name: "Model One".into(),
                 description: None,
@@ -21,6 +25,7 @@ fn register_and_read_back() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("m1".into()),
         },
@@ -60,6 +65,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
     // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
     let builtin = vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "opus".into(),
             display_name: "Opus 4.7".into(),
             description: None,
@@ -68,8 +74,10 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sonnet".into(),
             display_name: "Sonnet 4.6".into(),
             description: None,
@@ -78,8 +86,14 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: Some(vec![crate::provider::ReasoningEffortInfo {
+                id: "max".into(),
+                display_name: "Max".into(),
+                description: None,
+            }]),
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "haiku".into(),
             display_name: "Haiku 4.5".into(),
             description: None,
@@ -88,10 +102,12 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ];
     let overrides = vec![
         ModelInfo {
+            default_reasoning_effort: None,
             id: "sonnet".into(),
             display_name: "My Sonnet".into(),
             description: None,
@@ -100,8 +116,10 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
         ModelInfo {
+            default_reasoning_effort: None,
             id: "my-finetune".into(),
             display_name: "Mine".into(),
             description: None,
@@ -110,6 +128,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         },
     ];
     let merged = merge_models(&builtin, &overrides);
@@ -117,6 +136,11 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
     assert_eq!(merged[0].id, "opus");
     assert_eq!(merged[1].id, "sonnet");
     assert_eq!(merged[1].display_name, "My Sonnet"); // override won
+    assert_eq!(
+        merged[1].reasoning_efforts.as_ref().unwrap()[0].id,
+        "max",
+        "presentation overrides retain model capability data",
+    );
     assert_eq!(merged[2].id, "haiku");
     assert_eq!(merged[3].id, "my-finetune");
 }
@@ -124,6 +148,7 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
 #[test]
 fn merge_with_empty_override_is_builtin_verbatim() {
     let builtin = vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "a".into(),
         display_name: "A".into(),
         description: None,
@@ -132,6 +157,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }];
     let merged = merge_models(&builtin, &[]);
     assert_eq!(merged.len(), 1);
@@ -141,6 +167,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
 #[test]
 fn merge_with_empty_builtin_is_override_verbatim() {
     let overrides = vec![ModelInfo {
+        default_reasoning_effort: None,
         id: "x".into(),
         display_name: "X".into(),
         description: None,
@@ -149,10 +176,31 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }];
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].id, "x");
+}
+
+#[test]
+fn live_catalog_keeps_per_model_efforts_authoritative_over_presentation_overrides() {
+    let mut live = model("gpt-6-sol", "GPT-6 Sol");
+    live.reasoning_efforts = Some(vec![crate::provider::ReasoningEffortInfo {
+        id: "max".into(),
+        display_name: "Max".into(),
+        description: None,
+    }]);
+    let mut presentation = model("gpt-6-sol", "GPT Six Sol");
+    presentation.reasoning_efforts = Some(vec![crate::provider::ReasoningEffortInfo {
+        id: "ultra".into(),
+        display_name: "Ultra".into(),
+        description: None,
+    }]);
+
+    let merged = overlay_only(&[live], &[presentation]);
+
+    assert_eq!(merged[0].reasoning_efforts.as_ref().unwrap()[0].id, "max");
 }
 
 #[test]
@@ -195,6 +243,7 @@ fn register_twice_replaces() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "a".into(),
                 display_name: "A".into(),
                 description: None,
@@ -203,6 +252,7 @@ fn register_twice_replaces() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("a".into()),
         },
@@ -211,6 +261,7 @@ fn register_twice_replaces() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "b".into(),
                 display_name: "B".into(),
                 description: None,
@@ -219,6 +270,7 @@ fn register_twice_replaces() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("b".into()),
         },
@@ -326,6 +378,31 @@ fn uncatalogued_live_model_is_offered_and_spawnable() {
     cleanup(id);
 }
 
+#[test]
+fn live_model_default_effort_survives_seed_merge() {
+    let id = "test-live-model-default-effort";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("gpt-5.6-sol", "GPT-5.6 Sol")],
+            default: Some("gpt-5.6-sol".into()),
+        },
+    );
+    let mut live_model = model("gpt-5.6-sol", "GPT-5.6 Sol");
+    live_model.default_reasoning_effort = Some("low".into());
+    live_model.reasoning_efforts = Some(vec![ReasoningEffortInfo {
+        id: "low".into(),
+        display_name: "Low".into(),
+        description: None,
+    }]);
+    put_live(id, vec![live_model], Some("gpt-5.6-sol".into()));
+
+    let models = resolve_models(id);
+    assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("low"));
+    cleanup(id);
+}
+
 /// An override is an overlay on a live catalog, never an allowlist: a live model
 /// it omits stays offered, and it cannot add an id the provider did not report.
 #[test]
@@ -391,6 +468,7 @@ fn is_stale_uses_injected_now() {
         id,
         RegisteredDefaults {
             models: vec![ModelInfo {
+                default_reasoning_effort: None,
                 id: "seed".into(),
                 display_name: "Seed".into(),
                 description: None,
@@ -399,6 +477,7 @@ fn is_stale_uses_injected_now() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("seed".into()),
         },
@@ -407,6 +486,7 @@ fn is_stale_uses_injected_now() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "live".into(),
             display_name: "Live".into(),
             description: None,
@@ -415,6 +495,7 @@ fn is_stale_uses_injected_now() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("live".into()),
     );
@@ -430,116 +511,6 @@ fn is_stale_uses_injected_now() {
         Duration::from_secs(60),
         fetched_at + Duration::from_secs(60)
     ));
-    registry().write().remove(id);
-}
-
-#[test]
-fn resolve_model_matches_exact_id() {
-    let id = "test-resolve-exact-id";
-    register(
-        id,
-        RegisteredDefaults {
-            models: vec![
-                ModelInfo {
-                    id: "gpt-5.5".into(),
-                    display_name: "GPT-5.5".into(),
-                    description: None,
-                    available: None,
-                    availability: None,
-                    featured: None,
-                    badge: None,
-                    group: None,
-                },
-                ModelInfo {
-                    id: "gpt-5.5-mini".into(),
-                    display_name: "GPT-5.5 Mini".into(),
-                    description: None,
-                    available: None,
-                    availability: None,
-                    featured: None,
-                    badge: None,
-                    group: None,
-                },
-            ],
-            default: Some("gpt-5.5-mini".into()),
-        },
-    );
-
-    let resolved = resolve_model(id, Some("gpt-5.5"));
-
-    assert_eq!(resolved.id, "gpt-5.5");
-    assert_eq!(resolved.display, "GPT-5.5");
-    assert!(!resolved.fell_back);
-    registry().write().remove(id);
-}
-
-#[test]
-fn resolve_model_matches_display_case_insensitively() {
-    let id = "test-resolve-display-case";
-    register(
-        id,
-        RegisteredDefaults {
-            models: vec![ModelInfo {
-                id: "gpt-5.5".into(),
-                display_name: "GPT-5.5".into(),
-                description: None,
-                available: None,
-                availability: None,
-                featured: None,
-                badge: None,
-                group: None,
-            }],
-            default: Some("gpt-5.5".into()),
-        },
-    );
-
-    let upper = resolve_model(id, Some("GPT-5.5"));
-    let lower = resolve_model(id, Some("gpt-5.5"));
-
-    assert_eq!(upper.id, "gpt-5.5");
-    assert_eq!(lower.id, "gpt-5.5");
-    assert!(!upper.fell_back);
-    assert!(!lower.fell_back);
-    registry().write().remove(id);
-}
-
-#[test]
-fn resolve_model_unknown_falls_back_to_default() {
-    let id = "test-resolve-unknown-default";
-    register(
-        id,
-        RegisteredDefaults {
-            models: vec![
-                ModelInfo {
-                    id: "gpt-5.5".into(),
-                    display_name: "GPT-5.5".into(),
-                    description: None,
-                    available: None,
-                    availability: None,
-                    featured: None,
-                    badge: None,
-                    group: None,
-                },
-                ModelInfo {
-                    id: "gpt-5.5-mini".into(),
-                    display_name: "GPT-5.5 Mini".into(),
-                    description: None,
-                    available: None,
-                    availability: None,
-                    featured: None,
-                    badge: None,
-                    group: None,
-                },
-            ],
-            default: Some("gpt-5.5-mini".into()),
-        },
-    );
-
-    let resolved = resolve_model(id, Some("stale-model"));
-
-    assert_eq!(resolved.id, "gpt-5.5-mini");
-    assert_eq!(resolved.display, "GPT-5.5 Mini");
-    assert!(resolved.fell_back);
     registry().write().remove(id);
 }
 
@@ -630,6 +601,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
     let _ = std::fs::remove_file(cache_path(id));
     // Persist an OLD cache to disk, then publish a NEWER in-memory snapshot.
     let payload = CachedSnapshot {
+        schema_version: CACHE_SCHEMA_VERSION,
         fetched_at_unix: 1,
         default: Some("old".into()),
         models: vec![model("old", "Old")],
@@ -805,6 +777,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "opus".into(),
             display_name: "Live".into(),
             description: None,
@@ -813,6 +786,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("opus".into()),
     );
@@ -896,6 +870,7 @@ fn availability_flag_is_carried_through_resolve() {
             models: vec![
                 model("opus", "Opus"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "fable".into(),
                     display_name: "Fable".into(),
                     description: None,
@@ -904,6 +879,7 @@ fn availability_flag_is_carried_through_resolve() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("opus".into()),
@@ -927,11 +903,13 @@ fn featured_models_lead_preserving_catalog_order_within_each_group() {
             models: vec![
                 model("a", "A"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     featured: Some(true),
                     ..model("b", "B")
                 },
                 model("c", "C"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     featured: Some(true),
                     ..model("d", "D")
                 },
@@ -973,6 +951,7 @@ group = "deepseek"
 fn example_renderer_emits_featured_badge_and_group() {
     let defaults = RegisteredDefaults {
         models: vec![ModelInfo {
+            default_reasoning_effort: None,
             featured: Some(true),
             badge: Some("own".into()),
             group: Some("deepseek".into()),
@@ -1006,6 +985,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
             models: vec![
                 model("stable", "Stable"),
                 ModelInfo {
+                    default_reasoning_effort: None,
                     id: "future".into(),
                     display_name: "Future".into(),
                     description: None,
@@ -1014,6 +994,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     featured: None,
                     badge: None,
                     group: None,
+                    reasoning_efforts: None,
                 },
             ],
             default: Some("stable".into()),
@@ -1055,6 +1036,7 @@ fn resolve_live_default_recovers_when_default_vanished() {
 
 fn unknown_model(id: &str, display: &str) -> ModelInfo {
     ModelInfo {
+        default_reasoning_effort: None,
         id: id.into(),
         display_name: display.into(),
         description: None,
@@ -1063,6 +1045,7 @@ fn unknown_model(id: &str, display: &str) -> ModelInfo {
         featured: None,
         badge: None,
         group: None,
+        reasoning_efforts: None,
     }
 }
 
@@ -1077,6 +1060,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
         vec![
             unknown_model("fable", "Fable"),
             ModelInfo {
+                default_reasoning_effort: None,
                 id: "sonnet".into(),
                 display_name: "Sonnet".into(),
                 description: None,
@@ -1085,6 +1069,7 @@ fn unknown_verdict_never_persists_as_a_negative() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             },
         ],
         Some("sonnet".into()),
@@ -1136,6 +1121,7 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
         id: id.to_string(),
         default: Some("fable".into()),
         discovery: Some(vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "fable".into(),
             display_name: "Fable".into(),
             description: None,
@@ -1144,6 +1130,7 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }]),
     });
     let refreshed = refresh_for_reader(provider).await;
@@ -1173,6 +1160,7 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
     put_live(
         id,
         vec![ModelInfo {
+            default_reasoning_effort: None,
             id: "fable".into(),
             display_name: "Fable".into(),
             description: None,
@@ -1181,6 +1169,7 @@ async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
             featured: None,
             badge: None,
             group: None,
+            reasoning_efforts: None,
         }],
         Some("fable".into()),
     );

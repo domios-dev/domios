@@ -158,24 +158,31 @@ fn map_digest(map_path: &Path) -> Result<String, String> {
     Ok(sha256(text.replace("\r\n", "\n").as_bytes()))
 }
 
-fn history_dir(map_path: &Path) -> PathBuf {
-    map_path
+fn history_dir(map_path: &Path, data_root: &Path) -> PathBuf {
+    let project_root = map_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(".codeterm")
-        .join(HISTORY_DIR_NAME)
+        .unwrap_or_else(|| Path::new("."));
+    let project_root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let project_key = sha256(project_root.to_string_lossy().as_bytes());
+    data_root.join(HISTORY_DIR_NAME).join(project_key)
 }
 
-fn history_file(map_path: &Path, digest: &str) -> PathBuf {
-    history_dir(map_path).join(format!("{digest}.jsonl"))
+fn history_file(map_path: &Path, digest: &str, data_root: &Path) -> PathBuf {
+    history_dir(map_path, data_root).join(format!("{digest}.jsonl"))
 }
 
 /// Keep the bytes a regeneration is about to replace, so the revert a release
 /// summary offers can restore them. Content-addressed, so regenerating the same
 /// map writes one file.
-pub(crate) fn retain_superseded_map(map_path: &Path, next_contents: &str) -> Result<(), String> {
+pub(crate) fn retain_superseded_map(
+    map_path: &Path,
+    next_contents: &str,
+    data_root: &Path,
+) -> Result<(), String> {
     let Ok(existing) = fs::read(map_path) else {
         return Ok(());
     };
@@ -193,7 +200,7 @@ pub(crate) fn retain_superseded_map(map_path: &Path, next_contents: &str) -> Res
     if digest == sha256(next_contents.as_bytes()) {
         return Ok(());
     }
-    let target = history_file(map_path, &digest);
+    let target = history_file(map_path, &digest, data_root);
     if target.exists() {
         return Ok(());
     }
@@ -318,6 +325,7 @@ pub(crate) fn revert(
     map_path: &Path,
     decisions_path: &Path,
     to: &str,
+    data_root: &Path,
 ) -> Result<RevertOutcome, String> {
     let records = read(decisions_path)?;
     let target = records
@@ -326,14 +334,14 @@ pub(crate) fn revert(
         .ok_or_else(|| format!("decision `{to}` is not in the log"))?
         .clone();
     if map_digest(map_path).ok().as_deref() != Some(target.map_sha256.as_str()) {
-        let snapshot = history_file(map_path, &target.map_sha256);
+        let snapshot = history_file(map_path, &target.map_sha256, data_root);
         let contents = fs::read_to_string(&snapshot).map_err(|error| {
             format!(
                 "no retained map for {to} at {}: {error}",
                 snapshot.display()
             )
         })?;
-        retain_superseded_map(map_path, &contents)?;
+        retain_superseded_map(map_path, &contents, data_root)?;
         write_text(map_path, &contents)?;
     }
     let outcome = record(

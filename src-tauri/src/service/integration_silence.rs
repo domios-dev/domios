@@ -7,20 +7,323 @@
 //! install and consent records the daemon already holds. It never infers the
 //! gap from an absence of sessions, which would need a window to decide in.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
-use codeterm_types::notification::NotifyLevel;
-
-use super::notification::{NotificationOrigin, PushIntent};
-use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 use crate::notification::dedupe::{
     provider_integration_missing_condition, ConditionTransition, MACHINE_SCOPE,
 };
+use crate::session::lifecycle::BindingSource;
+use codeterm_types::notification::NotifyLevel;
+
+use super::notification::{NotificationOrigin, PushIntent};
+use super::ServiceContext;
 
 #[cfg(test)]
+#[path = "integration_silence/review_regressions.rs"]
+mod review_regressions;
+#[cfg(test)]
 mod tests;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HookBindingFallback {
+    source: BindingSource,
+    session_start_retry_used: bool,
+    session_start_retry_reserved: bool,
+    sequence: u64,
+}
+
+type HookBindingFallbacks = HashMap<String, HashMap<String, HookBindingFallback>>;
+const MAX_HOOK_BINDING_FALLBACKS: usize = 1024;
+
+fn next_fallback_sequence() -> u64 {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    SEQUENCE.fetch_add(1, Ordering::Relaxed)
+}
+
+fn hook_binding_fallbacks() -> &'static parking_lot::Mutex<HookBindingFallbacks> {
+    static FALLBACKS: OnceLock<parking_lot::Mutex<HookBindingFallbacks>> = OnceLock::new();
+    FALLBACKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn binding_source_label(source: BindingSource) -> &'static str {
+    match source {
+        BindingSource::Hook => "hook",
+        BindingSource::PidRegistry => "pid_registry",
+        BindingSource::LaunchMarker => "launch_marker",
+    }
+}
+
+fn update_hook_binding_fallback(
+    fallbacks: &mut HookBindingFallbacks,
+    provider_id: &str,
+    session_id: &str,
+    source: BindingSource,
+    session_binding_hook_succeeded: bool,
+) -> bool {
+    if session_binding_hook_succeeded && source == BindingSource::Hook {
+        let remove_provider = fallbacks.get_mut(provider_id).is_some_and(|sessions| {
+            sessions.remove(session_id);
+            sessions.is_empty()
+        });
+        if remove_provider {
+            fallbacks.remove(provider_id);
+        }
+        return false;
+    }
+    if source == BindingSource::Hook {
+        return false;
+    }
+    let (existing, same_source) = fallbacks
+        .get(provider_id)
+        .and_then(|sessions| sessions.get(session_id))
+        .map(|fallback| (true, fallback.source == source))
+        .unwrap_or_default();
+    if same_source {
+        return false;
+    }
+    if !existing {
+        evict_oldest_hook_binding_fallback(fallbacks);
+    }
+    let sessions = fallbacks.entry(provider_id.to_string()).or_default();
+    sessions.insert(
+        session_id.to_string(),
+        HookBindingFallback {
+            source,
+            session_start_retry_used: false,
+            session_start_retry_reserved: false,
+            sequence: next_fallback_sequence(),
+        },
+    );
+    true
+}
+
+fn evict_oldest_hook_binding_fallback(fallbacks: &mut HookBindingFallbacks) {
+    let count = fallbacks.values().map(HashMap::len).sum::<usize>();
+    if count < MAX_HOOK_BINDING_FALLBACKS {
+        return;
+    }
+    let oldest = fallbacks
+        .iter()
+        .flat_map(|(provider_id, sessions)| {
+            sessions
+                .iter()
+                .map(move |(session_id, fallback)| (provider_id, session_id, fallback.sequence))
+        })
+        .min_by_key(|(_, _, sequence)| *sequence)
+        .map(|(provider_id, session_id, _)| (provider_id.clone(), session_id.clone()));
+    if let Some((provider_id, session_id)) = oldest {
+        clear_hook_binding_fallback_from(fallbacks, &provider_id, &session_id);
+    }
+}
+
+pub(crate) struct HookBindingFallbackRetry {
+    provider_id: String,
+    session_id: String,
+    settled: bool,
+}
+
+impl HookBindingFallbackRetry {
+    pub(crate) fn commit(mut self) {
+        settle_hook_binding_fallback_retry(
+            &mut hook_binding_fallbacks().lock(),
+            &self.provider_id,
+            &self.session_id,
+            true,
+        );
+        self.settled = true;
+    }
+}
+
+impl Drop for HookBindingFallbackRetry {
+    fn drop(&mut self) {
+        if !self.settled {
+            settle_hook_binding_fallback_retry(
+                &mut hook_binding_fallbacks().lock(),
+                &self.provider_id,
+                &self.session_id,
+                false,
+            );
+        }
+    }
+}
+
+pub(crate) fn reserve_hook_binding_fallback_retry(
+    provider_id: &str,
+    session_id: &str,
+) -> Option<HookBindingFallbackRetry> {
+    let reserved = reserve_hook_binding_fallback_retry_from(
+        &mut hook_binding_fallbacks().lock(),
+        provider_id,
+        session_id,
+    );
+    reserved.then(|| HookBindingFallbackRetry {
+        provider_id: provider_id.to_string(),
+        session_id: session_id.to_string(),
+        settled: false,
+    })
+}
+
+fn reserve_hook_binding_fallback_retry_from(
+    fallbacks: &mut HookBindingFallbacks,
+    provider_id: &str,
+    session_id: &str,
+) -> bool {
+    let Some(fallback) = fallbacks
+        .get_mut(provider_id)
+        .and_then(|sessions| sessions.get_mut(session_id))
+    else {
+        return false;
+    };
+    if fallback.session_start_retry_used || fallback.session_start_retry_reserved {
+        return false;
+    }
+    fallback.session_start_retry_reserved = true;
+    true
+}
+
+fn settle_hook_binding_fallback_retry(
+    fallbacks: &mut HookBindingFallbacks,
+    provider_id: &str,
+    session_id: &str,
+    succeeded: bool,
+) {
+    if let Some(fallback) = fallbacks
+        .get_mut(provider_id)
+        .and_then(|sessions| sessions.get_mut(session_id))
+    {
+        fallback.session_start_retry_reserved = false;
+        fallback.session_start_retry_used |= succeeded;
+    }
+}
+
+pub(crate) fn clear_hook_binding_fallback_session(provider_id: &str, session_id: &str) {
+    clear_hook_binding_fallback_from(
+        &mut hook_binding_fallbacks().lock(),
+        provider_id,
+        session_id,
+    );
+}
+
+fn clear_hook_binding_fallback_from(
+    fallbacks: &mut HookBindingFallbacks,
+    provider_id: &str,
+    session_id: &str,
+) {
+    let remove_provider = fallbacks.get_mut(provider_id).is_some_and(|sessions| {
+        sessions.remove(session_id);
+        sessions.is_empty()
+    });
+    if remove_provider {
+        fallbacks.remove(provider_id);
+    }
+}
+
+pub(crate) fn record_hook_binding_source(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    session_id: &str,
+    source: BindingSource,
+    session_binding_hook_succeeded: bool,
+) {
+    let has_hooks = registry
+        .with_provider(provider_id, |provider| provider.has_hooks())
+        .unwrap_or(false);
+    if !has_hooks {
+        return;
+    }
+    let changed = {
+        let mut fallbacks = hook_binding_fallbacks().lock();
+        update_hook_binding_fallback(
+            &mut fallbacks,
+            provider_id,
+            session_id,
+            source,
+            session_binding_hook_succeeded,
+        )
+    };
+    if changed {
+        log::warn!(
+            "[provider-integration] session binding used fallback source={} provider={}",
+            binding_source_label(source),
+            provider_id,
+        );
+    }
+}
+
+pub(crate) fn hook_binding_fallback_source(
+    provider_id: &str,
+    live_session_ids: &[String],
+) -> Option<String> {
+    hook_binding_fallback_source_from(
+        &hook_binding_fallbacks().lock(),
+        provider_id,
+        live_session_ids,
+    )
+}
+
+fn hook_binding_fallback_source_from(
+    fallbacks: &HookBindingFallbacks,
+    provider_id: &str,
+    live_session_ids: &[String],
+) -> Option<String> {
+    let sessions = fallbacks.get(provider_id)?;
+    let mut active_fallbacks = live_session_ids
+        .iter()
+        .filter_map(|session_id| {
+            sessions
+                .get(session_id)
+                .map(|fallback| (session_id, fallback))
+        })
+        .collect::<Vec<_>>();
+    active_fallbacks.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    active_fallbacks
+        .first()
+        .map(|(_, fallback)| binding_source_label(fallback.source).to_string())
+}
+
+pub(crate) fn has_hook_binding_fallback(provider_id: &str, session_id: &str) -> bool {
+    hook_binding_fallbacks()
+        .lock()
+        .get(provider_id)
+        .is_some_and(|sessions| sessions.contains_key(session_id))
+}
+
+pub(crate) fn integration_status_with_binding_fallback(
+    status: Json,
+    provider_id: &str,
+    has_hooks: bool,
+    live_session_ids: &[String],
+) -> Json {
+    let source = if has_hooks {
+        hook_binding_fallback_source(provider_id, live_session_ids)
+    } else {
+        None
+    };
+    integration_status_with_fallback_source(status, has_hooks, source)
+}
+
+fn integration_status_with_fallback_source(
+    mut status: Json,
+    has_hooks: bool,
+    source: Option<String>,
+) -> Json {
+    if let Some(fields) = status.as_object_mut() {
+        fields.remove("codeterm_binding_fallback_source");
+        if let (true, Some(source)) = (has_hooks, source) {
+            fields.insert(
+                "codeterm_binding_fallback_source".into(),
+                Json::String(source),
+            );
+        }
+    }
+    status
+}
 
 /// What the daemon knows outright about one provider's session-registering
 /// integration. Every field is a record readable now, none is an observation
@@ -330,6 +633,15 @@ pub fn read_contract_current(status: &Json) -> Option<bool> {
     status.get("hook_contract_current").and_then(Json::as_bool)
 }
 
+pub fn read_integration_owned(status: &Json) -> bool {
+    status
+        .get("integration_owned")
+        .or_else(|| status.get("hooks_owned"))
+        .or_else(|| status.get("plugin_file_owned"))
+        .and_then(Json::as_bool)
+        .unwrap_or(false)
+}
+
 pub fn read_target(status: &Json) -> Option<String> {
     status
         .get("target")
@@ -403,15 +715,14 @@ pub fn authorize_reconciliation(facts: &IntegrationFacts) -> ReconcileAuthorizat
     let Some(state) = facts.state else {
         return ReconcileAuthorization::Unreadable;
     };
-    // Recorded consent covers the rewrite and the trust grant the install makes.
     if state == IntegrationState::UntrustedHash && !facts.consent_recorded {
         return ReconcileAuthorization::TrustGrantRequired;
     }
-    if state == IntegrationState::Installed && facts.contract_current != Some(false) {
-        return ReconcileAuthorization::AlreadyCurrent;
-    }
     if !facts.consent_recorded {
         return ReconcileAuthorization::ConsentMissing;
+    }
+    if state == IntegrationState::Installed && facts.contract_current != Some(false) {
+        return ReconcileAuthorization::AlreadyCurrent;
     }
     ReconcileAuthorization::Reconcile
 }

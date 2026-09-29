@@ -286,10 +286,12 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
     let source_draft = crate::service::plan::task_attempts::TaskRespawnDraft {
         plan_id: plan.id.clone(),
         task_id: task_id.clone(),
+        attempt_id: "attempt-source".into(),
         source_attempt: Default::default(),
-        provider: "test-provider".into(),
+        provider: "claude".into(),
         planned_model: None,
-        model: None,
+        model: Some("sonnet".into()),
+        reasoning_effort: Some("high".into()),
         parent_tab_id: None,
         workspace_id: Some("ws-rest".into()),
         title: None,
@@ -316,7 +318,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
         .id;
     let tab_id = mux.write().create_tab(&ws).unwrap();
     mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("rest-session".into());
-    let draft = store
+    let mut draft = store
         .build_task_respawn_draft(
             &plan.id,
             &task_id,
@@ -330,6 +332,9 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
             },
         )
         .unwrap();
+    draft.provider = "codex".into();
+    draft.model = Some("gpt-6-luna".into());
+    draft.reasoning_effort = Some("xhigh".into());
     let persisted = record_respawn_attempt_and_persist_identity_for(
         &store,
         &mux,
@@ -350,6 +355,9 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
         .find(|attempt| attempt.id == persisted.attempt.id)
         .unwrap();
     assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
+    assert_eq!(attempt.provider.as_deref(), Some("codex"));
+    assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+    assert_eq!(attempt.reasoning_effort.as_deref(), Some("xhigh"));
     assert!(attempt.session_id.is_none());
     assert!(attempt.session_binding_nonce.is_none());
     assert!(attempt.acknowledged_at.is_none());

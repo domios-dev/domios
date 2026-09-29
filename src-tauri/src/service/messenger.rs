@@ -30,6 +30,7 @@ pub struct MessageEnvelope {
     pub kind: MessageKind,
     pub from_label: String,
     pub from_tab: String,
+    pub from_agent: Option<bool>,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
@@ -39,6 +40,9 @@ pub struct MessageEnvelope {
     pub fire_at: Option<u64>,
     pub id: Option<String>,
     pub context: Option<String>,
+    pub every_ms: Option<u64>,
+    pub next_at_ms: Option<u64>,
+    pub skipped_ticks: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -155,6 +159,11 @@ impl MessageEnvelope {
         self
     }
 
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
+        self.from_agent = from_agent;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.peer = peer.filter(|p| !p.trim().is_empty());
         self
@@ -172,6 +181,18 @@ impl MessageEnvelope {
 
     pub fn id(mut self, id: Option<String>) -> Self {
         self.id = id.filter(|s| !s.trim().is_empty());
+        self
+    }
+
+    pub fn recurrence(
+        mut self,
+        every_ms: u64,
+        next_at_ms: Option<u64>,
+        skipped_ticks: u64,
+    ) -> Self {
+        self.every_ms = Some(every_ms);
+        self.next_at_ms = next_at_ms;
+        self.skipped_ticks = Some(skipped_ticks);
         self
     }
 }
@@ -195,6 +216,9 @@ impl From<MessageEnvelope> for Messenger {
 }
 
 impl Messenger {
+    pub(crate) const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
+    pub(crate) const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
+    const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
     }
@@ -232,6 +256,11 @@ impl Messenger {
         self
     }
 
+    pub fn from_agent(mut self, from_agent: Option<bool>) -> Self {
+        self.envelope.from_agent = from_agent;
+        self
+    }
+
     pub fn peer(mut self, peer: Option<String>) -> Self {
         self.envelope.peer = peer.filter(|p| !p.trim().is_empty());
         self
@@ -250,6 +279,15 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        Self::deliver_with_pad_file(svc, to_tab, envelope, body).map(|(delivery, _)| delivery)
+    }
+
+    pub fn deliver_with_pad_file(
+        svc: &super::ServiceContext,
+        to_tab: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let kind = envelope.kind;
         let result = Self::deliver_inner(svc, to_tab, envelope, body);
         if result.is_ok() {
@@ -263,7 +301,7 @@ impl Messenger {
         to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
-    ) -> Result<Delivery, String> {
+    ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         if svc.tab_chat_backing(to_tab).is_some() {
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc
@@ -282,7 +320,8 @@ impl Messenger {
                     )
                 },
                 || unreachable!(),
-            );
+            )
+            .map(|delivery| (delivery, None));
         }
 
         let (resolved_target, should_prefix, pty_agent_target) = {
@@ -310,9 +349,20 @@ impl Messenger {
         };
         let entry = pty_submit_entry(envelope.kind);
         let text = if should_prefix {
-            Self::from(envelope).wrap(body)
+            Self::from(envelope.clone()).wrap(body)
         } else {
             body.to_string()
+        };
+        let (body, pad_file) =
+            svc.substitute_paste_limited_body(&resolved_target, body.to_string(), text.len())?;
+        let text = if pad_file.is_some() {
+            if should_prefix {
+                Self::from(envelope).wrap(&body)
+            } else {
+                body
+            }
+        } else {
+            text
         };
         dispatch_delivery(
             DeliveryTransport::Pty,
@@ -326,7 +376,7 @@ impl Messenger {
                     }
                     Ok::<(), String>(())
                 })?;
-                Ok(Delivery::Pty { text })
+                Ok((Delivery::Pty { text }, pad_file))
             },
         )
     }
@@ -370,7 +420,14 @@ impl Messenger {
             tab.backing.clone()
         };
         if matches!(backing, crate::multiplexer::types::TabBacking::Pty) {
-            let text = Self::from(envelope).wrap(body);
+            let wrapped = Self::from(envelope.clone()).wrap(body);
+            let (body, pad_file) =
+                svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
+            let text = if pad_file.is_some() {
+                Self::from(envelope).wrap(&body)
+            } else {
+                wrapped
+            };
             crate::service::pty_io::submit_transaction::submit_entry(
                 crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
                 &text,
@@ -549,6 +606,9 @@ impl Messenger {
         let tab = short_id(&self.envelope.from_tab);
         let set_at = self.envelope.set_at.map(|v| v.to_string());
         let fire_at = self.envelope.fire_at.map(|v| v.to_string());
+        let every_ms = self.envelope.every_ms.map(|v| v.to_string());
+        let next_at = self.envelope.next_at_ms.map(|v| v.to_string());
+        let skipped_ticks = self.envelope.skipped_ticks.map(|v| v.to_string());
         crate::message_markers::Marker::new("reminder")
             .attr_opt("from", Some(label.as_str()).filter(|s| !s.is_empty()))
             .attr_opt("tab", Some(tab).filter(|s| !s.is_empty()))
@@ -556,6 +616,9 @@ impl Messenger {
             .attr_opt("set_at", set_at.as_deref())
             .attr_opt("fire_at", fire_at.as_deref())
             .attr_opt("id", self.envelope.id.as_deref())
+            .attr_opt("every_ms", every_ms.as_deref())
+            .attr_opt("next_at", next_at.as_deref())
+            .attr_opt("skipped", skipped_ticks.as_deref())
             .build()
     }
 
@@ -573,8 +636,12 @@ impl Messenger {
         if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
             return None;
         }
+        if self.envelope.from_agent == Some(false) {
+            return Some(Self::SHELL_REPLY_HINT.to_string());
+        }
         let mut command = format!(
-            "codeterm send \"YOUR REPLY\" --tab {}",
+            "{} \"YOUR REPLY\" --tab {}",
+            Self::AGENT_REPLY_COMMAND,
             short_id(&self.envelope.from_tab)
         );
         if let Some(mesh) = self
@@ -587,7 +654,7 @@ impl Messenger {
             command.push_str(" --mesh ");
             command.push_str(mesh);
         }
-        Some(format!("[to reply, run: {command}]"))
+        Some(format!("{}{command}]", Self::AGENT_REPLY_HINT_PREFIX))
     }
 }
 

@@ -48,7 +48,7 @@ impl ServiceContext {
         drop(mux);
         if changed {
             self.deferred_session_bindings.clear(tab_id);
-            self.schedule_session_model_refresh_after_binding(tab_id);
+            self.schedule_session_model_refresh_for_current_tab(tab_id);
             self.emit_session_binding_state(tab_id);
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
@@ -56,7 +56,8 @@ impl ServiceContext {
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {
-            crate::service::general_agent::binding_wait::notify_session_bound();
+            crate::service::general_agent::binding_wait::notify_binding_state_changed();
+            crate::service::folder_trust_carryover::tab_session_bound(self.clone(), tab_id);
         }
         if let Some(session_id) = bound_session_id.as_deref() {
             match self

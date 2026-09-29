@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
 use crate::client::RpcClient;
+#[cfg(test)]
 use codeterm_types::agent::ReportOutcomeClass;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +71,10 @@ pub struct ReportRefusal {
 
 const UNRESOLVED_LANE_REFUSAL_PREFIX: &str =
     "readiness report refused: cannot locate your lane worktree";
+#[cfg(test)]
 const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str = "readiness report refused: lane worktree";
+const CANONICAL_DIRTY_REFUSAL_PREFIX: &str =
+    "readiness report refused: this canonical checkout has uncommitted changes.";
 
 /// Copied verbatim by an agent that has just lost a report, so every line must be
 /// runnable: an inline body is mangled by the shell before the report is sent.
@@ -98,6 +102,7 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
 ];
 
 impl ReportRefusal {
+    #[cfg(test)]
     pub fn report_outcome(&self) -> Option<ReportOutcomeClass> {
         (self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX)
             || self
@@ -114,7 +119,11 @@ impl ReportRefusal {
                 .to_string(),
         );
         if !self.dirty_files.is_empty() {
-            lines.push("Dirty lane files:".to_string());
+            lines.push(if self.reason.starts_with(CANONICAL_DIRTY_REFUSAL_PREFIX) {
+                "Dirty canonical checkout files:".to_string()
+            } else {
+                "Dirty lane files:".to_string()
+            });
             lines.extend(self.dirty_files.iter().map(|file| format!("  {file}")));
         }
         lines.join("\n")
@@ -126,6 +135,7 @@ impl ReportRefusal {
 pub struct ReadinessScope<'a> {
     pub pane_cwd: &'a Path,
     pub lane_worktree: Option<&'a Path>,
+    pub canonical_writer: bool,
 }
 
 impl<'a> ReadinessScope<'a> {
@@ -134,6 +144,7 @@ impl<'a> ReadinessScope<'a> {
         Self {
             pane_cwd,
             lane_worktree: None,
+            canonical_writer: false,
         }
     }
 
@@ -165,11 +176,19 @@ pub fn enrich_ready_report(
     if task_scope.is_some_and(|scope| !scope.requires_repository) {
         return Ok((branch, sha, changed_files));
     }
-    let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
+    let canonical_writer = task_scope.is_some_and(|scope| scope.canonical_writer);
+    let validation_worktree = task_scope.and_then(|scope| {
+        if canonical_writer {
+            scope.canonical_checkout_path.as_deref()
+        } else {
+            scope.worktree_path.as_deref()
+        }
+    });
     // Refuse loudly so the worker rebinds its lane instead.
     if task_scope.is_some()
         && is_readiness_status(status)
-        && lane_worktree.is_none()
+        && !canonical_writer
+        && validation_worktree.is_none()
         && sha
             .as_deref()
             .map(str::trim)
@@ -177,12 +196,21 @@ pub fn enrich_ready_report(
     {
         return Err(unresolved_lane_refusal());
     }
+    if canonical_writer && is_readiness_status(status) && validation_worktree.is_none() {
+        return Err(canonical_checkout_refusal());
+    }
+    let acknowledge_dirty = acknowledge_dirty && !canonical_writer;
     // The live attempt base is what this tab is working from now; the dispatch environment is a snapshot of the attempt that launched the shell and does not move with a re-dispatch.
-    let base = base.resolve(task_scope.and_then(|scope| scope.base.clone()));
+    let base = if canonical_writer {
+        None
+    } else {
+        base.resolve(task_scope.and_then(|scope| scope.base.clone()))
+    };
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
-            lane_worktree,
+            lane_worktree: validation_worktree,
+            canonical_writer,
         },
         status,
         branch,
@@ -263,7 +291,7 @@ fn enrich_ready_report_in_scope(
         let owned_sha = sha.as_deref().and_then(|given| resolve_commit(cwd, given));
         if let Some(dirty) = load_lane_dirty(cwd, inspection.base.as_deref(), owned_sha.as_deref())?
         {
-            return Err(readiness_dirty_error(dirty));
+            return Err(readiness_dirty_error(dirty, scope.canonical_writer));
         }
     }
     Ok((
@@ -456,10 +484,21 @@ fn unresolved_lane_refusal() -> ReportRefusal {
     }
 }
 
-fn readiness_dirty_error(dirty_files: Vec<String>) -> ReportRefusal {
+fn canonical_checkout_refusal() -> ReportRefusal {
     ReportRefusal {
-        reason: "readiness report refused: this git worktree has uncommitted lane changes."
+        reason: "readiness report refused: cannot locate the plan's canonical checkout for this canonical-writer attempt."
             .to_string(),
+        dirty_files: Vec::new(),
+    }
+}
+
+fn readiness_dirty_error(dirty_files: Vec<String>, canonical_writer: bool) -> ReportRefusal {
+    ReportRefusal {
+        reason: if canonical_writer {
+            CANONICAL_DIRTY_REFUSAL_PREFIX.to_string()
+        } else {
+            "readiness report refused: this git worktree has uncommitted lane changes.".to_string()
+        },
         dirty_files: dirty_files.into_iter().take(8).collect(),
     }
 }

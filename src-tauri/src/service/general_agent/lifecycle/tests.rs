@@ -238,8 +238,9 @@ fn tab_after_unconfirmed_launch_delivery() -> crate::multiplexer::types::Tab {
 fn record_missing_binding(tab: &mut crate::multiplexer::types::Tab) -> (BootStage, String) {
     let delivery = tab.pending_delivery.as_ref().map(|record| record.state());
     let (stage, reason) = super::missing_binding_provisional(delivery);
-    let latch = crate::service::boot_stage::provisional_launch_for(tab, "pty-a", &reason)
-        .expect("a current launch is latchable while it is unresolved");
+    let latch =
+        crate::service::boot_stage::provisional_launch_for(tab, "pty-a", "nonce-a", &reason)
+            .expect("a current launch is latchable while it is unresolved");
     crate::service::boot_stage::apply_boot_stage(tab, stage, Some(&reason));
     tab.provisional_launch = Some(latch);
     (stage, reason)
@@ -354,55 +355,74 @@ fn startup_turn_is_delivered_before_session_binding_wait() {
 }
 
 #[test]
-fn fallback_provider_receives_one_composed_startup_turn() {
-    let contract = super::super::instructions::render_system_prompt("codex", None);
-    let message =
-        super::compose_startup_message(true, contract.clone(), Some("BOOTSTRAP_SENTINEL".into()))
-            .unwrap();
+fn general_agent_bootstrap_only_before_first_run_completes() {
+    let mem = crate::mem::MemManager::open_in_memory().expect("mem store");
+    mem.seed_bundled_if_needed().expect("seed bundled mem");
+    let seeded_identity = mem
+        .get("preference_identity")
+        .expect("read seeded identity")
+        .expect("seeded identity record");
+    assert!(seeded_identity
+        .source
+        .as_deref()
+        .is_some_and(|source| source.starts_with("bundled:")));
 
-    assert_eq!(
-        message,
-        "-=-codeterm:system context=general-bootstrap-=-\nBOOTSTRAP_SENTINEL"
-    );
-    assert_runtime_contract_cardinality(&contract, &message);
-    assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
+    let dir = tempfile::tempdir().expect("temporary directory");
+    let bootstrap_path = dir.path().join("bootstrap.md");
+    std::fs::write(&bootstrap_path, "BOOTSTRAP_SENTINEL").expect("bootstrap file");
+
+    let startup = super::compose_startup_message(&mem, &bootstrap_path).expect("first run");
+    assert!(startup.contains("BOOTSTRAP_SENTINEL"));
+
+    std::fs::write(dir.path().join("identity.md"), "IDENTITY_COMPLETE_SENTINEL")
+        .expect("completed identity file");
+    assert!(bootstrap_path.exists());
+    assert!(super::compose_startup_message(&mem, &bootstrap_path).is_none());
 }
 
 #[test]
-fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
-    let contract = super::super::instructions::render_system_prompt("codex", None);
-    let message =
-        super::compose_startup_message(false, contract.clone(), Some("BOOTSTRAP_SENTINEL".into()))
-            .unwrap();
+fn general_agent_launch_uses_system_prompt_channel_when_available() {
+    use crate::agent::provider::{AgentLaunchParams, StarterPrompt, SystemPromptDelivery};
 
-    assert_eq!(
-        message,
-        "-=-codeterm:system context=general-bootstrap-=-\nBOOTSTRAP_SENTINEL"
+    let startup_message = Some("BOOTSTRAP_SENTINEL".to_string());
+    let native = super::compose_launch_instructions(
+        "GA_INSTRUCTIONS_SENTINEL".into(),
+        startup_message.clone(),
+        &SystemPromptDelivery::CliFlag("--system".into()),
     );
-    assert_runtime_contract_cardinality(&contract, &message);
-    assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
-}
+    let params = AgentLaunchParams {
+        task: native.task.clone(),
+        starter_prompt: native.starter_prompt,
+        ..AgentLaunchParams::default()
+    };
 
-fn assert_runtime_contract_cardinality(contract: &str, startup_turn: &str) {
-    for sentinel in [
-        "You are the General Agent",
-        "# CodeTerm CLI reference",
-        "# CodeTerm Memory Protocol",
-    ] {
-        assert_eq!(
-            contract.matches(sentinel).count() + startup_turn.matches(sentinel).count(),
-            1,
-            "runtime contract sentinel must be delivered once: {sentinel}"
-        );
-    }
+    assert!(params.task.as_deref().is_some_and(
+        |task| task.contains("GA_INSTRUCTIONS_SENTINEL") && task.contains("BOOTSTRAP_SENTINEL")
+    ));
+    assert_eq!(params.starter_prompt, StarterPrompt::AssignedTask);
+    assert!(native.startup_message.is_none());
+    assert_eq!(native.prompt_delivery, "cli_flag");
+
+    let fallback = super::compose_launch_instructions(
+        "GA_INSTRUCTIONS_SENTINEL".into(),
+        startup_message,
+        &SystemPromptDelivery::External,
+    );
+    assert!(fallback.task.is_none());
+    assert!(fallback
+        .startup_message
+        .as_deref()
+        .is_some_and(|message| message.contains("BOOTSTRAP_SENTINEL")));
+    assert_eq!(fallback.starter_prompt, StarterPrompt::NoStarter);
+    assert_eq!(fallback.prompt_delivery, "confirmed_fallback");
 }
 
 #[test]
 fn provider_without_bootstrap_receives_no_interactive_startup_turn() {
-    let contract = super::super::instructions::render_system_prompt("codex", None);
-
-    assert!(super::compose_startup_message(true, contract.clone(), None).is_none());
-    assert!(super::compose_startup_message(false, contract, None).is_none());
+    let dir = tempfile::tempdir().expect("temporary directory");
+    let bootstrap_path = dir.path().join("bootstrap.md");
+    let mem = crate::mem::MemManager::open_in_memory().expect("mem store");
+    assert!(super::compose_startup_message(&mem, &bootstrap_path).is_none());
 }
 
 #[test]
@@ -600,6 +620,7 @@ fn general_agent_launch_claim_blocks_initial_shell_exit_teardown() {
     assert!(tab.agent_type.is_none());
     assert!(tab.agent_session_id.is_none());
     assert!(tab.session_binding_nonce.is_none());
+    assert!(tab.exit_suspected_at.is_none());
 }
 
 #[test]

@@ -81,6 +81,7 @@ function makeSnapshot(workspaces: BackendWs[], gen: number) {
 
 interface MuxLike {
   workspaces: Array<{ id: string; tabs: string[] }>;
+  toasts: Array<{ title: string; body?: string }>;
 }
 function hasTab(state: MuxLike, tabId: string): boolean {
   return state.workspaces.some((w) => w.tabs.includes(tabId));
@@ -239,6 +240,8 @@ test("failed closeWorkspace restores the workspace from authoritative state", as
   });
 
   assert(hasWorkspace(h.state(), "w1"), "workspace w1 must reappear from authoritative state after a failed close");
+  const closeToast = h.state().toasts.find((toast) => toast.title === "Workspace close failed");
+  assert(closeToast?.body === "close rejected", "workspace close rejection is visible in a toast");
   await h.act(async () => h.root.unmount());
   h.clear();
 });

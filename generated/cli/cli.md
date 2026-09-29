@@ -142,13 +142,13 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 
 Spawn a new agent; roleless unless --role is provided.
 
-- `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
+- `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
 - `--args` — Extra provider args. Put this after all CodeTerm spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
-- `--cwd` — Working directory
+- `--cwd` — Working directory (required with --mesh; resolves on the peer)
 - `--description` — Short tab description (max 200 chars)
 - `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
@@ -161,15 +161,17 @@ Spawn a new agent; roleless unless --role is provided.
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--provider-reserve-pct`
-- `--reasoning-effort` — Reasoning-effort level (provider-specific, e.g. codex low/medium/high). Capability-validated: an unsupported value is rejected, never silently downgraded. Run `codeterm agent models <provider>` to see supported levels
+- `--reason` — Why this Worker needs an unplanned task
+- `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
-- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task
+- `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
 - `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag
 - `--title` — Tab title
+- `--unplanned` — Create and dispatch a visible exceptional task for this Worker
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
 #### `codeterm agent startup-ack`
@@ -392,12 +394,15 @@ Manage delayed Chat UI sends
 Queue a delayed message
 
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--every` — Repeat delivery at an anchored interval (minimum 1m)
 - `--from-file` — Read text from a file instead of the positional arg
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
+- `--until` — Stop recurring delivery at an absolute time
 
 #### `codeterm delayed delete`
 
@@ -410,12 +415,15 @@ Delete a delayed message
 Edit a queued or failed delayed message
 
 - `--at` — Absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Replace the recurrence tick limit
 - `--delay` — Relative delay from now: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--every` — Replace the recurrence interval (minimum 1m)
 - `--from-file` — Read replacement text from a file
 - `--from-pad` — Read replacement text from the current agent tab's pad
 - `<id>` — Delayed message ID
 - `--stdin` — Read replacement text from stdin
 - `--text` — Replacement text
+- `--until` — Replace the recurrence end time
 
 #### `codeterm delayed list`
 
@@ -538,6 +546,7 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
 
+- `--no-precompact-memory-export` — Disable conversation export before compaction
 - `--precompact-memory-export` — Also export conversation content to memory before compaction
 - `--provider` — Provider id (e.g. claude, codex)
 
@@ -546,6 +555,14 @@ Install a provider's hook integration and trust CodeTerm's own hooks. Running it
 Show a provider's hook integration state
 
 - `--provider` — Provider id (e.g. claude, codex)
+
+#### `codeterm integration sweep-profiles`
+
+Preview or remove dead provider launch artifacts owned by this instance
+
+- `--confirm` — Remove the profiles listed by this instance's scan
+- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--provider` — Provider id (e.g. codex)
 
 #### `codeterm keepawake`
 
@@ -1271,6 +1288,12 @@ Stop broadcasting immediately
 List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
+
+#### `codeterm mesh unrevoke`
+
+Explicitly lift a peer identity revocation so it can pair again
+
+- `<instance_id>` — Instance ID of the revoked peer
 
 #### `codeterm notify`
 
@@ -2338,7 +2361,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
-- `--reasoning-effort` — Provider-supported reasoning effort (rejected if unsupported)
+- `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
 
@@ -2358,12 +2381,43 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
+#### `codeterm plan task merge-remote-lane`
+
+Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
+
+#### `codeterm plan task remote-ack`
+
+Acknowledge a remote Worker attempt on the origin plan
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task remote-report`
+
+Persist a remote Worker's in-review report on the origin plan
+
+- `<attempt_id>`
+- `--changed-file`
+- `--message`
+- `--message-file`
+- `<plan_id>`
+- `--sha`
+- `--skipped`
+- `<task_id>`
+- `--test-cmd`
+- `--test-result`
 
 #### `codeterm plan task respawn`
 
@@ -2403,6 +2457,15 @@ Show one task in the plan with full detail (body, criteria, test_plan, correctne
 - `--all` — With --siblings, include done/cancelled tasks
 - `<plan_id>`
 - `--siblings` — List sibling tasks (open-only unless --all)
+- `<task_id>`
+
+#### `codeterm plan task split`
+
+Split a task into dispatchable child tasks
+
+- `--child`
+- `--from-file`
+- `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan task update`
@@ -2608,7 +2671,9 @@ Send text to a tab (default: current tab)
 
 - `--actions` — Terminal actions to run after optional text, comma-separated. Keys: literal characters, enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
+- `--count` — Stop after this many delivered or skipped ticks
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
+- `--every` — Repeat delivery to this existing tab at an anchored interval (minimum 1m)
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
@@ -2616,6 +2681,7 @@ Send text to a tab (default: current tab)
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
+- `--until` — Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time
 
 #### `codeterm service`
 

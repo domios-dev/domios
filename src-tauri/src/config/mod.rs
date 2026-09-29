@@ -400,6 +400,12 @@ fn normalize_runtime_defaults(config: &mut AppConfig) {
     if config.mesh.instance_name.trim().is_empty() {
         config.mesh.instance_name = default_mesh_instance_name();
     }
+    if codeterm_paths::is_dev_instance() {
+        config.mesh.instance_name = crate::mesh::identity::instance_mesh_name_for_dev(
+            &config.mesh.instance_name,
+            &codeterm_paths::instance_suffix(),
+        );
+    }
     // The grid is the shared level set mapped. Reconciling on read is what lets
     // a level join the set without a migration and without the panel drifting.
     config.notifications.agent_levels =
@@ -706,7 +712,15 @@ enabled = true
 
         normalize_runtime_defaults(&mut config);
 
-        assert_eq!(config.mesh.instance_name, default_mesh_instance_name());
+        assert!(config
+            .mesh
+            .instance_name
+            .starts_with(&default_mesh_instance_name()));
+        if codeterm_paths::is_dev_instance() {
+            assert!(config.mesh.instance_name.ends_with(']'));
+        } else {
+            assert_eq!(config.mesh.instance_name, default_mesh_instance_name());
+        }
         assert!(!config.mesh.instance_name.is_empty());
     }
 
@@ -796,7 +810,7 @@ enabled = true
         let path = tmp.path().join("config.toml");
         std::fs::write(
             &path,
-            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\n",
+            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nprecompact_memory_export = true\n",
         )
         .unwrap();
 
@@ -810,6 +824,25 @@ enabled = true
                 .and_then(|v| v.as_str()),
             Some("kept"),
             "an unrecognized key must survive the initial load"
+        );
+        let extra = &config.agents["claude"].extra;
+        assert_eq!(
+            extra
+                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            extra
+                .get("integration_consent_recorded_at")
+                .and_then(toml::Value::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            extra
+                .get("precompact_memory_export")
+                .and_then(toml::Value::as_bool),
+            Some(true)
         );
 
         config.font.size = 20; // unrelated modification the round trip must also keep
@@ -826,6 +859,25 @@ enabled = true
                 .and_then(|v| v.as_str()),
             Some("kept"),
             "the unrecognized key must still be present after save + reload"
+        );
+        let extra = &reloaded.agents["claude"].extra;
+        assert_eq!(
+            extra
+                .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+                .and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            extra
+                .get("integration_consent_recorded_at")
+                .and_then(toml::Value::as_integer),
+            Some(123)
+        );
+        assert_eq!(
+            extra
+                .get("precompact_memory_export")
+                .and_then(toml::Value::as_bool),
+            Some(true)
         );
     }
 

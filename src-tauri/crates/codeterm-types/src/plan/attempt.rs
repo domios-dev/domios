@@ -104,6 +104,18 @@ pub struct TaskExecutionAttempt {
     pub agent_type: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub actual_reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub session_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_identity_mismatch: Option<AttemptModelIdentityMismatch>,
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
@@ -116,6 +128,14 @@ pub struct TaskExecutionAttempt {
     pub orchestrator_tab_id: Option<String>,
     #[serde(default)]
     pub mesh_peer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_dispatch_state: Option<RemoteDispatchState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_lane_tip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_merge_commit: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
     #[serde(default)]
@@ -169,4 +189,28 @@ pub struct TaskExecutionAttempt {
     pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
     #[serde(default)]
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteDispatchState {
+    PeerPreflight,
+    PeerMissingRepo,
+    PeerMissingBase,
+    PeerOffline,
+    RelayLost,
+    AwaitingWorkerAck,
+    RemoteAckTimeout,
+    Acknowledged,
+    Reported,
+    Integrated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttemptModelIdentityMismatch {
+    pub requested_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    pub actual_model: String,
+    pub reason: String,
 }

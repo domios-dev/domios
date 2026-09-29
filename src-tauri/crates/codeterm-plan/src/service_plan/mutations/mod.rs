@@ -2,13 +2,16 @@ use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{
     qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask, PlanError, PlanStore,
-    TaskLaneUpdate,
+    SplitParentReason, TaskLaneUpdate,
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
     PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, ReviewEvidence, ReviewVerdict,
     Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
+
+mod plan_writer;
+mod subtasks;
 
 pub(super) fn gen_id(prefix: &str) -> String {
     crate::plan::ids::short_id(prefix)
@@ -22,6 +25,19 @@ pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
             .any(|t| t.milestones.iter().any(|m| m.id == id))
         || plan.strides.iter().any(|m| m.id == id)
         || section_ids_contains(&plan.sections, id)
+}
+
+pub(super) fn ensure_group_declared(plan: &mut Plan, key: Option<&str>) {
+    let Some(key) = key.filter(|key| !key.trim().is_empty()) else {
+        return;
+    };
+    if !plan.task_groups.iter().any(|group| group.key == key) {
+        plan.task_groups.push(TaskGroup {
+            key: key.to_string(),
+            label: key.to_string(),
+            color: None,
+        });
+    }
 }
 
 fn section_matches(section: &Section, selector: &str) -> bool {
@@ -262,7 +278,10 @@ pub(super) fn validate_task_dependencies(
     Ok(resolved)
 }
 
-pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+pub(super) fn reject_terminal_with_open_subtasks(
+    plan: &Plan,
+    task_id: &str,
+) -> Result<(), PlanError> {
     let subtasks = open_subtasks(plan, task_id);
     if subtasks.is_empty() {
         Ok(())
@@ -280,7 +299,7 @@ pub(crate) fn finalize_task_done(
     now_ms: u64,
 ) -> Result<(), PlanError> {
     let task_id = plan.tasks[task_index].id.clone();
-    reject_done_with_open_subtasks(plan, &task_id)?;
+    reject_terminal_with_open_subtasks(plan, &task_id)?;
     let task = &mut plan.tasks[task_index];
     if task.status != TaskStatus::Done {
         task.status_changed_at = now_ms;
@@ -437,6 +456,9 @@ fn validate_task_status_transition_for(
     if status_unchanged {
         return Ok(());
     }
+    if matches!(next, TaskStatus::Done | TaskStatus::Cancelled) {
+        reject_terminal_with_open_subtasks(plan, task_id)?;
+    }
     if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
         return Err(PlanError::ReviewHoldRequired);
     }
@@ -445,9 +467,6 @@ fn validate_task_status_transition_for(
             from: current.clone(),
             to: next.clone(),
         });
-    }
-    if matches!(next, TaskStatus::Done) {
-        reject_done_with_open_subtasks(plan, task_id)?;
     }
     if matches!(next, TaskStatus::Paused) {
         return Err(PlanError::TaskPausedSystemOnly);

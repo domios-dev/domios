@@ -1,8 +1,63 @@
+use super::WorkspaceCloseCaller;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::plan::{OrchestratorRef, Plan};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+
+#[test]
+fn workspace_not_found_refusal_is_logged_with_known_ids() {
+    let message = super::workspace_not_found_refusal_log(
+        "requested-id",
+        &["known-a".into(), "known-b".into()],
+    );
+
+    assert_eq!(
+        message,
+        "requested=requested-id known_ids=[\"known-a\", \"known-b\"]"
+    );
+}
+
+#[test]
+fn workspace_close_log_caller_distinguishes_confirmed_headerless_humans() {
+    assert_eq!(
+        WorkspaceCloseCaller::HumanConfirmedHeaderless.kind(),
+        "human-attributed (headerless, confirmed)",
+    );
+    assert_eq!(WorkspaceCloseCaller::Unattributed.kind(), "Unattributed");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_skips_peer_anchored_team_ids() {
+    let (mut mux, root_tab_id) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&root_tab_id).unwrap();
+    let remote_tab_id = mux.create_tab(&workspace_id).unwrap();
+    let remote_team = codeterm_types::team::Team::new(workspace_id.clone(), 0);
+    let remote_team_id = remote_team.id.clone();
+    let qualified_remote_team_id = format!("mesh:peer-123/{remote_team_id}");
+    mux.upsert_team(remote_team);
+    let remote_tab = mux.get_tab_mut(&remote_tab_id).unwrap();
+    remote_tab.team_id = Some(qualified_remote_team_id.clone());
+    remote_tab.ownership = Some(codeterm_types::pty::RemoteOwnership {
+        controller_title: "Remote coordinator".into(),
+        controller_tab_id: None,
+        peer_id: "peer-123".into(),
+        peer_name: "Remote peer".into(),
+        team: Some(codeterm_types::pty::RemoteOwnershipTeam {
+            id: remote_team_id.clone(),
+            title: None,
+        }),
+    });
+    let fixture = ServiceFixture::new(mux);
+
+    let team_ids = fixture.service.workspace_team_ids(&workspace_id);
+    assert!(!team_ids.contains(&remote_team_id));
+    assert!(!team_ids.contains(&qualified_remote_team_id));
+}
 
 fn prompt(question: &str) -> PendingPrompt {
     PendingPrompt {
@@ -86,19 +141,20 @@ fn workspace_close_guard_confirmed_agent_tabs_close() {
     assert!(mux.get_tab(&tab_id).is_none());
 }
 
-#[test]
+#[tokio::test]
 #[cfg_attr(
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn workspace_close_guard_empty_workspace_stays_frictionless() {
+async fn workspace_close_guard_human_can_close_empty_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Empty".into(), None).id;
     let fixture = ServiceFixture::new(mux);
 
     fixture
         .service
-        .close_workspace_guarded(None, &workspace_id, false)
+        .close_workspace_as_human(&workspace_id, false)
+        .await
         .unwrap();
     assert!(fixture
         .service
@@ -106,6 +162,30 @@ fn workspace_close_guard_empty_workspace_stays_frictionless() {
         .read()
         .get_workspace(&workspace_id)
         .is_none());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn unattributed_close_cannot_close_an_unprotected_workspace() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Unattributed".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+
+    let error = fixture
+        .service
+        .close_workspace_guarded(None, &workspace_id, false)
+        .unwrap_err();
+
+    assert!(error.starts_with(crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_some());
 }
 
 #[test]
@@ -141,7 +221,7 @@ fn unattributed_close_refuses_a_protected_workspace() {
         .close_workspace_guarded(None, &workspace_id, false)
         .unwrap_err();
 
-    assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
+    assert!(error.starts_with(crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX));
     assert!(fixture
         .service
         .mux
@@ -177,12 +257,12 @@ fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn coordinator_local_tab_cannot_close_its_own_workspace() {
+fn agent_coordinator_self_close_of_workspace_is_still_refused() {
     let (fixture, workspace_id, coordinator) = protected_workspace();
 
     let error = fixture
         .service
-        .close_workspace_guarded(Some(&coordinator), &workspace_id, false)
+        .close_workspace_guarded(Some(&coordinator), &workspace_id, true)
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
@@ -192,6 +272,143 @@ fn coordinator_local_tab_cannot_close_its_own_workspace() {
         .read()
         .get_workspace(&workspace_id)
         .is_some());
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
+    use crate::cron::store::{CronCreateParams, CronStore};
+    use crate::multiplexer::types::AgentRole;
+    use crate::service::plan::NewTask;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    let (mut mux, orchestrator) = MultiplexerState::new();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    mux.get_tab_mut(&orchestrator).unwrap().agent_type = Some("fixture".into());
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
+        .unwrap();
+    mux.get_tab_mut(&worker).unwrap().agent_type = Some("fixture".into());
+    let second_orchestrator = mux.create_tab(&workspace_id).unwrap();
+    let second_team_id = mux
+        .resolve_or_mint_team_for_parent(&second_orchestrator)
+        .unwrap()
+        .team_id;
+    mux.get_tab_mut(&second_orchestrator).unwrap().agent_type = Some("fixture".into());
+
+    let fixture = ServiceFixture::new(mux);
+    let plan_store = &fixture.service.plan_store;
+    let plan = plan_store
+        .create_plan_for_team(
+            "Workspace close cleanup".into(),
+            fixture.temp.path().display().to_string(),
+            OrchestratorRef::from_tab(&orchestrator),
+            team_id.clone(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Assigned lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    plan_store
+        .assign_task(&plan.id, &task_id, &worker, None, 3)
+        .unwrap();
+    let mut plan_with_open_attempt = plan_store.get(&plan.id).unwrap();
+    let assigned_task = plan_with_open_attempt
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assigned_task.status = crate::plan::TaskStatus::InProgress;
+    assigned_task
+        .execution_attempts
+        .push(crate::plan::TaskExecutionAttempt {
+            id: "attempt_workspace_close".into(),
+            executor_tab_id: worker.clone(),
+            ..Default::default()
+        });
+    plan_store.save(&mut plan_with_open_attempt, 4).unwrap();
+
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(
+        fixture.temp.path().join("crons.json"),
+    )));
+    let cron_wake = Arc::new(std::sync::Condvar::new());
+    cron.lock()
+        .create(CronCreateParams {
+            name: "Team cadence".into(),
+            workspace_id: workspace_id.clone(),
+            team_id: Some(team_id.clone()),
+            detach_from_team: false,
+            schedule: "0 0 * * * *".into(),
+            task: "Check progress".into(),
+            description: None,
+            agent: Some("fixture".into()),
+            model: None,
+            reasoning_effort: None,
+            cwd: None,
+            role: None,
+            skill: None,
+            creator_tab_id: Some(orchestrator.clone()),
+            report_target_tab_id: None,
+            enabled: Some(true),
+            max_history: None,
+            oneshot: None,
+            jitter_max_ms: None,
+            tz: None,
+            timeout_seconds: None,
+        })
+        .unwrap();
+    fixture._app.manage(cron.clone());
+    fixture._app.manage(cron_wake);
+
+    fixture
+        .service
+        .close_workspace_as_human(&workspace_id, true)
+        .await
+        .unwrap();
+
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_workspace(&workspace_id).is_none());
+    assert!(mux.get_team(&team_id).is_none());
+    assert!(mux.get_team(&second_team_id).is_none());
+    assert!(mux.get_tab(&orchestrator).is_none());
+    assert!(mux.get_tab(&worker).is_none());
+    assert!(mux.get_tab(&second_orchestrator).is_none());
+    drop(mux);
+    assert!(cron.lock().list_for_team(&team_id).is_empty());
+    let closed_plan = plan_store.get(&plan.id).unwrap();
+    let closed_task = closed_plan
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(closed_task.status, crate::plan::TaskStatus::Pending);
+    assert!(closed_task.execution_attempts.iter().all(|attempt| {
+        attempt.closed_at.is_some() && attempt.closure_reason.as_deref() == Some("team_closed")
+    }));
+    assert_ne!(
+        closed_task.lane.cleanup_status.as_deref(),
+        Some("cleanup_debt")
+    );
+    assert!(closed_task.lane.tab_id.is_none());
 }
 
 #[test]
@@ -505,6 +722,34 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         after.teams.iter().all(|team| team.id != team_id),
         "closed Team is gone from the snapshot"
     );
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn workspace_close_after_team_close_finds_existing_workspace() {
+    use crate::service::TeamMutationCaller;
+
+    let (mut mux, orchestrator) = MultiplexerState::new();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let existing_workspace = mux.create_workspace("Other".into(), None);
+    let fixture = ServiceFixture::new(mux);
+
+    fixture
+        .service
+        .close_team(&team_id, TeamMutationCaller::Human)
+        .await
+        .unwrap();
+    fixture
+        .service
+        .close_workspace_as_human(&existing_workspace.id, true)
+        .await
+        .unwrap();
 }
 
 #[test]

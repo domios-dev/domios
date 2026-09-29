@@ -20,10 +20,13 @@ import {
   opencodePluginEntry,
   opencodePluginEntryMatches,
   isCurrentOpencodeBindingPluginSource,
+  ownsOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
   scanMessagesForModel,
+  scanMessagesForQualifiedModel,
+  scanSessionDirectory,
   safeJson,
   OpencodePart,
   OpencodeConfig,
@@ -47,12 +50,37 @@ const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
+function existingBindingPluginIsUnowned(pluginPath: string): boolean {
+  if (!host.fs.fileExists(pluginPath)) return false;
+  return !ownsOpencodeBindingPluginSource(String(host.fs.readFile(pluginPath) || ""));
+}
+
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return undefined;
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
+}
+
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string): string {
+  const platform = host.platform();
+  const config = {
+    permission: { external_directory: { "*": "ask" } },
+    ...(instructions ? { instructions } : {}),
+  };
+  if (platform === "windows") {
+    const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+  }
+  const permissionJson = JSON.stringify({ permission: config.permission });
+  const prefix = permissionJson.slice(0, -3);
+  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const q = (value: string) => host.shell.quoteFor(value, platform);
+  const finish = cleanup
+    ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status`
+    : `; unset OPENCODE_CONFIG_CONTENT`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
 }
 
 const plugin: PluginModule = {
@@ -177,10 +205,9 @@ const plugin: PluginModule = {
       localTaskPath = `.codeterm/${taskName}`;
       const source = host.shell.quoteFor(taskPath, platform);
       const local = host.shell.quoteFor(localTaskPath, platform);
-      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
       parts.push(platform === "windows"
-        ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
-        : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
+        ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
+        : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -202,19 +229,14 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    if (localTaskPath) {
-      const local = host.shell.quoteFor(localTaskPath, host.platform());
-      parts.push(host.platform() === "windows"
-        ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
-        : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
-    }
-    return parts.join(" ");
+    const cleanup = localTaskPath
+      ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}`
+      : "";
+    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : undefined, cleanup);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    return parts.join(" ");
+    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
@@ -222,26 +244,36 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    const launch = resumeLaunch(p.sessionId, p.skipPermissions);
+    const parts = launch.parts;
+    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = String(args[i]);
+      if (arg === "-m" || arg === "--model") {
+        parts.push(arg, host.shell.quoteFor(String(args[i + 1] || ""), platform));
+        i++;
+      } else {
+        parts.push(arg.startsWith("-") ? arg : host.shell.quoteFor(arg, platform));
+      }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return parts.join(" ");
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
     const taskName = taskPath.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]/g, "-");
     const localTaskPath = `.codeterm/${taskName}`;
     const source = host.shell.quoteFor(taskPath, platform);
     const local = host.shell.quoteFor(localTaskPath, platform);
-    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+    const project = launch.directory
+      ? host.shell.quoteFor(launch.directory, platform)
+      : null;
     const prologue = platform === "windows"
-      ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
-      : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
-    const epilogue = platform === "windows"
-      ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
-      : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
-    return `${prologue} ${parts.join(" ")} ${epilogue}`;
+      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
+      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
+    const cleanup = platform === "windows"
+      ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;`
+      : `rm -f -- ${local}`;
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -307,11 +339,13 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath!) || "") : "";
+    const pluginOwned = pluginExists && ownsOpencodeBindingPluginSource(pluginBody);
     const pluginCurrent = pluginExists && isCurrentOpencodeBindingPluginSource(pluginBody);
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
       };
@@ -321,8 +355,10 @@ const plugin: PluginModule = {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
+        plugin_file_owned: pluginOwned,
         plugin_file_current: pluginCurrent,
         plugin_installed: false,
+        integration_state: "unreadable",
       };
     }
     const target = opencodePluginEntry();
@@ -333,6 +369,7 @@ const plugin: PluginModule = {
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
+      plugin_file_owned: pluginOwned,
       plugin_file_current: pluginCurrent,
       plugin_installed: installed,
     };
@@ -349,6 +386,9 @@ const plugin: PluginModule = {
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
     if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
+    if (existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to overwrite an unmarked OpenCode plugin file" };
+    }
 
     const json = (host.fs.fileExists(cfg)
       ? (host.fs.readJson<OpencodeConfig>(cfg) || { "$schema": "https://opencode.ai/config.json" })
@@ -374,6 +414,9 @@ const plugin: PluginModule = {
     const cfg = opencodeConfigPath();
     const pluginPath = opencodeBindingPluginPath();
     const target = opencodePluginEntry();
+    if (pluginPath && existingBindingPluginIsUnowned(pluginPath)) {
+      return { ok: false, error: "refusing to remove an unmarked OpenCode plugin file" };
+    }
     if (cfg && host.fs.fileExists(cfg)) {
       const json = host.fs.readJson<OpencodeConfig>(cfg);
       if (json && typeof json === "object" && Array.isArray(json.plugin)) {
@@ -396,12 +439,12 @@ const plugin: PluginModule = {
   sessionExists(_cwd: string, sessionId: string): boolean {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return false;
-    const rows = host.fs.sqliteQuery(
+    const rows = host.fs.sqliteQuery<{ id: string }>(
       db,
-      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      "SELECT id FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
-    return rows.length > 0;
+    return rows.some((row) => row.id === sessionId);
   },
 
   // opencode keeps every session in one sqlite log, so the source carries the
@@ -484,5 +527,36 @@ const plugin: PluginModule = {
     return { messages: messages, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
+
+function resumeLaunchArgs(args: string[], sessionId: string): string[] {
+  const db = opencodeDbPath();
+  const model = db && host.fs.fileExists(db)
+    ? scanMessagesForQualifiedModel(db, sessionId)
+    : null;
+  if (!model) return args.map(String);
+  const retained: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (arg === "-m" || arg === "--model") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-m=") || arg.startsWith("--model=")) continue;
+    retained.push(arg);
+  }
+  retained.push("-m", model);
+  return retained;
+}
+
+function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: string[]; directory: string | null } {
+  const platform = host.platform();
+  const db = opencodeDbPath();
+  const directory = db && host.fs.fileExists(db) ? scanSessionDirectory(db, sessionId) : null;
+  const parts = ["opencode"];
+  if (directory) parts.push(host.shell.quoteFor(directory, platform));
+  parts.push("--session", host.shell.quoteFor(sessionId, platform));
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  return { parts, directory };
+}
 
 export default plugin;

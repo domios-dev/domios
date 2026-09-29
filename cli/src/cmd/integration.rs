@@ -7,13 +7,26 @@ pub fn api_request(action: &IntegrationAction) -> (String, String, Option<String
         IntegrationAction::Install {
             provider,
             precompact_memory_export,
+            no_precompact_memory_export,
         } => (
             "POST".into(),
-            format!(
-                "/api/setup/hooks/install?provider={}&precompact_memory_export={}",
-                urlencoding::encode(provider),
-                precompact_memory_export
-            ),
+            {
+                let mut path = format!(
+                    "/api/setup/hooks/install?provider={}",
+                    urlencoding::encode(provider)
+                );
+                let requested_precompact = if *precompact_memory_export {
+                    Some(true)
+                } else if *no_precompact_memory_export {
+                    Some(false)
+                } else {
+                    None
+                };
+                if let Some(value) = requested_precompact {
+                    path.push_str(&format!("&precompact_memory_export={value}"));
+                }
+                path
+            },
             None,
         ),
         IntegrationAction::Status { provider } => (
@@ -21,6 +34,20 @@ pub fn api_request(action: &IntegrationAction) -> (String, String, Option<String
             format!(
                 "/api/setup/hooks?provider={}",
                 urlencoding::encode(provider)
+            ),
+            None,
+        ),
+        IntegrationAction::SweepProfiles {
+            provider,
+            confirm,
+            include_legacy,
+        } => (
+            "POST".into(),
+            format!(
+                "/api/integration/sweep-profiles?provider={}&confirm={}&include_legacy={}",
+                urlencoding::encode(provider),
+                confirm,
+                include_legacy
             ),
             None,
         ),
@@ -86,8 +113,7 @@ mod tests {
             request,
             (
                 "POST".to_string(),
-                "/api/setup/hooks/install?provider=codex&precompact_memory_export=false"
-                    .to_string(),
+                "/api/setup/hooks/install?provider=codex".to_string(),
                 None
             )
         );
@@ -104,6 +130,45 @@ mod tests {
             "--precompact-memory-export",
         ]));
         assert!(path.ends_with("provider=claude&precompact_memory_export=true"));
+    }
+
+    #[test]
+    fn install_omits_precompact_when_not_specified() {
+        let (_, path, _) = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "install",
+            "--provider",
+            "claude",
+        ]));
+        assert_eq!(path, "/api/setup/hooks/install?provider=claude");
+    }
+
+    #[test]
+    fn install_can_explicitly_disable_precompact_export() {
+        let (_, path, _) = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "install",
+            "--provider",
+            "claude",
+            "--no-precompact-memory-export",
+        ]));
+        assert!(path.ends_with("provider=claude&precompact_memory_export=false"));
+    }
+
+    #[test]
+    fn install_rejects_conflicting_precompact_flags() {
+        assert!(crate::Cli::try_parse_from([
+            "codeterm",
+            "integration",
+            "install",
+            "--provider",
+            "claude",
+            "--precompact-memory-export",
+            "--no-precompact-memory-export",
+        ])
+        .is_err());
     }
 
     #[test]
@@ -128,5 +193,39 @@ mod tests {
     #[test]
     fn install_requires_a_provider() {
         assert!(crate::Cli::try_parse_from(["codeterm", "integration", "install"]).is_err());
+    }
+
+    #[test]
+    fn sweep_profiles_is_dry_run_by_default() {
+        let request = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "sweep-profiles",
+            "--provider",
+            "codex",
+        ]));
+        assert_eq!(
+            request,
+            (
+                "POST".to_string(),
+                "/api/integration/sweep-profiles?provider=codex&confirm=false&include_legacy=false"
+                    .to_string(),
+                None
+            )
+        );
+    }
+
+    #[test]
+    fn sweep_profiles_requires_both_explicit_deletion_flags() {
+        let request = api_request(&action(&[
+            "codeterm",
+            "integration",
+            "sweep-profiles",
+            "--provider",
+            "codex",
+            "--confirm",
+            "--include-legacy",
+        ]));
+        assert!(request.1.ends_with("confirm=true&include_legacy=true"));
     }
 }

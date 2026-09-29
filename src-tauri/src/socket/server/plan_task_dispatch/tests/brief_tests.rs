@@ -406,3 +406,20 @@ fn brief_omits_empty_optional_sections() {
     assert!(!brief.contains("## Strides"));
     assert!(!brief.contains("codeterm agent report"));
 }
+
+#[test]
+fn remote_worker_brief_replaces_the_local_ack_with_the_origin_remote_ack() {
+    let ack = crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION;
+    let origin = "origin_token_51730";
+    let brief = crate::socket::server::plan_task_dispatch::remote::remote_worker_brief(
+        format!("{ack}\n\nbody_token_22019"),
+        "plan_token",
+        "task_token",
+        "attempt_token",
+        origin,
+    );
+    assert!(!brief.contains(ack));
+    assert!(brief.contains("body_token_22019"));
+    assert_eq!(brief.matches(origin).count(), 2);
+    assert!(brief.find(origin).unwrap() < brief.find("body_token_22019").unwrap());
+}

@@ -1,17 +1,65 @@
 //! Workspace & tab operations.
 
+use std::collections::HashSet;
+
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
+use crate::service::TeamMutationCaller;
 
+fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> String {
+    format!("requested={workspace_id} known_ids={known_ids:?}")
+}
+
+#[derive(Clone, Copy)]
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
     AuthenticatedMeshPeer(&'a str),
+    Human,
+    HumanConfirmedHeaderless,
     Unattributed,
 }
 
+impl WorkspaceCloseCaller<'_> {
+    fn kind(self) -> &'static str {
+        match self {
+            Self::LocalTab(_) => "AgentTab",
+            Self::AuthenticatedMeshPeer(_) => "AuthenticatedMeshPeer",
+            Self::Human => "Human",
+            Self::HumanConfirmedHeaderless => "human-attributed (headerless, confirmed)",
+            Self::Unattributed => "Unattributed",
+        }
+    }
+
+    fn team_caller(self) -> TeamMutationCaller {
+        match self {
+            Self::LocalTab(tab_id) => TeamMutationCaller::AgentTab(tab_id.to_string()),
+            Self::AuthenticatedMeshPeer(peer_id) => {
+                TeamMutationCaller::AuthenticatedMeshPeer(peer_id.to_string())
+            }
+            Self::Human => TeamMutationCaller::Human,
+            Self::HumanConfirmedHeaderless => TeamMutationCaller::HumanConfirmedHeaderless,
+            Self::Unattributed => TeamMutationCaller::Unattributed,
+        }
+    }
+}
+
 impl ServiceContext {
+    pub(crate) fn log_workspace_not_found(&self, workspace_id: &str) {
+        let known_ids = self
+            .mux
+            .read()
+            .list_workspaces()
+            .into_iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        log::warn!(
+            "[workspace] refusing missing workspace {}",
+            workspace_not_found_refusal_log(workspace_id, &known_ids)
+        );
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.read().list_workspaces()
     }
@@ -132,10 +180,46 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
+        tauri::async_runtime::block_on(self.close_workspace_guarded_async(
+            caller_tab_id,
+            workspace_id,
+            force,
+        ))
+    }
+
+    pub(crate) async fn close_workspace_guarded_async(
+        &self,
+        caller_tab_id: Option<&str>,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
         let caller = caller_tab_id
             .map(WorkspaceCloseCaller::LocalTab)
             .unwrap_or(WorkspaceCloseCaller::Unattributed);
         self.close_workspace_guarded_for(caller, workspace_id, force)
+            .await
+    }
+
+    pub(crate) async fn close_workspace_as_human(
+        &self,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
+        self.close_workspace_guarded_for(WorkspaceCloseCaller::Human, workspace_id, force)
+            .await
+    }
+
+    pub(crate) async fn close_workspace_as_confirmed_headerless_human(
+        &self,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
+        self.close_workspace_guarded_for(
+            WorkspaceCloseCaller::HumanConfirmedHeaderless,
+            workspace_id,
+            force,
+        )
+        .await
     }
 
     /// The relay owns peer authentication and workspace access checks before
@@ -146,17 +230,49 @@ impl ServiceContext {
         workspace_id: &str,
         force: bool,
     ) -> Result<(), String> {
-        if peer_id.trim().is_empty() {
-            return Err("authenticated mesh peer id is required".to_string());
-        }
+        tauri::async_runtime::block_on(self.close_workspace_from_authenticated_mesh_peer_async(
+            peer_id,
+            workspace_id,
+            force,
+        ))
+    }
+
+    pub(crate) async fn close_workspace_from_authenticated_mesh_peer_async(
+        &self,
+        peer_id: &str,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
         self.close_workspace_guarded_for(
             WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id),
             workspace_id,
             force,
         )
+        .await
     }
 
-    fn close_workspace_guarded_for(
+    async fn close_workspace_guarded_for(
+        &self,
+        caller: WorkspaceCloseCaller<'_>,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
+        let caller_kind = caller.kind();
+        let result = self
+            .close_workspace_guarded_for_inner(caller, workspace_id, force)
+            .await;
+        if let Err(error) = &result {
+            log::warn!(
+                "[workspace-close] caller={caller_kind} workspace={workspace_id} failed: {error}"
+            );
+            if error.starts_with("Workspace not found:") {
+                self.log_workspace_not_found(workspace_id);
+            }
+        }
+        result
+    }
+
+    async fn close_workspace_guarded_for_inner(
         &self,
         caller: WorkspaceCloseCaller<'_>,
         workspace_id: &str,
@@ -173,17 +289,30 @@ impl ServiceContext {
                 }
             }
             WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id) => {
+                if peer_id.trim().is_empty() {
+                    return Err("authenticated mesh peer id is required".to_string());
+                }
                 log::info!("workspace close authorized for mesh peer {peer_id}");
                 false
             }
-            WorkspaceCloseCaller::Unattributed => self.workspace_has_protected_tab(workspace_id),
+            WorkspaceCloseCaller::Human => false,
+            WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
+            WorkspaceCloseCaller::Unattributed => true,
         };
         if refuse {
-            return Err(format!(
-                "{}: a coordinator cannot close the workspace it runs in ({workspace_id}) — \
-                 have your parent or another Tab close it, or move first.",
-                crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX
-            ));
+            let error = if matches!(caller, WorkspaceCloseCaller::Unattributed) {
+                format!(
+                    "{}: an unattributed caller cannot close workspace {workspace_id}; explicit human confirmation is required",
+                    crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX
+                )
+            } else {
+                format!(
+                    "{}: a coordinator cannot close the workspace it runs in ({workspace_id}) — \
+                     have your parent or another Tab close it, or move first.",
+                    crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX
+                )
+            };
+            return Err(error);
         }
         let agent_titles = self.workspace_agent_tab_titles(workspace_id);
         if !force && !agent_titles.is_empty() {
@@ -194,7 +323,73 @@ impl ServiceContext {
                 agent_titles.join(", ")
             ));
         }
-        self.close_workspace(workspace_id)
+
+        let mut team_close_errors = Vec::new();
+        let mut team_close_refusals_only = true;
+        let mut partial_team_teardown = false;
+        for team_id in self.workspace_team_ids(workspace_id) {
+            let team_existed = { self.mux.read().get_team(&team_id).is_some() };
+            if let Err(error) = self.close_team(&team_id, caller.team_caller()).await {
+                team_close_refusals_only &=
+                    error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
+                let team_remains = { self.mux.read().get_team(&team_id).is_some() };
+                partial_team_teardown |= team_existed && !team_remains;
+                team_close_errors.push(format!("{team_id}: {error}"));
+            }
+        }
+        if !team_close_errors.is_empty() {
+            let details = team_close_errors.join("; ");
+            if partial_team_teardown {
+                return Err(format!(
+                    "{}: {details}",
+                    crate::service::WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX
+                ));
+            }
+            if team_close_refusals_only {
+                return Err(format!(
+                    "{}: {details}",
+                    crate::service::TEAM_CLOSE_REFUSAL_PREFIX
+                ));
+            }
+            return Err(format!("workspace Team cleanup failed: {details}"));
+        }
+
+        let service = (*self).clone();
+        let workspace_id = workspace_id.to_string();
+        tokio::task::spawn_blocking(move || service.close_workspace(&workspace_id))
+            .await
+            .map_err(|error| format!("workspace close teardown task failed: {error}"))?
+    }
+
+    fn workspace_team_ids(&self, workspace_id: &str) -> Vec<String> {
+        let mux = self.mux.read();
+        let Some(workspace) = mux.get_workspace(workspace_id) else {
+            return Vec::new();
+        };
+        let mut pending = workspace.tabs.clone();
+        let mut visited = HashSet::new();
+        let mut team_ids = HashSet::new();
+        while let Some(tab_id) = pending.pop() {
+            if !visited.insert(tab_id.clone()) {
+                continue;
+            }
+            if let Some(tab) = mux.get_tab(&tab_id) {
+                if let Some(team_id) = tab.team_id.as_ref() {
+                    team_ids.insert(team_id.clone());
+                }
+            }
+            pending.extend(mux.get_children_ids(&tab_id));
+        }
+        team_ids.extend(
+            mux.list_teams()
+                .into_iter()
+                .filter(|team| team.workspace_id == workspace_id)
+                .map(|team| team.id),
+        );
+        let mut team_ids: Vec<_> = team_ids.into_iter().collect();
+        team_ids.retain(|team_id| !super::team::is_remote_team(&mux, team_id));
+        team_ids.sort();
+        team_ids
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
@@ -215,12 +410,20 @@ impl ServiceContext {
         Prepare: FnMut(&Self, &str) -> Result<(), String>,
         Finish: FnMut(&Self, &str) -> Result<(), String>,
     {
-        let (pre_focus, prepared) = {
+        let (pre_focus, prepared, provider_ids) = {
             let mut mux = self.mux.write();
-            (
-                mux.get_focused_tab_id().map(str::to_string),
-                mux.reserve_workspace_close(id)?,
-            )
+            let pre_focus = mux.get_focused_tab_id().map(str::to_string);
+            let prepared = mux.reserve_workspace_close(id)?;
+            let provider_ids = prepared
+                .tab_ids()
+                .iter()
+                .filter_map(|tab_id| {
+                    mux.get_tab(tab_id)
+                        .and_then(|tab| tab.agent_type.clone())
+                        .map(|provider_id| (tab_id.clone(), provider_id))
+                })
+                .collect::<Vec<_>>();
+            (pre_focus, prepared, provider_ids)
         };
         let tab_ids = prepared.tab_ids().to_vec();
         let mut cleanup_errors = Vec::new();
@@ -231,6 +434,9 @@ impl ServiceContext {
         }
         let pty_ids = self.mux.write().close_prepared_workspace(prepared)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
+        for (tab_id, provider_id) in provider_ids {
+            self.release_tab_launch_artifacts(&tab_id, &provider_id);
+        }
         self.kill_ptys(&pty_ids);
         for tab_id in &tab_ids {
             if let Err(error) = finish(self, tab_id) {

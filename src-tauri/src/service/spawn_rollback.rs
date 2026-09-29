@@ -6,17 +6,29 @@ impl super::ServiceContext {
     /// Roll back a provisional spawn tab (no closed-history record) and persist:
     /// a concurrent/debounced save may already have captured it in last.json.
     pub(crate) fn rollback_provisional_tab(&self, ws_id: &str, tab_id: &str) {
+        let provider_id = self.tab_launch_artifact_provider(tab_id);
         self.mux.write().rollback_spawn_tab(ws_id, tab_id);
+        if self.mux.read().get_tab(tab_id).is_none() {
+            if let Some(provider_id) = provider_id {
+                self.release_tab_launch_artifacts(tab_id, &provider_id);
+            }
+        }
         super::session_persist::persist_session_after_close(self);
     }
 
     /// Same guarantee for rollbacks that retire the provisional tab through
     /// the ordinary mux close (records closed history).
     pub(crate) fn rollback_provisional_tab_via_close(&self, tab_id: &str) {
-        let _ = self
+        let provider_id = self.tab_launch_artifact_provider(tab_id);
+        let result = self
             .mux
             .write()
             .close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback);
+        if result.is_ok() {
+            if let Some(provider_id) = provider_id {
+                self.release_tab_launch_artifacts(tab_id, &provider_id);
+            }
+        }
         super::session_persist::persist_session_after_close(self);
     }
 
@@ -79,11 +91,40 @@ impl super::ServiceContext {
         format!("{failure}; fallback cleanup recovered from close error: {close_error}")
     }
 
+    pub(crate) fn rollback_failed_agent_spawn_if_created(
+        &self,
+        tab_id: &str,
+        failure: &str,
+        created_by_spawn: bool,
+    ) -> String {
+        if created_by_spawn {
+            self.rollback_failed_agent_spawn(tab_id, failure)
+        } else {
+            failure.to_string()
+        }
+    }
+
     pub(crate) fn rollback_empty_agent_launch(&self, tab_id: &str, provider_id: &str) -> String {
         let failure = format!(
             "Agent provider '{}' did not resolve a launch command",
             provider_id
         );
         self.rollback_failed_agent_spawn(tab_id, &failure)
+    }
+
+    pub(crate) fn rollback_empty_agent_launch_if_created(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        created_by_spawn: bool,
+    ) -> String {
+        if created_by_spawn {
+            self.rollback_empty_agent_launch(tab_id, provider_id)
+        } else {
+            format!(
+                "Agent provider '{}' did not resolve a launch command",
+                provider_id
+            )
+        }
     }
 }

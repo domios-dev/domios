@@ -20,9 +20,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/provider-codex/src/plugin.ts
 var plugin_exports = {};
 __export(plugin_exports, {
+  codexProfileInstanceId: () => codexProfileInstanceId,
   codexProfileTabId: () => codexProfileTabId,
-  codexProfilesToSweep: () => codexProfilesToSweep,
   default: () => plugin_default,
+  inspectCodexProfiles: () => inspectCodexProfiles,
+  manageCodexProfiles: () => manageCodexProfiles,
+  releaseCodexProfile: () => releaseCodexProfile,
   sweepCodexProfiles: () => sweepCodexProfiles
 });
 module.exports = __toCommonJS(plugin_exports);
@@ -60,10 +63,32 @@ function discoverCodexModelsFromCache() {
     models.push({
       id,
       displayName: typeof item.display_name === "string" && item.display_name.trim() ? item.display_name.trim() : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0
+      description: typeof item.description === "string" && item.description.trim() ? item.description.trim() : void 0,
+      reasoningEfforts: reasoningEffortsFrom(item.supported_reasoning_levels),
+      defaultReasoningEffort: defaultEffortFrom(item)
     });
   }
   return models.length ? models : null;
+}
+function defaultEffortFrom(model) {
+  const effort = typeof model.default_reasoning_level === "string" ? model.default_reasoning_level.trim() : "";
+  return effort || void 0;
+}
+function reasoningEffortsFrom(levels) {
+  if (!Array.isArray(levels)) return void 0;
+  const efforts = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const level of levels) {
+    const id = typeof level.effort === "string" ? level.effort.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    efforts.push({
+      id,
+      displayName: id,
+      description: typeof level.description === "string" && level.description.trim() ? level.description.trim() : void 0
+    });
+  }
+  return efforts.length ? efforts : void 0;
 }
 function priorityOf(m) {
   return typeof m.priority === "number" ? m.priority : 1e9;
@@ -180,6 +205,25 @@ function findSession(sessionId) {
 }
 function detectSessionModel(_cwd, sessionId) {
   return trimmedField(threadRow(sessionId), "model");
+}
+function detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = sessionFilePath(_cwd, sessionId);
+  if (!path) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (typeof contents !== "string") return null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[index]);
+    } catch (_) {
+      continue;
+    }
+    if (entry.type !== "turn_context" || typeof entry.payload?.effort !== "string") continue;
+    const effort = entry.payload.effort.trim();
+    if (effort) return effort;
+  }
+  return null;
 }
 function threadRow(sessionId) {
   return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
@@ -379,15 +423,16 @@ function parseCodexFolderTrustPrompt(screen) {
 function classifyCodexFolderTrustPrompt(screen) {
   const options = activeMenuOptions(screen);
   if (options.length !== 2) return null;
-  if (!hasDirectoryContextLine(screen)) return null;
-  const affirmativeIndex = options.findIndex((option) => /^yes\b/i.test(option.label));
-  const negativeIndex = options.findIndex((option) => /^no\b/i.test(option.label));
+  if (!hasDirectoryContextLine(screen, options[0].line)) return null;
+  const affirmativeIndex = options.findIndex((option) => /^(?:yes|trust|allow)\b/i.test(option.label));
+  const negativeIndex = options.findIndex((option) => /^(?:no|quit|cancel|decline|deny)\b/i.test(option.label));
   if (affirmativeIndex < 0 || negativeIndex < 0) return null;
   const preamble = cleanPromptText(menuPreamble(screen, options[0].line));
   if (!hasDirectoryTrustContent(preamble)) return null;
   const questionEnd = preamble.indexOf("?");
   const explanation = questionEnd < 0 ? "" : preamble.slice(questionEnd + 1).trim();
   if (explanation.split(/\s+/).filter(Boolean).length < 8) return null;
+  if (!hasConfirmFooter(screen, options[options.length - 1].line)) return null;
   const choice = parseActiveTerminalChoice(screen);
   if (!choice || choice.options.length !== 2 || choice.options.filter((option) => option.highlighted).length !== 1) {
     return { kind: "not_on_screen" };
@@ -395,6 +440,7 @@ function classifyCodexFolderTrustPrompt(screen) {
   return {
     kind: "active",
     affirmativeIndex,
+    affirmativeSelected: choice.options[affirmativeIndex].highlighted,
     prompt: {
       question: preamble.slice(0, questionEnd + 1).trim(),
       options: choice.options.map((option) => [option.label, option.value]),
@@ -403,13 +449,33 @@ function classifyCodexFolderTrustPrompt(screen) {
     }
   };
 }
-function hasDirectoryContextLine(screen) {
-  return normalizeLines(screen).some((line) => {
-    const text5 = line.trim();
-    const context = /^[>❯›][ \t]+(.+)$/.exec(text5)?.[1];
-    if (!context) return false;
-    return context.split(/\s+/).some((token) => isAbsolutePathToken(token));
-  });
+function hasConfirmFooter(screen, lastOptionLine) {
+  const lines = normalizeLines(screen);
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\benter\b.{0,24}\b(?:confirm|continue|select)\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  return footerLine >= 0 && lastMeaningfulLineIndex(lines) === footerLine;
+}
+function hasDirectoryContextLine(screen, firstOptionLine) {
+  const lines = normalizeLines(screen);
+  const start = Math.max(0, firstOptionLine - 12);
+  const context = lines.slice(start, firstOptionLine).map((line) => line.trim()).filter(Boolean).join(" ");
+  const questionEnds = [];
+  const questionPattern = /\?/g;
+  let questionMatch;
+  while ((questionMatch = questionPattern.exec(context)) !== null) questionEnds.push(questionMatch.index);
+  for (let i = questionEnds.length - 1; i >= 0; i--) {
+    const questionEnd = questionEnds[i];
+    const prefix = context.slice(0, questionEnd + 1);
+    if (!/\b(folder|directory|workspace)\b/i.test(prefix)) continue;
+    if (!/\b(trust|load(?:ed|ing)?)\b/i.test(prefix)) continue;
+    if (prefix.split(/\s+/).some((token) => isAbsolutePathToken(token))) return true;
+  }
+  return false;
 }
 function hasDirectoryTrustContent(preamble) {
   const content = preamble.toLowerCase();
@@ -454,9 +520,26 @@ function parseMenuOptions(screen) {
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
     if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
+    const indent = leadingIndent(lines[i]);
+    const wrapped = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim() || MENU_OPTION_RE.test(lines[j]) || isPromptFooter(lines[j])) break;
+      if (leadingIndent(lines[j]) <= indent) break;
+      wrapped.push(lines[j]);
+    }
+    options.push({
+      highlighted: !!m[1],
+      label: wrapped.reduce(joinWrappedLabel, m[3].trim()),
+      value: m[2],
+      line: i
+    });
   }
   return options;
+}
+function joinWrappedLabel(label, row2) {
+  const continuation = row2.trim();
+  const pathBoundary = /[\\/]$/.test(label);
+  return `${label}${pathBoundary ? "" : " "}${continuation}`;
 }
 function parseActiveTerminalChoice(screen) {
   const lines = normalizeLines(screen);
@@ -465,7 +548,7 @@ function parseActiveTerminalChoice(screen) {
   const lastOptionLine = options[options.length - 1].line;
   let footerLine = -1;
   for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
-    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+    if (isActiveChoiceEnterFooter(lines[i])) {
       footerLine = i;
       break;
     }
@@ -501,12 +584,17 @@ function parseCodexNumberedMenu(screen) {
   };
 }
 function activeMenuOptions(screen) {
+  const lines = normalizeLines(screen);
   const all = parseMenuOptions(screen);
   if (all.length < 2) return [];
   const cluster = [];
   let prev = all[all.length - 1].line;
   for (let i = all.length - 1; i >= 0; i--) {
-    if (prev - all[i].line <= 2 || cluster.length === 0) {
+    const between = lines.slice(all[i].line + 1, prev);
+    const wrapsPreviousOption = between.every(
+      (line) => line.trim().length > 0 && leadingIndent(line) > leadingIndent(lines[all[i].line])
+    );
+    if (wrapsPreviousOption || cluster.length === 0) {
       cluster.unshift(all[i]);
       prev = all[i].line;
     } else {
@@ -518,12 +606,23 @@ function activeMenuOptions(screen) {
 function promptFooterNear(lines, lastLine) {
   for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
     const t = lines[i].toLowerCase();
+    if (isActiveChoiceEnterFooter(t)) return true;
     if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 || t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)) return true;
   }
   return false;
 }
+function isPromptFooter(line) {
+  const text5 = line.toLowerCase();
+  return isActiveChoiceEnterFooter(text5) || (text5.includes("esc") || text5.includes("enter")) && (text5.includes("confirm") || text5.includes("cancel") || text5.includes("continue"));
+}
+function leadingIndent(line) {
+  return /^\s*/.exec(line)?.[0].length ?? 0;
+}
+function isActiveChoiceEnterFooter(line) {
+  return /\benter\b.{0,40}\b(?:confirm|continue|select|authenticate)\b/i.test(line) || /\benter\b.{0,32}\bopen\b.{0,24}\bbrowser\b/i.test(line);
+}
 function questionForMenu(lines, firstLine) {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 16; i--) {
     const t = lines[i].trim();
     if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
   }
@@ -600,7 +699,7 @@ function groupOptions(lines, starts, kind) {
   return groups;
 }
 function normalizeLines(text5) {
-  return String(text5 || "").replace(/\r\n?/g, "\n").split("\n");
+  return String(text5 || "").replace(/\r*\n|\r/g, "\n").split("\n");
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -909,6 +1008,51 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-codex/src/update.ts
+function parseVersion(value) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+function updateAvailable(current, latest) {
+  const installed = parseVersion(current);
+  const offered = parseVersion(latest);
+  if (!installed || !offered) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (offered[i] !== installed[i]) return offered[i] > installed[i];
+  }
+  return false;
+}
+function record(value) {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function checkCodexUpdate(host2) {
+  const installed = record(host2.exec(JSON.stringify({
+    bin: "codex",
+    args: ["--version"],
+    timeoutMs: 5e3
+  })));
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const current = installed.stdout.match(/\d+\.\d+\.\d+/)?.[0];
+  if (!current) return null;
+  const response = record(host2.fetch(JSON.stringify({
+    url: "https://registry.npmjs.org/@openai%2Fcodex/latest",
+    method: "GET",
+    timeoutMs: 6e3
+  })));
+  if (response?.status !== 200 || typeof response.body !== "string") return null;
+  const metadata = record(response.body);
+  const latest = metadata?.version;
+  return updateAvailable(current, latest) && typeof latest === "string" ? { currentVersion: current, latestVersion: latest } : null;
+}
+
 // plugins/provider-codex/src/execWrapper.ts
 var MAX_SUMMARY_CHARS = 160;
 function quotedValue(source, key) {
@@ -971,6 +1115,35 @@ function callObjects(source, toolName) {
   }
   return objects;
 }
+function scriptCommands(raw) {
+  const commandBodies = [
+    ...callObjects(raw, "exec_command"),
+    ...callObjects(raw, "shell_command")
+  ];
+  return commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+}
+function commandText(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value;
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s\"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
+function unwrapCommandExecution(value) {
+  if (typeof value === "string") return value.trim() ? { command: value, detail: value } : null;
+  if (!Array.isArray(value) || value.length < 3 || !value.every((argument) => typeof argument === "string")) return null;
+  const argv = value;
+  for (let i = 1; i < argv.length - 1; i++) {
+    const option = argv[i].toLowerCase();
+    if (option !== "-command" && option !== "-c" && option !== "-lc" && option !== "/c") continue;
+    if (!argv[i + 1].trim()) return null;
+    return { command: argv[i + 1], detail: commandText(argv) };
+  }
+  return null;
+}
+function execScriptCommands(raw) {
+  return typeof raw === "string" ? scriptCommands(raw) : [];
+}
 function jsonCallObject(source) {
   const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
   if (!match) return null;
@@ -1030,11 +1203,7 @@ function fallbackSummary(raw) {
 }
 function summarizeExecScript(raw) {
   if (typeof raw !== "string" || !raw.trim()) return null;
-  const commandBodies = [
-    ...callObjects(raw, "exec_command"),
-    ...callObjects(raw, "shell_command")
-  ];
-  const commands = commandBodies.map((body) => quotedValue(body, "cmd") || quotedValue(body, "command") || "").filter(Boolean);
+  const commands = scriptCommands(raw);
   if (commands.length > 0) return commandSummary(commands);
   const image = callObjects(raw, "view_image")[0];
   if (image) {
@@ -1133,7 +1302,7 @@ var AGENT_STATES = {
 function text2(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function record(value) {
+function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function row(uuid, blocks, ts, timestamp) {
@@ -1163,7 +1332,7 @@ function reasoningItemRow(item, ts, timestamp) {
 function reasoningResponseRow(payload, ts, timestamp) {
   const parts = Array.isArray(payload.summary) ? payload.summary : [];
   const summaries = parts.map((part) => {
-    const entry = record(part);
+    const entry = record2(part);
     return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
   return thoughtRow(payload.id, summaries, ts, timestamp);
@@ -1178,8 +1347,8 @@ function subAgentRow(item, id, turnId, ts, timestamp) {
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record) : [];
-  const states = record(item.agents_states);
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
+  const states = record2(item.agents_states);
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
@@ -1187,7 +1356,7 @@ function collabCallRow(item, turnId, ts, timestamp) {
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
     const agentPath = text2(agents.find((entry) => entry !== null && text2(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text2(record(states?.[agentId])?.status)] ?? "unknown";
+    const state = AGENT_STATES[text2(record2(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
   return row(text2(item.id) ? `collab-${text2(item.id)}` : "", blocks, ts, timestamp);
@@ -1196,7 +1365,7 @@ function agentMessageRow(payload, ts, timestamp) {
   const from = text2(payload.author);
   const to = text2(payload.recipient);
   if (!from || !to || from === to) return null;
-  const turnId = record(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
   return row(text2(payload.id) ? `agent-message-${text2(payload.id)}` : "", [block], ts, timestamp);
 }
@@ -1295,11 +1464,11 @@ function diffEdits(diffs) {
 function text3(value) {
   return typeof value === "string" ? value : "";
 }
-function record2(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function webFields(source) {
-  const action = record2(source.action);
+  const action = record3(source.action);
   const rich = { kind: "web" };
   const query = text3(source.query) || text3(action?.query);
   if (query) rich.query = query;
@@ -1330,7 +1499,7 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
-  const source = record2(payload);
+  const source = record3(payload);
   const id = text3(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
@@ -1339,7 +1508,7 @@ function webSearchEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record2(payload);
+  const source = record3(payload);
   const id = text3(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
@@ -1383,13 +1552,6 @@ function parsedReadTitle(value) {
 }
 function text4(value) {
   return typeof value === "string" ? value : "";
-}
-function commandText(value) {
-  if (typeof value === "string") return value;
-  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
-  const argv = value;
-  if (!argv[0].trim()) return "";
-  return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
 }
 function exactOutcomeNumber(value, nonnegative) {
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isSafeInteger(value)) return void 0;
@@ -1435,11 +1597,10 @@ function completedActivity(value, ts, timestamp, turnId) {
         name: "command_execution",
         input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
         ...fields2,
+        tool_echo: true,
         tool_title: parsedReadTitle(item.parsed_cmd) || actionTitle(fields2),
         ...outcome2,
         ...flow,
-        // The exec call that ran this command is already in the transcript; no source id links the two.
-        tool_echo: true,
         tool_status: failed ? "error" : "success"
       } },
       { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed, ...outcome2 } }
@@ -1481,11 +1642,654 @@ function completedActivity(value, ts, timestamp, turnId) {
   return null;
 }
 
+// plugins/provider-codex/src/trust-carryover.ts
+function normalizedPath(value) {
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//");
+  return isWindowsPath ? value.replace(/\//g, "\\").toLowerCase() : value;
+}
+function isCodeTermProvisionedWorkspacePath(value) {
+  const parts = normalizedPath(value).split(/[\\/]+/).filter(Boolean);
+  return parts.some(
+    (part, index) => /^\.codeterm(?:-dev(?:-[a-z0-9-]+)?)?$/.test(part) && parts[index + 1] === "provisioned-workspaces"
+  );
+}
+function parseString(value) {
+  const quote = value[0];
+  if (quote !== "'" && quote !== '"') return null;
+  for (let i = 1; i < value.length; i++) {
+    if (quote === '"' && value[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (value[i] !== quote) continue;
+    const raw = value.slice(0, i + 1);
+    try {
+      return { value: quote === '"' ? JSON.parse(raw) : raw.slice(1, -1), next: i + 1 };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+function parseDottedKey(value) {
+  const parts = [];
+  let index = 0;
+  while (index < value.length) {
+    while (/\s/.test(value[index] || "")) index++;
+    if (index >= value.length) break;
+    let part;
+    if (value[index] === "'" || value[index] === '"') {
+      const parsed = parseString(value.slice(index));
+      if (!parsed) return null;
+      part = parsed.value;
+      index += parsed.next;
+    } else {
+      const match = /^[A-Za-z0-9_-]+/.exec(value.slice(index));
+      if (!match) return null;
+      part = match[0];
+      index += part.length;
+    }
+    parts.push(part);
+    while (/\s/.test(value[index] || "")) index++;
+    if (index === value.length) return parts;
+    if (value[index] !== ".") return null;
+    index++;
+  }
+  return parts.length ? parts : null;
+}
+function withoutComment(value) {
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "#") return value.slice(0, i);
+  }
+  return value;
+}
+function headerParts(line) {
+  const value = withoutComment(line).trim();
+  if (!value.startsWith("[") || !value.endsWith("]") || value.startsWith("[[")) return null;
+  return parseDottedKey(value.slice(1, -1));
+}
+function assignmentParts(line) {
+  const value = withoutComment(line);
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "=") {
+      const key = parseDottedKey(value.slice(0, i));
+      return key ? { key, value: value.slice(i + 1).trim() } : null;
+    }
+  }
+  return null;
+}
+function parseTrustValue(value) {
+  const parsed = parseString(value.trim());
+  if (!parsed || parsed.next !== value.trim().length) return null;
+  return parsed.value === "trusted" ? parsed.value : null;
+}
+function projectTablePath(parts) {
+  return parts?.length === 2 && parts[0] === "projects" ? parts[1] : null;
+}
+function collectProfileEntries(profile) {
+  const lines = profile.split(/\r?\n/);
+  const entries = /* @__PURE__ */ new Map();
+  const seenProjectPaths = /* @__PURE__ */ new Set();
+  let activePath = null;
+  let activeHeader = "";
+  let trust = null;
+  let trustSeen = false;
+  const flush = () => {
+    if (activePath === null || !trust) return true;
+    const key = normalizedPath(activePath);
+    if (entries.has(key)) return false;
+    if (!isCodeTermProvisionedWorkspacePath(activePath)) {
+      entries.set(key, { path: activePath, header: activeHeader, assignment: trust.line });
+    }
+    return true;
+  };
+  for (const line of lines) {
+    const parts = headerParts(line);
+    if (parts) {
+      if (!flush()) return null;
+      activePath = projectTablePath(parts);
+      activeHeader = activePath === null ? "" : withoutComment(line).trim();
+      if (activePath !== null) {
+        const key = normalizedPath(activePath);
+        if (seenProjectPaths.has(key)) return null;
+        seenProjectPaths.add(key);
+      }
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    const malformedHeader = withoutComment(line).trim();
+    if (malformedHeader.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(malformedHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(malformedHeader)) return null;
+      if (!flush()) return null;
+      activePath = null;
+      activeHeader = "";
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    if (activePath === null) continue;
+    const assignment = assignmentParts(line);
+    if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
+    if (trustSeen) return null;
+    trustSeen = true;
+    const parsed = parseTrustValue(assignment.value);
+    if (parsed) trust = { line: line.replace(/\r$/, "") };
+  }
+  return flush() ? [...entries.values()] : null;
+}
+function projectTrustForPath(config, path) {
+  const target = normalizedPath(path);
+  let activePath = null;
+  let trust = null;
+  let trustSeen = false;
+  let result = "missing";
+  let found = false;
+  const flush = () => {
+    if (activePath === null || normalizedPath(activePath) !== target) return true;
+    if (found) return false;
+    found = true;
+    result = trust ?? "missing";
+    return true;
+  };
+  for (const line of config.split(/\r?\n/)) {
+    const parts = headerParts(line);
+    if (parts) {
+      if (!flush()) return "unknown";
+      activePath = projectTablePath(parts);
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    const header = withoutComment(line).trim();
+    if (header.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(header) || /^\[\s*projects(?:\s*\.|\s*\])/.test(header)) return "unknown";
+      if (!flush()) return "unknown";
+      activePath = null;
+      trust = null;
+      trustSeen = false;
+      continue;
+    }
+    if (activePath === null) continue;
+    const assignment = assignmentParts(line);
+    if (!assignment || assignment.key.length !== 1 || assignment.key[0] !== "trust_level") continue;
+    if (trustSeen) return "unknown";
+    trustSeen = true;
+    const parsed = parseString(assignment.value.trim());
+    if (!parsed || parsed.next !== assignment.value.trim().length) return "unknown";
+    if (parsed.value !== "trusted" && parsed.value !== "untrusted") return "unknown";
+    trust = parsed.value;
+  }
+  return flush() ? result : "unknown";
+}
+function hasTrustedProjectEntries(profile) {
+  const entries = collectProfileEntries(profile);
+  return entries !== null && entries.length > 0;
+}
+function inlineTableKeys(value) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const body = trimmed.slice(1, -1);
+  const keys = [];
+  let start = 0;
+  let quote = "";
+  let depth = 0;
+  const add = (segment) => {
+    if (!segment.trim()) return true;
+    const assignment = assignmentParts(segment);
+    if (!assignment || !assignment.key.length) return false;
+    keys.push(assignment.key[0]);
+    return true;
+  };
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i];
+    if (quote === '"' && char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "{" || char === "[") depth++;
+    else if (char === "}" || char === "]") depth--;
+    else if (char === "," && depth === 0) {
+      if (!add(body.slice(start, i))) return null;
+      start = i + 1;
+    }
+  }
+  if (!add(body.slice(start))) return null;
+  return keys;
+}
+function collectExistingPaths(config) {
+  const lines = config.split(/\r?\n/);
+  const paths = /* @__PURE__ */ new Set();
+  const directTables = /* @__PURE__ */ new Set();
+  const nestedTables = /* @__PURE__ */ new Set();
+  const projectHeaders = /* @__PURE__ */ new Set();
+  const parentKeys = /* @__PURE__ */ new Set();
+  let currentTable = [];
+  let rootInline = null;
+  let projectsTableSeen = false;
+  let invalid = false;
+  for (const line of lines) {
+    const parts = headerParts(line);
+    if (parts) {
+      currentTable = parts;
+      if (parts[0] === "projects") {
+        if (rootInline) invalid = true;
+        if (parts.length === 1) {
+          if (projectsTableSeen) invalid = true;
+          projectsTableSeen = true;
+        } else {
+          const key = normalizedPath(parts[1]);
+          const headerKey = JSON.stringify([key, ...parts.slice(2)]);
+          if (projectHeaders.has(headerKey)) invalid = true;
+          projectHeaders.add(headerKey);
+          paths.add(key);
+          if (parts.length === 2) {
+            if (directTables.has(key) || parentKeys.has(key)) invalid = true;
+            directTables.add(key);
+          } else {
+            nestedTables.add(key);
+          }
+        }
+      }
+      continue;
+    }
+    const relevantHeader = withoutComment(line).trim();
+    if (relevantHeader.startsWith("[")) {
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid = true;
+      currentTable = [];
+      continue;
+    }
+    const assignment = assignmentParts(line);
+    if (!assignment) {
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid = true;
+      continue;
+    }
+    if (currentTable.length === 0 && assignment.key[0] === "projects") {
+      if (assignment.key.length === 1) {
+        const keys = inlineTableKeys(assignment.value);
+        if (!keys || rootInline) {
+          invalid = true;
+          continue;
+        }
+        rootInline = /* @__PURE__ */ new Set();
+        for (const key of keys) {
+          const normalized = normalizedPath(key);
+          if (rootInline.has(normalized)) invalid = true;
+          rootInline.add(normalized);
+          paths.add(normalized);
+        }
+      } else {
+        const key = normalizedPath(assignment.key[1]);
+        if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+        parentKeys.add(key);
+        paths.add(key);
+      }
+      continue;
+    }
+    if (currentTable.length === 1 && currentTable[0] === "projects") {
+      const key = normalizedPath(assignment.key[0]);
+      if (parentKeys.has(key) || directTables.has(key)) invalid = true;
+      parentKeys.add(key);
+      paths.add(key);
+    }
+  }
+  for (const key of parentKeys) {
+    if (nestedTables.has(key)) invalid = true;
+  }
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid = true;
+  return { paths, rootInline, invalid };
+}
+function mergeTrustedProjectEntries(profile, config) {
+  const entries = collectProfileEntries(profile);
+  if (!entries) return null;
+  if (entries.length === 0) return config;
+  const existing = collectExistingPaths(config);
+  if (existing.invalid) return null;
+  const missing = entries.filter((entry) => {
+    const key = normalizedPath(entry.path);
+    return !existing.paths.has(key) && !existing.rootInline?.has(key);
+  });
+  if (existing.rootInline && missing.length) return null;
+  if (missing.length === 0) return config;
+  const newlineSource = config || profile;
+  const newline = newlineSource.includes("\r\n") ? "\r\n" : "\n";
+  const separator = !config ? "" : config.endsWith(newline + newline) ? "" : config.endsWith(newline) ? newline : newline + newline;
+  const appended = missing.flatMap((entry) => [entry.header, entry.assignment]).join(newline) + newline;
+  return config + separator + appended;
+}
+function carryCodexProjectTrust(host2, profilePath2, configPath) {
+  const lockId = host2.fs.lockFile(configPath + ".project-trust.lock");
+  if (lockId === null) {
+    host2.log?.("warn", "Codex project trust carry-over skipped because the shared config lock is busy");
+    return false;
+  }
+  try {
+    if (host2.fs.isSymlink(configPath) !== false) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
+      return false;
+    }
+    const profile = host2.fs.readFile(profilePath2);
+    if (profile === null) return false;
+    const configExists = host2.fs.fileExists(configPath);
+    const config = configExists ? host2.fs.readFile(configPath) : "";
+    if (config === null) return false;
+    const merged = mergeTrustedProjectEntries(profile, config);
+    if (merged === null) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the TOML structure is ambiguous");
+      return false;
+    }
+    if (merged === config) return true;
+    const currentExists = host2.fs.fileExists(configPath);
+    const current = currentExists ? host2.fs.readFile(configPath) : "";
+    if (current === null || currentExists !== configExists || current !== config) {
+      host2.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
+      return false;
+    }
+    if (host2.fs.isSymlink(configPath) !== false) {
+      host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
+      return false;
+    }
+    if (!host2.fs.writeFileAtomic(configPath, merged)) {
+      host2.log?.("warn", "Codex project trust carry-over could not atomically update the shared config");
+      return false;
+    }
+    return true;
+  } finally {
+    host2.fs.unlockFile(lockId);
+  }
+}
+
+// plugins/provider-codex/src/profile-sweep.ts
+var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
+var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+function codexConfigPath(host2, home) {
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  return `${home}${separator}.codex${separator}config.toml`;
+}
+function isCodexDirectoryTrusted(host2, path) {
+  return codexDirectoryTrustState(host2, path) === "trusted";
+}
+function codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
+  const home = host2.homeDir();
+  if (!home || !isAbsolutePath(host2, cwd)) return "unknown";
+  const configPath = codexConfigPath(host2, home);
+  const configSymlink = host2.fs.isSymlink(configPath);
+  if (configSymlink !== false) return "unknown";
+  const configExists = host2.fs.fileExists(configPath);
+  const config = configExists ? host2.fs.readFile(configPath) : "";
+  if (config === null) return "unknown";
+  const markers = projectRootMarkers(config);
+  if (!markers) return "unknown";
+  const roots = codexTrustRoots(host2, cwd, markers);
+  if (!roots) return "unknown";
+  for (const root of roots) {
+    const trust = projectTrustForPath(config, root);
+    if (trust === "trusted") return "trusted";
+    if (trust === "untrusted") return "untrusted";
+    if (trust === "unknown") return "unknown";
+  }
+  return "untrusted";
+}
+function isAbsolutePath(host2, path) {
+  return host2.platform() === "windows" ? /^[A-Za-z]:[\\/]/.test(path) || /^\\\\/.test(path) : path.startsWith("/");
+}
+function projectRootMarkers(config) {
+  const lines = config.split(/\r?\n/);
+  const assignments = lines.filter((line) => /^\s*project_root_markers\s*=/.test(line));
+  if (assignments.length === 0) return [".git"];
+  if (assignments.length !== 1) return null;
+  const value = assignments[0].slice(assignments[0].indexOf("=") + 1).trim();
+  if (!value.startsWith("[") || !value.endsWith("]")) return null;
+  const body = value.slice(1, -1).trim();
+  if (!body) return [];
+  const markers = [];
+  let rest = body;
+  while (rest) {
+    const match = /^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:,\s*|$)/.exec(rest);
+    if (!match) return null;
+    const parsed = match[1][0] === '"' ? (() => {
+      try {
+        return JSON.parse(match[1]);
+      } catch {
+        return null;
+      }
+    })() : match[1].slice(1, -1);
+    if (parsed === null || parsed.length === 0) return null;
+    markers.push(parsed);
+    rest = rest.slice(match[0].length);
+  }
+  return markers;
+}
+function codexTrustRoots(host2, cwd, markers) {
+  const windows = host2.platform() === "windows";
+  const normalizedCwd = normalizeAbsolutePath(cwd, windows);
+  if (!normalizedCwd) return null;
+  const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host2, normalizedCwd, markers, windows);
+  const gitRoot = findRoot(host2, normalizedCwd, [".git"], windows);
+  if (projectRoot === null || gitRoot === null) return null;
+  const mainRepoRoot = gitRoot === void 0 ? void 0 : worktreeMainRoot(host2, gitRoot, windows);
+  return uniquePaths(
+    [normalizedCwd, projectRoot, gitRoot, mainRepoRoot].filter((path) => path !== void 0),
+    windows
+  );
+}
+function worktreeMainRoot(host2, gitRoot, windows) {
+  const separator = windows ? "\\" : "/";
+  const pointer = host2.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
+  const gitdir = pointer?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+  if (!gitdir) return void 0;
+  const absolute = isAbsolutePath(host2, gitdir) ? gitdir : `${gitRoot}${separator}${gitdir}`;
+  const normalized = normalizeAbsolutePath(absolute, windows);
+  const main = normalized?.match(/^(.*?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/i)?.[1];
+  return main || void 0;
+}
+function findRoot(host2, cwd, markers, windows) {
+  const separator = windows ? "\\" : "/";
+  let current = cwd;
+  const root = windows ? current.slice(0, 3) : "/";
+  while (current) {
+    if (host2.fs.isSymlink(current) !== false) return null;
+    for (const markerName of markers) {
+      const marker = `${current.replace(/[\\/]$/, "")}${separator}${markerName}`;
+      const markerSymlink = host2.fs.isSymlink(marker);
+      if (markerSymlink === null || markerSymlink === true) return null;
+      if (host2.fs.fileExists(marker)) return current;
+    }
+    if (current === root) break;
+    const parent = parentPath(current, windows);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return markers.length === 0 ? cwd : void 0;
+}
+function normalizeAbsolutePath(path, windows) {
+  const value = windows ? path.replace(/\//g, "\\") : path;
+  const prefix = windows ? /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)/.exec(value)?.[0] : "/";
+  if (!prefix) return null;
+  const tail = value.slice(prefix.length);
+  const parts = [];
+  for (const part of tail.split(/[\\/]+/)) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (parts.length === 0) return null;
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  const joined = `${prefix}${parts.join(windows ? "\\" : "/")}`;
+  return joined;
+}
+function parentPath(path, windows) {
+  const separator = windows ? "\\" : "/";
+  const normalized = path.replace(/[\\/]$/, "");
+  const index = normalized.lastIndexOf(separator);
+  if (index < 0) return null;
+  if (windows && index === 2) return normalized.slice(0, 3);
+  if (!windows && index === 0) return "/";
+  return normalized.slice(0, index);
+}
+function uniquePaths(paths, windows) {
+  const seen = /* @__PURE__ */ new Set();
+  return paths.filter((path) => {
+    const key = windows ? path.toLowerCase() : path;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function codexProfileTabId(fileName) {
+  return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
+}
+function codexProfileInstanceId(contents) {
+  const firstLine = contents.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+  return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
+}
+function profilePath(host2, name) {
+  const home = host2.homeDir();
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  return home ? `${home}${separator}.codex${separator}${name}` : null;
+}
+function profiles(host2) {
+  const home = host2.homeDir();
+  if (!home) return null;
+  const separator = host2.platform() === "windows" ? "\\" : "/";
+  const dir = `${home}${separator}.codex`;
+  try {
+    const entries = host2.fs.readDir(dir);
+    if (!Array.isArray(entries)) return null;
+    return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+}
+function readProfile(host2, path) {
+  try {
+    if (host2.fs.isSymlink(path) !== false) return null;
+    return host2.fs.readFile(path);
+  } catch {
+    return null;
+  }
+}
+function removeProfile(host2, path) {
+  try {
+    if (host2.fs.isSymlink(path) !== false) return false;
+    return host2.fs.removeFile(path);
+  } catch {
+    return false;
+  }
+}
+function removeProfileAfterTrustCarry(host2, path) {
+  const home = host2.homeDir();
+  if (!home) return false;
+  const original = readProfile(host2, path);
+  if (original === null) return false;
+  const configPath = codexConfigPath(host2, home);
+  if (!carryCodexProjectTrust(host2, path, configPath)) return false;
+  return readProfile(host2, path) === original && removeProfile(host2, path);
+}
+function carryCodexProjectTrustForTab(host2, tabId, instanceId) {
+  const listing = profiles(host2);
+  const home = host2.homeDir();
+  if (!listing || !home) return false;
+  const configPath = codexConfigPath(host2, home);
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const owned = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  if (owned.length === 0) return false;
+  let foundTrustedEntry = false;
+  for (const path of owned) {
+    const profile = readProfile(host2, path);
+    if (profile === null) return false;
+    if (!hasTrustedProjectEntries(profile)) continue;
+    foundTrustedEntry = true;
+    if (!carryCodexProjectTrust(host2, path, configPath)) return false;
+  }
+  return foundTrustedEntry;
+}
+function inspectCodexProfiles(host2, liveTabIds, instanceId) {
+  const listing = profiles(host2);
+  if (!listing) return { dead: [], legacy: [] };
+  const live = new Set(liveTabIds);
+  const dead = [];
+  const legacy = [];
+  for (const name of listing) {
+    const tabId = codexProfileTabId(name);
+    if (tabId === null) continue;
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    if (owner === instanceId && !live.has(tabId)) dead.push(name);
+    else if (owner === null) legacy.push(name);
+  }
+  return { dead, legacy };
+}
+function sweepCodexProfiles(host2, liveTabIds, instanceId) {
+  return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
+}
+function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy) {
+  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId);
+  const removed = [];
+  if (!confirm) return { ...candidates, removed };
+  for (const name of [...candidates.dead, ...includeLegacy ? candidates.legacy : []]) {
+    const path = profilePath(host2, name);
+    if (!path) continue;
+    const contents = readProfile(host2, path);
+    if (contents === null) continue;
+    const owner = codexProfileInstanceId(contents);
+    const stillOwned = owner === instanceId;
+    const stillLegacy = includeLegacy && owner === null;
+    if ((stillOwned || stillLegacy) && removeProfileAfterTrustCarry(host2, path)) removed.push(name);
+  }
+  return { ...candidates, removed };
+}
+function releaseCodexProfile(host2, tabId, instanceId) {
+  const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const listing = profiles(host2);
+  if (!listing) return false;
+  const ownedPaths = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  if (ownedPaths.length === 0) return false;
+  let released = true;
+  for (const path of ownedPaths) {
+    if (!removeProfileAfterTrustCarry(host2, path)) released = false;
+  }
+  return released;
+}
+
 // plugins/provider-codex/src/tabState.ts
 var CLASSIFY_THRESHOLD = 0.8;
 var RESUME_BUFFER_MS = 60 * 1e3;
 function classifyCodexTabState(snapshot, nowMs) {
-  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r*\n|\r/g, "\n");
   if (!screen.trim()) return null;
   if (looksBusy(screen)) return { state: "working", confidence: 0 };
   const activeChoice = parseActiveTerminalChoice(screen);
@@ -1499,16 +2303,10 @@ function classifyCodexTabState(snapshot, nowMs) {
   }
   if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
   const update = scoreUpdatePrompt(screen);
-  if (update.confidence >= CLASSIFY_THRESHOLD && update.installKeys && update.installKeys.length > 0 && update.skipKeys && update.skipKeys.length > 0) {
+  if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update.confidence,
-      action: {
-        providerUpdate: {
-          installKeys: update.installKeys,
-          declineKeys: update.skipKeys
-        }
-      }
+      confidence: update.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -1549,42 +2347,8 @@ function classifyCodexTabState(snapshot, nowMs) {
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }
-function navigationKeys(options, matches) {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  let targetIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (matches(options[i].label)) {
-      targetIdx = i;
-      break;
-    }
-  }
-  if (targetIdx === -1) return null;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) {
-    for (let i = 0; i < delta; i++) keys.push("down");
-  } else if (delta < 0) {
-    for (let i = 0; i < -delta; i++) keys.push("up");
-  }
-  keys.push("enter");
-  return keys;
-}
-function skipNavigationKeys(options) {
-  return navigationKeys(
-    options,
-    (label) => /\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)
-  );
-}
 function scoreUpdatePrompt(screen) {
-  const options = parseMenuOptions(screen);
+  const options = parseActiveTerminalChoice(screen)?.options ?? [];
   let hasUpdateOption = false;
   let hasSkipOption = false;
   for (let i = 0; i < options.length; i++) {
@@ -1601,11 +2365,7 @@ function scoreUpdatePrompt(screen) {
   if (/press\s+enter\s+to\s+continue/i.test(screen)) confidence += 0.1;
   if (/release\s+notes/i.test(screen)) confidence += 0.1;
   if (confidence > 1) confidence = 1;
-  return {
-    confidence,
-    skipKeys: actionableMenu ? skipNavigationKeys(options) : null,
-    installKeys: actionableMenu ? navigationKeys(options, (label) => /\bupdate\b/i.test(label)) : null
-  };
+  return { confidence };
 }
 function looksBusy(screen) {
   return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(screen) || /\bWorking[….]/.test(screen) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen);
@@ -1658,6 +2418,124 @@ function scoreAuthPrompt(screen) {
   return score > 1 ? 1 : score;
 }
 
+// plugins/provider-codex/src/hooks.ts
+var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
+var LEGACY_CODEX_HOOK_COMMANDS = /* @__PURE__ */ new Set([
+  `curl -s -X POST http://localhost:\${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true`,
+  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' --data-binary @- > /dev/null 2>&1 || true"
+]);
+for (const event of ["session_start", "stop"]) {
+  LEGACY_CODEX_HOOK_COMMANDS.add(
+    'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + event + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true; fi`
+  );
+}
+var CODEX_HOOK_TIMEOUT_SECS = 60;
+var CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
+function codexWindowsHookScript() {
+  return [
+    "@echo off",
+    "setlocal DisableDelayedExpansion",
+    "rem " + CODETERM_CODEX_HOOK_MARKER,
+    "if not defined CODETERM_TAB_ID exit /b 0",
+    "if not defined CODETERM_API_URL exit /b 0",
+    "if not defined CODETERM_API_TOKEN exit /b 0",
+    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
+    'set "hookEvent=%~1"',
+    'set "hookMarker=%~2 %~3"',
+    'if /I not "%hookMarker%"=="X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '" exit /b 0',
+    'if /I "%hookEvent%"=="session_start" goto post_event',
+    'if /I "%hookEvent%"=="stop" goto post_event',
+    "exit /b 0",
+    ":post_event",
+    'set "apiBase=%CODETERM_API_URL%"',
+    'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
+    'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
+    "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
+    'if exist "%responseFile%" del /F /Q "%responseFile%"',
+    "exit /b 0",
+    ""
+  ].join("\r\n");
+}
+function isCodetermCodexHook(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  for (let i = 0; i < hooks.length; i++) {
+    if (isOwnedCodexHook(hooks[i])) return true;
+  }
+  return false;
+}
+function removeOwnedCodexHooks(entries) {
+  const out = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const hooks = entry && entry.hooks;
+    if (!Array.isArray(hooks)) {
+      out.push(entry);
+      continue;
+    }
+    const kept = hooks.filter((hook) => !isOwnedCodexHook(hook));
+    if (kept.length === hooks.length) out.push(entry);
+    else if (kept.length > 0) out.push({ ...entry, hooks: kept });
+  }
+  return out;
+}
+function isOwnedCodexHook(hook) {
+  if (!hook) return false;
+  const command = String(hook.command || "");
+  const fullCommand = command + "\n" + String(hook.commandWindows || "");
+  if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
+  if (hook._source !== void 0) return hook._source === CODETERM_CODEX_HOOK_MARKER;
+  return LEGACY_CODEX_HOOK_COMMANDS.has(command);
+}
+var CODEX_HOOK_SCRIPT_CONTRACT = [
+  "rem " + CODETERM_CODEX_HOOK_MARKER,
+  "hookEvent",
+  "CODETERM_TAB_ID",
+  "CODETERM_API_URL",
+  "CODETERM_API_TOKEN",
+  "CODETERM_SESSION_BINDING_NONCE",
+  "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER,
+  "/api/tabs/",
+  "curl.exe",
+  "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
+  "responseFile",
+  "--output"
+];
+function hasAdequateCodexHookTimeout(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks) || hooks.length === 0) return false;
+  return hooks.every((hook) => {
+    const timeout = hook && hook.timeout;
+    return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
+  });
+}
+function codexHookContentHash(text5) {
+  let hash = 2166136261;
+  for (let i = 0; i < text5.length; i++) {
+    hash ^= text5.charCodeAt(i);
+    hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
+  }
+  return ("0000000" + hash.toString(16)).slice(-8);
+}
+function isOwnedCodexHookScriptContent(text5) {
+  return text5.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+}
+function isCurrentCodexHookScriptContent(text5) {
+  if (!isOwnedCodexHookScriptContent(text5)) return false;
+  if (text5.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
+  if (text5.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
+  if (/:\d{2,5}/.test(text5)) return false;
+  if (text5.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text5)) return false;
+  for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
+    if (text5.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+  }
+  return true;
+}
+function isOwnedCodexWindowsHookScript(path) {
+  const text5 = host.fs.readFile(path);
+  return typeof text5 === "string" && isOwnedCodexHookScriptContent(text5);
+}
+
 // plugins/provider-codex/src/appServer.ts
 var APP_SERVER_EXIT_DEADLINE_MS = 2e4;
 var JSON_RPC_METHOD_NOT_FOUND = -32601;
@@ -1667,35 +2545,14 @@ function stderrIndicatesMissingAppServer(stderr) {
 function isMethodNotFound(error) {
   return error.code === JSON_RPC_METHOD_NOT_FOUND || /method not found/i.test(String(error.message || ""));
 }
-function runAppServerSession(requests) {
-  const lines = [
-    JSON.stringify({
-      method: "initialize",
-      id: 1,
-      params: { clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" } }
-    }),
-    JSON.stringify({ method: "initialized" })
-  ];
-  for (let i = 0; i < requests.length; i++) {
-    const req = { method: requests[i].method, id: requests[i].id };
-    if (requests[i].params !== void 0) req.params = requests[i].params;
-    lines.push(JSON.stringify(req));
-  }
-  let raw;
-  try {
-    raw = host.exec(JSON.stringify({
-      bin: "codex",
-      args: ["app-server"],
-      stdin: lines.join("\n") + "\n",
-      timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
-    }));
-  } catch (e) {
-    return { kind: "failed", reason: "host.exec threw: " + String(e) };
-  }
+function parseAppServerSession(raw) {
   let result;
   try {
-    result = JSON.parse(raw);
-  } catch (_) {
+    result = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    return { kind: "failed", reason: "host.exec returned invalid JSON" };
+  }
+  if (!result || typeof result !== "object") {
     return { kind: "failed", reason: "host.exec returned invalid JSON" };
   }
   const stderr = String(result.stderr || "");
@@ -1713,12 +2570,10 @@ function runAppServerSession(requests) {
     let message;
     try {
       message = JSON.parse(line);
-    } catch (_) {
+    } catch {
       continue;
     }
-    if (typeof message.id === "number") {
-      responses[message.id] = { result: message.result, error: message.error };
-    }
+    if (typeof message.id === "number") responses[message.id] = { result: message.result, error: message.error };
   }
   const init = responses[1];
   if (!init) {
@@ -1728,12 +2583,47 @@ function runAppServerSession(requests) {
     return { kind: "failed", reason: "codex app-server exited before responding" + (stderr ? ": " + stderr.slice(0, 400) : "") };
   }
   if (init.error) {
-    if (isMethodNotFound(init.error)) {
-      return { kind: "unavailable", reason: "codex app-server does not support initialize" };
-    }
+    if (isMethodNotFound(init.error)) return { kind: "unavailable", reason: "codex app-server does not support initialize" };
     return { kind: "failed", reason: "initialize failed: " + String(init.error.message || "unknown error") };
   }
+  if (typeof result.code === "number" && result.code !== 0) {
+    return { kind: "failed", reason: "codex app-server exited with code " + result.code };
+  }
   return { kind: "ok", responses };
+}
+function runAppServerSession(requests, then) {
+  const initialize = JSON.stringify({
+    method: "initialize",
+    id: 1,
+    params: {
+      clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" },
+      capabilities: { experimentalApi: true }
+    }
+  });
+  const requestLines = [JSON.stringify({ method: "initialized" })];
+  const responseIds = [];
+  for (let i = 0; i < requests.length; i++) {
+    const req = { method: requests[i].method, id: requests[i].id };
+    if (requests[i].params !== void 0) req.params = requests[i].params;
+    requestLines.push(JSON.stringify(req));
+    const requestId = requests[i].id;
+    if (typeof requestId === "number") responseIds.push(requestId);
+  }
+  const opts = {
+    bin: "codex",
+    args: ["app-server"],
+    conversation: [
+      { stdin: initialize + "\n", awaitResponseIds: [1] },
+      { stdin: requestLines.join("\n") + "\n", awaitResponseIds: responseIds }
+    ],
+    timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
+  };
+  try {
+    const asyncExec = host.exec.async;
+    return typeof asyncExec === "function" ? asyncExec(opts, (raw) => then(parseAppServerSession(raw))) : then(parseAppServerSession(host.exec(JSON.stringify(opts))));
+  } catch (e) {
+    return then({ kind: "failed", reason: "host.exec threw: " + String(e) });
+  }
 }
 function requestOutcome(session, id, method) {
   if (session.kind !== "ok") return session;
@@ -1778,7 +2668,7 @@ function keyMatchesManagedLabel(key, hooksPath, label) {
 }
 function isCodetermManagedHookCommand(command) {
   const c = String(command || "");
-  return c.indexOf("/hook/session_start") !== -1 || c.indexOf("/hook/stop") !== -1 || c.indexOf("codeterm-session-start.ps1") !== -1;
+  return c.indexOf("/hook/session_start") !== -1 || c.indexOf("/hook/stop") !== -1 || c.indexOf("codeterm-session-start.ps1") !== -1 || c.indexOf("codeterm-session-hook.cmd") !== -1 && c.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
 function managedListings(listings, hooksPath, labels) {
   const out = [];
@@ -1794,14 +2684,69 @@ function managedListings(listings, hooksPath, labels) {
   }
   return out;
 }
-function snapshotConfig(path) {
-  const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
-  return typeof bytes === "string" ? { path, existed, bytes } : null;
+function trustTableKey(line) {
+  const value = line.trim();
+  const prefix = "[hooks.state.";
+  if (!value.startsWith(prefix) || !value.endsWith("]")) return null;
+  const raw = value.slice(prefix.length, -1);
+  if (raw.length >= 2 && raw[0] === "'" && raw[raw.length - 1] === "'") {
+    return raw.slice(1, -1);
+  }
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
 }
-function restoreConfig(snapshot) {
-  if (snapshot.existed) return host.fs.writeFile(snapshot.path, snapshot.bytes);
-  return !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+function recordedTrustedHash(config, key) {
+  const lines = config.split("\n");
+  const normalizedKey = slashNormalize(key);
+  for (let i = 0; i < lines.length; i++) {
+    const tableKey = trustTableKey(lines[i]);
+    const normalizedTableKey = tableKey === null ? null : slashNormalize(tableKey);
+    const sameKey = host.platform() === "windows" ? normalizedTableKey?.toLowerCase() === normalizedKey.toLowerCase() : normalizedTableKey === normalizedKey;
+    if (!sameKey) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j].trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) break;
+      const match = /^trusted_hash\s*=\s*(['"])([^'"\r\n]+)\1\s*(?:#.*)?\r?$/.exec(lines[j]);
+      if (match) return match[2];
+    }
+    return null;
+  }
+  return null;
+}
+function inspectCodexHookTrust(opts, then = (inspection) => inspection) {
+  return runAppServerSession([
+    { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
+  ], (session) => {
+    const result = requestOutcome(session, 2, "hooks/list");
+    if (result.kind !== "ok") return then({ verdict: "unknown", reason: result.reason });
+    const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
+    if (managed.length !== opts.managedLabels.length) {
+      return then({
+        verdict: "unknown",
+        reason: "Codex returned " + managed.length + " managed hooks, expected " + opts.managedLabels.length
+      });
+    }
+    for (let i = 0; i < managed.length; i++) {
+      const listing = managed[i];
+      const recorded = recordedTrustedHash(opts.config, listing.key);
+      if (recorded === null) {
+        return then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key });
+      }
+      if (recorded !== listing.currentHash) {
+        return then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key });
+      }
+      if (listing.trustStatus !== "trusted") {
+        return then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key });
+      }
+    }
+    return then({ verdict: "trusted" });
+  });
 }
 function outcome(partial) {
   return {
@@ -1812,202 +2757,89 @@ function outcome(partial) {
     ...partial
   };
 }
-function grantCodexHookTrust(opts) {
+function grantCodexHookTrust(opts, then = (result) => result) {
+  if (!opts.configPath) {
+    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+  }
+  return grantCodexHookTrustFromCodex(opts, then);
+}
+function grantCodexHookTrustFromCodex(opts, then) {
   if (!opts.managedLabels.length) {
-    return outcome({ degraded: true, reason: "no managed hook keys declared" });
+    return then(outcome({ degraded: true, reason: "no managed hook keys declared" }));
   }
   if (!opts.configPath) {
-    return outcome({ degraded: true, reason: "could not resolve Codex config path" });
+    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
   }
-  const listSession = runAppServerSession([
+  return runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ]);
-  const listResult = requestOutcome(listSession, 2, "hooks/list");
-  if (listResult.kind === "unavailable") return outcome({ degraded: true, reason: listResult.reason });
-  if (listResult.kind === "failed") return outcome({ reason: listResult.reason });
-  const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
-  if (managed.length !== opts.managedLabels.length) {
-    return outcome({
-      verify_failed: true,
-      reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
+  ], (listSession) => {
+    const listResult = requestOutcome(listSession, 2, "hooks/list");
+    if (listResult.kind === "unavailable") return then(outcome({ degraded: true, reason: listResult.reason }));
+    if (listResult.kind === "failed") return then(outcome({ reason: listResult.reason }));
+    const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
+    if (managed.length !== opts.managedLabels.length) {
+      return then(outcome({
+        verify_failed: true,
+        reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
+      }));
+    }
+    const needingTrust = [];
+    for (let i = 0; i < managed.length; i++) {
+      if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
+    }
+    if (!needingTrust.length) {
+      return then(outcome({
+        granted: true,
+        entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+      }));
+    }
+    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
+    const value = {};
+    for (let i = 0; i < needingTrust.length; i++) {
+      const currentHash = needingTrust[i].currentHash;
+      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      value[needingTrust[i].key] = { trusted_hash: currentHash };
+    }
+    return runAppServerSession([
+      {
+        method: "config/batchWrite",
+        id: 2,
+        params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
+      },
+      { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
+    ], (writeSession) => {
+      const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
+      if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      const writeStatus = writeResult.result && typeof writeResult.result === "object" ? writeResult.result.status : void 0;
+      if (writeStatus !== "ok") {
+        return then(outcome({ reason: "config/batchWrite did not confirm status=ok" }));
+      }
+      const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
+      if (verifyResult.kind !== "ok") {
+        return then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }));
+      }
+      const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
+      if (verified.length !== opts.managedLabels.length) {
+        return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }));
+      }
+      const expectedHashes = {};
+      for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
+      for (let i = 0; i < verified.length; i++) {
+        const listing = verified[i];
+        if (listing.trustStatus !== "trusted") {
+          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }));
+        }
+        if (expectedHashes[listing.key] !== listing.currentHash) {
+          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }));
+        }
+      }
+      return then(outcome({
+        granted: true,
+        wrote: true,
+        entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+      }));
     });
-  }
-  const needingTrust = [];
-  for (let i = 0; i < managed.length; i++) {
-    if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
-  }
-  if (!needingTrust.length) {
-    return outcome({
-      granted: true,
-      entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-    });
-  }
-  const snapshot = snapshotConfig(opts.configPath);
-  if (!snapshot) {
-    return outcome({ reason: "could not snapshot Codex config before granting trust" });
-  }
-  const value = {};
-  for (let i = 0; i < needingTrust.length; i++) {
-    value[needingTrust[i].key] = { trusted_hash: needingTrust[i].currentHash };
-  }
-  const writeSession = runAppServerSession([
-    {
-      method: "config/batchWrite",
-      id: 2,
-      params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
-    },
-    { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
-  ]);
-  const failedWrite = (reason, verifyFailed) => {
-    const restored = restoreConfig(snapshot);
-    return outcome({ wrote: true, verify_failed: verifyFailed, restored, reason });
-  };
-  const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-  if (writeResult.kind !== "ok") return outcome({ reason: writeResult.reason });
-  const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
-  if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
-  const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
-  if (verified.length !== opts.managedLabels.length) {
-    return failedWrite("post-grant verify reported " + verified.length + " managed entries", true);
-  }
-  const expectedHashes = {};
-  for (let i = 0; i < managed.length; i++) {
-    expectedHashes[managed[i].key] = managed[i].currentHash;
-  }
-  for (let i = 0; i < verified.length; i++) {
-    const listing = verified[i];
-    if (listing.trustStatus !== "trusted") {
-      return failedWrite("post-grant verify left " + listing.key + " " + listing.trustStatus, true);
-    }
-    if (expectedHashes[listing.key] !== listing.currentHash) {
-      return failedWrite("post-grant verify reported a different hash for " + listing.key, true);
-    }
-  }
-  return outcome({
-    granted: true,
-    wrote: true,
-    entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
   });
-}
-
-// plugins/provider-codex/src/hooks.ts
-var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
-var LEGACY_CODEX_HOOK_COMMANDS = /* @__PURE__ */ new Set([
-  `curl -s -X POST http://localhost:\${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true`,
-  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' --data-binary @- > /dev/null 2>&1 || true"
-]);
-for (const event of ["session_start", "stop"]) {
-  LEGACY_CODEX_HOOK_COMMANDS.add(
-    'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + event + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true; fi`
-  );
-}
-var CODEX_HOOK_TIMEOUT_SECS = 60;
-var CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
-function codexWindowsHookScript() {
-  return [
-    "@echo off",
-    "setlocal DisableDelayedExpansion",
-    "rem " + CODETERM_CODEX_HOOK_MARKER,
-    "rem " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-    "if not defined CODETERM_TAB_ID exit /b 0",
-    "if not defined CODETERM_API_URL exit /b 0",
-    "if not defined CODETERM_API_TOKEN exit /b 0",
-    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
-    'set "hookEvent=%~1"',
-    'set "hookMarker=%~2 %~3"',
-    'if /I not "%hookMarker%"=="X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '" exit /b 0',
-    'if /I "%hookEvent%"=="session_start" goto post_event',
-    'if /I "%hookEvent%"=="stop" goto post_event',
-    "exit /b 0",
-    ":post_event",
-    'set "apiBase=%CODETERM_API_URL%"',
-    'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
-    'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
-    "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
-    'if exist "%responseFile%" del /F /Q "%responseFile%"',
-    'if /I "%hookEvent%"=="session_start" if defined USERPROFILE if exist "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml" del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"',
-    "exit /b 0",
-    ""
-  ].join("\r\n");
-}
-function isCodetermCodexHook(entry) {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  for (let i = 0; i < hooks.length; i++) {
-    if (isOwnedCodexHook(hooks[i])) return true;
-  }
-  return false;
-}
-function removeOwnedCodexHooks(entries) {
-  const out = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    const hooks = entry && entry.hooks;
-    if (!Array.isArray(hooks)) {
-      out.push(entry);
-      continue;
-    }
-    const kept = hooks.filter((hook) => !isOwnedCodexHook(hook));
-    if (kept.length === hooks.length) out.push(entry);
-    else if (kept.length > 0) out.push({ ...entry, hooks: kept });
-  }
-  return out;
-}
-function isOwnedCodexHook(hook) {
-  if (!hook) return false;
-  const command = String(hook.command || "");
-  const fullCommand = command + "\n" + String(hook.commandWindows || "");
-  if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
-  if (hook._source !== void 0) return hook._source === CODETERM_CODEX_HOOK_MARKER;
-  return LEGACY_CODEX_HOOK_COMMANDS.has(command);
-}
-var CODEX_HOOK_SCRIPT_CONTRACT = [
-  "rem " + CODETERM_CODEX_HOOK_MARKER,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-  "hookEvent",
-  "CODETERM_TAB_ID",
-  "CODETERM_API_URL",
-  "CODETERM_API_TOKEN",
-  "CODETERM_SESSION_BINDING_NONCE",
-  "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER,
-  "/api/tabs/",
-  "curl.exe",
-  "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
-  "responseFile",
-  "--output"
-];
-function hasAdequateCodexHookTimeout(entry) {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks) || hooks.length === 0) return false;
-  return hooks.every((hook) => {
-    const timeout = hook && hook.timeout;
-    return typeof timeout === "number" && Number.isFinite(timeout) && timeout >= CODEX_HOOK_TIMEOUT_SECS;
-  });
-}
-function codexHookContentHash(text5) {
-  let hash = 2166136261;
-  for (let i = 0; i < text5.length; i++) {
-    hash ^= text5.charCodeAt(i);
-    hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
-  }
-  return ("0000000" + hash.toString(16)).slice(-8);
-}
-function isOwnedCodexHookScriptContent(text5) {
-  return text5.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
-}
-function isCurrentCodexHookScriptContent(text5) {
-  if (!isOwnedCodexHookScriptContent(text5)) return false;
-  if (/:\d{2,5}/.test(text5)) return false;
-  if (text5.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text5)) return false;
-  for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text5.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
-  }
-  return true;
-}
-function isOwnedCodexWindowsHookScript(path) {
-  const text5 = host.fs.readFile(path);
-  return typeof text5 === "string" && isOwnedCodexHookScriptContent(text5);
 }
 
 // plugins/provider-codex/src/integration.ts
@@ -2015,6 +2847,7 @@ var CODEX_INTEGRATION_STATE_ABSENT = "absent";
 var CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 var CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 var CODEX_INTEGRATION_STATE_INSTALLED = "installed";
+var codexHookTrustCache = /* @__PURE__ */ new Map();
 function checkIntegration() {
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) {
@@ -2040,23 +2873,31 @@ function checkIntegration() {
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
   const trustState = codexHookTrustState(path);
-  const trustOk = trustState !== "disabled";
-  const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : !trustOk || trustState === "missing" || trustState === "unknown" ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED;
+  const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : void 0;
+  const trustOk = trustState === "trusted";
+  const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
+  const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
+  const proposedChanges = ["SessionStart hook", "Stop hook"];
+  if (!trustVerifiedCurrent) proposedChanges.push("hook trust");
+  const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : trustState === "disabled" || trustState === "stale" ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : trustState === "unknown" || trustState === "enabled" ? "unknown" : !trustOk ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : CODEX_INTEGRATION_STATE_INSTALLED;
   return {
     hooks_file_exists: true,
     hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
-    hooks_installed: current && stopInstalled && trustOk,
-    session_start_hook: current && trustOk,
-    stop_hook: stopInstalled && trustOk,
+    hooks_installed: current && stopInstalled,
+    session_start_hook: current,
+    stop_hook: stopInstalled,
     hook_trust_state: trustState,
+    hook_trust_reason: trustReason,
     hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null,
+    hook_trust_verification_source: trustVerificationSource,
+    hook_trust_verified_current: trustVerifiedCurrent,
     integration_state: integrationState,
     repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
     backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
-    proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"]
+    proposed_changes: proposedChanges
   };
 }
 function ownedContentHash(sessionStart, stop, scriptText) {
@@ -2084,6 +2925,8 @@ function emptyIntegrationStatus(path, fileExists) {
     stop_hook: false,
     hook_trust_state: "missing",
     hook_trust_enabled: null,
+    hook_trust_verification_source: "missing",
+    hook_trust_verified_current: false,
     integration_state: CODEX_INTEGRATION_STATE_ABSENT,
     repair_requires_consent: true,
     hooks_owned: false,
@@ -2117,6 +2960,7 @@ function installIntegration(apiPort, options) {
   if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
     return { ok: false, error: "existing hooks JSON must contain an object at " + path };
   }
+  const originalHooksJson = JSON.stringify(parsedHooks);
   const json = parsedHooks;
   if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
     return { ok: false, error: "hooks is not an object" };
@@ -2127,7 +2971,7 @@ function installIntegration(apiPort, options) {
   if (json.hooks?.Stop !== void 0 && !Array.isArray(json.hooks.Stop)) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
-  const configPath = codexConfigPath();
+  const configPath = codexConfigPath2();
   const configExisted = !!configPath && host.fs.fileExists(configPath);
   const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
   if (configExisted && typeof originalConfigValue !== "string") {
@@ -2168,15 +3012,16 @@ function installIntegration(apiPort, options) {
   ];
   const fail = (error) => {
     const restored = restoreIntegrationFiles(rollbackSnapshots);
+    invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks) || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks) || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
     return fail("could not write recoverable backup for " + path);
   }
-  if (configPath && configExisted && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+  if (configPath && configExisted && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
     return fail("could not write recoverable backup for " + configPath);
   }
-  if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript) || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript) || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
     return fail("could not write recoverable backup for " + scriptPath);
   }
   if (!json.hooks) json.hooks = {};
@@ -2192,8 +3037,16 @@ function installIntegration(apiPort, options) {
   const markerH = '-H "X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '"';
   const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ] && [ -n "${CODETERM_SESSION_BINDING_NONCE:-}" ]; then ';
   const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + markerH + " " + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
-  const winCmd = (route) => scriptPath ? '"' + scriptPath + '" ' + route + " X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER : hookCmd(route);
-  if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
+  const winCmd = (route) => scriptPath ? [
+    "cmd.exe /d /s /c call",
+    '"' + scriptPath + '"',
+    route,
+    "X-CodeTerm-Hook:",
+    CODETERM_CODEX_HOOK_MARKER
+  ].join(" ") : hookCmd(route);
+  const scriptContents = codexWindowsHookScript();
+  const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
+  if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
     return fail("writeFile failed for " + scriptPath);
   }
   json.hooks.SessionStart.push({
@@ -2215,30 +3068,37 @@ function installIntegration(apiPort, options) {
       _source: CODETERM_CODEX_HOOK_MARKER
     }]
   });
-  const ok = host.fs.writeJson(path, json);
+  const hooksChanged = !hooksExisted || JSON.stringify(json) !== originalHooksJson;
+  const ok = hooksChanged ? host.fs.writeJson(path, json) : true;
   if (ok) {
     const trust = enableExistingCodexHookTrust(path);
     if (trust.write_failed) return fail("could not enable existing Codex hook trust");
     if (trust.changed) {
-      if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+      if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
         return fail("could not record owned Codex hook trust expansion");
       }
     }
+    if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
   return fail("writeJson failed for " + path);
 }
-function grantIntegrationTrust(managedKeys) {
+function grantIntegrationTrust(managedKeys, then = (result) => result) {
   const hooksPath = codexHooksPath();
   if (!hooksPath) {
-    return { granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" };
+    return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
   }
+  invalidateCodexHookTrust(hooksPath);
   return grantCodexHookTrust({
     hooksPath,
-    configPath: codexConfigPath(),
+    configPath: codexConfigPath2(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || "."
+  }, (result) => {
+    if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
+    else cacheCodexHookTrust(hooksPath, "unknown", result.reason);
+    return then(result);
   });
 }
 function uninstallIntegration() {
@@ -2250,13 +3110,14 @@ function uninstallIntegration() {
     if (!json || !json.hooks || typeof json.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
+    const before = JSON.stringify(json);
     if (Array.isArray(json.hooks.SessionStart)) {
       json.hooks.SessionStart = removeOwnedCodexHooks(json.hooks.SessionStart);
     }
     if (Array.isArray(json.hooks.Stop)) {
       json.hooks.Stop = removeOwnedCodexHooks(json.hooks.Stop);
     }
-    hooksOk = host.fs.writeJson(path, json);
+    hooksOk = before === JSON.stringify(json) || host.fs.writeJson(path, json);
   }
   const ownershipPath = codexHookTrustOwnershipPath();
   if (ownershipPath && host.fs.fileExists(ownershipPath)) {
@@ -2269,6 +3130,7 @@ function uninstallIntegration() {
   if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
     host.fs.removeFile(scriptPath);
   }
+  invalidateCodexHookTrust(path);
   return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
 }
 function restoreIntegration() {
@@ -2281,13 +3143,13 @@ function restoreIntegration() {
   const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
   if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
     if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-  } else if (!host.fs.writeFile(path, hooks)) {
+  } else if (!writeFileIfChanged(path, hooks)) {
     return { ok: false, error: "restore failed for " + path };
   }
-  const config = codexConfigPath();
+  const config = codexConfigPath2();
   if (config && host.fs.fileExists(config + ".codeterm-backup")) {
     const original = host.fs.readFile(config + ".codeterm-backup");
-    if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+    if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
     if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
   }
@@ -2298,44 +3160,61 @@ function restoreIntegration() {
     const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
     if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
       if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-    } else if (!host.fs.writeFile(script, original)) {
+    } else if (!writeFileIfChanged(script, original)) {
       return { ok: false, error: "restore failed for " + script };
     }
   }
+  invalidateCodexHookTrust(path);
   return { ok: true };
 }
-function ensureIntegrationOnStartup(apiPort, install) {
+function ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
   void apiPort;
   void install;
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
+  if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
   const json = host.fs.readJson(path);
-  if (!json || !json.hooks) return { ok: true, changed: false };
+  if (!json || !json.hooks) return then({ ok: true, changed: false });
   const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
-  if (owned.length === 0) return { ok: true, changed: false };
-  if (codexHookTrustState(path) === "disabled") {
-    return { ok: true, changed: false, reason: "Codex hook trust is disabled" };
-  }
-  const scriptPath = codexWindowsHookScriptPath();
-  const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
-  const commandStale = owned.some((entry) => {
-    const hooks = entry && entry.hooks || [];
-    return hooks.some(
-      (hook) => {
-        const command = String(hook && hook.command || "");
-        return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command);
-      }
-    );
+  if (owned.length === 0) return then({ ok: true, changed: false });
+  return refreshCodexHookTrustState(path, (trustState) => {
+    if (trustState === "disabled") {
+      return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+    }
+    if (trustState === "unknown") {
+      return then({
+        ok: false,
+        changed: false,
+        actionable: true,
+        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path)
+      });
+    }
+    const scriptPath = codexWindowsHookScriptPath();
+    const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
+    const commandStale = owned.some((entry) => {
+      const hooks = entry && entry.hooks || [];
+      return hooks.some(
+        (hook) => {
+          const command = String(hook && hook.command || "");
+          return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry);
+        }
+      );
+    });
+    const stopEntries = json.hooks?.Stop || [];
+    const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
+    const stopOwned = ownedStopEntries.length > 0;
+    const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
+    const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
+    const trustStale = trustState === "stale";
+    if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
+      return then({ ok: true, changed: false });
+    }
+    return then({
+      ok: false,
+      changed: false,
+      actionable: true,
+      error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
+    });
   });
-  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
-  const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
-  if (!scriptStale && !commandStale && !timeoutStale && stopOwned) return { ok: true, changed: false };
-  return {
-    ok: false,
-    changed: false,
-    actionable: true,
-    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
-  };
 }
 function codexHooksPath() {
   const home = host.homeDir();
@@ -2350,7 +3229,7 @@ function hookTimeoutsAdequate(sessionStart, stop) {
   const owned = [...sessionStart || [], ...stop || []].filter(isCodetermCodexHook);
   return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
 }
-function codexConfigPath() {
+function codexConfigPath2() {
   const home = host.homeDir();
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -2363,7 +3242,7 @@ function codexWindowsHookScriptPath() {
   return home + sep + ".codex" + sep + "codeterm-session-hook.cmd";
 }
 function codexHookTrustOwnershipPath() {
-  const config = codexConfigPath();
+  const config = codexConfigPath2();
   return config ? config + ".codeterm-hook-trust-owned" : null;
 }
 function captureIntegrationFile(path) {
@@ -2371,29 +3250,125 @@ function captureIntegrationFile(path) {
   const bytes = existed ? host.fs.readFile(path) : "";
   return typeof bytes === "string" ? { path, existed, bytes } : null;
 }
+function writeFileIfChanged(path, contents) {
+  return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
+}
 function restoreIntegrationFiles(snapshots) {
   let restored = true;
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i];
-    const ok = snapshot.existed ? host.fs.writeFile(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+    const ok = snapshot.existed ? writeFileIfChanged(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
     restored = ok && restored;
   }
   return restored;
 }
-function codexHookTrustState(hooksPath) {
-  const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+function codexHookTrustContext(hooksPath) {
+  const cfg = codexConfigPath2();
+  if (!cfg || !host.fs.fileExists(cfg)) return null;
   const text5 = String(host.fs.readFile(cfg) || "");
-  if (!text5) return "missing";
   const block = findCodexHookTrustBlock(text5, hooksPath);
-  if (block == null) return "missing";
+  if (block == null) return null;
+  const hooks = host.fs.readJson(hooksPath)?.hooks;
+  const labels = [];
+  if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
+  if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
+  const script = codexWindowsHookScriptPath();
+  const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
+  const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text5));
+  const hookFingerprint = codexHookContentHash([
+    ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
+    labels.join(",")
+  ].join(String.fromCharCode(0)));
+  const fingerprint = codexHookContentHash([trustFingerprint, hookFingerprint].join(String.fromCharCode(0)));
+  return { config: text5, block, labels, fingerprint, hookFingerprint, trustFingerprint };
+}
+function hookTrustConfigSections(config) {
+  const sections = [];
+  let active = false;
+  let lines = [];
+  for (const line of config.split(/\r?\n/)) {
+    const value = line.trim();
+    const header = value.startsWith("[") && value.endsWith("]");
+    if (header) {
+      if (active) sections.push(lines.join("\n"));
+      active = /^\[hooks\.state(?:\.|\])/.test(value);
+      lines = active ? [line] : [];
+    } else if (active) {
+      lines.push(line);
+    }
+  }
+  if (active) sections.push(lines.join("\n"));
+  return sections.join(String.fromCharCode(0));
+}
+function cacheCodexHookTrust(hooksPath, verdict, reason) {
+  const context = codexHookTrustContext(hooksPath);
+  if (context) codexHookTrustCache.set(hooksPath, {
+    fingerprint: context.fingerprint,
+    hookFingerprint: context.hookFingerprint,
+    trustFingerprint: context.trustFingerprint,
+    verdict,
+    reason
+  });
+}
+function codexHookTrustState(hooksPath) {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return "missing";
+  const { block, fingerprint } = context;
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (m) return m[1] === "true" ? "enabled" : "disabled";
-  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
-  return "unknown";
+  if (m && m[1] === "false") return "disabled";
+  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) {
+    if (!context.labels.includes("session_start")) return "unknown";
+    const cached = codexHookTrustCache.get(hooksPath);
+    return cached?.fingerprint === fingerprint ? cached.verdict : "unknown";
+  }
+  if (m) return "unknown";
+  return "missing";
+}
+function codexHookTrustReason(hooksPath) {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return "Codex hook trust configuration is unavailable";
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
+  return "Codex has not confirmed the current hook hash";
+}
+function codexHookTrustVerificationSource(hooksPath, state) {
+  if (state === "disabled") return "disabled";
+  if (state === "missing") return "missing";
+  const context = codexHookTrustContext(hooksPath);
+  if (!context || !context.labels.includes("session_start")) return "unverified";
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint !== context.fingerprint) return "unverified";
+  return cached.verdict === "trusted" ? "hash_verified" : "cached";
+}
+function invalidateCodexHookTrust(hooksPath) {
+  codexHookTrustCache.delete(hooksPath);
+}
+function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
+  const context = codexHookTrustContext(hooksPath);
+  if (!context) return then("missing");
+  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return then("disabled");
+  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
+  const cached = codexHookTrustCache.get(hooksPath);
+  if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
+  if (!context.labels.includes("session_start")) return then("unknown");
+  return inspectCodexHookTrust({
+    hooksPath,
+    config: context.config,
+    managedLabels: context.labels,
+    listCwd: host.homeDir() || "."
+  }, (inspected) => {
+    codexHookTrustCache.set(hooksPath, {
+      fingerprint: context.fingerprint,
+      hookFingerprint: context.hookFingerprint,
+      trustFingerprint: context.trustFingerprint,
+      verdict: inspected.verdict,
+      reason: inspected.reason
+    });
+    return then(inspected.verdict);
+  });
 }
 function enableExistingCodexHookTrust(hooksPath) {
-  const cfg = codexConfigPath();
+  const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text5 = String(host.fs.readFile(cfg) || "");
   if (!text5) return { state: "missing", changed: false, write_failed: false };
@@ -2410,7 +3385,7 @@ function enableExistingCodexHookTrust(hooksPath) {
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
-  const cfg = codexConfigPath();
+  const cfg = codexConfigPath2();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
   const text5 = host.fs.readFile(cfg);
   if (typeof text5 !== "string") return false;
@@ -2427,14 +3402,14 @@ function findCodexHookTrustBlock(text5, hooksPath) {
   return span ? text5.substring(span.start, span.end) : null;
 }
 function findCodexHookTrustBlockSpan(text5, hooksPath) {
-  const marker = hooksPath + ":session_start:";
   const lines = text5.split("\n");
+  const marker = normalizeCodexHookKey(hooksPath + ":session_start:");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
-    if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
+    const rawKey = hookTrustKeyFromHeader(trimmed);
+    if (rawKey !== null && normalizeCodexHookKey(rawKey).startsWith(marker)) {
       const start = offset;
       let end = text5.length;
       let scanOffset = offset + line.length + 1;
@@ -2452,6 +3427,24 @@ function findCodexHookTrustBlockSpan(text5, hooksPath) {
   }
   return null;
 }
+function hookTrustKeyFromHeader(header) {
+  const prefix = "[hooks.state.";
+  if (!header.startsWith(prefix) || !header.endsWith("]")) return null;
+  const raw = header.slice(prefix.length, -1).trim();
+  if (raw.startsWith("'") && raw.endsWith("'")) return raw.slice(1, -1);
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw.slice(1, -1).replace(/\\\\/g, "\\").replace(/\\\"/g, '"');
+    }
+  }
+  return null;
+}
+function normalizeCodexHookKey(value) {
+  const normalized = value.replace(/\\/g, "/");
+  return host.platform() === "windows" ? normalized.toLowerCase() : normalized;
+}
 function hasCodetermCodexWindowsCommand(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
@@ -2461,50 +3454,31 @@ function hasCodetermCodexWindowsCommand(entry) {
     const command = String(hook.commandWindows || "");
     const fullCommand = String(hook.command || "") + "\n" + command;
     const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1 || hook._source === CODETERM_CODEX_HOOK_MARKER;
-    if (owned && command.indexOf("codeterm-session-hook.cmd") !== -1) {
+    if (owned && command.startsWith('cmd.exe /d /s /c call "') && command.indexOf("codeterm-session-hook.cmd") !== -1) {
       return true;
     }
   }
   return false;
 }
 
-// plugins/provider-codex/src/profile-sweep.ts
-var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
-function codexProfileTabId(fileName) {
-  const m = CODEX_PROFILE_NAME_RE.exec(fileName);
-  return m ? m[1] : null;
-}
-function codexProfilesToSweep(fileNames, liveTabIds) {
-  const out = [];
-  for (const name of fileNames) {
-    const tabId = codexProfileTabId(name);
-    if (tabId === null) continue;
-    if (!liveTabIds.has(tabId)) out.push(name);
-  }
-  return out;
-}
-function sweepCodexProfiles(host2, liveTabIds) {
-  if (host2.platform() !== "windows") return { removed: [] };
-  const home = host2.homeDir();
-  if (!home) return { removed: [] };
-  const dir = home + "\\.codex";
-  let entries;
-  try {
-    entries = host2.fs.readDir(dir);
-  } catch {
-    return { removed: [] };
-  }
-  if (!Array.isArray(entries)) return { removed: [] };
-  const names = entries.filter((e) => e && e.isFile).map((e) => e.name);
-  const toRemove = codexProfilesToSweep(names, new Set(liveTabIds));
-  const removed = [];
-  for (const name of toRemove) {
-    if (host2.fs.removeFile(dir + "\\" + name)) removed.push(name);
-  }
-  return { removed };
-}
-
 // plugins/provider-codex/src/plugin.ts
+function profileSweepHost() {
+  return {
+    platform: () => host.platform(),
+    homeDir: () => host.homeDir(),
+    log: (level, message) => host.log(level, message),
+    fs: {
+      fileExists: (path) => host.fs.fileExists(path),
+      isSymlink: (path) => host.fs.isSymlink(path),
+      readDir: (path) => host.fs.readDir(path),
+      readFile: (path) => host.fs.readFile(path),
+      removeFile: (path) => host.fs.removeFile(path),
+      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
+      lockFile: (path) => host.fs.lockFile(path),
+      unlockFile: (id) => host.fs.unlockFile(id)
+    }
+  };
+}
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -2525,6 +3499,14 @@ function starterPrompt(params) {
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
+}
+function windowsProfileCommand(parts, taskPath, instanceId) {
+  const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
+  const taskSetup = taskPath ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); ` : "$ctTaskJson = $null; ";
+  const profileValue = taskPath ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)" : "('# codeterm-instance: ' + $ctInstanceId)";
+  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; " + taskSetup + `$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); $ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; [System.IO.File]::WriteAllText($ctProfilePath, ${profileValue}, [System.Text.UTF8Encoding]::new($false)); $ctProfileReleased = $false; try { try { `;
+  const suffix = " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
+  return prefix + parts.join(" ") + suffix;
 }
 function hasPromptAndStatusFooter(screen) {
   if (screen.indexOf("\u203A") === -1) return false;
@@ -2594,17 +3576,42 @@ var plugin = {
     const prompt = classifyCodexFolderTrustPrompt(view);
     if (!prompt || prompt.kind !== "active") return null;
     if (prompt.affirmativeIndex !== 0) return [];
+    if (!prompt.affirmativeSelected && responseKeysForIndex(prompt.affirmativeIndex, view)[0] === "DQ==") {
+      return [];
+    }
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
     return discoverCodexModels();
   },
+  checkForUpdate() {
+    return checkCodexUpdate(host);
+  },
+  releaseTabLaunchArtifacts(tabId, instanceId) {
+    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  },
+  folderTrustAnswered(tabId, instanceId) {
+    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  },
+  isDirectoryTrusted(path) {
+    return isCodexDirectoryTrusted(profileSweepHost(), path);
+  },
+  directoryTrustState(path, skipPermissions) {
+    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
+  },
+  sweepLaunchArtifacts(request) {
+    return manageCodexProfiles(
+      profileSweepHost(),
+      request.liveTabIds,
+      request.instanceId,
+      request.confirm,
+      request.includeLegacy
+    );
+  },
   buildLaunchCommand(params) {
     const p = params || {};
-    const parts = [];
-    let prefix = "";
-    parts.push("codex");
+    const parts = ["codex", "-c", "check_for_update_on_startup=false"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -2613,12 +3620,15 @@ var plugin = {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
+      if (host.platform() === "windows" && !instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
       const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); $ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -2631,19 +3641,42 @@ var plugin = {
         parts.push(host.shell.quoteFor(prompt, host.platform()));
       }
       if (host.platform() === "windows") {
-        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+        return windowsProfileCommand(parts, taskPath, instanceId);
       }
     }
-    return prefix + parts.join(" ");
+    return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["codex", "resume"];
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
     }
     const uuid = extractSessionUuid(sessionId) || sessionId;
-    parts.push(host.shell.quoteFor(uuid, host.platform()));
+    parts.push(host.shell.quoteFor(uuid, host.platform()), "--no-daemon");
+    return parts.join(" ");
+  },
+  buildResumeCommandWithContext(params) {
+    const p = params || {};
+    const platform = host.platform();
+    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    if (p.skipPermissions) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
+      parts.push("--dangerously-bypass-hook-trust");
+    }
+    const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
+    parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
+    if (Array.isArray(p.args)) {
+      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+    }
+    if (platform === "windows") {
+      const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
+      if (!instanceId) {
+        return "Write-Error 'CodeTerm refused the Codex resume: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
+      }
+      parts.push("--profile", "$ctProfileName");
+      return windowsProfileCommand(parts, null, instanceId);
+    }
     return parts.join(" ");
   },
   sessionFilePath(_cwd, sessionId) {
@@ -2660,8 +3693,9 @@ var plugin = {
     return this.sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  parseSessionDelta(chunk) {
+  parseSessionDelta(chunk, context) {
     const out = [];
+    const commandPairing = commandPairingState(context);
     const activityIds = /* @__PURE__ */ new Set();
     const pushOnce = (row2) => {
       if (!row2 || row2.uuid && activityIds.has(row2.uuid)) return;
@@ -2728,6 +3762,7 @@ var plugin = {
       if (v.type === "event_msg" && (v.payload?.type === "task_started" || v.payload?.type === "task_complete" || v.payload?.type === "turn_aborted")) {
         const turnId = typeof v.payload.turn_id === "string" ? v.payload.turn_id : "";
         if (!turnId) continue;
+        clearTurnPairings(commandPairing, turnId);
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_flow", data: { state: v.payload.type === "task_started" ? "start" : "end", flow_id: turnId } }],
@@ -2737,6 +3772,7 @@ var plugin = {
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
         pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
         continue;
       }
@@ -2813,9 +3849,15 @@ var plugin = {
         });
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+        if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
+          blocks: [{ kind: "tool_result", data: {
+            content: codexToolOutputText(p.output),
+            tool_use_id: callId,
+            ...pending ? commandPairingResult(pending) : {}
+          } }],
           ts,
           timestamp: tsIso
         });
@@ -2846,13 +3888,31 @@ var plugin = {
         }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
-        out.push({
+        const message = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
-        });
+        };
+        const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
+        out.push(message);
+        if (commands.length > 0) {
+          const turnId = callTurnId(p);
+          if (!turnId) continue;
+          commandPairing.pending.delete(callId);
+          commandPairing.pending.set(callId, {
+            commandCount: commands.length,
+            commands,
+            completedCommands: /* @__PURE__ */ new Set(),
+            commandResults: [],
+            turnId
+          });
+          trimPendingCalls(commandPairing);
+        }
       }
+    }
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+      commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
     return { messages: out };
@@ -2898,6 +3958,9 @@ var plugin = {
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd, sessionId) {
     return detectSessionModel(cwd, sessionId);
+  },
+  detectSessionReasoningEffort(cwd, sessionId) {
+    return detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
   parseSessionMessages(text5) {
@@ -2958,14 +4021,98 @@ var plugin = {
   classifyTabState(snapshot) {
     return classifyCodexTabState(snapshot, host.unixNowMs());
   },
-  providerSelfUpdateCapability() {
-    return {
-      inSession: true,
-      restartRequired: true,
-      completionSignal: "provider_classification"
-    };
+  classifiedPromptAutoResponse(state, screen) {
+    if (state !== "update_prompt") return null;
+    const options = parseMenuOptions(screen);
+    if (!options.some((option) => /\bupdate\b/i.test(option.label))) return null;
+    return options.filter((option) => option.label === "Skip").length === 1 ? "skip" : null;
   }
 };
+var commandPairingSessions = /* @__PURE__ */ new Map();
+var MAX_PAIRING_SESSIONS = 32;
+var MAX_PENDING_CALLS_PER_SESSION = 64;
+function commandPairingState(context) {
+  const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
+  const offset = context?.from_offset;
+  if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
+    return { pending: /* @__PURE__ */ new Map() };
+  }
+  let state = commandPairingSessions.get(sessionKey);
+  if (state && state.lastOffset !== void 0 && offset <= state.lastOffset) {
+    commandPairingSessions.delete(sessionKey);
+    state = void 0;
+  }
+  if (!state) state = { pending: /* @__PURE__ */ new Map(), sessionKey };
+  state.lastOffset = offset;
+  commandPairingSessions.delete(sessionKey);
+  commandPairingSessions.set(sessionKey, state);
+  while (commandPairingSessions.size > MAX_PAIRING_SESSIONS) {
+    const oldest = commandPairingSessions.keys().next().value;
+    if (typeof oldest !== "string") break;
+    commandPairingSessions.delete(oldest);
+  }
+  return state;
+}
+function trimPendingCalls(state) {
+  while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.pending.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.pending.delete(oldest);
+  }
+}
+function clearTurnPairings(state, turnId) {
+  for (const [callId, call] of state.pending) {
+    if (call.turnId === turnId) state.pending.delete(callId);
+  }
+}
+function commandPairingResult(call) {
+  if (call.commandResults.length === 0) return {};
+  const results = [...call.commandResults].sort((left, right) => Number(left.command_index) - Number(right.command_index));
+  const failed = results.find((result) => result.tool_status === "error");
+  const complete = results.length === call.commandCount;
+  const durations = results.map((result) => result.tool_duration_ms);
+  const completeDurations = complete && durations.every((duration) => typeof duration === "number");
+  const failureCode = failed && typeof failed.tool_exit_code === "number" && failed.tool_exit_code !== 0 ? failed.tool_exit_code : void 0;
+  return {
+    tool_wrapper_detail: results.map((result) => result.wrapper_detail).join("\n\n"),
+    tool_command_results: results,
+    ...failed ? { tool_status: "error", is_error: true } : complete ? { tool_status: "success", is_error: false } : {},
+    ...failureCode !== void 0 ? { tool_exit_code: failureCode } : complete ? { tool_exit_code: 0 } : {},
+    ...completeDurations ? { tool_duration_ms: durations.reduce((sum, duration) => sum + Number(duration), 0) } : {}
+  };
+}
+function callTurnId(payload) {
+  if (typeof payload.turn_id === "string") return payload.turn_id;
+  const metadata = payload.internal_chat_message_metadata_passthrough;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return void 0;
+  const turnId = metadata.turn_id;
+  return typeof turnId === "string" && turnId ? turnId : void 0;
+}
+function pairCommandExecution(item, turnId, state) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const execution = item;
+  if (execution.type !== "CommandExecution") return false;
+  const wrapper = unwrapCommandExecution(execution.command);
+  const currentTurn = typeof turnId === "string" ? turnId : "";
+  if (!wrapper || !currentTurn) return false;
+  const candidates = Array.from(state.pending.values()).filter((call2) => call2.turnId === currentTurn && call2.commands.some((command, index) => command === wrapper.command && !call2.completedCommands.has(index)));
+  if (candidates.length !== 1) return false;
+  const call = candidates[0];
+  const commandIndex = call.commands.findIndex((command, index) => command === wrapper.command && !call.completedCommands.has(index));
+  const activity = completedActivity(item, null, null, turnId);
+  const toolData = activity?.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (!toolData) return false;
+  call.completedCommands.add(commandIndex);
+  call.commandResults.push({
+    command_index: commandIndex,
+    command: wrapper.command,
+    wrapper_detail: wrapper.detail,
+    ...toolData.tool_status !== void 0 ? { tool_status: toolData.tool_status } : {},
+    ...toolData.tool_exit_code !== void 0 ? { tool_exit_code: toolData.tool_exit_code } : {},
+    ...toolData.tool_duration_ms !== void 0 ? { tool_duration_ms: toolData.tool_duration_ms } : {}
+  });
+  return true;
+}
 function nestedApplyPatch(raw) {
   const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
   if (!call) return null;

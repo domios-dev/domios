@@ -57,6 +57,7 @@ pub async fn get_tab_history_raw(
         .to_string())
 }
 
+/// Returns the current visible screen; historical output remains in scrollback.
 /// formatted=true preserves ANSI + cursor state (needed for TUI remount).
 #[tauri::command]
 pub async fn get_tab_text(
@@ -804,24 +805,23 @@ pub async fn chat_send_text(
     tab_id: String,
     text: String,
     client_token: Option<String>,
-) -> Result<crate::service::chat_send_transaction::ChatSendStatus, String> {
+) -> Result<crate::service::agent_pad::ChatSendResult, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
-    let text = if run_stages {
-        svc.run_outbound_stages(&tab_id, text)
-    } else {
-        text
-    };
+    let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
     let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
     // Anchor capture reads the session file and may enter a plugin VM.
     let svc = svc.inner().clone();
-    tokio::task::spawn_blocking(move || {
+    let status = tokio::task::spawn_blocking(move || {
         svc.start_chat_send(&tab_id, text, submit_claim, client_token)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    Ok(crate::service::agent_pad::ChatSendResult::new(
+        status, pad_file,
+    ))
 }
 
 #[tauri::command]

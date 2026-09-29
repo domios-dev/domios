@@ -247,7 +247,7 @@ fn fresh_spawn_paths_keep_shared_invariants_and_orchestrator_onboarding() {
 
     assert!(!orchestrator_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
     assert!(!service_spawn.contains("maybe_deliver_orchestrator_promotion_onboarding"));
-    assert!(orchestrator_spawn.contains("launch_agent_in_background("));
+    assert!(orchestrator_spawn.contains("launch_agent_in_background_with_task_turn("));
     assert!(service_spawn.contains("launch_agent_in_background_with_env("));
     assert!(
         orchestrator_spawn.contains("spawn_onboarding_task")
@@ -265,6 +265,9 @@ fn launch_paths_route_through_seam() {
     .into_iter()
     .map(|source| {
         source.matches("launch_agent_in_background(").count()
+            + source
+                .matches("launch_agent_in_background_with_task_turn(")
+                .count()
             + source
                 .matches("launch_agent_in_background_with_env(")
                 .count()
@@ -325,6 +328,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         audience: Default::default(),
         manager_bootstrap: None,
         structured_prompt_server: None,
+        remote_task_binding: None,
     }
 }
 
@@ -438,21 +442,79 @@ fn validate_reasoning_effort_gates_dispatch() {
     use crate::service::spawn::validate_agent_reasoning_effort;
     let reg = effort_registry();
     // No selection is always valid.
-    assert!(validate_agent_reasoning_effort(&reg, "tiered", None).is_ok());
-    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("")).is_ok());
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", None, None).is_ok());
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", None, Some("")).is_ok());
     // Supported level passes.
-    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("medium")).is_ok());
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", None, Some("medium")).is_ok());
     // Unsupported level is rejected structurally — no silent downgrade.
-    let err = validate_agent_reasoning_effort(&reg, "tiered", Some("ultra"))
+    let err = validate_agent_reasoning_effort(&reg, "tiered", None, Some("ultra"))
         .expect_err("unsupported effort must reject");
     assert!(
         err.contains("low, medium, high"),
         "error lists support: {err}"
     );
     // A provider with no capability rejects any explicit effort.
-    assert!(validate_agent_reasoning_effort(&reg, "flat", Some("high")).is_err());
+    assert!(validate_agent_reasoning_effort(&reg, "flat", None, Some("high")).is_err());
     // Unknown provider cannot be validated → error, never a silent pass.
-    assert!(validate_agent_reasoning_effort(&reg, "ghost", Some("high")).is_err());
+    assert!(validate_agent_reasoning_effort(&reg, "ghost", None, Some("high")).is_err());
+}
+
+#[test]
+fn validate_reasoning_effort_is_per_model() {
+    use crate::service::spawn::validate_agent_reasoning_effort;
+    let reg = AgentRegistry::new();
+    let provider = crate::agent::test_provider::MockProvider::with_model_reasoning_efforts(
+        "catalog",
+        "gpt-6-sol",
+        &["low", "medium", "high", "xhigh", "max", "ultra"],
+    );
+    let provider = provider.with_models(vec![
+        crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
+            reasoning_efforts: Some(
+                ["low", "medium", "high", "xhigh"]
+                    .into_iter()
+                    .map(|id| crate::agent::provider::ReasoningEffortInfo {
+                        id: id.into(),
+                        display_name: id.into(),
+                        description: None,
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        },
+        crate::agent::provider::ModelInfo {
+            default_reasoning_effort: None,
+            id: "legacy-model".into(),
+            display_name: "Legacy Model".into(),
+            reasoning_efforts: None,
+            ..Default::default()
+        },
+    ]);
+    reg.register_provider(Box::new(provider));
+
+    assert!(
+        validate_agent_reasoning_effort(&reg, "catalog", Some("gpt-6-sol"), Some("max")).is_ok()
+    );
+    let err = validate_agent_reasoning_effort(&reg, "catalog", Some("gpt-5.5"), Some("max"))
+        .expect_err("gpt-5.5 must reject max");
+    assert!(err.contains("model 'gpt-5.5'"), "error names model: {err}");
+    assert!(
+        err.contains("low, medium, high, xhigh"),
+        "error lists model levels: {err}"
+    );
+    assert!(
+        !err.contains("max, ultra"),
+        "error omits unsupported levels: {err}"
+    );
+    let err = validate_agent_reasoning_effort(&reg, "catalog", Some("legacy-model"), Some("max"))
+        .expect_err("models without per-model data use provider fallback");
+    assert!(
+        err.contains("low, medium, high, xhigh"),
+        "fallback lists manifest levels: {err}"
+    );
 }
 
 #[test]
@@ -587,6 +649,7 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
         "display-canon",
         crate::agent::model_catalog::RegisteredDefaults {
             models: vec![crate::agent::provider::ModelInfo {
+                default_reasoning_effort: None,
                 id: "gpt-5.5".into(),
                 display_name: "GPT-5.5".into(),
                 description: None,
@@ -595,6 +658,7 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
                 featured: None,
                 badge: None,
                 group: None,
+                reasoning_efforts: None,
             }],
             default: Some("gpt-5.5".into()),
         },

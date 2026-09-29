@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
-$targetDebug = Join-Path $repo ".codeterm-targets\shared\debug"
+$targetDebug = Join-Path $repo "src-tauri\target\debug"
+$defaultTargetDebug = Join-Path $repo ".codeterm-targets\default\debug"
 $namedDataDir = Join-Path $env:USERPROFILE ".codeterm-dev-provider-model-oracle"
 $defaultDataDir = Join-Path $env:USERPROFILE ".codeterm-dev"
 $nodeModules = Join-Path $repo "node_modules"
@@ -21,11 +22,19 @@ $processes = @(
   @{ ProcessId = 250; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node scripts/dev-static-server.mjs" },
   @{ ProcessId = 251; ParentProcessId = 250; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "static server child" },
   @{ ProcessId = 230; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9363" },
-  @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --orphan-no-port" },
+  @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$defaultTargetDebug\codeterm.exe"; CommandLine = "$defaultTargetDebug\codeterm.exe --orphan-no-port" },
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
   @{ ProcessId = 320; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1555" }
-  @{ ProcessId = 330; ParentProcessId = 1; Name = "OpenConsole.exe"; ExecutablePath = "$namedDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$namedDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
-  @{ ProcessId = 340; ParentProcessId = 1; Name = "OpenConsole.exe"; ExecutablePath = "$defaultDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$defaultDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 330; ParentProcessId = 9998; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 336; ParentProcessId = 9994; Name = "OpenConsole.exe"; ExecutablePath = "\\?\$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "OpenConsole.exe --headless" }
+  @{ ProcessId = 331; ParentProcessId = 200; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 332; ParentProcessId = 500; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 333; ParentProcessId = 9997; Name = "OpenConsole.exe"; ExecutablePath = "$namedDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$namedDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 334; ParentProcessId = 9996; Name = "OpenConsole.exe"; ExecutablePath = "C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe"; CommandLine = "`"C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 340; ParentProcessId = 9995; Name = "OpenConsole.exe"; ExecutablePath = "$defaultTargetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$defaultTargetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 500; ParentProcessId = 1; Name = "foreign-daemon.exe"; ExecutablePath = "C:\other\daemon.exe"; CommandLine = "foreign daemon" }
+  @{ ProcessId = 550; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" }
+  @{ ProcessId = 335; ParentProcessId = 550; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
 )
 $listeners = @(
   @{ port = 7686; process_id = 100 },
@@ -35,6 +44,7 @@ $listeners = @(
   @{ port = 1560; process_id = 220 },
   @{ port = 9363; process_id = 230 },
   @{ port = 7799; process_id = 310 },
+  @{ port = 7788; process_id = 550 },
   @{ port = 1555; process_id = 320 }
 )
 @{ self_pid = 999; processes = $processes; listeners = $listeners } |
@@ -55,12 +65,12 @@ try {
   }
   $plan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @cleanupArgs | ConvertFrom-Json
 
-  $expected = @(200, 201, 210, 220, 230, 330)
+  $expected = @(200, 201, 210, 220, 230, 330, 331, 333, 336)
   $actual = @($plan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
   }
-  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300)) {
+  foreach ($defaultPid in @(100, 110, 120, 130, 225, 300, 332, 334, 335, 550)) {
     if ($actual -contains $defaultPid) {
       throw "named cleanup selected default/unowned pid $defaultPid"
     }
@@ -84,7 +94,7 @@ try {
 
   $defaultArgs = @{
     Root = $repo
-    TargetDebug = $targetDebug
+    TargetDebug = $defaultTargetDebug
     DataDir = $defaultDataDir
     Identifier = "com.codeterm.dev"
     ApiPort = 7686
@@ -99,7 +109,7 @@ try {
   if (($defaultActual -join ",") -ne ($defaultExpected -join ",")) {
     throw "default cleanup selected [$($defaultActual -join ',')], expected [$($defaultExpected -join ',')]"
   }
-  foreach ($wrongOwnerPid in @(200, 201, 210, 220, 225, 230, 240, 241, 250, 251, 310, 320)) {
+  foreach ($wrongOwnerPid in @(200, 201, 210, 220, 225, 230, 240, 241, 250, 251, 310, 320, 330, 331, 332, 333, 334)) {
     if ($defaultActual -contains $wrongOwnerPid) {
       throw "default cleanup selected named/wrong-port pid $wrongOwnerPid"
     }

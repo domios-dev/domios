@@ -32,6 +32,10 @@ When you add/rename/remove a command or flag:
 
 CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
 
+For `plan task split`, audit both the in-progress Orchestrator workflow and the
+Worker report boundary: only the Orchestrator dispatches children; Workers may
+propose decomposition in reports but cannot spawn sub-Workers.
+
 ## What the CLI gate does and does not cover
 
 `cmd::manifest` holds the whole gate. Know which test owns what:

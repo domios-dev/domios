@@ -6,6 +6,12 @@ use crate::plan::Task;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
+fn resolved_worker_launch_effort(
+    identity: &crate::multiplexer::types::ReasoningEffortIdentity,
+) -> Option<String> {
+    identity.resolved.clone()
+}
+
 pub(crate) fn planned_task_title(task: &Task) -> Option<String> {
     crate::service::plan::worker_identity::task_executor_name(task)
         .ok()
@@ -105,7 +111,13 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
         .iter()
         .find(|t| t.id == resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
-    if task.status != crate::plan::TaskStatus::Pending {
+    store
+        .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        &task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::Blocked
+    ) {
         return Ok(());
     }
     crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
@@ -126,6 +138,9 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
+    store
+        .validate_task_startup_status(&resolved.plan_id, &resolved.task_id)
+        .map_err(|error| error.to_string())?;
     if let Some(title) = planned_task_title(&detail.task) {
         params.title = Some(title);
         params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
@@ -176,7 +191,11 @@ fn bind_worker_task_to_tab(
     intent: crate::plan::ExecutionIntent,
     allowance: Option<crate::plan::ProviderAllowance>,
     provider: Option<&str>,
+    requested_model: Option<String>,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
     attempt_id: &str,
+    authorized_gates: Option<Vec<String>>,
     manifest: Vec<crate::plan::PlanSkillManifestEntry>,
     now_ms: u64,
 ) -> Result<WorkerTaskBinding, String> {
@@ -191,7 +210,7 @@ fn bind_worker_task_to_tab(
         .task
         .lane;
     let attempt_id = store
-        .begin_task_dispatch_with_reserved_attempt(
+        .begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
             &plan_id,
             &task_id,
             tab_id,
@@ -201,6 +220,15 @@ fn bind_worker_task_to_tab(
             allowance,
             provider,
             attempt_id,
+            authorized_gates,
+            crate::plan::WorkerPlacement::IsolatedLane,
+            model.clone(),
+            requested_model,
+            model,
+            reasoning_effort,
+            None,
+            false,
+            false,
             now_ms,
         )
         .map_err(|error| error.to_string())?;
@@ -246,6 +274,35 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    pub(crate) fn persist_dispatched_attempt_reasoning_effort(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        now_ms: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
+        let reasoning_effort = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.reasoning_effort_identity.resolved.clone())
+        };
+        self.plan_store.update_dispatched_attempt_reasoning_effort(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            reasoning_effort,
+            now_ms,
+        )
+    }
+
+    pub(crate) fn resolved_worker_launch_effort_for_tab(&self, tab_id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        mux.get_tab(tab_id)
+            .and_then(|tab| resolved_worker_launch_effort(&tab.reasoning_effort_identity))
+    }
+
     /// Preflight the review WIP gate before any tab gets provisioned.
     pub(crate) fn preflight_worker_plan_task_spawn(
         &self,
@@ -284,20 +341,61 @@ impl ServiceContext {
         tab_id: &str,
     ) -> Result<(), String> {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
+            if let Some(binding) = params.remote_task_binding.as_ref() {
+                let mut mux = self.mux.write();
+                let tab = mux
+                    .get_tab_mut(tab_id)
+                    .ok_or_else(|| format!("remote task-bound Worker tab {tab_id} disappeared"))?;
+                tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                    plan_id: Some(binding.plan_id.clone()),
+                    task_id: Some(binding.task_id.clone()),
+                    attempt_id: Some(binding.attempt_id.clone()),
+                    spawn_handle: None,
+                    bound_at: epoch_ms(),
+                });
+                tab.report_target_mesh_peer = Some(binding.origin_peer_id.clone());
+            }
             return Ok(());
         };
         let now_ms = epoch_ms();
-        let (title, session_id, session_binding_nonce) = {
+        let (
+            title,
+            session_id,
+            session_binding_nonce,
+            provider,
+            requested_model,
+            model,
+            reasoning_effort,
+        ) = {
             let mux = self.mux.read();
             let title = mux.display_label_for_tab(tab_id);
             let binding = mux.get_tab(tab_id).map(|tab| {
                 (
                     tab.agent_session_id.clone(),
                     tab.session_binding_nonce.clone(),
+                    tab.agent_type.clone(),
+                    tab.agent_requested_model.clone(),
+                    tab.agent_provider_resolved_model.clone(),
+                    resolved_worker_launch_effort(&tab.reasoning_effort_identity),
                 )
             });
-            let (session_id, session_binding_nonce) = binding.unwrap_or_default();
-            (title, session_id, session_binding_nonce)
+            let (
+                session_id,
+                session_binding_nonce,
+                provider,
+                requested_model,
+                model,
+                reasoning_effort,
+            ) = binding.unwrap_or_default();
+            (
+                title,
+                session_id,
+                session_binding_nonce,
+                provider,
+                requested_model,
+                model,
+                reasoning_effort,
+            )
         };
         let binding = self.create_worker_task_binding(
             params,
@@ -306,12 +404,23 @@ impl ServiceContext {
             &title,
             session_id.as_deref(),
             session_binding_nonce.as_deref(),
+            provider.as_deref(),
+            requested_model,
+            model,
+            reasoning_effort,
             now_ms,
         );
         let binding = match binding {
             Ok(binding) => binding,
-            Err(error) => return Err(self.rollback_failed_agent_spawn(tab_id, &error)),
+            Err(error) => {
+                return Err(self.rollback_failed_agent_spawn_if_created(
+                    tab_id,
+                    &error,
+                    params.existing_tab_id.is_none(),
+                ))
+            }
         };
+        self.persist_current_attempt_session_model(tab_id);
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -332,6 +441,10 @@ impl ServiceContext {
         title: &str,
         session_id: Option<&str>,
         session_binding_nonce: Option<&str>,
+        provider: Option<&str>,
+        requested_model: Option<String>,
+        model: Option<String>,
+        reasoning_effort: Option<String>,
         now_ms: u64,
     ) -> Result<WorkerTaskBinding, String> {
         let intent = params
@@ -346,6 +459,8 @@ impl ServiceContext {
         let manifest = params.plan_skill_manifest.clone().ok_or_else(|| {
             "plan-task spawn is missing its prepared plan skill manifest".to_string()
         })?;
+        let authorized_gates =
+            (!params.authorized_gates.is_empty()).then(|| params.authorized_gates.clone());
         bind_worker_task_to_tab(
             &self.plan_store,
             params.plan_id.as_deref(),
@@ -356,8 +471,12 @@ impl ServiceContext {
             session_binding_nonce,
             intent,
             allowance,
-            params.agent.as_deref(),
+            provider,
+            requested_model,
+            model,
+            reasoning_effort,
             &authority.attempt_id,
+            authorized_gates,
             manifest,
             now_ms,
         )
@@ -412,9 +531,14 @@ mod tests {
     }
 
     #[test]
-    fn bind_sets_executor_and_waits_for_ack() {
+    fn plan_task_binding_records_dispatched_model_and_effort() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
+        let effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
+            requested: Some("xhigh".into()),
+            resolved: Some("high".into()),
+            ..Default::default()
+        };
         let binding = bind_worker_task_to_tab(
             &store,
             Some(&plan_id),
@@ -425,8 +549,12 @@ mod tests {
             Some("nonce-worker"),
             crate::plan::ExecutionIntent::ReadOnly,
             None,
-            None,
+            Some("codex"),
+            Some("gpt-6-luna".into()),
+            Some("gpt-6-luna".into()),
+            resolved_worker_launch_effort(&effort_identity),
             "attempt-prepared",
+            None,
             vec![crate::plan::PlanSkillManifestEntry {
                 slug: "prepared".into(),
                 title: "Prepared".into(),
@@ -445,6 +573,10 @@ mod tests {
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
         assert_eq!(binding.plan_id, plan_id);
         assert_eq!(binding.task_id, task_id);
+        let attempt = task.execution_attempts.last().unwrap();
+        assert_eq!(attempt.provider.as_deref(), Some("codex"));
+        assert_eq!(attempt.model.as_deref(), Some("gpt-6-luna"));
+        assert_eq!(attempt.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(
             task.execution_attempts.last().unwrap().plan_skill_manifest[0].slug,
             "prepared"
@@ -605,6 +737,17 @@ mod tests {
         .expect("a task-bound mutating Worker is unchanged");
     }
 
+    #[test]
+    fn mutating_worker_without_task_still_refused_without_unplanned() {
+        let error = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+            ..Default::default()
+        })
+        .expect_err("plain mutating Worker spawn must not create a loose agent");
+        assert!(error.contains("--plan-task"), "{error}");
+    }
+
     /// The mesh Worker: it changes source on a peer, but the origin plan store
     /// is on another machine, so it declares no intent and owns no task. The
     /// daemon a mesh spawn lands on is where that shape is finally admitted.
@@ -693,6 +836,37 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_refuses_statuses_that_cannot_reach_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+
+        for status in [
+            TaskStatus::Paused,
+            TaskStatus::Done,
+            TaskStatus::Cancelled,
+            TaskStatus::InReview,
+        ] {
+            store
+                .with_plan(&plan_id, 4, |plan| {
+                    let task = plan
+                        .tasks
+                        .iter_mut()
+                        .find(|task| task.id == task_id)
+                        .unwrap();
+                    task.status = status.clone();
+                    Ok(())
+                })
+                .unwrap();
+            assert!(
+                preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").is_err()
+            );
+            let task = store.show_task(&task_id).unwrap().task;
+            assert_eq!(task.status, status);
+            assert!(task.execution_attempts.is_empty());
+        }
+    }
+
+    #[test]
     fn spawn_preflight_allows_review_debt_without_capacity_grants() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
@@ -737,7 +911,11 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            None,
+            None,
+            None,
             "attempt-review",
+            None,
             vec![],
             10,
         )
@@ -766,7 +944,11 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            None,
+            None,
+            None,
             "attempt-ack",
+            None,
             vec![],
             10,
         )
@@ -794,6 +976,63 @@ mod tests {
     }
 
     #[test]
+    fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        store
+            .assign_task(&plan_id, &task_id, "worker-old", None, 4)
+            .unwrap();
+        let block_reason = "waiting for a dependency";
+        store
+            .with_plan(&plan_id, 5, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
+                task.status = TaskStatus::Blocked;
+                task.status_label = Some(block_reason.into());
+                Ok(())
+            })
+            .unwrap();
+
+        let binding = bind_worker_task_to_tab(
+            &store,
+            Some(&plan_id),
+            "spawn-bind",
+            "worker-respawn",
+            "Ada",
+            Some("session-respawn"),
+            Some("nonce-respawn"),
+            crate::plan::ExecutionIntent::ReadOnly,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "attempt-respawn",
+            None,
+            vec![],
+            6,
+        )
+        .unwrap();
+        let pending = store.show_task(&task_id).unwrap().task;
+        assert_eq!(pending.status, TaskStatus::Pending);
+        assert!(store.get(&plan_id).unwrap().strides.iter().any(|stride| {
+            stride.text.contains("unblocked by dispatch") && stride.text.contains(block_reason)
+        }));
+        store
+            .acknowledge_task_attempt(&plan_id, &task_id, "worker-respawn", &binding.attempt_id, 7)
+            .unwrap();
+        let task = store.show_task(&task_id).unwrap().task;
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert_eq!(
+            task.execution_attempts.last().unwrap().acknowledged_at,
+            Some(7)
+        );
+    }
+
+    #[test]
     fn task_binding_failure_leaves_task_unassigned() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
@@ -810,7 +1049,11 @@ mod tests {
             crate::plan::ExecutionIntent::ReadOnly,
             None,
             None,
+            None,
+            None,
+            None,
             "attempt-rollback",
+            None,
             vec![],
             10,
         )

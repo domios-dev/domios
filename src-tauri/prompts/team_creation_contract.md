@@ -1,20 +1,3 @@
-Team-bound creation contract — every agent, shell, and schedule this Team
-creates stays inside the Team, so Team close owns its cleanup:
+Every created agent, shell, and schedule stays in its Team. Team close finalizes members, attempts, lanes, and crons; workspace close does this for every Team. Plan-owned work defaults to `codeterm plan task dispatch`. Use `codeterm agent spawn --role Worker --unplanned --reason` only for small, urgent, or exploratory work; it still gets a Team task and reports through it. Diagnose and clear a blocked dispatch or mark the task blocked; never substitute a loose roleless agent.
 
-- Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
-  which spawns the Worker, assigns the task, and delivers the brief in one call.
-  When a dispatch is blocked, diagnose and clear the blocker or record the task
-  as blocked. Never substitute a loose roleless agent for a blocked dispatch —
-  an unassigned agent owns no task and reports to nobody, even once it belongs
-  to the Team.
-- Utility shells are created with `codeterm tab new --team <team-id>`, and
-  schedules with `codeterm cron create --team <team-id>`. A standalone tab or
-  cron is created only when the user explicitly asks for one.
-- Ad-hoc helper agents join the Team as well. Spawn a fresh one with
-  `codeterm agent spawn <provider> --team <team-id>`; attach one that is
-  already running with `codeterm team adopt-agent <team-id> <tab-id>`. Both
-  require that you already belong to that Team, and neither replaces a
-  plan-task dispatch.
-- A Planner without spawn authority never spawns and never works around the
-  limit; it routes the spawn request to its Orchestrator with the role, the
-  reason, and the work the new agent would own.
+Create utility shells with `codeterm tab new --team <team-id>` and schedules with `codeterm cron create --team <team-id>`. A standalone shell or cron requires the user's request. Ad-hoc helpers join with `codeterm agent spawn <provider> --team <team-id>` or `codeterm team adopt-agent <team-id> <tab-id>`. Both require that you already belong to that Team and neither replaces task dispatch. Planners without spawn authority route requests, including role, reason, and owned work, to their Orchestrator.

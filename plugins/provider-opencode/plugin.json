@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.11.9",
-  "minCodeterm": "1.11.9",
+  "version": "1.11.10",
+  "minCodeterm": "1.11.10",
   "hostApi": 2,
   "displayName": "OpenCode",
   "binaryName": "opencode",
@@ -14,6 +14,11 @@
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 30
+    },
+    "composerCursorPosition": "visible_anywhere",
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": {
       "kind": "session_config"
@@ -26,6 +31,8 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "sessionStartsOnFirstUserTurn": true,
+    "publicSendWaitsForStartupTurnCompletion": true,
     "hookEventRoster": [
       {
         "event": "SessionStart",
@@ -54,6 +61,10 @@
       }
     }
   ],
+  "integration": {
+    "kind": "plugin_file",
+    "settingsPath": "~/.config/opencode/codeterm-session-binding.js"
+  },
   "modelGroups": [
     {
       "id": "opencode",
@@ -107,6 +118,9 @@
     }
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
+  "modelCatalogue": {
+    "authority": "free_form"
+  },
   "reasoningEfforts": [
     {
       "id": "minimal",

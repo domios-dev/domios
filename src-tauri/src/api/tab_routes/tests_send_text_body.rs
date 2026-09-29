@@ -8,6 +8,24 @@ fn send_text_body_only_text() {
     assert!(body.batch.is_none());
 }
 
+#[test]
+fn send_text_body_without_source_agent_keeps_agent_reply_hint() {
+    let body: SendTextBody =
+        serde_json::from_str(r#"{"text":"hello","source_tab":"sender","source_peer":"BLACKSTAR"}"#)
+            .unwrap();
+    assert_eq!(body.source_is_agent, None);
+
+    let envelope = crate::service::messenger::MessageEnvelope::tab("Sender", "sender")
+        .from_agent(body.source_is_agent)
+        .mesh(body.source_peer.clone());
+    let messenger: crate::service::messenger::Messenger = envelope.into();
+    let wrapped = messenger.wrap("hello");
+    let hint = wrapped.rsplit('\n').next().unwrap();
+    assert!(hint.starts_with(crate::service::messenger::Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(hint.contains(crate::service::messenger::Messenger::AGENT_REPLY_COMMAND));
+    assert!(hint.ends_with("--mesh BLACKSTAR]"));
+}
+
 /// The plain text send always submits — the `enter` knob was removed. A legacy
 /// client that still sends `enter` must keep parsing (the field is ignored).
 #[test]

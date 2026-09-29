@@ -23,6 +23,108 @@ fn opted_in_config() -> NotificationConfig {
     cfg
 }
 
+#[test]
+fn notification_prompt_option_answer_routes_the_value_without_message_delivery() {
+    use crate::notification::store::PromptOptionAnswer;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+    use std::cell::Cell;
+
+    let prompt = PendingPrompt {
+        question: "opaque question".into(),
+        options: vec![
+            PromptOption {
+                label: "Trust and continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let answer = PromptOptionAnswer {
+        to_tab: "asked-tab".into(),
+        value: "1".into(),
+        identity: PromptIdentity::new(PromptKind::DirectoryTrust, &prompt),
+        delivered: false,
+    };
+    let message_called = Cell::new(false);
+    let routed = route_prompt_answer(
+        Some(answer),
+        |answer| {
+            assert_eq!(answer.to_tab, "asked-tab");
+            assert_eq!(answer.value, "1");
+            "respond_prompt"
+        },
+        || {
+            message_called.set(true);
+            "message_delivery"
+        },
+    );
+    assert_eq!(routed, "respond_prompt");
+    assert!(!message_called.get());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
+    use codeterm_types::notification::NotificationAction;
+    use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "opaque question".into(),
+        options: vec![
+            PromptOption {
+                label: "Trust and continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let identity = PromptIdentity::new(PromptKind::DirectoryTrust, &prompt);
+    let actions = prompt
+        .options
+        .iter()
+        .map(|option| NotificationAction::RespondPromptOption {
+            label: option.label.clone(),
+            value: option.value.clone(),
+            identity: identity.clone(),
+        })
+        .collect();
+    let id = fixture.service.create_prompt_notification_ext(
+        "Agent needs your response".into(),
+        Some("opaque question\nTrust and continue\nQuit".into()),
+        Some("warning"),
+        Some(actions),
+        Some(true),
+        crate::service::notification::NotificationOrigin::local_tab(tab_id),
+        PushIntent {
+            level: Some(NotifyLevel::ActionNeeded),
+            event_key: Some("stale-prompt-answer-test".into()),
+        },
+    );
+
+    let result = fixture
+        .service
+        .answer_notification(&id, "Trust and continue")
+        .expect("the choice was offered and recorded");
+    assert_eq!(result["delivered"], false);
+    assert_eq!(result["refusal"]["reason"], "stale_prompt");
+}
+
 /// A caller that named a level, judged against a policy that admits it.
 fn declared(level: NotifyLevel) -> SurfaceDispatch {
     let cfg = opted_in_config();
@@ -574,32 +676,7 @@ fn notify_dedupe_an_acknowledged_message_may_arrive_again() {
     assert_eq!(store.lock().unread_count(), 1);
 }
 
-#[test]
-fn notify_dedupe_standing_condition_survives_a_cleared_inbox() {
-    let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-    let scope = push::tab_scope("tab_a");
-    let condition = crate::notification::dedupe::provider_update_condition("codex");
-
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::Announce
-    );
-    store.lock().clear(None);
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::AlreadyAnnounced,
-        "wiping history does not make a still-true condition news again"
-    );
-
-    store.lock().observe_condition_absent(&scope, &condition);
-    assert_eq!(
-        store.lock().observe_condition_present(&scope, &condition),
-        crate::notification::dedupe::ConditionTransition::Announce,
-        "only the condition resolving re-arms the announcement"
-    );
-}
-
-/// `level` and `severity` are independent axes on the wire — these
+/// `level` and `severity` are independent axes on the wire; these
 /// exercise the payload, which is what the surfaces actually read.
 mod notification_level_field {
     use super::*;

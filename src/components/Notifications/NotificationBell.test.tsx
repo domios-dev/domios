@@ -2,7 +2,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Notification } from "../../lib/types";
-import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationBell } from "./NotificationBell";
 
 let checked = 0;
@@ -31,14 +30,7 @@ const item: Notification = {
   severity: "Warning",
   timestamp: Date.now(),
   read: false,
-  actions: [
-    {
-      label: "Update",
-      type: "invoke",
-      command: "respond_provider_update_prompt",
-      args: { promptId: "prompt-1", accept: true },
-    },
-  ],
+  actions: [],
 };
 
 const host = document.createElement("div");
@@ -50,14 +42,9 @@ const calls = {
   navigated: [] as Array<[string, string | null]>,
   readAll: 0,
   clearedAll: 0,
-  invoked: [] as Array<{ command: string; args: unknown }>,
 };
 
 async function run() {
-  __setInvokeForTest(async (command, args) => {
-    calls.invoked.push({ command, args });
-    return undefined as never;
-  });
   await act(async () => {
     root.render(
       <NotificationBell
@@ -104,15 +91,6 @@ async function run() {
   );
   assert(panel.getAttribute("style")?.includes("100dvh"), "panel height should follow the dynamic mobile viewport");
   assert(panel.querySelector('[aria-label="Close notifications"]'), "panel should expose a visible close control");
-  const update = Array.from(panel.querySelectorAll("button")).find(
-    (button) => button.textContent === "Update",
-  );
-  assert(update, "actionable notification should expose Update inside the bell panel");
-  await act(async () => update.click());
-  assert(
-    calls.invoked[0]?.command === "respond_provider_update_prompt",
-    "Update should invoke the provider update command",
-  );
   assert(panel.textContent?.includes(item.body!), "the newest complete message should start open");
 
   const expand = panel.querySelector<HTMLButtonElement>('[aria-label$="complete message for Agent needs input"]');
@@ -179,7 +157,6 @@ async function run() {
   );
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
   console.log(`NotificationBell tests: ${checked} assertions passed`);
 }
 
