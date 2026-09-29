@@ -823,6 +823,13 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            svc.acknowledge_remote_worker_ack(
+                &plan_id,
+                &task_id,
+                &attempt_id,
+                &peer_id,
+                &worker_tab_id,
+            );
             emit_plan_changed(app, &plan_id);
             Ok(
                 json!({"acknowledged": acknowledged, "plan_id": plan_id, "task_id": task_id, "attempt_id": attempt_id}),
