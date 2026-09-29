@@ -5,8 +5,8 @@ use crate::service::pty_io::SendBatchItem;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-mod remote_task_startup;
 mod remote_ack_deadline;
+mod remote_task_startup;
 mod startup_binding;
 mod startup_supervision_honesty;
 

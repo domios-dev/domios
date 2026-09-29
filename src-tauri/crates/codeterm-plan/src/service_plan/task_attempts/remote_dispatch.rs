@@ -651,8 +651,14 @@ mod tests {
         assert!(task.assigned_tab_id.is_none());
         let attempt = &task.execution_attempts[0];
         assert_eq!(attempt.executor_tab_id, "remote-tab-1");
-        assert_eq!(attempt.remote_dispatch_state, Some(RemoteDispatchState::RemoteAckTimeout));
-        assert_eq!(attempt.closure_reason.as_deref(), Some("remote_ack_timeout"));
+        assert_eq!(
+            attempt.remote_dispatch_state,
+            Some(RemoteDispatchState::RemoteAckTimeout)
+        );
+        assert_eq!(
+            attempt.closure_reason.as_deref(),
+            Some("remote_ack_timeout")
+        );
         assert_eq!(attempt.closed_at, Some(5));
     }
 

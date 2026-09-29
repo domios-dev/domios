@@ -77,13 +77,10 @@ pub async fn focus_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .svc
-        .focus_workspace(&id)
-        .map_err(|_| {
-            state.svc.log_workspace_not_found(&id);
-            (StatusCode::NOT_FOUND, "Workspace not found")
-        })?;
+    state.svc.focus_workspace(&id).map_err(|_| {
+        state.svc.log_workspace_not_found(&id);
+        (StatusCode::NOT_FOUND, "Workspace not found")
+    })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
