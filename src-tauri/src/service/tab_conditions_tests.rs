@@ -1,4 +1,7 @@
 use codeterm_types::pty::{BootStage, PendingPrompt, PromptIdentity, PromptKind, PromptOption};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tauri::Manager;
 
 use super::{condition_owner, ConditionOwner, ConditionRoute};
 use crate::multiplexer::state::MultiplexerState;
@@ -64,10 +67,25 @@ fn only_a_visible_user_audience_tab_is_owned_by_the_user() {
         "an automation tab with no report target is owned by nobody"
     );
 
+    mux.get_tab_mut(&child).unwrap().audience = TabAudience::UserOwnedAutomation;
+    assert_eq!(
+        condition_owner(&mux, &child),
+        Some(ConditionOwner::User),
+        "user-owned automation without a live creator is owed to the user"
+    );
+
     mux.get_tab_mut(&child).unwrap().parent_tab_id = Some(owner.clone());
+    mux.get_tab_mut(&child).unwrap().spawned_by_tab_id = Some(owner.clone());
     assert_eq!(
         condition_owner(&mux, &child),
         Some(ConditionOwner::Reporter(Some(owner.clone())))
+    );
+
+    mux.get_tab_mut(&child).unwrap().audience = TabAudience::Automation;
+    assert_eq!(
+        condition_owner(&mux, &child),
+        Some(ConditionOwner::Reporter(Some(owner.clone()))),
+        "automation with a report target stays owned by its reporter"
     );
 
     let tab = mux.get_tab_mut(&child).unwrap();
@@ -149,6 +167,99 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
 
     assert_eq!(route, Some(ConditionRoute::Unowned));
     assert!(records_for(&fixture, &child).is_empty());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn user_owned_cron_prompt_notifies_the_user_once_and_marks_history_waiting() {
+    let (mut mux, _, child) = two_tabs();
+    {
+        let tab = mux.get_tab_mut(&child).unwrap();
+        tab.hidden = true;
+        tab.audience = TabAudience::UserOwnedAutomation;
+    }
+    let fixture = ServiceFixture::new(mux);
+    let cron = Arc::new(Mutex::new(crate::cron::store::CronStore::new_with_path(
+        fixture.temp.path().join("crons.json"),
+    )));
+    fixture._app.manage(cron.clone());
+    let run_id = "owner-prompt-run";
+    let job_id = {
+        let mut store = cron.lock();
+        let job = store
+            .create(crate::cron::store::CronCreateParams {
+                name: "owner-prompt".into(),
+                workspace_id: "workspace".into(),
+                team_id: None,
+                detach_from_team: false,
+                schedule: "in 1h".into(),
+                task: "task".into(),
+                description: None,
+                agent: None,
+                model: None,
+                reasoning_effort: None,
+                cwd: None,
+                role: None,
+                skill: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
+                enabled: Some(true),
+                max_history: None,
+                oneshot: Some(true),
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap();
+        store
+            .record_run(
+                &job.id,
+                crate::cron::store::CronRunInfo {
+                    run_id: run_id.into(),
+                    started_at: 1,
+                    finished_at: None,
+                    status: crate::cron::store::CronRunStatus::Running,
+                    tab_id: Some(child.clone()),
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                },
+            )
+            .unwrap();
+        store.register_tab(&child, &job.id, run_id);
+        job.id
+    };
+
+    let asked = prompt("opaque-owner");
+    let first = fixture
+        .service
+        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
+    let again = fixture
+        .service
+        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
+    let Some(ConditionRoute::Notified(id)) = first else {
+        panic!("owner automation without a creator notifies the user: {first:?}");
+    };
+    assert_eq!(again, Some(ConditionRoute::Notified(id.clone())));
+    assert_eq!(open_records_for(&fixture, &child), vec![id]);
+    assert_eq!(
+        cron.lock().get_history(&job_id)[0].status,
+        crate::cron::store::CronRunStatus::AwaitingOwnerPrompt
+    );
+
+    fixture
+        .service
+        .resolve_prompt_notifications(&child, &PromptIdentity::new(PromptKind::Provider, &asked));
+    let store = cron.lock();
+    assert_eq!(
+        store.get_history(&job_id)[0].status,
+        crate::cron::store::CronRunStatus::Running
+    );
+    assert_eq!(store.get_history(&job_id)[0].finished_at, None);
 }
 
 #[test]

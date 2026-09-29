@@ -272,13 +272,13 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            svc.cron_get(&cron_state, &id)
+            let history = svc
+                .cron_history(&cron_state, &id)
                 .map_err(|message| JsonRpcError {
                     code: -32602,
                     message,
                     data: Some(serde_json::json!({ "code": "not_found" })),
                 })?;
-            let history = svc.cron_history(&cron_state, &id);
             serde_json::to_value(&history).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -300,6 +300,11 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("session_binding_nonce"))
                 .and_then(|v| v.as_str());
+            let human_confirmed = params
+                .as_ref()
+                .and_then(|p| p.get("human_confirmed"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let cron_state = app
                 .try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError {
@@ -321,6 +326,7 @@ pub(super) fn dispatch(
                 summary,
                 caller_tab_id,
                 binding_nonce,
+                human_confirmed,
             )
             .map_err(|e| JsonRpcError {
                 code: -32603,

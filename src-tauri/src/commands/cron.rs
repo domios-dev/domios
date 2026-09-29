@@ -152,7 +152,7 @@ pub fn cron_history(
     svc: tauri::State<'_, crate::service::ServiceState>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    let history = svc.cron_history(&cron, &id);
+    let history = svc.cron_history(&cron, &id)?;
     serde_json::to_value(history).map_err(|e| e.to_string())
 }
 

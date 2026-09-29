@@ -246,6 +246,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 }
                 let _ = store.save();
             }
+            service.sync_cron_owner_prompt_state(&handle.tab_id);
 
             // Register with the auto-complete watcher (cron flavor).
             if let Some(pty_id) = service

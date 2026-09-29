@@ -1,7 +1,3 @@
-//! A standing tab condition (an exited agent, a prompt it is blocked on) is owed
-//! to the one owner of that tab: the user for a user-facing tab, and the tab its
-//! reports go to for any other. Each condition resolves when it ends.
-
 use codeterm_types::notification::NotificationAction;
 
 use super::hierarchy::{resolve_report_target, ReportTarget};
@@ -12,8 +8,6 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{Tab, TabAudience};
 use crate::notification::dedupe::{ConditionTransition, TabCondition};
 
-/// Declared at spawn and never inferred: a hidden or automation-audience tab
-/// has no human watching it, so nothing it does may ask the user directly.
 pub(crate) fn is_user_facing(tab: &Tab) -> bool {
     !tab.hidden && tab.audience == TabAudience::User
 }
@@ -30,6 +24,16 @@ pub(crate) fn condition_owner(mux: &MultiplexerState, tab_id: &str) -> Option<Co
     let tab = mux.get_tab(tab_id)?;
     if is_user_facing(tab) {
         return Some(ConditionOwner::User);
+    }
+    if tab.audience == TabAudience::UserOwnedAutomation {
+        let creator = tab
+            .spawned_by_tab_id
+            .as_deref()
+            .filter(|creator| *creator != tab_id && mux.get_tab(creator).is_some());
+        return Some(match creator {
+            Some(creator) => ConditionOwner::Reporter(Some(creator.to_string())),
+            None => ConditionOwner::User,
+        });
     }
     let target = match resolve_report_target(mux, tab_id) {
         Ok((_, Some(ReportTarget::Local(target)))) if mux.get_tab(&target).is_some() => {
@@ -83,6 +87,9 @@ impl ServiceContext {
                 mux.display_label_for_tab(tab_id),
             )
         };
+        if condition == TabCondition::PendingPrompt {
+            self.set_cron_owner_prompt_waiting(tab_id, true);
+        }
         let target = match owner {
             None => return ConditionRoute::TabGone,
             Some(ConditionOwner::User) => {
