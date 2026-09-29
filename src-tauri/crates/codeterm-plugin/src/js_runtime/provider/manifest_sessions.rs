@@ -1,7 +1,7 @@
 //! Manifest-driven session discovery for plugins that declare `sessions.*`
 //! without exporting `enumerateSessions` / `findSession`.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -43,6 +43,72 @@ impl JsProvider {
         out
     }
 
+    pub(super) fn manifest_enumerate_sessions_for_search(&self) -> Vec<SessionMetadata> {
+        let Some((root, dot_ext)) = self.manifest_session_store() else {
+            return Vec::new();
+        };
+        let config = self
+            .manifest
+            .sessions
+            .as_ref()
+            .and_then(|sessions| sessions.search_files.as_ref());
+        let search_root = match config.and_then(|config| config.root_subdir.as_deref()) {
+            Some(subdir) => {
+                let subdir = Path::new(subdir);
+                if !subdir
+                    .components()
+                    .all(|part| matches!(part, Component::Normal(_)))
+                {
+                    return Vec::new();
+                }
+                root.join(subdir)
+            }
+            None => root,
+        };
+        let directory_depth = config
+            .map(|config| {
+                config
+                    .directory_depth
+                    .min(MAX_SESSION_SEARCH_DIRECTORY_DEPTH)
+            })
+            .unwrap_or(1);
+        let file_stem_regex = match config.and_then(|config| config.file_stem_regex.as_deref()) {
+            Some(pattern) => match regex::Regex::new(pattern) {
+                Ok(regex) => Some(regex),
+                Err(_) => return Vec::new(),
+            },
+            None => None,
+        };
+        let mut files = Vec::new();
+        collect_session_files(&search_root, directory_depth, &mut files);
+        let mut sessions: Vec<_> = files
+            .into_iter()
+            .filter_map(|path| {
+                let name = path.file_name()?.to_string_lossy();
+                let stem = name.strip_suffix(&dot_ext)?;
+                let session_id = match file_stem_regex.as_ref() {
+                    Some(regex) => regex.captures(stem)?.get(1)?.as_str().to_string(),
+                    None if is_session_stem(stem) => stem.to_string(),
+                    None => return None,
+                };
+                let metadata = std::fs::metadata(&path).ok()?;
+                Some(SessionMetadata {
+                    session_id: session_id.clone(),
+                    provider: self.manifest.id.clone(),
+                    project_path: None,
+                    title: None,
+                    summary: None,
+                    file_path: path.to_string_lossy().to_string(),
+                    transcript_path: None,
+                    created_ts: provider::fs_time_to_unix(metadata.created().ok()),
+                    modified_ts: provider::fs_time_to_unix(metadata.modified().ok()),
+                })
+            })
+            .collect();
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.modified_ts.unwrap_or(0)));
+        sessions
+    }
+
     /// Probes `<project>/<id>.<ext>` once per project dir, so the cost follows
     /// the project count and never the number of stored sessions.
     pub(super) fn manifest_find_session(&self, session_id: &str) -> Option<SessionMetadata> {
@@ -68,26 +134,12 @@ impl JsProvider {
 
     fn manifest_session_metadata(&self, stem: &str, file_path: &Path) -> SessionMetadata {
         let meta = std::fs::metadata(file_path).ok();
-        let extra: Option<Value> = self.try_call(
-            "describeSession",
-            &[
-                json!(file_path.to_string_lossy()),
-                json!(session_description_head(file_path)),
-            ],
-        );
-        let described = |field: &str| {
-            extra
-                .as_ref()
-                .and_then(|v| v.get(field))
-                .and_then(|s| s.as_str())
-                .map(String::from)
-        };
-        SessionMetadata {
+        let session = SessionMetadata {
             session_id: stem.to_string(),
             provider: self.manifest.id.clone(),
-            project_path: described("projectPath"),
-            title: described("title"),
-            summary: described("summary"),
+            project_path: None,
+            title: None,
+            summary: None,
             file_path: file_path.to_string_lossy().to_string(),
             transcript_path: crate::session_evidence::stored_transcript_path(stem)
                 .map(|p| p.to_string_lossy().to_string()),
@@ -97,6 +149,50 @@ impl JsProvider {
             modified_ts: meta
                 .as_ref()
                 .and_then(|m| provider::fs_time_to_unix(m.modified().ok())),
+        };
+        self.manifest_describe_session(&session)
+    }
+
+    pub(super) fn manifest_describe_session(&self, session: &SessionMetadata) -> SessionMetadata {
+        let extra: Option<Value> = self.try_call(
+            "describeSession",
+            &[
+                json!(&session.file_path),
+                json!(session_description_head(Path::new(&session.file_path))),
+            ],
+        );
+        let described = |field: &str| {
+            extra
+                .as_ref()
+                .and_then(|value| value.get(field))
+                .and_then(|value| value.as_str())
+                .map(String::from)
+        };
+        SessionMetadata {
+            project_path: described("projectPath").or_else(|| session.project_path.clone()),
+            title: described("title").or_else(|| session.title.clone()),
+            summary: described("summary").or_else(|| session.summary.clone()),
+            ..session.clone()
+        }
+    }
+}
+
+const MAX_SESSION_SEARCH_DIRECTORY_DEPTH: usize = 8;
+
+fn collect_session_files(root: &Path, directory_depth: usize, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if directory_depth == 0 {
+            if file_type.is_file() {
+                files.push(entry.path());
+            }
+        } else if file_type.is_dir() {
+            collect_session_files(&entry.path(), directory_depth - 1, files);
         }
     }
 }

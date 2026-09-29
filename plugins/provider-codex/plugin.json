@@ -10,7 +10,12 @@
   "entry": "plugin.js",
   "sessions": {
     "rootDir": "~/.codex",
-    "cwdEncoding": "none"
+    "cwdEncoding": "none",
+    "searchFiles": {
+      "rootSubdir": "sessions",
+      "directoryDepth": 3,
+      "fileStemRegex": "^rollout-.{19}-([A-Za-z0-9._-]{1,128})$"
+    }
   },
   "credentials": [
     {

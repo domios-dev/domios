@@ -11,6 +11,8 @@ struct StubSearchProvider {
     messages: HashMap<String, Vec<SessionMessage>>,
     parsed: Arc<AtomicUsize>,
     parsed_paths: Arc<parking_lot::Mutex<Vec<String>>>,
+    described: Arc<AtomicUsize>,
+    described_paths: Arc<parking_lot::Mutex<Vec<String>>>,
 }
 
 impl AgentProvider for StubSearchProvider {
@@ -54,6 +56,14 @@ impl AgentProvider for StubSearchProvider {
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         self.sessions.clone()
     }
+    fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
+        self.described.fetch_add(1, Ordering::SeqCst);
+        self.described_paths.lock().push(session.file_path.clone());
+        SessionMetadata {
+            project_path: Some("/work/project".into()),
+            ..session.clone()
+        }
+    }
     fn session_content_source(&self) -> SessionContentSource {
         self.source
     }
@@ -69,6 +79,8 @@ struct Probe {
     registry: AgentRegistry,
     parsed: Arc<AtomicUsize>,
     parsed_paths: Arc<parking_lot::Mutex<Vec<String>>>,
+    described: Arc<AtomicUsize>,
+    described_paths: Arc<parking_lot::Mutex<Vec<String>>>,
 }
 
 impl Probe {
@@ -78,9 +90,17 @@ impl Probe {
     fn reset(&self) {
         self.parsed.store(0, Ordering::SeqCst);
         self.parsed_paths.lock().clear();
+        self.described.store(0, Ordering::SeqCst);
+        self.described_paths.lock().clear();
     }
     fn paths(&self) -> Vec<String> {
         self.parsed_paths.lock().clone()
+    }
+    fn describe_calls(&self) -> usize {
+        self.described.load(Ordering::SeqCst)
+    }
+    fn described_paths(&self) -> Vec<String> {
+        self.described_paths.lock().clone()
     }
 }
 
@@ -123,6 +143,8 @@ fn probe_with(
     }
     let parsed = Arc::new(AtomicUsize::new(0));
     let parsed_paths = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let described = Arc::new(AtomicUsize::new(0));
+    let described_paths = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(StubSearchProvider {
         source,
@@ -130,11 +152,15 @@ fn probe_with(
         messages,
         parsed: parsed.clone(),
         parsed_paths: parsed_paths.clone(),
+        described: described.clone(),
+        described_paths: described_paths.clone(),
     }));
     Probe {
         registry,
         parsed,
         parsed_paths,
+        described,
+        described_paths,
     }
 }
 
@@ -415,6 +441,81 @@ fn raw_prefilter_parses_only_files_holding_every_term() {
         .hits;
     assert_eq!(hits.len(), 2);
     assert_eq!(p.parse_calls(), 2, "a non-hint term cannot skip the parse");
+}
+
+#[test]
+fn search_describes_only_matching_files_after_raw_prefilter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let miss_path = dir.path().join("miss.jsonl");
+    let false_positive_path = dir.path().join("false-positive.jsonl");
+    let hit_path = dir.path().join("hit.jsonl");
+    std::fs::write(&miss_path, "unrelated\n").expect("write miss");
+    std::fs::write(&false_positive_path, "needle in metadata only\n")
+        .expect("write false positive");
+    std::fs::write(&hit_path, "needle in conversation\n").expect("write hit");
+    let miss = miss_path.to_string_lossy().to_string();
+    let false_positive = false_positive_path.to_string_lossy().to_string();
+    let hit = hit_path.to_string_lossy().to_string();
+    let p = probe(
+        vec![
+            session("miss", &miss, 300),
+            session("false-positive", &false_positive, 200),
+            session("hit", &hit, 100),
+        ],
+        vec![
+            (&miss, vec![("user", "unrelated")]),
+            (
+                &false_positive,
+                vec![("user", "no match in parsed content")],
+            ),
+            (&hit, vec![("user", "needle in parsed content")]),
+        ],
+    );
+
+    let result = p.registry.search_sessions(&opts(&["needle"], 10)).unwrap();
+
+    assert_eq!(result.hits.len(), 1);
+    assert_eq!(
+        result.hits[0].meta.project_path.as_deref(),
+        Some("/work/project")
+    );
+    assert_eq!(p.describe_calls(), 1);
+    assert_eq!(p.described_paths(), vec![hit]);
+}
+
+#[test]
+fn project_filter_resolves_unknown_paths_after_raw_prefilter() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("candidate.jsonl");
+    std::fs::write(&path, "needle\n").expect("write candidate");
+    let file = path.to_string_lossy().to_string();
+    let p = probe(
+        vec![session("candidate", &file, 1)],
+        vec![(&file, vec![("user", "needle in parsed content")])],
+    );
+
+    let matching = p
+        .registry
+        .search_sessions(&SessionSearchOpts {
+            project_path: Some("/work/project".into()),
+            ..opts(&["needle"], 10)
+        })
+        .unwrap();
+    assert_eq!(matching.hits.len(), 1);
+    assert_eq!(p.parse_calls(), 1);
+    assert_eq!(p.describe_calls(), 1);
+
+    p.reset();
+    let other_project = p
+        .registry
+        .search_sessions(&SessionSearchOpts {
+            project_path: Some("/work/other".into()),
+            ..opts(&["needle"], 10)
+        })
+        .unwrap();
+    assert!(other_project.hits.is_empty());
+    assert_eq!(p.parse_calls(), 0);
+    assert_eq!(p.describe_calls(), 1);
 }
 
 #[test]
