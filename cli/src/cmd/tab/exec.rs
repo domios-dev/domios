@@ -4,7 +4,7 @@ use std::io::Write;
 
 use serde_json::Value;
 
-use crate::cmd::print::print_json;
+use crate::cmd::print::{exit_with_cli_error, print_json, write_cli_error, CliError};
 
 /// A timed-out exec exits like coreutils `timeout`.
 pub(super) const EXEC_TIMEOUT_EXIT: i32 = 124;
@@ -58,6 +58,15 @@ pub(super) fn exec_report(body: &Value) -> ExecReport {
 pub(super) fn finish_exec(json: bool, body: Value) -> ! {
     let report = exec_report(&body);
     if json {
+        if let Some(message) = report.stderr {
+            let error = CliError {
+                message,
+                code: None,
+                data: Some(body),
+            };
+            write_cli_error(true, &error, &mut std::io::stdout(), &mut std::io::stderr());
+            std::process::exit(report.exit);
+        }
         print_json(&body);
     } else {
         print!("{}", report.stdout);
@@ -70,12 +79,7 @@ pub(super) fn finish_exec(json: bool, body: Value) -> ! {
 }
 
 pub(super) fn fail_exec(json: bool, message: String) -> ! {
-    if json {
-        print_json(&serde_json::json!({"ok": false, "error": message}));
-    } else {
-        eprintln!("Exec failed: {message}");
-    }
-    std::process::exit(1)
+    exit_with_cli_error(json, &CliError::new(format!("exec failed: {message}")))
 }
 
 #[cfg(test)]

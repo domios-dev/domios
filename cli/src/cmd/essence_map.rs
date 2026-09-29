@@ -209,9 +209,11 @@ pub(crate) fn handle(json_output: bool, action: EssenceMapAction) {
 }
 
 fn fail(error: String) -> ! {
-    eprintln!("✗ essence-map failed: {error}");
-    eprintln!("fix: codeterm essence-map generate --root .");
-    std::process::exit(1);
+    crate::cmd::print::fail_with_hints(
+        crate::cmd::print::CLI_ERROR_EXIT_CODE,
+        format!("essence-map failed: {error}"),
+        &["fix: codeterm essence-map generate --root ."],
+    )
 }
 
 fn journal_paths(paths: &EssenceMapPaths) -> Result<(PathBuf, PathBuf), String> {
