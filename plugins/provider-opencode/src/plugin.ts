@@ -319,11 +319,14 @@ const plugin: PluginModule = {
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
   },
 
-  readSessionContent(sessionId: string, query?: SessionContentQuery | null): unknown {
+  readSessionContent(
+    sessionId: string,
+    query: SessionContentQuery,
+  ): { messages: unknown[]; truncated?: boolean } | null {
     if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
-    return readOpencodeSessionContent(db, sessionId, query);
+    return readOpencodeSessionContent(db, sessionId, query) as { messages: unknown[]; truncated?: boolean } | null;
   },
 
   checkIntegration(): unknown {

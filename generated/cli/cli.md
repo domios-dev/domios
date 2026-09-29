@@ -86,9 +86,9 @@ Link a tab as worker under a parent
 
 #### `codeterm agent model`
 
-Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
+Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
-- `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
+- `<name>` — Model id. Run `agent models PROVIDER` to list
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent models`
