@@ -17,11 +17,11 @@ let failed = 0;
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
 eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
 eq(manifest.commands.additionalWritableDirFlag, "--add-dir", "sandbox metadata roots use the declared CLI flag");
-eq(
-  manifest.spawn.sandboxedLaunchRestriction,
-  "requires_unsandboxed_linux",
-  "Linux sandbox limitation is declared through the provider capability",
-);
+eq(manifest.spawn.sandboxedLinuxLaunch.networkAccessArgs,
+  ["-c", "sandbox_workspace_write.network_access=true"],
+  "Linux sandbox network access is declared through the provider capability");
+eq(manifest.spawn.sandboxedLinuxLaunch.networkAccessConfigPath, "~/.codex/config.toml",
+  "existing Codex config is read to avoid repeating a network grant");
 
 function assert(condition: boolean, name: string, detail?: string) {
   if (condition) { passed++; console.log(`  ✓ ${name}`); }

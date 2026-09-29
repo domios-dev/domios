@@ -765,6 +765,13 @@ fn build_relaunch_command_with_registry(
                 canonical_project,
                 &mut args,
             );
+            crate::service::launch_session_detection::append_sandbox_linux_network_args(
+                registry,
+                provider,
+                auto_approve,
+                crate::agent::provider::current_platform_tag(),
+                &mut args,
+            );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
                 registry,
                 provider,
@@ -806,6 +813,13 @@ fn build_relaunch_command_with_registry(
                 auto_approve,
                 cwd,
                 canonical_project,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_linux_network_args(
+                registry,
+                provider,
+                auto_approve,
+                crate::agent::provider::current_platform_tag(),
                 &mut args,
             );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
@@ -851,6 +865,13 @@ fn build_relaunch_command_with_registry(
             auto_approve,
             Some(cwd),
             canonical_project,
+            &mut args,
+        );
+        crate::service::launch_session_detection::append_sandbox_linux_network_args(
+            registry,
+            provider,
+            auto_approve,
+            crate::agent::provider::current_platform_tag(),
             &mut args,
         );
         crate::service::launch_session_detection::append_sandbox_agent_pad_arg(

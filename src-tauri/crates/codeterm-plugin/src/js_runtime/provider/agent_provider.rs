@@ -57,8 +57,8 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.additional_writable_dir_flag.clone()
     }
 
-    fn sandboxed_launch_restriction(&self) -> Option<provider::SandboxedLaunchRestriction> {
-        self.manifest.spawn.sandboxed_launch_restriction
+    fn sandboxed_linux_launch_capability(&self) -> Option<provider::SandboxedLinuxLaunchCapability> {
+        self.manifest.spawn.sandboxed_linux_launch.clone()
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {

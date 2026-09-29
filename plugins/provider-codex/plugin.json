@@ -25,7 +25,11 @@
     }
   ],
   "spawn": {
-    "sandboxedLaunchRestriction": "requires_unsandboxed_linux",
+    "sandboxedLinuxLaunch": {
+      "networkAccessArgs": ["-c", "sandbox_workspace_write.network_access=true"],
+      "networkAccessConfigPath": "~/.codex/config.toml",
+      "networkAccessSetting": "sandbox_workspace_write.network_access"
+    },
     "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
