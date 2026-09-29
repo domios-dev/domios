@@ -6,6 +6,16 @@ use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn workspace_not_found_refusal_is_logged_with_known_ids() {
+    let message = super::workspace_not_found_refusal_log(
+        "requested-id",
+        &["known-a".into(), "known-b".into()],
+    );
+
+    assert_eq!(message, "requested=requested-id known_ids=[\"known-a\", \"known-b\"]");
+}
+
+#[test]
 fn workspace_close_log_caller_distinguishes_confirmed_headerless_humans() {
     assert_eq!(
         WorkspaceCloseCaller::HumanConfirmedHeaderless.kind(),
@@ -709,6 +719,34 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         after.teams.iter().all(|team| team.id != team_id),
         "closed Team is gone from the snapshot"
     );
+}
+
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn workspace_close_after_team_close_finds_existing_workspace() {
+    use crate::service::TeamMutationCaller;
+
+    let (mut mux, orchestrator) = MultiplexerState::new();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let existing_workspace = mux.create_workspace("Other".into(), None);
+    let fixture = ServiceFixture::new(mux);
+
+    fixture
+        .service
+        .close_team(&team_id, TeamMutationCaller::Human)
+        .await
+        .unwrap();
+    fixture
+        .service
+        .close_workspace_as_human(&existing_workspace.id, true)
+        .await
+        .unwrap();
 }
 
 #[test]

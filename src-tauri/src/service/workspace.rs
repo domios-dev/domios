@@ -8,6 +8,10 @@ use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
 
+fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> String {
+    format!("requested={workspace_id} known_ids={known_ids:?}")
+}
+
 #[derive(Clone, Copy)]
 enum WorkspaceCloseCaller<'a> {
     LocalTab(&'a str),
@@ -42,6 +46,20 @@ impl WorkspaceCloseCaller<'_> {
 }
 
 impl ServiceContext {
+    pub(crate) fn log_workspace_not_found(&self, workspace_id: &str) {
+        let known_ids = self
+            .mux
+            .read()
+            .list_workspaces()
+            .into_iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<_>>();
+        log::warn!(
+            "[workspace] refusing missing workspace {}",
+            workspace_not_found_refusal_log(workspace_id, &known_ids)
+        );
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.read().list_workspaces()
     }
@@ -247,6 +265,9 @@ impl ServiceContext {
             log::warn!(
                 "[workspace-close] caller={caller_kind} workspace={workspace_id} failed: {error}"
             );
+            if error.starts_with("Workspace not found:") {
+                self.log_workspace_not_found(workspace_id);
+            }
         }
         result
     }
