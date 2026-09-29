@@ -16,7 +16,7 @@ use codeterm_types::agent::role_kind::builtins::PLANNER;
 mod model_error;
 mod pair_headers;
 mod spawn_rejection;
-mod spawn_ownership;
+pub(crate) mod spawn_ownership;
 
 pub(super) use pair_headers::create_orchestration_pair;
 pub(crate) use spawn_rejection::SpawnRejection;

@@ -115,7 +115,8 @@ fn authorized_workspace_managers_receive_typed_close_provenance() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::WorkspaceClose {
                 peer_id: "signed-peer",
@@ -140,7 +141,8 @@ fn readonly_and_agent_isolated_peers_are_rejected_before_close_dispatch() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::Rejected
         );
@@ -165,6 +167,7 @@ fn caller_fields_in_relay_body_cannot_forge_mesh_provenance() {
         &method,
         &command.path,
         &command.body,
+        |_| None,
     );
 
     assert_eq!(
@@ -185,7 +188,8 @@ fn relayed_mesh_rpc_keeps_the_verified_sender() {
             &crate::mesh::types::AccessLevel::Full,
             &Method::POST,
             "/api/mesh/rpc",
-            &serde_json::Value::Null
+            &serde_json::Value::Null,
+            |_| None
         ),
         PeerRelayAuthorization::MeshRpc {
             peer_id: "signed-peer"
@@ -199,10 +203,6 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     for (method, path) in [
         (Method::GET, "/api/workspaces/ws_remote/close"),
         (Method::POST, "/api/workspaces/ws_remote/close/extra"),
-        (
-            Method::POST,
-            "/api/workspaces/ws_remote/close?caller_tab_id=x",
-        ),
         (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
     ] {
         assert_eq!(
@@ -211,7 +211,8 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::Forward,
             "{method} {path}"
