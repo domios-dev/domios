@@ -12,6 +12,7 @@ pub(super) fn watch(child: &dyn portable_pty::Child, session: Weak<PtySession>, 
         log::warn!("[pty-exit] no exit handle for pty child {label}; exit stays unobserved");
         return;
     };
+    let thread_label = label.clone();
     let spawned = std::thread::Builder::new()
         .name("pty-child-exit".into())
         .spawn(move || {
@@ -22,10 +23,9 @@ pub(super) fn watch(child: &dyn portable_pty::Child, session: Weak<PtySession>, 
             if session.child_exit.set(code).is_err() {
                 return;
             }
-            log::info!("[pty-exit] child of pty {label} exited code={code:?}");
-            if let Ok(mut pair) = session.pair.lock() {
-                drop(pair.take());
-            }
+            log::info!("[pty-exit] child of pty {thread_label} exited code={code:?}");
+            let released = session.pair.lock().map(|mut pair| pair.take());
+            drop(released);
         });
     if let Err(error) = spawned {
         log::warn!("[pty-exit] watcher spawn failed for pty child {label}: {error}");
