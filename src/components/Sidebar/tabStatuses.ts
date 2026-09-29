@@ -4,7 +4,7 @@ export function aggregateTabStatuses(
   workspaceTabIds: string[],
   statuses: Record<string, TabStatus>,
 ): TabStatus | null {
-  const priority: TabStatus[] = ["Dead", "Waiting", "Working", "Idle"];
+  const priority: TabStatus[] = ["Dead", "Error", "Waiting", "Working", "Idle"];
   let worst: TabStatus | null = null;
   for (const pid of workspaceTabIds) {
     const s = statuses[pid];

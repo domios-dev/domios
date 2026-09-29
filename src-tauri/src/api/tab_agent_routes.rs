@@ -131,6 +131,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(hook_routes::hook_session_start),
         )
         .route(
+            "/api/tabs/{id}/hook/provider_event",
+            post(hook_routes::hook_provider_event),
+        )
+        .route(
             "/api/tabs/{id}/launch-artifacts/release",
             post(hook_routes::release_launch_artifacts_api),
         )

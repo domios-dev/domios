@@ -4,6 +4,7 @@ const STATUS_COLORS: Record<TabStatus, string> = {
   Working: "var(--ct-green, #7ee787)",
   Waiting: "var(--ct-yellow, #d29922)",
   Idle: "var(--ct-muted, #484f58)",
+  Error: "var(--ct-red, #f85149)",
   Dead: "var(--ct-red, #f85149)",
 };
 
