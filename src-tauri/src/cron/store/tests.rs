@@ -46,6 +46,8 @@ fn set_run_session_persists_on_history_and_last_run() {
         tab_id: Some("p1".into()),
         session_id: None,
         cwd: None,
+        summary: None,
+        report_delivery: None,
     };
     store.record_run(&job.id, run).unwrap();
     store.set_run_session(&job.id, "r1", "sid-9", Some("/cwd"));
@@ -64,6 +66,43 @@ fn set_run_session_persists_on_history_and_last_run() {
             .as_deref(),
         Some("sid-9")
     );
+}
+
+#[test]
+fn cron_report_result_is_recorded_in_history() {
+    let mut store = temp_store();
+    let mut params = make_params("Report", "ws", "in 1h");
+    params.oneshot = Some(true);
+    params.report_target_tab_id = Some("report-tab".into());
+    let job = store.create(params).unwrap();
+    store
+        .record_run(&job.id, run("report-run", 1, CronRunStatus::Success))
+        .unwrap();
+    store
+        .set_run_report(&job.id, "report-run", "summary token", "delivered".into())
+        .unwrap();
+    let result = store.get_history(&job.id)[0];
+    assert_eq!(result.summary.as_deref(), Some("summary token"));
+    assert_eq!(result.report_delivery.as_deref(), Some("delivered"));
+}
+
+#[test]
+fn oneshot_autodelete_keeps_tombstone() {
+    let mut store = temp_store();
+    let mut params = make_params("Once", "ws", "in 1h");
+    params.oneshot = Some(true);
+    let job = store.create(params).unwrap();
+    store
+        .record_run(&job.id, run("oneshot-run", 1, CronRunStatus::Success))
+        .unwrap();
+    store
+        .set_run_report(&job.id, "oneshot-run", "result", "no report target".into())
+        .unwrap();
+    store.delete_preserving_history(&job.id).unwrap();
+    assert!(store.get(&job.id).is_none());
+    let retained = store.get_history(&job.id);
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].summary.as_deref(), Some("result"));
 }
 
 #[test]
@@ -116,6 +155,8 @@ fn record_failure_increments_counter_and_backs_off() {
                 tab_id: None,
                 session_id: None,
                 cwd: None,
+                summary: None,
+                report_delivery: None,
             },
         )
         .unwrap();
@@ -143,6 +184,8 @@ fn record_5_failures_auto_disables_job() {
                     tab_id: None,
                     session_id: None,
                     cwd: None,
+                    summary: None,
+                    report_delivery: None,
                 },
             )
             .unwrap();
@@ -174,6 +217,8 @@ fn success_resets_failure_counter() {
                     tab_id: None,
                     session_id: None,
                     cwd: None,
+                    summary: None,
+                    report_delivery: None,
                 },
             )
             .unwrap();
@@ -189,6 +234,8 @@ fn success_resets_failure_counter() {
                 tab_id: None,
                 session_id: None,
                 cwd: None,
+                summary: None,
+                report_delivery: None,
             },
         )
         .unwrap();
@@ -301,6 +348,8 @@ fn test_record_run_history() {
                     tab_id: None,
                     session_id: None,
                     cwd: None,
+                    summary: None,
+                    report_delivery: None,
                 },
             )
             .unwrap();
@@ -360,6 +409,8 @@ fn test_oneshot_create_and_record_run() {
                 tab_id: None,
                 session_id: None,
                 cwd: None,
+                summary: None,
+                report_delivery: None,
             },
         )
         .unwrap();
@@ -593,6 +644,8 @@ fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
         tab_id: None,
         session_id: None,
         cwd: None,
+        summary: None,
+        report_delivery: None,
     }
 }
 

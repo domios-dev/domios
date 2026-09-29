@@ -873,6 +873,53 @@ pub fn start_scheduler(svc: ServiceState) {
 }
 
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
+    if !target_tab_exists(svc, &msg.tab_id) {
+        let error = format!("recipient tab {} no longer exists", msg.tab_id);
+        if msg.recurrence.is_some() {
+            svc.delayed_send.stop_recurring_for_missing_target(&msg.id)?;
+        } else {
+            svc.delayed_send.mark_failed(&msg.id, error.clone())?;
+        }
+        return Err(error);
+    }
+    let ready = {
+        let service = svc.clone();
+        let tab_id = msg.tab_id.clone();
+        match tokio::task::spawn_blocking(move || {
+            service.ensure_tab_pty_for_send(&tab_id)?;
+            let deadline = std::time::Instant::now() + Duration::from_secs(120);
+            let ready = crate::service::boot_wait::wait_until(deadline, || {
+                service
+                    .mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .is_some_and(|tab| {
+                        tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+                    })
+            });
+            if ready {
+                Ok(())
+            } else {
+                Err("recipient did not reach AgentReady before the delivery deadline".to_string())
+            }
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => Err(format!("delayed readiness task failed: {error}")),
+        }
+    };
+    if let Err(error) = ready {
+        svc.delayed_send.finish_tick_at_sequence(
+            &msg.id,
+            now_ms(),
+            Some(error.clone()),
+            false,
+            None,
+        )?;
+        return Err(error);
+    }
+
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
     let tab_id = msg.tab_id.clone();

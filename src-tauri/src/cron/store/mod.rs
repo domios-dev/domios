@@ -50,6 +50,10 @@ pub struct CronRunInfo {
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_delivery: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

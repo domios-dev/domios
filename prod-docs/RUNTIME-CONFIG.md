@@ -82,7 +82,7 @@ Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), 
 | `task` | `string` | — | Prompt sent to the agent via `-p` |
 | `cwd` | `string?` | *(workspace cwd)* | Working directory for the spawned agent |
 | `role` | `string?` | — | Optional hierarchy role to assign on spawn |
-| `creator_tab_id` | `string?` | — | Tab that receives reports from the cron agent |
+| `report_target_tab_id` | `string?` | — | Tab that receives the completed cron run status and summary |
 | `oneshot` | `bool` | `false` | One-shot job: auto-disabled after first fire, deleted on completion |
 | `jitter_max_ms` | `u64?` | `null` | See jitter semantics below |
 | `max_history` | `usize` | `100` | Per-job run history cap |
@@ -192,4 +192,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
