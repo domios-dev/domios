@@ -135,7 +135,10 @@
     "compact": "/compact",
     "freshContext": "/new",
     "exit": "/exit",
-    "stopKeys": ["\u001b", "\u001b"],
+    "stopKeys": [
+      "\u001b",
+      "\u001b"
+    ],
     "stopKeyWaitForOutput": true,
     "autoApproveFlags": [
       "--dangerously-skip-permissions"
