@@ -245,16 +245,20 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             pause.snap.tab_id.clone(),
             pause.launch_cmd,
             pause.snap.provider.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+            false,
             None,
             None,
             None,
+            Default::default(),
             None,
+            None,
+            pause.snap.session_id.clone(),
         );
         let ready = self
             .finish_observed_restart(
@@ -376,7 +380,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
             launch_cmd,
@@ -386,10 +390,18 @@ impl ServiceContext {
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::Restart
             },
+            false,
+            None,
             launch_task,
             None,
+            Default::default(),
             None,
             None,
+            if session_present {
+                snap.session_id.clone()
+            } else {
+                None
+            },
         );
         drop(restart_claim);
 

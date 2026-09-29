@@ -41,6 +41,7 @@ fn restore_contract_exited_member_lineage_survives_snapshot_restore() {
         tab.prior_session_binding_nonces,
         vec![PriorBindingNonce {
             session_id: Some("exited-session".into()),
+            resume_target_session_id: None,
             nonce: "exited-nonce".into(),
         }]
     );
