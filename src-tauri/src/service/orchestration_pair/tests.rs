@@ -56,7 +56,7 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "ServiceFixture requires a desktop runtime")]
-fn pair_first_plan_creation_binds_the_pending_planner() {
+fn fresh_pair_planner_can_mutate_without_rebind() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let orchestrator_tab_id = mux.create_tab(&workspace_id).unwrap();
@@ -72,10 +72,20 @@ fn pair_first_plan_creation_binds_the_pending_planner() {
         planner.role_profile = Some("planner".into());
         planner.parent_tab_id = Some(orchestrator_tab_id.clone());
         planner.team_id = Some(team_id);
+        planner.agent_session_id = Some("planner-session".into());
+        planner.session_binding_nonce = Some("planner-nonce".into());
+        planner.reported_session_binding_nonce = Some("planner-nonce".into());
     }
     mux.get_tab_mut(&orchestrator_tab_id)
         .unwrap()
         .pending_paired_planner_tab_id = Some(planner_tab_id.clone());
+    {
+        let owner = mux.get_tab_mut(&orchestrator_tab_id).unwrap();
+        owner.agent_session_id = Some("orchestrator-session".into());
+        owner.session_binding_nonce = Some("orchestrator-nonce".into());
+        owner.reported_session_binding_nonce = Some("orchestrator-nonce".into());
+    }
+    let planner_title = mux.get_tab(&planner_tab_id).unwrap().title.clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
 
     let outcome = fixture
@@ -96,8 +106,8 @@ fn pair_first_plan_creation_binds_the_pending_planner() {
         .expect("Orchestrator first goal creates its Plan");
     let expected_planner = Some(PlannerRef::Tab {
         tab_id: planner_tab_id.clone(),
-        session_id: None,
-        title: None,
+        session_id: Some("planner-session".into()),
+        title: Some(planner_title),
     });
 
     assert_eq!(outcome.plan.planner, expected_planner);
@@ -112,6 +122,29 @@ fn pair_first_plan_creation_binds_the_pending_planner() {
     assert!(!fixture
         .service
         .tab_has_pending_paired_planner(&orchestrator_tab_id));
+    let planner_caller = crate::service::plan_authority::AuthenticatedPlanCaller {
+        tab_id: Some(planner_tab_id),
+        session_id: Some("planner-session".into()),
+        binding_nonce: Some("planner-nonce".into()),
+    };
+    fixture
+        .service
+        .authorize_draft_structure_mutation(&outcome.plan.id, &planner_caller)
+        .expect("the bound pair Planner can mutate without plan rebind");
+    fixture
+        .service
+        .plan_store
+        .add_section(
+            &outcome.plan.id,
+            "Immediate edit",
+            "",
+            None,
+            &[],
+            None,
+            None,
+            2,
+        )
+        .expect("pair Planner writes structure immediately");
 }
 
 #[test]

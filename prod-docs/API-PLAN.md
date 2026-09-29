@@ -16,6 +16,13 @@ different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries
 labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`,
 and `POST /api/tasks` return `key`.
 
+### Task groups
+
+`plan task add --group <key>` and `plan task update --group <key>` declare an
+unknown group automatically, using its key as the initial label. Use
+`plan groups set` to assign a display label or color. Heartbeat group reminders
+therefore always name groups accepted by `plan groups close`.
+
 
 ### Planner authority over task structure
 
@@ -24,6 +31,10 @@ Team as the plan) holds **durable** authority over task *structure* for the plan
 whole life — name, body, sections, acceptance criteria, test plan, QA plan,
 correctness, tags, dependencies and routing. That authority does not lapse when a
 task is dispatched: it applies to a `pending` task and an `in_progress` one alike.
+Fresh pair Planners are bound to their first Plan from live Team membership.
+Each write still requires that Planner tab's current session and binding nonce;
+when startup binding is pending, the write waits for that event instead of
+requiring `plan rebind`.
 
 It stops at execution. A Planner is refused for `status`, `status_label`, `lane`,
 `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`,
@@ -228,4 +239,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

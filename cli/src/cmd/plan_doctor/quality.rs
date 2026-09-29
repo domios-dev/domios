@@ -432,6 +432,13 @@ fn inspect_test_author_report(
     task_id: &str,
     findings: &mut Vec<Finding>,
 ) {
+    if task
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| matches!(status, "done" | "cancelled"))
+    {
+        return;
+    }
     let is_test_author = task
         .get("executor_role")
         .and_then(Value::as_str)

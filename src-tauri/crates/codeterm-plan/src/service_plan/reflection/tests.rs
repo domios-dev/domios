@@ -134,6 +134,16 @@ fn close_group_rejects_unknown_group_and_empty_note() {
 }
 
 #[test]
+fn close_group_repairs_a_group_already_used_by_tasks() {
+    let (_d, store, pid, _) = store_with_group();
+    store.set_task_groups(&pid, vec![], 3).unwrap();
+    store
+        .close_group(&pid, "wave-1", "recorded", AgentRef::from_tab("orch"), 4)
+        .unwrap();
+    assert_eq!(store.get(&pid).unwrap().task_groups[0].key, "wave-1");
+}
+
+#[test]
 fn recording_a_learning_silences_group_reflection() {
     let (_d, store, pid, ids) = store_with_group();
     close_group(&store, &pid, &ids, 100);
