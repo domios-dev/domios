@@ -97,15 +97,19 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
+| GET | `/api/sessions/search` | `?q=...&provider=<id>\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search; returns `{hits, warnings}` |
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
 | POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` or no body | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
 Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
 
-**GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`) to scope. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
+**GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`, `opencode`) to scope, and an id no provider owns is refused with 400. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
 
-The scan is bounded, not exhaustive. Session metadata is enumerated first and ordered by recency; files are parsed in that order and the walk stops as soon as `limit` hits are collected, so a common query reads a handful of sessions rather than the whole corpus. Any single session file larger than 8 MiB is skipped rather than loaded — real corpora hold multi-gigabyte rollouts, and parsing one to answer a text query is unbounded work. Content in a skipped session is therefore not searchable; `sessions get`/`resume` still resolve it, since those read metadata only. The walk runs on the blocking pool, so it never occupies the async runtime.
+Where a session's text is read from is the provider's `session_content_source` capability. A `session_file` provider (Claude, Codex) owns one file per session; a `shared_store` provider (OpenCode, whose sessions all live in one `opencode.db`) answers per session through `read_session_content`, a read-only query of that session's messages bounded to its newest 8 MiB. Core never opens a shared store as a file.
+
+The scan is bounded, not exhaustive. Providers are scanned in parallel on the blocking pool; each orders its sessions by recency and stops at `limit` hits, and the merged result keeps the newest `limit`. Session files are prefiltered on raw bytes in parallel batches, so only files that contain every ASCII term are parsed, and a file larger than 8 MiB is skipped rather than loaded. `sessions get`/`resume` still resolve a skipped session, since those read metadata only. Each provider logs `[sessions-search] provider=… sessions=… scanned=… parsed=… elapsed_ms=…`.
+
+Nothing is skipped silently. `warnings` lists, per provider, the sessions it could not fully search: `{provider, reason, sessions, message}`, where `reason` is `no_content_source`, `over_byte_cap`, `unreadable`, `content_truncated` (a store session searched only in its newest 8 MiB), or `scan_failed`. The CLI prints each `message` after the hits, also when nothing matched.
 
 Response shape:
 ```json
