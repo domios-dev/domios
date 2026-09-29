@@ -261,9 +261,8 @@ pub(crate) fn append_sandbox_git_metadata_args(
 }
 
 fn sandbox_additional_roots_log(tab_id: &str, root_count: usize) -> Option<String> {
-    (root_count > 0).then(|| {
-        format!("[sandbox-additional-roots] included {root_count} roots for tab {tab_id}")
-    })
+    (root_count > 0)
+        .then(|| format!("[sandbox-additional-roots] included {root_count} roots for tab {tab_id}"))
 }
 
 fn log_sandbox_additional_roots_included(tab_id: &str, root_count: usize) {

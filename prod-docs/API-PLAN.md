@@ -16,13 +16,9 @@ different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries
 labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`,
 and `POST /api/tasks` return `key`.
 
-### Task groups
-
-`plan task add --group <key>` and `plan task update --group <key>` declare an
-unknown group automatically, using its key as the initial label. Use
-`plan groups set` to assign a display label or color. Heartbeat group reminders
-therefore always name groups accepted by `plan groups close`.
-
+`plan task add|update --group <key>` declares an unknown group with its key as
+label (`plan groups set` relabels), so `plan groups close` accepts every group a
+heartbeat names.
 
 ### Planner authority over task structure
 
@@ -239,4 +235,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

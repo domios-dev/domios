@@ -15,7 +15,12 @@ fn trust_frame_is_never_composer_evidence() {
         sole_nonblank_inverse_row: None,
         last_nonblank_row: Some(24),
     };
-    assert!(launch_composer_input_ready(&input, ComposerCursorPosition::BottomRegion, None, 0));
+    assert!(launch_composer_input_ready(
+        &input,
+        ComposerCursorPosition::BottomRegion,
+        None,
+        0
+    ));
     assert!(!launch_composer_input_ready_for_frame(
         &input,
         ComposerCursorPosition::BottomRegion,

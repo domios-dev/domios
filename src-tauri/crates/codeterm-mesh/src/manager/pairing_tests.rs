@@ -71,7 +71,9 @@ fn revoked_peer_can_re_pair_after_explicit_unrevoke() {
     mesh.revocation_list.revoked.push(id.into());
     mesh.revocation_list.tombstones.insert(id.into(), 1);
 
-    assert!(mesh.validate_pairing_accept_identity("request", id).is_err());
+    assert!(mesh
+        .validate_pairing_accept_identity("request", id)
+        .is_err());
     mesh.unrevoke(id).unwrap();
     assert!(mesh.validate_pairing_accept_identity("request", id).is_ok());
 }

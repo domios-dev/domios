@@ -472,7 +472,10 @@ pub async fn mesh_unrevoke(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let local_token = state.config.lock().api.token.clone().unwrap_or_default();
     if !mesh_owner_authorized(&headers, &local_token) {
-        return Err((StatusCode::UNAUTHORIZED, "Owner authorization required".into()));
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Owner authorization required".into(),
+        ));
     }
     let instance_id = body["instance_id"]
         .as_str()
@@ -484,13 +487,18 @@ pub async fn mesh_unrevoke(
         mesh.save()
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     }
-    log::warn!("[mesh] Owner explicitly lifted revocation for peer {}", instance_id);
+    log::warn!(
+        "[mesh] Owner explicitly lifted revocation for peer {}",
+        instance_id
+    );
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "mesh-state-changed",
         serde_json::Value::Null,
     );
-    Ok(Json(serde_json::json!({"ok": true, "instance_id": instance_id})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "instance_id": instance_id}),
+    ))
 }
 
 fn mesh_owner_authorized(headers: &HeaderMap, local_token: &str) -> bool {

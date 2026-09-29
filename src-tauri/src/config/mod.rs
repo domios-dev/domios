@@ -712,7 +712,10 @@ enabled = true
 
         normalize_runtime_defaults(&mut config);
 
-        assert!(config.mesh.instance_name.starts_with(&default_mesh_instance_name()));
+        assert!(config
+            .mesh
+            .instance_name
+            .starts_with(&default_mesh_instance_name()));
         if codeterm_paths::is_dev_instance() {
             assert!(config.mesh.instance_name.ends_with(']'));
         } else {
