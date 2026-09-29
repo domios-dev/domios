@@ -42,10 +42,13 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
         }),
         "dreaming-normalize" => worker_dreaming_normalize(&conn),
         "librarian-once" => {
-            let skills_root = dirs::home_dir()
-                .unwrap_or_default()
-                .join(data_dir_name())
-                .join("skills");
+            let mem_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
+            let data_dir = if mem_dir.file_name().is_some_and(|name| name == "mem") {
+                mem_dir.parent().unwrap_or(mem_dir)
+            } else {
+                mem_dir
+            };
+            let skills_root = data_dir.join("skills");
             worker_librarian_once(&conn, &skills_root).map(|r| serde_json::json!(r))
         }
         other => Err(format!("unknown worker kind: {}", other)),
@@ -67,8 +70,7 @@ fn worker_emit_error(msg: &str) {
 }
 
 fn resolve_default_db_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir not found")?;
-    Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
+    Ok(crate::data_root().join("mem").join("knowledge.db"))
 }
 
 /// Open a knowledge.db connection, set busy_timeout, run codeterm-mem-store

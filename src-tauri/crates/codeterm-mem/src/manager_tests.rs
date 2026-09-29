@@ -1,5 +1,94 @@
 use super::*;
 
+fn folder_skill_item(source_path: &std::path::Path, tags: Vec<String>) -> NewMemItem {
+    let source = format!("file:{}", source_path.display());
+    NewMemItem {
+        kind: MemKind::Skill,
+        scope: MemScope::Global,
+        title: "QA Curator".into(),
+        summary: None,
+        area: None,
+        tags,
+        body: "# QA Curator\nA test skill.".into(),
+        source: Some(source.clone()),
+        importance: 4.0,
+        source_path: Some(source),
+        pinned: false,
+    }
+}
+
+#[test]
+fn deleting_scaffold_skill_removes_its_instance_folder() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skill_dir = data_dir.path().join("skills").join("qa-curator");
+    std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+    std::fs::write(skill_dir.join("SKILL.md"), "# QA Curator").unwrap();
+    std::fs::write(skill_dir.join("scripts/check.sh"), "exit 0").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &skill_dir.join("SKILL.md"),
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+
+    assert!(mem.delete(&id).unwrap());
+    assert!(!skill_dir.exists());
+}
+
+#[test]
+fn deleted_external_source_skill_stays_absent_after_restart_scan() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skills_root = data_dir.path().join("skills");
+    let skill_dir = skills_root.join("curated");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(skill_dir.join("SKILL.md"), "# Curated Skill").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &skills_root
+                .join("curated")
+                .join("..")
+                .join("curated")
+                .join("SKILL.md"),
+            vec!["external-source".into()],
+        ))
+        .unwrap();
+    assert!(mem.delete(&id).unwrap());
+    assert!(skill_dir.exists());
+    drop(mem);
+
+    let conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    store::init_schema(&conn).unwrap();
+    let report = codeterm_mem_store::skill_folders::sync_skill_folders(&conn, &skills_root);
+
+    assert!(report.registered.is_empty());
+    assert_eq!(report.skipped_tombstoned.len(), 1);
+}
+
+#[test]
+fn deleting_scaffold_skill_never_removes_provider_folder() {
+    let data_dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(data_dir.path().join("skills")).unwrap();
+    let provider_skill = data_dir.path().join("provider").join("qa-curator");
+    std::fs::create_dir_all(&provider_skill).unwrap();
+    std::fs::write(provider_skill.join("SKILL.md"), "# QA Curator").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &provider_skill.join("SKILL.md"),
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+
+    assert!(mem.delete(&id).unwrap());
+    assert!(provider_skill.exists());
+    assert!(provider_skill.join("SKILL.md").exists());
+}
+
 #[test]
 fn open_in_memory_works() {
     let mem = MemManager::open_in_memory().unwrap();
