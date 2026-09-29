@@ -351,8 +351,10 @@ fn resume_with_context_keeps_the_conservative_default() {
     if cfg!(windows) {
         assert!(command.contains("--profile $ctProfileName"));
     } else {
+        let (_, guarded) = command.split_once("; then ").expect("capability guard");
+        let (resume_command, _) = guarded.split_once("; else ").expect("refusal branch");
         assert_eq!(
-            command,
+            resume_command,
             format!(
                 "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
             )
