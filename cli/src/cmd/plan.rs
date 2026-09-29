@@ -150,9 +150,40 @@ pub(crate) fn validate_plan_delete_confirmation(plan_id: &str, yes: bool) -> Res
     Ok(())
 }
 
-fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
+fn plan_mutation_params(
+    plan_id: String,
+    caller_tab_id: Option<&str>,
+    human_confirmation: bool,
+) -> Value {
+    let mut params = json!({ "plan_id": plan_id });
+    if let Some(tab_id) = caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()) {
+        params["caller_tab_id"] = json!(tab_id);
+    } else if human_confirmation {
+        params["human_confirmation"] = json!(true);
+    }
+    params
+}
+
+fn plan_archive_params(
+    plan_id: String,
+    yes: bool,
+    caller_tab_id: Option<&str>,
+) -> Result<Value, String> {
+    if caller_tab_id.is_none_or(|tab_id| tab_id.trim().is_empty()) && !yes {
+        return Err(format!(
+            "refusing to archive plan '{plan_id}' without a Plan tab identity or --yes"
+        ));
+    }
+    Ok(plan_mutation_params(plan_id, caller_tab_id, yes))
+}
+
+fn plan_delete_params(
+    plan_id: String,
+    yes: bool,
+    caller_tab_id: Option<&str>,
+) -> Result<Value, String> {
     validate_plan_delete_confirmation(&plan_id, yes)?;
-    Ok(json!({ "plan_id": plan_id }))
+    Ok(plan_mutation_params(plan_id, caller_tab_id, yes))
 }
 
 fn plan_transfer_params(
@@ -798,8 +829,10 @@ fn run_plan(
             call(client, "plan.resume", json!({ "plan_id": plan_id }))
         }
 
-        PlanAction::Archive { plan_id } => {
-            call(client, "plan.archive", json!({ "plan_id": plan_id }))
+        PlanAction::Archive { plan_id, yes } => {
+            let mut params = plan_archive_params(plan_id, yes, caller_tab_id().as_deref())?;
+            inject_trusted_session(&mut params);
+            call(client, "plan.archive", params)
         }
 
         PlanAction::Unarchive { plan_id } => {
@@ -807,7 +840,9 @@ fn run_plan(
         }
 
         PlanAction::Delete { plan_id, yes } => {
-            call(client, "plan.delete", plan_delete_params(plan_id, yes)?)
+            let mut params = plan_delete_params(plan_id, yes, caller_tab_id().as_deref())?;
+            inject_trusted_session(&mut params);
+            call(client, "plan.delete", params)
         }
 
         PlanAction::Transfer {
