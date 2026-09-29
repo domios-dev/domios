@@ -169,6 +169,7 @@ mod tests {
     fn prior_session(session_id: &str) -> Vec<PriorBindingNonce> {
         vec![PriorBindingNonce {
             session_id: Some(session_id.into()),
+            resume_target_session_id: None,
             nonce: "prior-nonce".into(),
         }]
     }
