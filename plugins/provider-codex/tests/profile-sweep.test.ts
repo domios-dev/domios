@@ -134,6 +134,32 @@ console.log("\n--- launch trust state follows Codex trust-key precedence ---\n")
     "unknown", "a symlinked trust root cannot predict the prompt");
 }
 
+{
+  const repo = "C:\\Users\\test\\repo";
+  const lane = "C:\\Users\\test\\repo-worktrees\\lane-1";
+  const configPath = "C:\\Users\\test\\.codex\\config.toml";
+  const config = `[projects.'${repo}']\ntrust_level = "trusted"`;
+  const laneGit = `${lane}\\.git`.toLowerCase();
+  const host: ProfileSweepHost = {
+    platform: () => "windows",
+    homeDir: () => "C:\\Users\\test",
+    fs: {
+      fileExists: (path) => path === configPath || path.toLowerCase() === laneGit,
+      isSymlink: () => false,
+      readDir: () => [],
+      readFile: (path) => path === configPath
+        ? config
+        : path.toLowerCase() === laneGit ? "gitdir: C:/Users/test/repo/.git/worktrees/lane-1\n" : null,
+      removeFile: () => false,
+      writeFileAtomic: () => false,
+      lockFile: () => null,
+      unlockFile: () => false,
+    },
+  };
+  eq(codexDirectoryTrustState(host, lane), "trusted",
+    "a linked worktree is trusted through its main repository, as Codex resolves it");
+}
+
 console.log("\n--- owner command dry run and legacy opt-in ---\n");
 {
   const { host, files, removed } = makeHost({

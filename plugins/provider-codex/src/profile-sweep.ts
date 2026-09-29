@@ -97,7 +97,23 @@ function codexTrustRoots(host: ProfileSweepHost, cwd: string, markers: string[])
   const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host, normalizedCwd, markers, windows);
   const gitRoot = findRoot(host, normalizedCwd, [".git"], windows);
   if (projectRoot === null || gitRoot === null) return null;
-  return uniquePaths([normalizedCwd, projectRoot, gitRoot].filter((path): path is string => path !== undefined), windows);
+  const mainRepoRoot = gitRoot === undefined ? undefined : worktreeMainRoot(host, gitRoot, windows);
+  return uniquePaths(
+    [normalizedCwd, projectRoot, gitRoot, mainRepoRoot].filter((path): path is string => path !== undefined),
+    windows,
+  );
+}
+
+/** A linked worktree's `.git` file names `<main>/.git/worktrees/<name>`; Codex trusts it through `<main>`. */
+function worktreeMainRoot(host: ProfileSweepHost, gitRoot: string, windows: boolean): string | undefined {
+  const separator = windows ? "\\" : "/";
+  const pointer = host.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
+  const gitdir = pointer?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+  if (!gitdir) return undefined;
+  const absolute = isAbsolutePath(host, gitdir) ? gitdir : `${gitRoot}${separator}${gitdir}`;
+  const normalized = normalizeAbsolutePath(absolute, windows);
+  const main = normalized?.match(/^(.*?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/i)?.[1];
+  return main || undefined;
 }
 
 function findRoot(
