@@ -797,7 +797,7 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   assert(foreignFile.checkIntegration().plugin_file_owned === false, "foreign plugin files are not refreshable as ours");
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v3\n" +
+      "// codeterm-opencode-session-binding-v4\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
