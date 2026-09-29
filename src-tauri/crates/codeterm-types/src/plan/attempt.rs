@@ -200,6 +200,7 @@ pub enum RemoteDispatchState {
     PeerOffline,
     RelayLost,
     AwaitingWorkerAck,
+    RemoteAckTimeout,
     Acknowledged,
     Reported,
     Integrated,
