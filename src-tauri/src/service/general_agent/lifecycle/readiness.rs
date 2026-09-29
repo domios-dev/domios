@@ -55,11 +55,8 @@ pub(super) fn await_agent_output_with_signal(
     let mut generation = signal.generation();
     let mut on_wait_armed = Some(on_wait_armed);
     loop {
-        let detected = screen_state
-            .lock()
-            .get_screen_text(pty_id)
-            .map(|screen| registry.detect_from_output(&screen).is_some())
-            .unwrap_or(false);
+        let screen = screen_state.lock().get_screen_text(pty_id);
+        let detected = screen.is_some_and(|screen| registry.detect_from_output(&screen).is_some());
         if detected || has_authoritative_binding() {
             return true;
         }

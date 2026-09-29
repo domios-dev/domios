@@ -4,7 +4,7 @@
 //!
 //! Contract: all functions are synchronous (QuickJS blocks their VM, so nothing
 //! here may block on the hot path); complex data is returned as a JSON string;
-//! errors are signalled by `null` (no exceptions across the FFI boundary).
+//! errors are signalled by `null`; a breached size bound throws a RangeError.
 //!
 //! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
 //! `~/.codeterm/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
@@ -22,6 +22,8 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
+
+mod sqlite;
 
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
@@ -662,16 +664,12 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
-    bind!("sqliteQueryAllJson", move |db: String,
-                                      sql: String,
-                                      params_json: Option<String>|
-          -> Option<String> {
-        if !sb.can_read(&db) {
-            log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
-            return None;
+    bind!(
+        "sqliteQueryAllJson",
+        move |ctx: Ctx, db: String, sql: String, params_json: Option<String>| {
+            sqlite::host_query(&ctx, &sb, &db, &sql, params_json.as_deref())
         }
-        sqlite_query_all_json(&db, &sql, params_json.as_deref())
-    });
+    );
 
     bind!("log", |level: String, msg: String| {
         match level.as_str() {
@@ -1015,73 +1013,6 @@ fn powershell_quote(s: &str) -> String {
     }
     out.push('\'');
     out
-}
-
-fn sqlite_query_all_json(db_path: &str, sql: &str, params_json: Option<&str>) -> Option<String> {
-    let params: Vec<serde_json::Value> = match params_json {
-        Some(j) => serde_json::from_str(j).ok()?,
-        None => Vec::new(),
-    };
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
-    let mut stmt = conn.prepare(sql).ok()?;
-    let col_count = stmt.column_count();
-    let col_names: Vec<String> = (0..col_count)
-        .map(|i| {
-            stmt.column_name(i)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|_| format!("col_{i}"))
-        })
-        .collect();
-    let bound: Vec<Box<dyn rusqlite::ToSql>> = params
-        .into_iter()
-        .map(|v| -> Box<dyn rusqlite::ToSql> {
-            match v {
-                serde_json::Value::Null => Box::new(rusqlite::types::Null),
-                serde_json::Value::Bool(b) => Box::new(b),
-                serde_json::Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        Box::new(i)
-                    } else if let Some(f) = n.as_f64() {
-                        Box::new(f)
-                    } else {
-                        Box::new(n.to_string())
-                    }
-                }
-                serde_json::Value::String(s) => Box::new(s),
-                other => Box::new(other.to_string()),
-            }
-        })
-        .collect();
-    let bound_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
-    let rows_iter = stmt
-        .query_map(rusqlite::params_from_iter(bound_refs), |row| {
-            let mut obj = serde_json::Map::with_capacity(col_count);
-            for i in 0..col_count {
-                let val: rusqlite::types::Value =
-                    row.get(i).unwrap_or(rusqlite::types::Value::Null);
-                let jv = match val {
-                    rusqlite::types::Value::Null => serde_json::Value::Null,
-                    rusqlite::types::Value::Integer(i) => serde_json::Value::from(i),
-                    rusqlite::types::Value::Real(f) => serde_json::Value::from(f),
-                    rusqlite::types::Value::Text(s) => serde_json::Value::String(s),
-                    rusqlite::types::Value::Blob(b) => {
-                        use base64::Engine;
-                        serde_json::Value::String(
-                            base64::engine::general_purpose::STANDARD.encode(b),
-                        )
-                    }
-                };
-                obj.insert(col_names[i].clone(), jv);
-            }
-            Ok(serde_json::Value::Object(obj))
-        })
-        .ok()?;
-    let rows: Vec<serde_json::Value> = rows_iter.flatten().collect();
-    serde_json::to_string(&rows).ok()
 }
 
 // Name of the global the host object is installed under (see install above).

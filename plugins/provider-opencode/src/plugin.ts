@@ -27,6 +27,8 @@ import {
   scanMessagesForModel,
   scanMessagesForQualifiedModel,
   scanSessionDirectory,
+  ASSISTANT_MESSAGE_MAX_BYTES,
+  MESSAGE_ROLE_MAX_BYTES,
   safeJson,
   OpencodePart,
   OpencodeConfig,
@@ -462,8 +464,9 @@ const plugin: PluginModule = {
     if (!db || !host.fs.fileExists(db)) return null;
     if (!sessionId) return null;
     return scanMessagesForModel(db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]);
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
   },
 
   usesStructuredChat(): boolean { return true; },
@@ -476,13 +479,14 @@ const plugin: PluginModule = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; msg?: string }>(
+    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null }>(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg " +
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
+        "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
         "FROM part p JOIN message m ON m.id = p.message_id " +
         "WHERE p.session_id = ?1 AND p.time_updated >= ?2 " +
         "ORDER BY p.time_updated ASC, p.id ASC",
-      [sessionId, sinceMs]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages: unknown[] = [];
     let lastTs = sinceMs;
@@ -499,9 +503,7 @@ const plugin: PluginModule = {
       seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
-      let role = "assistant";
-      const msg = safeJson(rows[i].msg);
-      if (msg && (msg as { role?: string }).role) role = (msg as { role: string }).role;
+      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
       const cm = partToChatMsg(part as OpencodePart, role, id, created);
       if (cm) messages.push(cm);
     }

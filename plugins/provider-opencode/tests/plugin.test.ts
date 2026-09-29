@@ -12,6 +12,7 @@ import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   ownsOpencodeBindingPluginSource,
+  ASSISTANT_MESSAGE_MAX_BYTES,
 } from "../src/helpers";
 
 let passed = 0;
@@ -255,7 +256,7 @@ console.log("\n--- exclusive structured cursor ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), role: "user" },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -268,7 +269,7 @@ console.log("\n--- exclusive structured cursor ---\n");
   }));
   const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
   eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
-  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), role: "user" });
   const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
   eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
   const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
@@ -279,7 +280,7 @@ console.log("\n--- streamed part growth is re-delivered (same id, newer update) 
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), msg: JSON.stringify({ role: "assistant" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), role: "assistant" },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -309,7 +310,7 @@ console.log("\n--- malformed structured cursor fails closed ---\n");
       fileExists: () => true,
       sqliteQuery: () => {
         queryCalls++;
-        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), msg: JSON.stringify({ role: "user" }) }];
+        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), role: "user" }];
       },
     },
   }));
@@ -454,8 +455,8 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
         params: [savedSession],
       },
       {
-        sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-        params: [savedSession],
+        sql: "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+        params: [savedSession, ASSISTANT_MESSAGE_MAX_BYTES],
       },
     ],
     "resume project and model lookups are scoped to the tab's saved session id",
@@ -1009,9 +1010,9 @@ console.log("\n--- canonical tool fields ---\n");
       sqliteQuery: (_db: string, sql: string) => {
         if (sql.indexOf("FROM part") !== -1) {
           return [
-            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), msg: JSON.stringify({ role: "assistant" }) },
-            { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), msg: JSON.stringify({ role: "assistant" }) },
-            { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), msg: JSON.stringify({ role: "assistant" }) },
+            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), role: "assistant" },
+            { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), role: "assistant" },
+            { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), role: "assistant" },
           ];
         }
         return [];
