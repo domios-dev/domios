@@ -1,4 +1,4 @@
-pub(super) fn ownership_for_spawning_peer(
+pub(crate) fn ownership_for_spawning_peer(
     mut ownership: Option<codeterm_types::pty::RemoteOwnership>,
     peer_id: &str,
     peer_name: &str,
