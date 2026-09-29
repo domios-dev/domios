@@ -702,6 +702,7 @@ fn windows_npm_shim_argv(
     Ok((node, argv))
 }
 
+#[cfg(any(windows, test))]
 fn npm_shim_script(parent: &Path, contents: &str) -> Option<PathBuf> {
     let marker = "\"%_prog%\" \"";
     let line = contents.lines().find(|line| {

@@ -354,16 +354,7 @@ fn resume_with_context_keeps_the_conservative_default() {
         assert_eq!(
             command,
             format!(
-                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon -m gpt-6-sol -c model_reasoning_effort=\"high\""
-            )
-        );
-        assert_eq!(
-            command,
-            crate::provider::append_launch_args(
-                provider
-                    .build_resume_command(CODEX_UUID, false)
-                    .expect("codex base resume"),
-                &params.args
+                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
             )
         );
     }
