@@ -359,3 +359,34 @@ mod notification_deep_link {
         assert!(params.get("chat_message_id").is_none());
     }
 }
+
+#[test]
+fn notify_send_validates_title_and_target() {
+    let limit = codeterm_types::notification::MAX_CALLER_TITLE_CHARS;
+    let params = |title: &str| {
+        params_from_body(title, "info", None, None, None, &[], Offer::default(), None)
+    };
+
+    assert!(params("").is_err(), "an empty title is refused");
+    assert!(params("   ").is_err(), "a blank title is refused");
+    assert!(
+        params(&"t".repeat(limit + 1)).is_err(),
+        "an unbounded title is refused"
+    );
+    let bounded = "t".repeat(limit);
+    assert_eq!(
+        params(&bounded).unwrap()["title"],
+        serde_json::json!(bounded)
+    );
+    assert_eq!(
+        params("  opaque  ").unwrap()["title"],
+        serde_json::json!("opaque")
+    );
+
+    assert!(
+        vet_target_tab(Some("  ")).is_err(),
+        "a blank target names no tab"
+    );
+    assert!(vet_target_tab(Some("opaque-tab")).is_ok());
+    assert!(vet_target_tab(None).is_ok());
+}

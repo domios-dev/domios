@@ -42,7 +42,6 @@ pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
-pub(crate) mod task_files;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
@@ -56,6 +55,7 @@ mod prompt_resolution;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod startup_turn;
+pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{
@@ -130,6 +130,7 @@ pub(crate) mod tab;
 pub(crate) mod tab_adopt;
 pub mod tab_budget;
 pub mod tab_chat;
+pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
