@@ -162,6 +162,7 @@ pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
 pub(crate) mod worker_lane;
+pub(crate) mod worker_loss;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
@@ -174,6 +175,7 @@ mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
 pub(crate) const TEAM_CLOSE_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED]";
+pub(crate) const TEAM_CLOSE_BUSY_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED] busy";
 pub(crate) const WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX: &str = "[WORKSPACE CLOSE CLEANUP FAILED]";
 
 use std::collections::HashMap;

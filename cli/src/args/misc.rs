@@ -179,6 +179,10 @@ pub enum TabAction {
         /// Tab ID to close.
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
+        /// Close a Worker that still holds an in-progress task; its Orchestrator
+        /// is notified with the recovery command.
+        #[arg(long)]
+        force: bool,
     },
     /// Rename a tab (default: current tab)
     Rename {
@@ -319,7 +323,7 @@ pub enum TabAction {
 pub fn normalize_required_tab_selector(action: &mut TabAction) -> Result<(), String> {
     let (command, id, tab) = match action {
         TabAction::Focus { id, tab } => ("focus", id, tab),
-        TabAction::Close { id, tab } => ("close", id, tab),
+        TabAction::Close { id, tab, .. } => ("close", id, tab),
         _ => return Ok(()),
     };
     let selector = tab

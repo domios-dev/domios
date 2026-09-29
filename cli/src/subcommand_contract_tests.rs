@@ -967,7 +967,7 @@ fn every_tab_command_accepts_canonical_tab_flag() {
         assert!(matches!(
             parsed.action,
             TabAction::Focus { id: Some(ref id), tab: None }
-                | TabAction::Close { id: Some(ref id), tab: None }
+                | TabAction::Close { id: Some(ref id), tab: None, .. }
                 if id == "tab_1"
         ));
     }
@@ -975,7 +975,7 @@ fn every_tab_command_accepts_canonical_tab_flag() {
     crate::args::misc::normalize_required_tab_selector(&mut positional.action).unwrap();
     assert!(matches!(
         positional.action,
-        TabAction::Close { id: Some(ref id), tab: None } if id == "tab_2"
+        TabAction::Close { id: Some(ref id), tab: None, force: false } if id == "tab_2"
     ));
     let mut missing = TabOnly::try_parse_from(["tab", "close"]).unwrap();
     let error = crate::args::misc::normalize_required_tab_selector(&mut missing.action)

@@ -183,10 +183,16 @@ pub(super) fn dispatch(
         "tab.close" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
+            let force = params
+                .as_ref()
+                .and_then(|params| params.get("force"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::TabClose {
                     tab_id,
                     caller_tab_id,
+                    force,
                 },
                 svc.as_ref(),
             )

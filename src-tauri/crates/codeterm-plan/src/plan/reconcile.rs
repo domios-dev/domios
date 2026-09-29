@@ -10,6 +10,7 @@ pub const NEEDS_REASSIGN_LABEL: &str = "needs-reassign";
 pub const STALE_REVIEW_LABEL: &str = "stale-review";
 pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
 pub const TAB_GONE_LABEL: &str = "tab-gone";
+pub const TEAM_CLOSED_LABEL: &str = "team-closed";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgedOpenTask {

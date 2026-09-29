@@ -47,3 +47,15 @@ fn team_close_authorization_refusal_is_forbidden() {
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(message.contains("not a Team manager"));
 }
+
+#[test]
+fn busy_worker_close_refusal_is_conflict() {
+    let error = format!(
+        "{}: Tab worker-tab holds work",
+        crate::service::worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX
+    );
+    let (status, message) = map_close_error(error);
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(message.contains("worker-tab"));
+}

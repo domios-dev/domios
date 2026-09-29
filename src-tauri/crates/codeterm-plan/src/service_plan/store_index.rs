@@ -73,6 +73,7 @@ impl PlanStore {
             element_count: plan.elements.len(),
             loop_count: plan.loops.len(),
             has_goal: plan.goal.is_some(),
+            orphaned: plan.orphaned.as_ref().map(|orphan| orphan.reason.clone()),
         }
     }
 

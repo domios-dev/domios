@@ -128,7 +128,7 @@ Socket equivalents and shapes: API-TRANSPORT.
 | GET | `/api/tabs/{id}/output/stream` | — | SSE real-time output stream |
 | GET | `/api/agent-runs/{tab_id}/log` | — | Agent run log for a tab |
 | POST | `/api/tabs/{id}/focus` | — | Focus tab |
-| POST | `/api/tabs/{id}/close` | — | Close tab + kill PTY |
+| POST | `/api/tabs/{id}/close` | `?force=true` | Close tab + kill PTY. With `X-CodeTerm-Tab-Id`, closing a Worker that executes an `in_progress` task returns `409` unless `force=true`; without it the close proceeds and returns `warnings`. The Orchestrator is notified either way (see `tab.close` in API-TRANSPORT). |
 | POST | `/api/tabs/{id}/restart` | `{cwd?}` | Replace a plain shell PTY in the same tab while preserving tab and Team metadata. Agent and chat-backend tabs are rejected, including an agent-role tab whose provider exited (`shell_restart_agent_member`; resume it with `agent restart`). |
 | POST | `/api/tabs/{id}/rename` | `{title}` | Rename tab. |
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
@@ -230,4 +230,4 @@ Local `codeterm send` uses socket `tab.send_text`: it prints `OK (sent)` after
 confirmed delivery, `OK (pending)` for accepted or unconfirmed delivery, and an
 explicit refusal when no payload bytes were written. The resolved payload echo
 is emitted for confirmed delivery and for pending sends reporting written bytes.
-<!-- revision: 173 -->
+<!-- revision: 174 -->

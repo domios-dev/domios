@@ -231,7 +231,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJsonWithCallerTab(
       "POST",
       `/api/teams/${enc(s(a, "teamId"))}/close`,
-      { force: true, confirm: s(a, "teamId") },
+      { force: true, confirm: s(a, "teamId"), force_busy: a.forceBusy === true },
       a.callerTabId,
     ),
   mux_add_team_member: (a) =>

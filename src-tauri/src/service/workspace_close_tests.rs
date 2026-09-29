@@ -172,6 +172,7 @@ async fn workspace_close_guard_human_can_close_empty_workspace() {
 fn unattributed_close_cannot_close_an_unprotected_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Unattributed".into(), None).id;
+    mux.create_tab(&workspace_id).unwrap();
     let fixture = ServiceFixture::new(mux);
 
     let error = fixture
@@ -186,6 +187,29 @@ fn unattributed_close_cannot_close_an_unprotected_workspace() {
         .read()
         .get_workspace(&workspace_id)
         .is_some());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn unattributed_caller_closes_an_empty_workspace() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Empty".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+
+    fixture
+        .service
+        .close_workspace_guarded(None, &workspace_id, false)
+        .expect("an empty workspace has nothing a confirmation protects");
+
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_none());
 }
 
 #[test]
@@ -700,7 +724,7 @@ async fn close_team_via_service_persists_the_reduced_desk() {
     // The REAL service boundary, not the close_team_with_state_change helper.
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::Human)
+        .close_team(&team_id, TeamMutationCaller::Human, false)
         .await
         .unwrap();
 
@@ -742,7 +766,7 @@ async fn workspace_close_after_team_close_finds_existing_workspace() {
 
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::Human)
+        .close_team(&team_id, TeamMutationCaller::Human, false)
         .await
         .unwrap();
     fixture

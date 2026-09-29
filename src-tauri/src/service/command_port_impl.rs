@@ -53,8 +53,13 @@ impl CommandPort for ServiceContext {
         self.tab_transport(tab_id)?.read_screen(formatted)
     }
 
-    fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String> {
-        ServiceContext::close_tab_guarded(self, caller, tab_id)
+    fn close_tab_guarded(
+        &self,
+        caller: Option<&str>,
+        tab_id: &str,
+        force: bool,
+    ) -> Result<Vec<String>, String> {
+        ServiceContext::close_tab_guarded(self, caller, tab_id, force)
     }
 
     fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
