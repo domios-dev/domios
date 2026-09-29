@@ -210,7 +210,7 @@ pub trait ChatBackendProvider: Send + Sync {
             install_command: None,
             badge: None,
             update_command: None,
-            model_switch_format: None,
+            model_switch: crate::provider::ModelSwitchMode::Unsupported,
             fresh_context_command: None,
             compact_command: None,
             integration_trust_grant: None,

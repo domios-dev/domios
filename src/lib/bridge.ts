@@ -645,6 +645,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/agents/general/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/restart`),
   restart_agent_tab: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/restart`),
+  switch_agent_model: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/model`, {
+      model: s(a, "model"),
+    }),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
       provider_id: s(a, "providerId") ?? s(a, "provider_id"),

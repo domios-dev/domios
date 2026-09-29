@@ -302,6 +302,18 @@ impl ServiceContext {
             return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
+        self.restart_live_agent(snap, force, grace_secs, None)
+    }
+
+    /// Exit, tear down and relaunch a live agent. A model switch supplies its
+    /// own resume command and commits its launch record once the old PTY is gone.
+    fn restart_live_agent(
+        &self,
+        snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
@@ -316,25 +328,41 @@ impl ServiceContext {
         let session_was_stale = !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !session_was_stale && snap.session_id.is_some();
-        let launch_task = (!session_present)
-            .then(|| {
-                crate::service::orchestrator::provider_launch_task(
-                    &self.agent_registry,
-                    &snap.provider,
-                    None,
-                    snap.role.as_deref(),
-                    snap.role_profile.as_deref(),
-                )
-            })
-            .flatten();
-        let Some(launch_cmd) =
-            build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
-                .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
-        else {
+        let relaunch = match model_switch {
+            Some(launch) if session_present => launch.command(self, &snap),
+            Some(_) => None,
+            None => {
+                let launch_task = (!session_present)
+                    .then(|| {
+                        crate::service::orchestrator::provider_launch_task(
+                            &self.agent_registry,
+                            &snap.provider,
+                            None,
+                            snap.role.as_deref(),
+                            snap.role_profile.as_deref(),
+                        )
+                    })
+                    .flatten();
+                build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
+                    .map(|command| (command, launch_task))
+            }
+        };
+        let Some((launch_cmd, launch_task)) = relaunch.map(|(command, task)| {
+            (
+                crate::agent::stub_launch::apply(&snap.provider, command),
+                task,
+            )
+        }) else {
             crate::service::task_files::release_tab(self, &snap.tab_id);
+            let reason = if model_switch.is_some() && !session_present {
+                "the Tab's session is no longer resumable, so its model cannot be switched in place"
+                    .to_string()
+            } else {
+                format!("provider {} returned no launch command", snap.provider)
+            };
             return Err(RestartAttemptError::Failed {
                 outcome,
-                reason: format!("provider {} returned no launch command", snap.provider),
+                reason,
                 timed_out: false,
             });
         };
@@ -349,6 +377,9 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        if let Some(launch) = model_switch {
+            launch.commit(self, &snap.tab_id);
+        }
 
         self.set_and_lock_tab_agent_type_from(
             &snap.tab_id,
@@ -1033,6 +1064,8 @@ pub(crate) fn screen_shows_agent_tui(
 }
 
 mod exit_recovery;
+mod model_switch;
+pub(crate) use model_switch::{ModelSwitchError, ModelSwitchOutcome};
 
 #[cfg(test)]
 mod tests;

@@ -135,10 +135,7 @@ fn slash_commands_parity() {
     let (n, j) = pair();
     assert_eq!(n.compact_command(), j.compact_command());
     assert_eq!(n.exit_command(), j.exit_command());
-    assert_eq!(
-        n.model_switch_command("haiku"),
-        j.model_switch_command("haiku")
-    );
+    assert_eq!(n.model_switch(), j.model_switch());
     assert_eq!(n.auto_approve_flags(), j.auto_approve_flags());
 }
 

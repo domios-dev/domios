@@ -1,6 +1,7 @@
-/** Provider-declared in-agent model switch template; `{model}` is a ModelInfo id. */
-export function formatModelSwitch(format: string, modelId: string): string {
-  return format.includes("{model}")
-    ? format.replaceAll("{model}", modelId)
-    : `${format} ${modelId}`;
+import type { ProviderDescriptor } from "./types";
+
+/** A live tab can change model only when its provider declares a mechanism that
+ *  leaves the provider's machine-global default alone. */
+export function supportsLiveModelSwitch(descriptor: ProviderDescriptor | null | undefined): boolean {
+  return descriptor?.model_switch === "restart_resume";
 }
