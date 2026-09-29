@@ -179,10 +179,20 @@ fn write_file_entry(
     account: &str,
     value: Option<&str>,
 ) -> Result<(), SecretFileError> {
+    // Only a missing or empty file starts a new map; an unreadable one must
+    // never be replaced by a map holding just this account.
     let mut map: std::collections::HashMap<String, String> = match std::fs::read_to_string(path) {
         Ok(s) if !s.trim().is_empty() => serde_json::from_str(&s)
             .map_err(|e| SecretFileError::Other(format!("parse {}: {}", path.display(), e)))?,
-        _ => std::collections::HashMap::new(),
+        Ok(_) => std::collections::HashMap::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::collections::HashMap::new(),
+        Err(e) => {
+            return Err(SecretFileError::Other(format!(
+                "read {}: {}",
+                path.display(),
+                e
+            )))
+        }
     };
     match value {
         Some(v) => {
@@ -301,5 +311,27 @@ mod tests {
         kc.set("k", "v1").unwrap();
         kc.set("k", "v2").unwrap();
         assert_eq!(kc.get("k").unwrap(), "v2");
+    }
+
+    #[test]
+    fn unreadable_secrets_file_is_never_replaced_by_a_single_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".secrets");
+        let unreadable = vec![0xff, 0xfe, b'{', 0x80];
+        std::fs::write(&path, &unreadable).unwrap();
+
+        assert!(write_file_entry(&path, "k", Some("v")).is_err());
+        assert!(write_file_entry(&path, "k", None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), unreadable);
+    }
+
+    #[test]
+    fn unparseable_secrets_file_is_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".secrets");
+        std::fs::write(&path, "{\"a\": \"trunc").unwrap();
+
+        assert!(write_file_entry(&path, "k", Some("v")).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"a\": \"trunc");
     }
 }
