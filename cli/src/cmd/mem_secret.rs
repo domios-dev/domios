@@ -181,6 +181,11 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
         }
         MemSecretAction::Delete { name, yes } => {
             if !yes {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    eprintln!("Error: refusing to prompt on non-interactive stdin — pass --yes to delete '{}'", name);
+                    std::process::exit(1);
+                }
                 eprint!("Delete secret '{}'? [y/N] ", name);
                 let _ = std::io::stderr().flush();
                 let mut answer = String::new();

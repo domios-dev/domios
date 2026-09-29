@@ -4,7 +4,7 @@ CodeTerm exposes local secret storage through Settings → Secrets, `codeterm me
 
 | Backend | Use | Storage |
 |---|---|---|
-| `local` | Default, offline | OS keychain in release builds |
+| `local` | Default, offline | Plaintext JSON file `<data_dir>/.secrets`, mode `0600`; not encrypted, not the OS keychain |
 | `bitwarden` | Shared Bitwarden or Vaultwarden vault | Plugin over the official `bw` CLI |
 | `mock` | Tests and screenshots only | Memory; erased on restart |
 
@@ -137,15 +137,15 @@ The full REST contract is in [API-STATE.md](API-STATE.md#secrets).
 
 ## Storage and security
 
-Release builds use macOS Keychain, Linux libsecret, or Windows Credential Manager after a successful canary probe. Local-secret metadata—never values—is indexed at `~/.codeterm/secrets/local-index.json`.
+The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used, in release or dev builds. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
 
-Dev builds use `<data_dir>/keychain/<service>.json` with Unix mode `0600`; the usual path is `~/.codeterm-dev/keychain/codeterm-secrets.json`. This avoids repeated macOS keychain prompts from changing development binary signatures. It is plaintext and must be treated like an `.env` file.
+Item ids look like `local-0000002a`. They are allocated from a counter persisted in the index and never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
 
-Production local storage does not silently fall back to plaintext when the OS keychain is unavailable. The backend reports `Unavailable`, and CRUD requests return `503` with the reason.
+`codeterm mem secret delete` asks for confirmation on a terminal. Without a terminal on stdin it exits non-zero immediately and asks for `--yes`; it never waits for input.
 
-Bitwarden owns vault encryption. CodeTerm passes the master password and session through stdin or environment variables, never argv. A secret-backend plugin's persisted session and any remembered credential live in its own host bucket, service `codeterm.plugin.<plugin-id>`, in the same keychain abstraction.
+Bitwarden owns vault encryption. CodeTerm passes the master password and session through stdin or environment variables, never argv. A secret-backend plugin's persisted session and any remembered credential live in its own bucket, service `codeterm.plugin.<plugin-id>`, in the same plaintext local file.
 
-A process running as the same OS user remains inside the same trust boundary and may access that user's keychain. The mock backend has no security guarantees.
+A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
 ## Adding a backend
 
@@ -159,4 +159,4 @@ Implementation lives in `src-tauri/src/secrets/`:
 
 Override optional organization, collection, sync, or init methods only when the backend supports them. The registry is currently built into the binary; there is no external plugin registration API.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

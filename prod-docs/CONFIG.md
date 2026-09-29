@@ -110,7 +110,6 @@ default_collection = ""          # Default collection id for new items (Bitwarde
 
 [integrations.secrets.bitwarden]
 server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
-persist_master_password = false              # Save master password in OS keychain on unlock (auto-unlock after restart). Off by default.
 
 [kpi]
 enabled = true                   # Local orchestration-economics ledger; false opts out
@@ -237,4 +236,4 @@ agent command. Source-only workers do not build or test in their lane.
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
