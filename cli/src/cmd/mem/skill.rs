@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::client::SocketClient;
-use crate::{data_dir_name, MemSkillAction};
+use crate::MemSkillAction;
 
 struct SkillSlug(String);
 
@@ -58,10 +58,7 @@ pub(crate) fn handle_mem_skill(
     match action {
         MemSkillAction::New { name, area } => {
             let slug = SkillSlug::parse(name.clone())?;
-            let skills_root = dirs::home_dir()
-                .unwrap_or_default()
-                .join(data_dir_name())
-                .join("skills");
+            let skills_root = crate::data_root().join("skills");
             std::fs::create_dir_all(&skills_root)
                 .map_err(|e| format!("create skills root: {e}"))?;
             let folder_path = skill_folder(&skills_root, &slug)?;

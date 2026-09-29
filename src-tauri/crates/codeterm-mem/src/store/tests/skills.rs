@@ -1,4 +1,4 @@
-use codeterm_mem_store::skill_folders::sync_skill_folders;
+use codeterm_mem_store::skill_folders::{source_key, sync_skill_folders};
 use rusqlite::{params, Connection};
 
 use super::*;
@@ -34,6 +34,23 @@ fn skill_count(conn: &Connection) -> i64 {
         |r| r.get(0),
     )
     .unwrap()
+}
+
+#[test]
+fn source_key_normalizes_existing_skill_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let canonical = write_skill(root.path(), "alpha", "Alpha Skill");
+    let alternate = format!(
+        "file:{}",
+        root.path()
+            .join("alpha")
+            .join("..")
+            .join("alpha")
+            .join("SKILL.md")
+            .display()
+    );
+
+    assert_eq!(source_key(&canonical), source_key(&alternate));
 }
 
 #[test]
