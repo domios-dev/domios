@@ -211,6 +211,23 @@ impl CronStore {
         self.save()
     }
 
+    pub fn delete_preserving_history(&mut self, id: &str) -> Result<(), String> {
+        if let Some(job) = self.file.jobs.iter().find(|job| job.id == id) {
+            if job.protected {
+                return Err(format!(
+                    "Cron job '{}' is protected and cannot be deleted. Use disable instead.",
+                    job.name
+                ));
+            }
+        }
+        let before = self.file.jobs.len();
+        self.file.jobs.retain(|job| job.id != id);
+        if self.file.jobs.len() == before {
+            return Err(format!("Cron job not found: {}", id));
+        }
+        self.save()
+    }
+
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<CronJob, String> {
         let now_ms = self.now_ms();
         let job = self
@@ -370,6 +387,36 @@ impl CronStore {
             }
         }
         let _ = self.save();
+    }
+
+    pub fn set_run_report(
+        &mut self,
+        job_id: &str,
+        run_id: &str,
+        summary: &str,
+        delivery: String,
+    ) -> Result<(), String> {
+        if let Some(run) = self
+            .file
+            .history
+            .get_mut(job_id)
+            .and_then(|runs| runs.iter_mut().find(|run| run.run_id == run_id))
+        {
+            run.summary = Some(summary.to_string());
+            run.report_delivery = Some(delivery.clone());
+        }
+        if let Some(run) = self
+            .file
+            .jobs
+            .iter_mut()
+            .find(|job| job.id == job_id)
+            .and_then(|job| job.last_run.as_mut())
+            .filter(|run| run.run_id == run_id)
+        {
+            run.summary = Some(summary.to_string());
+            run.report_delivery = Some(delivery);
+        }
+        self.save()
     }
 
     pub fn get_history(&self, job_id: &str) -> Vec<&CronRunInfo> {

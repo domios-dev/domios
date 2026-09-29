@@ -43,7 +43,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
-| `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_tab_id` |
+| `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `cron/task_text.rs` — appended when a cron job has a `report_target_tab_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `commands/skills.rs` — points a cron agent at the resolved skill |
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `commands/skills.rs` — provides a bounded failure handoff when the requested skill is absent |
@@ -228,4 +228,4 @@ owning loader module (pub const &str)
 - `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

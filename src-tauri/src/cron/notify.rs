@@ -166,6 +166,8 @@ mod tests {
                 tab_id: Some("-".to_string()),
                 session_id: None,
                 cwd: None,
+                summary: None,
+                report_delivery: None,
             },
         );
     }
