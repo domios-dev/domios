@@ -701,7 +701,7 @@ impl ServiceContext {
             .then(|| tab.cwd.clone())
             .flatten()
         });
-        let owed = cwd.is_some_and(|cwd| {
+        let (owed, dialog_still_answerable) = cwd.map_or((false, false), |cwd| {
             let screen = self
                 .screen_state
                 .lock()
@@ -713,9 +713,12 @@ impl ServiceContext {
                 .get_tab(tab_id)
                 .is_some_and(directory_trust_check_applies);
             let eligible = provisioned || SHARED_TRUST.lock().trusted.get(&cwd) == Some(&true);
-            eligible
-                && matches!(self.provider_directory_trust_response(agent_type, &screen),
-                Some(DirectoryTrustPromptResponse::Answer { step }) if step == expected)
+            match self.provider_directory_trust_response(agent_type, &screen) {
+                Some(DirectoryTrustPromptResponse::Answer { step }) if eligible => {
+                    (step == expected, true)
+                }
+                _ => (false, false),
+            }
         });
         LEDGER.lock().settle(tab_id);
         if !owed {
@@ -723,6 +726,14 @@ impl ServiceContext {
                 "[directory-trust] Withheld key for Tab {}: the dialog changed before the write",
                 tab_id
             );
+            // A settled dialog may emit no further frame, so re-evaluate once against the current one.
+            if dialog_still_answerable {
+                let service = self.clone();
+                let tab = tab_id.to_string();
+                std::thread::spawn(move || {
+                    service.respond_to_directory_trust(&tab, None);
+                });
+            }
         }
         owed
     }
