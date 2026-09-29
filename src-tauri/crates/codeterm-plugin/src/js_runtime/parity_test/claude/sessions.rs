@@ -177,19 +177,22 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
     use crate::provider::AgentProvider;
 
     let temp = tempfile::tempdir().unwrap();
-    let home = temp.path().join("home");
     let cwd = temp.path().join("project");
     std::fs::create_dir_all(&cwd).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
-    let home = home.to_string_lossy().into_owned();
-    let _env = EnvGuard::new(&[("HOME", &home), ("USERPROFILE", &home)]);
+    let evidence = temp.path().join("evidence");
+    // Windows resolves the home directory without HOME, so both paths are rooted explicitly.
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence.to_str().unwrap(),
+    )]);
     let cwd = cwd.to_string_lossy().into_owned();
     let session_id = uuid::Uuid::new_v4().to_string();
     let native = ClaudeProvider::new();
-    let js = load_js("claude");
-    let path = native
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js
         .session_file_path(&cwd, &session_id)
         .expect("Claude transcript path");
+    assert!(path.starts_with(temp.path()), "{}", path.display());
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let transcript = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -197,6 +200,11 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
     ))
     .replace("claude-opus-5", "claude-haiku-4-5");
     std::fs::write(&path, &transcript).unwrap();
+    assert!(crate::session_evidence::record(
+        &session_id,
+        path.to_str().unwrap()
+    ));
+    assert_eq!(native.session_file_path(&cwd, &session_id), Some(path.clone()));
 
     let boundary = native
         .session_model_transcript_boundary(&cwd, &session_id)

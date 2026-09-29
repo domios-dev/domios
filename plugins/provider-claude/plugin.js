@@ -339,6 +339,50 @@ function claudeSessionFilePath(cwd, sessionId) {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
+function sessionModelTranscriptBoundary(cwd, sessionId) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) return { lastEntryUuid: null };
+  if (!contents.endsWith("\n")) return null;
+  const lines = contents.split("\n");
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  if (!lines.length) return { lastEntryUuid: null };
+  let entry;
+  try {
+    entry = JSON.parse(lines[lines.length - 1]);
+  } catch (_) {
+    return null;
+  }
+  return typeof entry.uuid === "string" && entry.uuid ? { lastEntryUuid: entry.uuid } : null;
+}
+function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  const entries = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch (_) {
+      continue;
+    }
+  }
+  const boundaryIndex = boundary.lastEntryUuid === null ? -1 : entries.findIndex((entry) => entry.uuid === boundary.lastEntryUuid);
+  if (boundary.lastEntryUuid !== null && boundaryIndex < 0) return null;
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
+}
 function encodeCwdDashed(cwd) {
   return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
 }
@@ -1899,6 +1943,8 @@ var plugin = {
     }
     return null;
   },
+  sessionModelTranscriptBoundary,
+  detectSessionModelAfterBoundary,
   detectSessionReasoningEffort(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
     if (!path || !host.fs.fileExists(path)) return null;
