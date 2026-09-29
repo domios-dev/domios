@@ -97,11 +97,11 @@ fn tab_respond_marks_trust_prompt_notification_answered() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[test]
 fn tab_respond_answers_trust_prompt_in_pair_tabs() {
-    let screen = std::fs::read_to_string(
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"),
-    )
-    .expect("Claude trust fixture");
+    let screen =
+        std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
+        ))
+        .expect("Claude trust fixture");
     let (fixture, tab_id, _) = fixture_with_screen(&screen);
     {
         let mut mux = fixture.service.mux.write();
@@ -135,7 +135,9 @@ fn tab_respond_answers_trust_prompt_in_pair_tabs() {
         true,
     );
     assert_eq!(
-        fixture.service.respond_prompt(&tab_id, &(affirmative + 1).to_string()),
+        fixture
+            .service
+            .respond_prompt(&tab_id, &(affirmative + 1).to_string()),
         Ok(RespondPromptOutcome::Sent)
     );
 }
@@ -339,9 +341,8 @@ async fn respond_prompt_reports_not_on_screen_instead_of_ok() {
 
 #[tokio::test]
 async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
-    let response = crate::api::agent_routes::respond_prompt_response(
-        RespondPromptOutcome::PromptNotOnScreen,
-    );
+    let response =
+        crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::PromptNotOnScreen);
     assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -354,6 +355,4 @@ async fn respond_prompt_outcome_maps_not_on_screen_to_conflict() {
     let invalid =
         crate::api::agent_routes::respond_prompt_response(RespondPromptOutcome::InvalidOption);
     assert_eq!(invalid.status(), axum::http::StatusCode::BAD_REQUEST);
-}
-
 }

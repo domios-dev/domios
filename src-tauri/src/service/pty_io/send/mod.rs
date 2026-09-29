@@ -201,12 +201,6 @@ fn require_submission_result(
         .map(|_| ())
 }
 
-fn modal_refusal_detail(tab_id: &str) -> String {
-    format!(
-        "provider-classified modal dialog is visible; answer a numbered prompt with `codeterm tab respond OPTION --tab {tab_id}`"
-    )
-}
-
 fn public_agent_input_readiness(
     tab: &crate::multiplexer::types::Tab,
 ) -> Option<Result<(), String>> {
@@ -544,7 +538,7 @@ impl ServiceContext {
             crate::service::inject_verify::InjectionError::AgentTuiPresent { .. } => {
                 DeliveryError::TabBusyRefused {
                     tab: delivery_target.to_string(),
-                    detail: modal_refusal_detail(delivery_target),
+                    detail: "provider-classified modal dialog is visible".to_string(),
                 }
             }
             error => DeliveryError::from_injection(delivery_target, error),
