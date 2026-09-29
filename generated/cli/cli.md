@@ -2625,7 +2625,7 @@ Install a plugin by id from channels, or directly from a local folder
 - `--channel` — Disambiguate channel installs when more than one channel offers the id
 - `--from-dir` — Install from a local plugin directory
 - `<id>` — Plugin id to install from registered channels
-- `--id-override` — Override the install id. Defaults to plugin.json#id or folder name
+- `--id-override` — Rename the installed runtime plugin id, including plugin.json#id
 
 #### `codeterm plugin list`
 
