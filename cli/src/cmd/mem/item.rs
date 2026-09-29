@@ -51,6 +51,10 @@ pub(super) struct SaveMemItem {
 /// payload the daemon's `mem.save` socket method expects. Exits the process
 /// on unresolvable input (missing body), matching prior CLI behavior.
 pub(super) fn build_save_payload(item: SaveMemItem) -> serde_json::Value {
+    if validate_save_importance(item.importance).is_err() {
+        eprintln!("Error: importance must be finite and within 0.0..=5.0");
+        std::process::exit(1);
+    }
     let resolved_body = match resolve_text(item.body, item.body_file) {
         Ok(Some(b)) => b,
         Ok(None) => {
@@ -91,6 +95,25 @@ pub(super) fn build_save_payload(item: SaveMemItem) -> serde_json::Value {
         "skip_extract": item.skip_extract,
         "pinned": item.pin,
     })
+}
+
+fn validate_save_importance(importance: f64) -> Result<(), ()> {
+    if importance.is_finite() && (0.0..=5.0).contains(&importance) {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_save_importance;
+
+    #[test]
+    fn save_rejects_nan_and_out_of_range_importance() {
+        assert!(validate_save_importance(f64::NAN).is_err());
+        assert!(validate_save_importance(5.1).is_err());
+    }
 }
 
 pub(crate) fn validate_mem_forget_confirmation(area: &str, yes: bool) -> Result<(), String> {

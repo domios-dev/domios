@@ -4,6 +4,13 @@
 use super::reindex::compose_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
+use rusqlite::OptionalExtension;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveOutcome {
+    pub id: String,
+    pub outcome: String,
+}
 
 /// What a batch forget actually did — deleted rows and the extraction
 /// generations that lost authority with them, reported separately because they
@@ -16,7 +23,7 @@ pub struct AreaForgetOutcome {
 
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, false)
+        self.save_inner(item, false).map(|outcome| outcome.id)
     }
 
     /// Raw insert that skips dedup, auto-extraction of child items, and
@@ -29,7 +36,15 @@ impl MemManager {
     }
 
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, true)
+        self.save_inner(item, true).map(|outcome| outcome.id)
+    }
+
+    pub fn save_with_outcome(
+        &self,
+        item: NewMemItem,
+        replace: bool,
+    ) -> Result<SaveOutcome, String> {
+        self.save_inner(item, replace)
     }
 
     /// Create a bundled item with its fingerprint in the same insert —
@@ -65,34 +80,63 @@ impl MemManager {
         Ok(id)
     }
 
-    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
+    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<SaveOutcome, String> {
         self.guard_commit()?;
         let conn = self.conn.lock();
 
-        if !replace && !item.title.is_empty() {
-            let existing: Option<String> = conn
+        if !item.title.is_empty() {
+            let existing: Option<(String, Option<String>)> = conn
                 .query_row(
-                    "SELECT id FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
+                    "SELECT id, body_inline FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
                     rusqlite::params![item.kind.as_str(), &item.title],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
-                .ok();
-            if let Some(dup_id) = existing {
-                log::info!(
-                    "[mem] dedup: bumping recurrence on existing {} (same kind+title)",
-                    dup_id
-                );
-                let _ = conn.execute(
-                    "UPDATE mem_items SET recurrence_count = recurrence_count + 1,
-                                         accessed_at = ?1
-                     WHERE id = ?2",
-                    rusqlite::params![chrono::Utc::now().to_rfc3339(), &dup_id],
-                );
-                return Ok(dup_id);
+                .optional()
+                .map_err(|error| format!("find existing mem item: {error}"))?;
+            if let Some((existing_id, current_body)) = existing {
+                let current_body = current_body
+                    .or_else(|| {
+                        store::get(&conn, &existing_id, &self.blobs_dir)
+                            .ok()
+                            .flatten()
+                            .map(|item| item.body)
+                    })
+                    .unwrap_or_default();
+                let normalize = |body: &str| body.split_whitespace().collect::<Vec<_>>().join(" ");
+                if normalize(&current_body) == normalize(&item.body) {
+                    let _ = conn.execute(
+                        "UPDATE mem_items SET recurrence_count = recurrence_count + 1, accessed_at = ?1 WHERE id = ?2",
+                        rusqlite::params![chrono::Utc::now().to_rfc3339(), &existing_id],
+                    );
+                    return Ok(SaveOutcome {
+                        id: existing_id,
+                        outcome: "unchanged".into(),
+                    });
+                }
+                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
+                drop(conn);
+                self.revoke_extraction(&existing_id);
+                self.enqueue_embedding(&existing_id, &item);
+                return Ok(SaveOutcome {
+                    id: existing_id,
+                    outcome: "updated".into(),
+                });
             }
         }
 
         let id = if replace {
+            if let Some(existing_id) =
+                store::find_by_kind_title(&conn, item.kind.as_str(), &item.title)?
+            {
+                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
+                drop(conn);
+                self.revoke_extraction(&existing_id);
+                self.enqueue_embedding(&existing_id, &item);
+                return Ok(SaveOutcome {
+                    id: existing_id,
+                    outcome: "updated".into(),
+                });
+            }
             store::upsert(&conn, &item, &self.blobs_dir)?
         } else {
             store::insert(&conn, &item, &self.blobs_dir)?
@@ -127,7 +171,26 @@ impl MemManager {
                 self.embed_queue.enqueue(id.clone(), embed_text);
             }
         }
-        Ok(id)
+        Ok(SaveOutcome {
+            id,
+            outcome: "created".into(),
+        })
+    }
+
+    fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
+        #[cfg(feature = "embeddings")]
+        if super::body_is_embeddable(&item.body) {
+            let embed_text = compose_embed_text(
+                &format!("{:?}", item.kind).to_lowercase(),
+                &item.title,
+                item.area.as_deref(),
+                &item.tags,
+                &item.body,
+            );
+            self.embed_queue.enqueue(id.to_string(), embed_text);
+        }
+        #[cfg(not(feature = "embeddings"))]
+        let _ = (id, item);
     }
 
     pub fn get(&self, id: &str) -> Result<Option<MemItem>, String> {

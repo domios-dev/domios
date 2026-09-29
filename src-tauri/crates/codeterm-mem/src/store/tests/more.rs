@@ -43,15 +43,15 @@ fn history_logs_create_update_delete_events() {
     })
     .unwrap();
 
-    with_changed_by("user", || {
+    with_changed_by("worker:extract", || {
         update(
             &conn,
             &id,
             &MemUpdate {
                 title: Some("hist one v2".into()),
-                summary: None,
-                area: None,
-                tags: None,
+                summary: Some("new summary".into()),
+                area: Some("updated-area".into()),
+                tags: Some(vec!["updated-tag".into()]),
                 body: Some("new body".into()),
                 importance: Some(4.5),
                 bump_recurrence: None,
@@ -75,6 +75,11 @@ fn history_logs_create_update_delete_events() {
     assert!(history[0].old_title.is_none());
 
     assert_eq!(history[1].change_type, "update");
+    assert_eq!(history[1].changed_by, "worker:extract");
+    assert_eq!(
+        history[1].changed_fields,
+        vec!["title", "body", "importance", "summary", "area", "tags"]
+    );
     assert_eq!(history[1].old_title.as_deref(), Some("hist one"));
     assert_eq!(history[1].new_title.as_deref(), Some("hist one v2"));
     assert_eq!(history[1].old_body.as_deref(), Some("original body"));
