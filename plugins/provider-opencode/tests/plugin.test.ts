@@ -470,9 +470,11 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
   );
   assert(
     configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)") &&
-      configured.includes("Q(windows:C:\\Temp\\restored-context.md)") && !configured.includes("Copy-Item"),
+      !configured.includes("Copy-Item"),
     "session-config wrapper preserves the explicit full-TUI resume argv",
   );
+  const configuredConfig = JSON.parse(configured.match(/\$ct_config = Q\(windows:(.*?)\) \| ConvertFrom-Json/)?.[1] || "{}") as { instructions?: string[] };
+  eq(configuredConfig.instructions, ["C:\\Temp\\restored-context.md"], "resume config references the host context file directly");
   assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
 }
 
@@ -496,12 +498,16 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const launch = p.buildLaunchCommand({ task: hostileTask });
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
-  assert(launch.includes("'C:\\Temp\\opencode task.md'"), "OpenCode config references the host task file");
+  const launchConfig = JSON.parse(launch.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1] || "{}") as { instructions?: string[] };
+  eq(launchConfig.instructions, ["C:\\Temp\\opencode task.md"], "OpenCode config references the host task file");
   assert(!launch.includes("Copy-Item") && !launch.includes("mkdir -p .codeterm") && !launch.includes("New-Item -ItemType Directory -Force -Path '.codeterm'"), "OpenCode does not create task files in the project");
   assert(launch.includes("--prompt "), "OpenCode submits the host-selected starter turn");
   assert(!launch.includes(hostileTask), "OpenCode task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
-  assert(!idle.includes("--prompt "), "OpenCode idle launch does not submit a starter turn");
+  const idleStarter = p.starterPromptText("idle_wakeup");
+  const taskStarter = p.starterPromptText("assigned_task");
+  assert(!!idleStarter && idle.includes(`--prompt '${idleStarter}'`), "OpenCode idle launch submits the idle wake-up starter");
+  assert(!!taskStarter && !idle.includes(taskStarter), "OpenCode idle launch never uses the task starter");
   const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
   assert(!silent.includes("--prompt"), "OpenCode silent launch has no starter turn");
   const teamText = "host-owned team bootstrap";
