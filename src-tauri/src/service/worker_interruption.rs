@@ -334,6 +334,15 @@ impl super::ServiceContext {
             log::error!("[worker-interruption] fence failed: {error}");
             return false;
         }
+        if request.event == WorkerInterruptionEvent::ProcessExited {
+            let loss = self.worker_loss_for_task(
+                &request.plan_id,
+                &request.task_id,
+                tab_id,
+                crate::service::worker_loss::WorkerLossCause::ProcessExited,
+            );
+            self.report_worker_losses(loss.into_iter().collect());
+        }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {

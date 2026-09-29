@@ -185,8 +185,9 @@ pub(crate) async fn mux_close_team_service_core(
     svc: &ServiceState,
     team_id: String,
     caller_tab_id: Option<String>,
+    force_busy: bool,
 ) -> Result<crate::service::TeamCloseResult, String> {
-    svc.close_team(&team_id, close_team_caller(caller_tab_id))
+    svc.close_team(&team_id, close_team_caller(caller_tab_id), force_busy)
         .await
 }
 
@@ -199,8 +200,15 @@ pub async fn mux_close_team(
     svc: State<'_, ServiceState>,
     team_id: String,
     caller_tab_id: Option<String>,
+    force_busy: Option<bool>,
 ) -> Result<crate::service::TeamCloseResult, String> {
-    mux_close_team_service_core(svc.inner(), team_id, caller_tab_id).await
+    mux_close_team_service_core(
+        svc.inner(),
+        team_id,
+        caller_tab_id,
+        force_busy.unwrap_or(false),
+    )
+    .await
 }
 
 pub(crate) async fn mux_add_team_member_service_core(

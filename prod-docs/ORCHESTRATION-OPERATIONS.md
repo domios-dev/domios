@@ -209,4 +209,20 @@ and crons; workspace close applies this to every Team it contains. A Planner
 without spawn authority routes requests, including role, reason, and owned work,
 to its Orchestrator.
 
-<!-- revision: 9 -->
+## Closing a busy Team
+
+`codeterm team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP
+`409`) while any Team task is `in_progress` or any Worker member is working; the
+message names each Worker and task and nothing is closed. Finish or park the
+work first, or pass `--force` (`force_busy: true`; the desktop and web close
+dialogs send it after confirmation). A forced close reports `killed_workers`,
+`unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks
+is never archived: it stays `active`, ownerless and teamless, with an
+`orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list`
+shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with
+the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next`
+advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
+A workspace close passes its `force` through as `force_busy`. A workspace with
+no tabs and no Teams closes for any caller, even without tab identity.
+
+<!-- revision: 10 -->

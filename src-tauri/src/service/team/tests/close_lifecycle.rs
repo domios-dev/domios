@@ -893,7 +893,7 @@ async fn service_close_team_preserves_untracked_lane_after_pty_shutdown() {
 
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::AgentTab(orchestrator))
+        .close_team(&team_id, TeamMutationCaller::AgentTab(orchestrator), true)
         .await
         .unwrap();
 
@@ -954,7 +954,7 @@ async fn team_close_deletes_team_bound_recurring_series() {
 
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::Human)
+        .close_team(&team_id, TeamMutationCaller::Human, false)
         .await
         .unwrap();
 

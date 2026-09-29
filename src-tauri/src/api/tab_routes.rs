@@ -586,10 +586,17 @@ pub async fn exec_in_tab(
     Ok(Json(resp))
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct CloseTabQuery {
+    #[serde(default)]
+    force: bool,
+}
+
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
+    Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
@@ -598,14 +605,20 @@ pub async fn close_tab(
             &crate::dispatch::Command::TabClose {
                 tab_id,
                 caller_tab_id: Some(caller_tab_id),
+                force: query.force,
             },
             state.svc.as_ref(),
         )
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
+    let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
     state.svc.close_tab(&tab_id).map_err(map_close_error)?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut result = serde_json::json!({ "ok": true });
+    if !warnings.is_empty() {
+        result["warnings"] = serde_json::json!(warnings);
+    }
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -669,6 +682,7 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
     } else if e.starts_with("Workspace is closing:")
         || e.starts_with("Workspace close reservation lost:")
         || e.starts_with("Workspace changed while closing:")
+        || e.starts_with(crate::service::worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX)
     {
         StatusCode::CONFLICT
     } else {

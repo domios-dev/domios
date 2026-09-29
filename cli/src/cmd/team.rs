@@ -39,9 +39,9 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
                 "caller_tab_id": caller_tab_id,
             })),
         ),
-        TeamAction::Close { team_id } => client.call_detailed(
+        TeamAction::Close { team_id, force } => client.call_detailed(
             "team.close",
-            Some(close_team_params(&team_id, caller_tab_id.as_deref())),
+            Some(close_team_params(&team_id, caller_tab_id.as_deref(), force)),
         ),
         TeamAction::AdoptPlan { team_id, plan_id } => {
             adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
@@ -195,12 +195,13 @@ fn adopt_plan_params(
     }))
 }
 
-fn close_team_params(team_id: &str, caller_tab_id: Option<&str>) -> Value {
+fn close_team_params(team_id: &str, caller_tab_id: Option<&str>, force_busy: bool) -> Value {
     json!({
         "team_id": team_id,
         "force": true,
         "confirm": team_id,
         "caller_tab_id": caller_tab_id,
+        "force_busy": force_busy,
     })
 }
 
@@ -287,6 +288,9 @@ fn print_human(value: &Value) {
         if let Some(inventory) = value.get("inventory") {
             print_close_inventory(inventory);
         }
+        for line in forced_close_lines(value) {
+            println!("{line}");
+        }
         print_members(
             value
                 .get("members")
@@ -302,6 +306,60 @@ fn print_human(value: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("?");
     println!("Adopted plan {plan_id} into Team {team_id}.");
+}
+
+fn forced_close_lines(value: &Value) -> Vec<String> {
+    let text = |item: &Value, key: &str| {
+        item.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("<none>")
+            .to_string()
+    };
+    let items = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut lines = Vec::new();
+    for worker in items("killed_workers") {
+        let tasks: Vec<&str> = worker
+            .get("task_ids")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let working = worker.get("working").and_then(Value::as_bool) == Some(true);
+        lines.push(format!(
+            "Killed Worker {} ({}) working={working} tasks={}",
+            text(&worker, "tab_id"),
+            text(&worker, "title"),
+            if tasks.is_empty() {
+                "<none>".to_string()
+            } else {
+                tasks.join(",")
+            }
+        ));
+    }
+    for task in items("unfinished_tasks") {
+        lines.push(format!(
+            "Unfinished task {} \"{}\" plan={} tab={}",
+            text(&task, "task_id"),
+            text(&task, "name"),
+            text(&task, "plan_id"),
+            text(&task, "tab_id")
+        ));
+    }
+    for plan in items("flagged_plans") {
+        lines.push(format!(
+            "Flagged plan {} (still active): {}",
+            text(&plan, "plan_id"),
+            text(&plan, "reason")
+        ));
+    }
+    lines
 }
 
 fn print_close_inventory(inventory: &Value) {
@@ -450,18 +508,41 @@ mod tests {
     #[test]
     fn close_team_params_echo_the_target_for_headerless_human_confirmation() {
         assert_eq!(
-            close_team_params("team-1", None),
+            close_team_params("team-1", None, false),
             json!({
                 "team_id": "team-1",
                 "force": true,
                 "confirm": "team-1",
                 "caller_tab_id": null,
+                "force_busy": false,
             })
         );
         assert_eq!(
-            close_team_params("team-1", Some("manager-1"))["caller_tab_id"],
+            close_team_params("team-1", Some("manager-1"), false)["caller_tab_id"],
             "manager-1",
         );
+        assert_eq!(close_team_params("team-1", None, true)["force_busy"], true);
+    }
+
+    #[test]
+    fn forced_close_lines_name_every_killed_worker_task_and_flagged_plan() {
+        let lines = forced_close_lines(&json!({
+            "team": { "id": "team-1" },
+            "killed_workers": [
+                { "tab_id": "tab-w1", "title": "Ranker", "working": true, "task_ids": ["task-1"] },
+                { "tab_id": "tab-w2", "title": "Idle", "working": true, "task_ids": [] },
+            ],
+            "unfinished_tasks": [
+                { "plan_id": "pl-1", "task_id": "task-1", "name": "Rank", "tab_id": "tab-w1" },
+            ],
+            "flagged_plans": [ { "plan_id": "pl-1", "reason": "reason-token" } ],
+        }));
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].contains("tab-w1") && lines[0].contains("task-1"));
+        assert!(lines[1].contains("tab-w2"));
+        assert!(lines[2].contains("task-1") && lines[2].contains("pl-1"));
+        assert!(lines[3].contains("pl-1") && lines[3].contains("reason-token"));
+        assert!(forced_close_lines(&json!({ "team": { "id": "team-1" } })).is_empty());
     }
 
     #[test]

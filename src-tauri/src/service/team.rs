@@ -8,6 +8,7 @@ use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
 mod close;
+mod close_busy;
 #[cfg(test)]
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
@@ -316,13 +317,16 @@ impl ServiceContext {
         Ok(team)
     }
 
+    /// Refuses while a Team task is in progress or a Worker is working unless
+    /// `force`; a forced close reports every killed Worker and task.
     pub(crate) async fn close_team(
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
+        force: bool,
     ) -> Result<TeamCloseResult, String> {
         let caller_kind = caller.kind();
-        let result = self.close_team_inner(team_id, caller).await;
+        let result = self.close_team_inner(team_id, caller, force).await;
         if let Err(error) = &result {
             log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
         }
@@ -333,6 +337,7 @@ impl ServiceContext {
         &self,
         team_id: &str,
         caller: TeamMutationCaller,
+        force: bool,
     ) -> Result<TeamCloseResult, String> {
         let close_at = now_ms();
         let prepared = {
@@ -340,14 +345,17 @@ impl ServiceContext {
             prepare_team_close(&mux, team_id, &caller)?
         };
         let lane_plan_store = std::sync::Arc::clone(&self.plan_store);
-        let lane_team_id = team_id.to_string();
-        let lane_member_ids = prepared.member_tab_ids.clone();
-        let lanes = tokio::task::spawn_blocking(move || {
-            let plans = lane_plan_store.list_full();
-            team_close_lanes(&plans, &lane_team_id, &lane_member_ids)
-        })
-        .await
-        .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+        let plans = tokio::task::spawn_blocking(move || lane_plan_store.list_full())
+            .await
+            .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+        let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
+        let busy = {
+            let mux = self.mux.read();
+            close_busy::team_close_busy(&mux, &plans, team_id, &prepared.member_tab_ids)
+        };
+        if !busy.is_empty() && !force {
+            return Err(busy.refusal(team_id));
+        }
         let plan_store = std::sync::Arc::clone(&self.plan_store);
         let transaction_team_id = team_id.to_string();
         let transaction_member_ids = prepared.member_tab_ids.clone();
@@ -417,6 +425,17 @@ impl ServiceContext {
         if let Err(error) = &lane_cleanup {
             log::error!("{error}");
         }
+        let flagged_plans = changed_plan_ids
+            .iter()
+            .filter_map(|plan_id| self.plan_store.get(plan_id))
+            .filter_map(|plan| {
+                let reason = plan.orphaned.map(|orphan| orphan.reason)?;
+                Some(close_busy::TeamCloseFlaggedPlan {
+                    plan_id: plan.id,
+                    reason,
+                })
+            })
+            .collect();
         for plan_id in changed_plan_ids {
             self.emit_plan_changed(&plan_id);
         }
@@ -429,7 +448,20 @@ impl ServiceContext {
         }
         self.emit_state_changed_after_bus_publish();
         let inventory = lane_cleanup?;
-        Ok(TeamCloseResult { team, inventory })
+        if !busy.is_empty() {
+            log::warn!(
+                "[team-close] forced close of Team {team_id} killed {} Worker(s) and left {} in-progress task(s)",
+                busy.workers.len(),
+                busy.tasks.len()
+            );
+        }
+        Ok(TeamCloseResult {
+            team,
+            inventory,
+            killed_workers: busy.workers,
+            unfinished_tasks: busy.tasks,
+            flagged_plans,
+        })
     }
 
     fn delete_team_crons(&self, team_id: &str) {
@@ -528,6 +560,7 @@ impl ServiceContext {
             .list_full()
             .into_iter()
             .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
+            .filter(|plan| !plan.is_orphaned_active())
         {
             let team_id = self.valid_live_plan_team(&mux, &plan.id)?;
             if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan.id.clone()) {
@@ -545,7 +578,7 @@ impl ServiceContext {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return Err(TeamPlanError::Plan(PlanError::NotFound));
         };
-        if plan.status == crate::plan::PlanStatus::Archived {
+        if plan.status == crate::plan::PlanStatus::Archived || plan.is_orphaned_active() {
             return Ok(());
         }
         let mux = self.mux.read();

@@ -179,6 +179,7 @@ pass an absolute path with --project, or omit --project to use the current worki
             plan.planner = None;
             plan.team_id = Some(team_id.to_string());
             plan.status = PlanStatus::Active;
+            plan.orphaned = None;
             Ok(plan.clone())
         })
     }

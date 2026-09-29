@@ -703,7 +703,15 @@ pub fn build_plan_state_snapshot(
         mission_control: mission_control::build_mission_control(plan, now_ms),
         next_actions: vec![],
     };
-    snapshot.next_actions = compute_next_actions(&snapshot);
+    snapshot.next_actions = match plan.orphaned.as_ref() {
+        Some(orphan) if plan.is_orphaned_active() => {
+            vec![super::next_actions::adopt_orphaned_plan_action(
+                &plan.id,
+                &orphan.reason,
+            )]
+        }
+        _ => compute_next_actions(&snapshot),
+    };
     snapshot
 }
 #[cfg(test)]

@@ -1,3 +1,4 @@
+mod liveness;
 mod quality;
 mod work_facet;
 
@@ -22,6 +23,7 @@ impl crate::client::RpcClient for StubPlanRpc {
         self.calls.push(method.to_string());
         match method {
             "plan.get" => Ok(self.plan.clone()),
+            "plan.reconcile" => Ok(json!({ "drift": [] })),
             "plan.files" => Ok(json!({
                 "index_path": "C:/central/plans/active/pl_1/INDEX.md",
                 "entries": []

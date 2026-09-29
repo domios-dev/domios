@@ -514,6 +514,12 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
 pub struct TeamCloseResult {
     pub team: Team,
     pub inventory: TeamCloseInventory,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub killed_workers: Vec<super::close_busy::TeamCloseBusyWorker>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unfinished_tasks: Vec<super::close_busy::TeamCloseBusyTask>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flagged_plans: Vec<super::close_busy::TeamCloseFlaggedPlan>,
 }
 
 #[derive(Debug, Serialize)]

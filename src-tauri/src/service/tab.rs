@@ -5,6 +5,7 @@ use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
+use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
@@ -164,13 +165,16 @@ impl ServiceContext {
         false
     }
 
-    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close
-    /// and requires caller attribution before closing a coordinator Tab.
+    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close,
+    /// requires caller attribution before closing a coordinator Tab, and makes
+    /// an agent caller pass `force` to close a Worker holding in-progress work.
+    /// Returns the warnings a human close of such a Worker must surface.
     pub fn close_tab_guarded(
         &self,
         caller_tab_id: Option<&str>,
         target_tab_id: &str,
-    ) -> Result<(), String> {
+        force: bool,
+    ) -> Result<Vec<String>, String> {
         let (canon_target, canon_caller) = {
             let mux = self.mux.read();
             let target = mux
@@ -198,7 +202,23 @@ impl ServiceContext {
                 Some(_) => {}
             }
         }
-        self.close_tab(target_tab_id)
+        let assignments = self.in_progress_assignments_for_tab(&canon_target);
+        let agent_caller = caller_tab_id.is_some_and(|caller| !caller.trim().is_empty());
+        if agent_caller && !force && !assignments.is_empty() {
+            let lines: Vec<String> = assignments.iter().map(|loss| loss.refusal_line()).collect();
+            return Err(format!(
+                "{BUSY_WORKER_CLOSE_REFUSAL_PREFIX}: Tab {canon_target} is a Worker with unfinished work: {}. \
+                 Rerun with --force to close it; its Orchestrator is then notified with the recovery command.",
+                lines.join("; ")
+            ));
+        }
+        self.close_tab(target_tab_id)?;
+        Ok(busy_worker_close_warnings(&canon_target, &assignments))
+    }
+
+    /// Warnings for a close that bypassed the caller guard (human surfaces).
+    pub(crate) fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
+        busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
     }
 
     pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {

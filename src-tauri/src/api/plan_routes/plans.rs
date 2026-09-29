@@ -524,6 +524,7 @@ mod tests {
             element_count: 0,
             loop_count: 0,
             has_goal: false,
+            orphaned: None,
         }
     }
 

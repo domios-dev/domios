@@ -16,10 +16,15 @@ pub enum TeamAction {
         /// New Team name
         name: String,
     },
-    /// Close every member tab and remove the Team registry entry
+    /// Close every member tab and remove the Team registry entry. Refused while
+    /// a Team task is in progress or a Worker is working, unless --force.
     Close {
         /// Team ID
         team_id: String,
+        /// Close anyway: reports every killed Worker and task, and keeps plans
+        /// with unfinished tasks active and flagged
+        #[arg(long)]
+        force: bool,
     },
     /// Bind an existing plan to a Team
     AdoptPlan {

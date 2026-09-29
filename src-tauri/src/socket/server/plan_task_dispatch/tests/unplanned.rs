@@ -364,6 +364,7 @@ fn team_close_cleans_up_unplanned_worker() {
     tauri::async_runtime::block_on(harness.fixture.service.close_team(
         &harness.team_id,
         TeamMutationCaller::AgentTab(harness.owner_tab.clone()),
+        true,
     ))
     .unwrap();
     assert!(harness

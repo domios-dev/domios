@@ -24,7 +24,13 @@ pub trait CommandPort: Send + Sync {
         full: bool,
     ) -> Result<serde_json::Value, String>;
     fn read_tab_screen(&self, tab_id: &str, formatted: bool) -> Result<serde_json::Value, String>;
-    fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String>;
+    /// Returns warnings the caller must surface (e.g. in-progress work lost).
+    fn close_tab_guarded(
+        &self,
+        caller: Option<&str>,
+        tab_id: &str,
+        force: bool,
+    ) -> Result<Vec<String>, String>;
     fn focus_tab(&self, tab_id: &str) -> Result<(), String>;
     fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String>;
     fn set_tab_description(&self, tab_id: &str, desc: &str) -> Result<(), String>;
@@ -113,10 +119,13 @@ pub enum Command {
 
     /// Close a tab and kill its PTY. `caller_tab_id` is the tab making the
     /// request (CODETERM_TAB_ID), used to refuse coordinator self-close.
+    /// `force` lets an agent caller close a Worker that holds in-progress work.
     TabClose {
         tab_id: String,
         #[serde(default)]
         caller_tab_id: Option<String>,
+        #[serde(default)]
+        force: bool,
     },
 
     /// Focus a tab (move keyboard focus).
@@ -281,7 +290,8 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         Command::TabClose {
             tab_id,
             caller_tab_id,
-        } => cmd_tab_close(ctx, tab_id, caller_tab_id.as_deref()),
+            force,
+        } => cmd_tab_close(ctx, tab_id, caller_tab_id.as_deref(), *force),
         Command::TabFocus { tab_id } => cmd_tab_focus(ctx, tab_id),
         Command::TabRename { tab_id, title } => cmd_tab_rename(ctx, tab_id, title),
         Command::TabDescribe {
@@ -651,9 +661,14 @@ fn cmd_tab_close(
     ctx: &dyn CommandPort,
     tab_id: &str,
     caller_tab_id: Option<&str>,
+    force: bool,
 ) -> Result<CommandResult, String> {
-    ctx.close_tab_guarded(caller_tab_id, tab_id)?;
-    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+    let warnings = ctx.close_tab_guarded(caller_tab_id, tab_id, force)?;
+    let mut result = serde_json::json!({"ok": true});
+    if !warnings.is_empty() {
+        result["warnings"] = serde_json::json!(warnings);
+    }
+    Ok(CommandResult::Json(result))
 }
 
 fn cmd_tab_focus(ctx: &dyn CommandPort, tab_id: &str) -> Result<CommandResult, String> {

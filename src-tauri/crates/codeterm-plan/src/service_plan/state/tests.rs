@@ -542,3 +542,34 @@ fn queued_request_marks_stale_planner_dead_with_recovery_action() {
         Some("replace_or_rebind_planner")
     );
 }
+
+#[test]
+fn orphaned_plan_next_action_is_adoption_not_dispatch() {
+    let mut plan = fixture();
+    plan.orphaned = Some(crate::plan::PlanOrphan {
+        team_id: "team_gone".into(),
+        reason: "reason-token".into(),
+        unfinished_task_ids: vec!["t_pending".into()],
+        at: 1,
+    });
+    let coverage = compute_coverage_report(&plan);
+
+    let snap = build_plan_state_snapshot(
+        &plan,
+        coverage,
+        vec![],
+        vec![],
+        vec![],
+        &HashSet::new(),
+        None,
+        1,
+    );
+
+    assert_eq!(snap.next_actions.len(), 1);
+    assert_eq!(
+        snap.next_actions[0].kind,
+        super::super::next_actions::NextActionKind::AdoptPlan
+    );
+    assert!(snap.next_actions[0].message.contains(&plan.id));
+    assert!(snap.next_actions[0].message.contains("reason-token"));
+}
