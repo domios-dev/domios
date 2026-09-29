@@ -26,7 +26,10 @@
   ],
   "spawn": {
     "sandboxedLinuxLaunch": {
-      "networkAccessArgs": ["-c", "sandbox_workspace_write.network_access=true"],
+      "networkAccessArgs": [
+        "-c",
+        "sandbox_workspace_write.network_access=true"
+      ],
       "networkAccessConfigPath": "~/.codex/config.toml",
       "networkAccessSetting": "sandbox_workspace_write.network_access"
     },
