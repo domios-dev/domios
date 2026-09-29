@@ -208,3 +208,40 @@ fn session_binding_deferral_rebind_preserves_agent_process() {
     assert_eq!(tab.pty_id, pty_before);
     assert_eq!(tab.agent_session_id.as_deref(), Some("new"));
 }
+
+#[test]
+fn a_verified_live_agent_never_takes_another_providers_session() {
+    use crate::api::hook_routes::foreign_provider_session_owner;
+    assert_eq!(
+        foreign_provider_session_owner(Some("claude"), "codex", true),
+        Some("claude")
+    );
+    assert_eq!(
+        foreign_provider_session_owner(Some("claude"), "claude", true),
+        None
+    );
+    assert_eq!(
+        foreign_provider_session_owner(Some("claude"), "codex", false),
+        None
+    );
+    assert_eq!(foreign_provider_session_owner(None, "codex", true), None);
+    let (mux, tab_id) = shared_mux();
+    {
+        let mut mux = mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.agent_session_id = Some("claude-session".into());
+        tab.session_binding_nonce = Some("launch-nonce".into());
+        tab.reported_session_binding_nonce = Some("launch-nonce".into());
+    }
+    let unreported = {
+        let mut mux = mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.reported_session_binding_nonce = None;
+        crate::service::tab_has_live_agent(tab)
+    };
+    assert!(
+        !unreported,
+        "an unreported binding is not a verified live owner"
+    );
+}
