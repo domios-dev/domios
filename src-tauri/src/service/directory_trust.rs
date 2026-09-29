@@ -538,7 +538,8 @@ impl ServiceContext {
             self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
             let cache = SHARED_TRUST.lock();
             let key = (agent_type, cwd.clone());
-            return if cache.trusted.get(&key) == Some(&true) || cache.checking.contains_key(&key) {
+            // An in-flight lookup still publishes the prompt, so the owner can answer it meanwhile.
+            return if cache.trusted.get(&key) == Some(&true) {
                 TrustDecision::Waiting
             } else {
                 TrustDecision::NotApplicable

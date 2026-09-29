@@ -278,7 +278,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
+fn untrusted_shared_lookup_surfaces_one_owner_prompt() {
     let folder = tempfile::tempdir().expect("owner checkout");
     let cwd = folder.path().to_string_lossy().into_owned();
     let (mut mux, tab_id) = state_with_tab(Some(&cwd), None);
@@ -323,11 +323,9 @@ fn untrusted_shared_lookup_surfaces_one_owner_prompt_after_waiting() {
         fixture
             .service
             .respond_to_directory_trust(&tab_id, Some("owner trust screen")),
-        TrustDecision::Waiting
+        TrustDecision::NotApplicable,
+        "an in-flight lookup leaves the prompt to the owner instead of claiming it"
     );
-    assert!(!crate::service::launch_readiness::owner_prompt_is_active(
-        &tab_id
-    ));
 
     {
         let mut cache = SHARED_TRUST.lock();
