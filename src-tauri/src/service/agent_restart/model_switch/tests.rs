@@ -221,7 +221,13 @@ fn agent_model_switch_observes_only_the_current_binding_report() {
         NEXT_MODEL,
         std::time::Duration::ZERO,
     );
-    assert_eq!(observed.as_deref(), Some(NEXT_MODEL));
+    assert_eq!(
+        observed,
+        Some(ModelSwitchObservation {
+            model: NEXT_MODEL.into(),
+            evidence: ModelSwitchEvidence::SessionStartReport,
+        })
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -274,5 +280,48 @@ fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn()
     }
     crate::service::boot_wait::notify_boot_changed();
 
-    assert_eq!(waiter.join().unwrap().as_deref(), Some(NEXT_MODEL));
+    assert_eq!(
+        waiter.join().unwrap(),
+        Some(ModelSwitchObservation {
+            model: NEXT_MODEL.into(),
+            evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+        })
+    );
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn model_switch_without_model_evidence_returns_pending_confirmation() {
+    const PROVIDER: &str = "switchable-pending-2b7e";
+    let (mut mux, tab_id) = seeded_tab(PROVIDER);
+    mux.get_tab_mut(&tab_id)
+        .unwrap()
+        .pending_model_switch_observation =
+        Some(crate::multiplexer::types::PendingModelSwitchObservation {
+            session_id: SESSION.into(),
+            launched_model: NEXT_MODEL.into(),
+        });
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::with_session(PROVIDER, SESSION)
+            .with_model_switch(ModelSwitchMode::RestartResume),
+    ));
+
+    let observation = fixture.service.await_model_switch_observation(
+        &tab_id,
+        PROVIDER,
+        SESSION,
+        NEXT_MODEL,
+        std::time::Duration::ZERO,
+    );
+    assert_eq!(observation, None);
+    let confirmation = model_switch_confirmation(
+        &fixture.service.agent_registry,
+        PROVIDER,
+        NEXT_MODEL,
+        observation,
+    )
+    .expect("an unobserved model leaves confirmation pending");
+
+    assert_eq!(confirmation, ModelSwitchConfirmation::Pending);
 }
