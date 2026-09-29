@@ -175,6 +175,19 @@ fn render_mem_skill_list(value: &serde_json::Value) -> String {
 /// Print direct-injection text without the generic object wrapper.
 fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) {
     if let Ok(ref val) = result {
+        if !json_mode {
+            if let (Some(outcome), Some(id)) = (
+                val.get("outcome").and_then(|v| v.as_str()),
+                val.get("id").and_then(|v| v.as_str()),
+            ) {
+                println!("{outcome}: {id}");
+                return;
+            }
+            if let Some(id) = val.get("unchanged").and_then(|v| v.as_str()) {
+                println!("unchanged: {id}");
+                return;
+            }
+        }
         if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
             println!("{}", text);
             return;

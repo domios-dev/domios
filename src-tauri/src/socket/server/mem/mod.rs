@@ -40,6 +40,9 @@ pub(super) fn dispatch(
                 .map_err(|error| {
                     invalid_params(format!("Invalid mem.search parameters: {error}"))
                 })?;
+            if request.q.trim().is_empty() {
+                return Err(invalid_params("search query must not be empty"));
+            }
             execute_search(svc, request).map_err(internal_error)
         }
         "mem.get" => mem_get(params, svc),
@@ -206,18 +209,18 @@ fn mem_save(
     let kind_for_extract = item.kind;
     let replace = body.replace;
     let skip_extract = body.skip_extract;
-    let id = with_changed_by("user", || {
-        if replace {
-            svc.mem.save_replace(item)
-        } else {
-            svc.mem.save(item)
-        }
-    })
-    .map_err(internal_error)?;
+    let outcome = with_changed_by("user", || svc.mem.save_with_outcome(item, replace))
+        .map_err(internal_error)?;
+    let id = outcome.id;
     emit_activity(svc, "write", vec![id.clone()]);
 
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
-    if !skip_extract && !is_auto_extracted && auto_extract_enabled {
+    if crate::api::mem_routes::items::save_schedules_extraction(
+        &outcome.outcome,
+        skip_extract,
+        is_auto_extracted,
+        auto_extract_enabled,
+    ) {
         let mem_cfg = crate::config::memory_config();
         let default_agent = crate::config::default_agent_provider();
         crate::mem::auto_extract::spawn_extraction_worker(
@@ -230,7 +233,7 @@ fn mem_save(
             kind_for_extract,
         );
     }
-    Ok(serde_json::json!({ "id": id }))
+    Ok(serde_json::json!({ "id": id, "outcome": outcome.outcome }))
 }
 
 fn mem_delete(
@@ -278,7 +281,10 @@ fn mem_update(
     let updated =
         with_changed_by(&changed_by, || svc.mem.update(&id, patch)).map_err(internal_error)?;
     if !updated {
-        return Err(not_found(format!("mem item {} not found", id)));
+        if svc.mem.get(&id).map_err(internal_error)?.is_none() {
+            return Err(not_found(format!("mem item {} not found", id)));
+        }
+        return Ok(serde_json::json!({ "unchanged": id }));
     }
     emit_activity(svc, "update", vec![id.clone()]);
     Ok(serde_json::json!({ "updated": id }))

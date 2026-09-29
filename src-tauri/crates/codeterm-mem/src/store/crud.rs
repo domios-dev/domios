@@ -15,7 +15,120 @@ pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<
 }
 
 pub fn upsert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
+    let candidate = ids::compose(item.kind.as_str(), &ids::slugify(&item.title));
+    if exists(conn, &candidate).map_err(|e| e.to_string())? {
+        replace_existing(conn, &candidate, item, blobs_dir)?;
+        return Ok(candidate);
+    }
     insert_with_options(conn, item, blobs_dir, true, None)
+}
+
+pub fn find_by_kind_title(
+    conn: &Connection,
+    kind: &str,
+    title: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT id FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
+        params![kind, title],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("find mem item: {error}"))
+}
+
+pub fn replace_existing(
+    conn: &Connection,
+    id: &str,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<(), String> {
+    let Some(previous) = get(conn, id, blobs_dir)? else {
+        return Err(format!("mem item {id} not found"));
+    };
+    let mut changed = Vec::new();
+    if previous.title != item.title {
+        changed.push("title");
+    }
+    if previous.body != item.body {
+        changed.push("body");
+    }
+    if previous.summary != item.summary {
+        changed.push("summary");
+    }
+    if previous.area != item.area {
+        changed.push("area");
+    }
+    if previous.tags != item.tags {
+        changed.push("tags");
+    }
+    if previous.scope != item.scope.as_str() {
+        changed.push("scope");
+    }
+    if previous.source != item.source {
+        changed.push("source");
+    }
+    let previous_pinned: bool = conn
+        .query_row(
+            "SELECT COALESCE(is_pinned_wakeup, 0) != 0 FROM mem_items WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("read pinned state: {e}"))?;
+    if previous_pinned != item.pinned {
+        changed.push("pinned");
+    }
+    if (previous.importance - item.importance).abs() > f64::EPSILON {
+        changed.push("importance");
+    }
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let (inline, blob) = if item.body.len() > INLINE_BODY_LIMIT {
+        (None, Some(write_blob(blobs_dir, &item.body)?))
+    } else {
+        (Some(item.body.clone()), None)
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let tags = serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {e}"))?;
+    conn.execute(
+        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL WHERE id=?13",
+        params![item.title, item.summary, item.area, tags, inline, blob, item.source, item.importance, now, item.source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id],
+    ).map_err(|e| format!("replace mem item: {e}"))?;
+    conn.execute("DELETE FROM mem_fts WHERE mem_id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO mem_fts (mem_id,title,summary,body,tags) VALUES (?1,?2,?3,?4,?5)",
+        params![
+            id,
+            item.title,
+            item.summary.as_deref().unwrap_or(""),
+            item.body,
+            item.tags.join(" ")
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let old = HistorySnapshot {
+        title: Some(previous.title),
+        body: Some(previous.body),
+        importance: Some(previous.importance),
+        kind: Some(previous.kind.clone()),
+    };
+    let new = HistorySnapshot {
+        title: Some(item.title.clone()),
+        body: Some(item.body.clone()),
+        importance: Some(item.importance),
+        kind: Some(previous.kind),
+    };
+    history_log(
+        conn,
+        id,
+        "update",
+        &old,
+        &new,
+        Some(&format!("fields={}", changed.join(","))),
+    );
+    Ok(())
 }
 
 /// Create a bundled item and record its fingerprint in the SAME insert —
@@ -664,6 +777,10 @@ pub fn update(
         prev_fingerprint
     };
 
+    if !managed_changed && patch.bump_recurrence.unwrap_or(0) == 0 {
+        return Ok(false);
+    }
+
     let tags_json =
         serde_json::to_string(&new_tags).map_err(|e| format!("serialize tags: {}", e))?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -721,30 +838,46 @@ pub fn update(
     // can see the write happened — but leave old_/new_ at None for fields that were unchanged.
     let mut old = HistorySnapshot::default();
     let mut new = HistorySnapshot::default();
-    let mut dirty = false;
+    let mut changed_fields = Vec::new();
     if new_title != prev_title {
         old.title = Some(prev_title);
         new.title = Some(new_title);
-        dirty = true;
+        changed_fields.push("title");
     }
     if new_body != prev_body {
         old.body = Some(prev_body);
         new.body = Some(new_body);
-        dirty = true;
+        changed_fields.push("body");
     }
     if (new_importance - prev_importance).abs() > f64::EPSILON {
         old.importance = Some(prev_importance);
         new.importance = Some(new_importance);
-        dirty = true;
+        changed_fields.push("importance");
     }
-    if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
-        dirty = true;
+    if new_summary != prev_summary {
+        changed_fields.push("summary");
+    }
+    if new_area != prev_area {
+        changed_fields.push("area");
+    }
+    if new_tags != prev_tags {
+        changed_fields.push("tags");
+    }
+    if new_pinned != prev_pinned {
+        changed_fields.push("pinned");
     }
     // Kind is not patchable via MemUpdate, but record it so downstream consumers can see which kind the item was at update time.
-    if dirty {
+    if !changed_fields.is_empty() {
         old.kind = Some(prev_kind.clone());
         new.kind = Some(prev_kind);
-        history_log(conn, id, "update", &old, &new, None);
+        history_log(
+            conn,
+            id,
+            "update",
+            &old,
+            &new,
+            Some(&format!("fields={}", changed_fields.join(","))),
+        );
     }
 
     Ok(true)
