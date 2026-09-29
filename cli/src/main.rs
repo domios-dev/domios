@@ -138,7 +138,11 @@ fn main_impl() {
         return;
     }
     hydrate_tab_task_binding_env(&args);
+    cmd::error_contract::set_json_mode(args.iter().skip(1).any(|arg| arg == "--json"));
     let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
+        if e.use_stderr() && cmd::error_contract::json_mode() {
+            cmd::print::fail_with(e.exit_code(), &cmd::print::CliError::usage(&e));
+        }
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
                 "✗ dash-leading free text was parsed as a flag.\nfix: use --field=value or --field-file PATH, for example --body='- note' or --body-file notes.md."
@@ -147,10 +151,10 @@ fn main_impl() {
         }
         e.exit()
     });
+    cmd::error_contract::set_json_mode(cli.json);
     if let Commands::Tab { action } = &mut cli.command {
         if let Err(error) = args::misc::normalize_required_tab_selector(action) {
-            eprintln!("Error: {error}");
-            std::process::exit(2);
+            crate::cmd::print::fail(2, error.to_string());
         }
     }
 
@@ -159,8 +163,7 @@ fn main_impl() {
     } = &cli.command
     {
         if let Err(e) = cmd::plan::validate_plan_delete_confirmation(plan_id, *yes) {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 
@@ -219,8 +222,7 @@ fn main_impl() {
     let (mut client, resolved_socket) = match SocketClient::connect_local() {
         Ok(connection) => connection,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
 
@@ -235,8 +237,7 @@ fn main_impl() {
                 match result {
                     Ok(value) => print!("{}", cmd::capabilities::render(&value)),
                     Err(error) => {
-                        eprintln!("Error: {error}");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, error.to_string());
                     }
                 }
                 return;
@@ -382,8 +383,7 @@ fn main_impl() {
             let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
                 }
             };
             let result: Result<serde_json::Value, String> =
@@ -425,8 +425,7 @@ fn main_impl() {
                     return;
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -530,8 +529,7 @@ fn main_impl() {
             let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
                 }
             };
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
@@ -542,8 +540,7 @@ fn main_impl() {
             let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Error: failed to build HTTP client: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
                 }
             };
             cmd::usage::handle_usage(cli.json, action, &http, &base_url, token.as_deref());
@@ -563,14 +560,31 @@ fn main_impl() {
                     );
                     match res {
                         Ok(_) => {
-                            eprintln!(
-                                "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.codeterm[-dev]/crashes/ for the report.",
-                                kind.as_str()
-                            );
+                            if cli.json {
+                                cmd::print::print_json(&serde_json::json!({
+                                    "ok": true,
+                                    "dispatched": true,
+                                    "kind": kind.as_str(),
+                                }));
+                            } else {
+                                eprintln!(
+                                    "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.codeterm[-dev]/crashes/ for the report.",
+                                    kind.as_str()
+                                );
+                            }
                         }
                         Err(e) => {
                             // Expected for segv/abort — connection drops mid-call.
-                            eprintln!("[debug.crash] dispatch returned error (expected for segv/abort): {}", e);
+                            if cli.json {
+                                cmd::print::print_json(&serde_json::json!({
+                                    "ok": true,
+                                    "dispatched": true,
+                                    "kind": kind.as_str(),
+                                    "connection_dropped": e.to_string(),
+                                }));
+                            } else {
+                                eprintln!("[debug.crash] dispatch returned error (expected for segv/abort): {}", e);
+                            }
                         }
                     }
                     return;

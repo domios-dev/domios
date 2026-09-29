@@ -272,6 +272,12 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
+            svc.cron_get(&cron_state, &id)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: Some(serde_json::json!({ "code": "not_found" })),
+                })?;
             let history = svc.cron_history(&cron_state, &id);
             serde_json::to_value(&history).map_err(|e| JsonRpcError {
                 code: -32603,

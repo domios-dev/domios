@@ -52,22 +52,19 @@ pub(super) struct SaveMemItem {
 /// on unresolvable input (missing body), matching prior CLI behavior.
 pub(super) fn build_save_payload(item: SaveMemItem) -> serde_json::Value {
     if validate_save_importance(item.importance).is_err() {
-        eprintln!("Error: importance must be finite and within 0.0..=5.0");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, "importance must be finite and within 0.0..=5.0");
     }
     let resolved_body = match resolve_text(item.body, item.body_file) {
         Ok(Some(b)) => b,
         Ok(None) => {
             let mut s = String::new();
             if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
-                eprintln!("Error: no body provided (pass as arg or pipe to stdin)");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, "no body provided (pass as arg or pipe to stdin)");
             }
             s
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let resolved_title = item.title.unwrap_or_else(|| {
@@ -140,8 +137,7 @@ pub(super) fn resolve_scope(workspace: Option<String>, scope: Option<String>) ->
         (Some(ws), _) => {
             let ws = ws.trim();
             if ws.is_empty() {
-                eprintln!("Error: --workspace requires a non-empty id");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, "--workspace requires a non-empty id");
             }
             Some(format!("workspace:{ws}"))
         }

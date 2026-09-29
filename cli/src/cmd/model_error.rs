@@ -133,6 +133,7 @@ mod tests {
             output["data"]["refresh_command"],
             "codeterm agent models codex"
         );
-        assert_eq!(output["code"], -32602);
+        assert_eq!(output["error"]["rpc_code"], -32602);
+        assert_eq!(output["error"]["code"], "invalid_argument");
     }
 }

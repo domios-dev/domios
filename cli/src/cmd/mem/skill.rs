@@ -8,24 +8,46 @@ struct SkillSlug(String);
 impl SkillSlug {
     fn parse(value: String) -> Result<Self, String> {
         let bytes = value.as_bytes();
-        let valid = bytes.first().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        let valid = bytes
+            .first()
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
             && bytes.len() <= 64
-            && bytes.iter().skip(1).all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(*b, b'.' | b'_' | b'-'));
+            && bytes.iter().skip(1).all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(*b, b'.' | b'_' | b'-')
+            });
         let base = value.split('.').next().unwrap_or("").to_ascii_uppercase();
         let device = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-            || ["COM", "LPT"].iter().any(|prefix| base.strip_prefix(prefix).is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9'])));
-        if value.is_empty() { return Err("skill slug must not be empty".into()); }
-        if !valid { return Err("skill slug must match [a-z0-9][a-z0-9._-]{0,63} with no path separators or dot-only segments".into()); }
-        if device { return Err("skill slug must not be a Windows device name".into()); }
+            || ["COM", "LPT"].iter().any(|prefix| {
+                base.strip_prefix(prefix)
+                    .is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
+            });
+        if value.is_empty() {
+            return Err("skill slug must not be empty".into());
+        }
+        if !valid {
+            return Err("skill slug must match [a-z0-9][a-z0-9._-]{0,63} with no path separators or dot-only segments".into());
+        }
+        if device {
+            return Err("skill slug must not be a Windows device name".into());
+        }
         Ok(Self(value))
     }
 }
 
 fn skill_folder(root: &std::path::Path, slug: &SkillSlug) -> Result<PathBuf, String> {
-    let root = root.canonicalize().map_err(|e| format!("canonicalize skills root {}: {e}", root.display()))?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("canonicalize skills root {}: {e}", root.display()))?;
     let path = root.join(&slug.0);
-    let resolved = if path.exists() { path.canonicalize().map_err(|e| format!("canonicalize skill folder: {e}"))? } else { path.clone() };
-    if !resolved.starts_with(&root) || resolved == root { return Err("skill slug resolves outside skills root".into()); }
+    let resolved = if path.exists() {
+        path.canonicalize()
+            .map_err(|e| format!("canonicalize skill folder: {e}"))?
+    } else {
+        path.clone()
+    };
+    if !resolved.starts_with(&root) || resolved == root {
+        return Err("skill slug resolves outside skills root".into());
+    }
     Ok(path)
 }
 
@@ -40,18 +62,17 @@ pub(crate) fn handle_mem_skill(
                 .unwrap_or_default()
                 .join(data_dir_name())
                 .join("skills");
-            std::fs::create_dir_all(&skills_root).map_err(|e| format!("create skills root: {e}"))?;
+            std::fs::create_dir_all(&skills_root)
+                .map_err(|e| format!("create skills root: {e}"))?;
             let folder_path = skill_folder(&skills_root, &slug)?;
             if folder_path.exists() {
-                eprintln!(
-                    "Error: skill folder already exists: {}",
-                    folder_path.display()
+                crate::cmd::print::fail(
+                    1,
+                    format!("skill folder already exists: {}", folder_path.display()),
                 );
-                std::process::exit(1);
             }
             if let Err(e) = std::fs::create_dir_all(folder_path.join("scripts")) {
-                eprintln!("Error creating folder: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, format!("creating folder failed: {}", e));
             }
             let area_line = area.as_deref().unwrap_or("general");
             let template = format!(
@@ -61,8 +82,7 @@ pub(crate) fn handle_mem_skill(
             );
             let skill_md = folder_path.join("SKILL.md");
             if let Err(e) = std::fs::write(&skill_md, template) {
-                eprintln!("Error writing SKILL.md: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, format!("writing SKILL.md failed: {}", e));
             }
             eprintln!("Created skill folder: {}", folder_path.display());
             eprintln!("Edit: {}", skill_md.display());
@@ -108,14 +128,15 @@ pub(crate) fn handle_mem_skill(
             let folder_path = folder_expanded;
             let skill_md = folder_path.join("SKILL.md");
             if !skill_md.exists() {
-                eprintln!("Error: SKILL.md not found in {}", folder_path.display());
-                std::process::exit(1);
+                crate::cmd::print::fail(
+                    1,
+                    format!("SKILL.md not found in {}", folder_path.display()),
+                );
             }
             let body = match std::fs::read_to_string(&skill_md) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Error reading SKILL.md: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("reading SKILL.md failed: {}", e));
                 }
             };
             let (fm_title, fm_area, fm_tags) = parse_skill_frontmatter(&body);
@@ -243,8 +264,18 @@ mod tests {
 
     #[test]
     fn skill_slug_rejects_traversal_and_empty() {
-        for value in ["", "../archivist-escape", "Bad Name/../x", "CON", "nul.md", "LPT9"] {
-            assert!(SkillSlug::parse(value.into()).is_err(), "accepted {value:?}");
+        for value in [
+            "",
+            "../archivist-escape",
+            "Bad Name/../x",
+            "CON",
+            "nul.md",
+            "LPT9",
+        ] {
+            assert!(
+                SkillSlug::parse(value.into()).is_err(),
+                "accepted {value:?}"
+            );
         }
         assert!(SkillSlug::parse("x".repeat(65)).is_err());
     }
@@ -255,7 +286,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let slug = SkillSlug::parse("release-notes_2.v1".into()).unwrap();
         let folder = skill_folder(&root, &slug).unwrap();
-        assert_eq!(folder, root.canonicalize().unwrap().join("release-notes_2.v1"));
+        assert_eq!(
+            folder,
+            root.canonicalize().unwrap().join("release-notes_2.v1")
+        );
         assert!(folder.starts_with(root.canonicalize().unwrap()));
         let _ = std::fs::remove_dir_all(root);
     }

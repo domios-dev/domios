@@ -649,10 +649,10 @@ fn invalid_remote_tab_selector_emits_the_envelope_with_no_rpc_code() {
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
-    assert_eq!(envelope["code"], serde_json::Value::Null);
-    assert!(envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
+    assert!(envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .starts_with(INVALID_REMOTE_TAB_ID));
 }
 
@@ -664,10 +664,10 @@ fn mixed_local_and_remote_inspection_emits_the_envelope_with_no_rpc_code() {
     let envelope = json_error_envelope(&crate::cmd::print::CliError::new(message));
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
-    assert_eq!(envelope["code"], serde_json::Value::Null);
-    assert!(!envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
+    assert!(!envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .contains("-32"));
 }
 
@@ -787,10 +787,11 @@ fn a_converted_tab_failure_renders_as_the_envelope_on_stdout() {
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
-    assert_eq!(envelope["code"], -32603);
-    assert!(!envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], -32603);
+    assert_eq!(envelope["error"]["code"], "not_found");
+    assert!(!envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .contains("-32"));
 }
 

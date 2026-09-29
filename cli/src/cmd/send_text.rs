@@ -136,15 +136,13 @@ pub fn handle_send_text_result(
                     }
                 }
                 SendTextOutcome::Error { msg, exit_code } => {
-                    eprintln!("Error: {}", msg);
-                    std::process::exit(exit_code);
+                    crate::cmd::print::fail(exit_code, msg.to_string());
                 }
                 SendTextOutcome::Other => print_human(&value),
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
@@ -258,12 +256,17 @@ fn probe_tab_kind(client: &mut SocketClient, tab_id: &str) -> TabKind {
 }
 
 fn emit_send_refusal(json: bool, msg: &str) -> ! {
-    if json {
-        let err = serde_json::json!({ "ok": false, "refused": true, "error": msg });
-        println!("{}", serde_json::to_string_pretty(&err).unwrap());
-    } else {
-        eprintln!("Error: {}", msg);
-    }
+    let error = crate::cmd::print::CliError {
+        message: msg.to_string(),
+        code: None,
+        data: Some(serde_json::json!({ "code": "refused" })),
+    };
+    crate::cmd::print::write_cli_error(
+        json,
+        &error,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    );
     std::process::exit(2);
 }
 
@@ -359,21 +362,25 @@ fn send_text_to_targets(
         }
     }
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "ok": failures.is_empty(),
-                "delivered": delivered,
-                "pending": pending,
-                "pending_written": pending_written,
-                "pad_files": pad_files,
-                "failed": failures
-                    .iter()
-                    .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
-                    .collect::<Vec<_>>(),
-            }))
-            .unwrap()
-        );
+        let mut report = serde_json::json!({
+            "ok": failures.is_empty(),
+            "delivered": delivered,
+            "pending": pending,
+            "pending_written": pending_written,
+            "pad_files": pad_files,
+            "failed": failures
+                .iter()
+                .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
+                .collect::<Vec<_>>(),
+        });
+        if !failures.is_empty() {
+            report["error"] = crate::cmd::error_contract::error_object(
+                &format!("{} of {} target(s) refused", failures.len(), targets.len()),
+                None,
+                Some(&serde_json::json!({ "code": "refused" })),
+            );
+        }
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
         for tab_id in &delivered {
             println!("OK (sent) {tab_id}");
@@ -448,8 +455,7 @@ pub fn handle_send_text(
     }
     if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
         if actions.is_some() {
-            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
-            std::process::exit(2);
+            crate::cmd::print::fail(2, "--actions cannot be queued with --delay/--at/--every");
         }
         crate::cmd::delayed::queue_from_send(
             client, json, tab, text, from_file, from_pad, from_stdin, delay, at, every, until,
@@ -529,8 +535,7 @@ fn resolve_and_validate_send<R: std::io::Read>(
         match resolve_send_text_input(text, from_file, from_pad, from_stdin, stdin) {
             Ok(value) => value,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         };
     let is_empty = resolved_text.trim().is_empty();
@@ -539,25 +544,30 @@ fn resolve_and_validate_send<R: std::io::Read>(
         .map(parse_actions_spec)
         .transpose()
         .unwrap_or_else(|e| {
-            eprintln!("Error: {}", e);
-            std::process::exit(2);
+            crate::cmd::print::fail(2, e.to_string());
         });
     if is_empty && parsed_actions.is_none() {
-        eprintln!("Error: send payload is empty (source: {})", source);
-        eprintln!("hint: if using --stdin, ensure the heredoc actually delivered content;");
-        eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
-        eprintln!("      if positional, your shell may have eaten the content.");
-        eprintln!("      to send a bare Enter, pass --actions enter.");
-        std::process::exit(2);
+        crate::cmd::print::fail_with_hints(
+            2,
+            format!("send payload is empty (source: {})", source),
+            &[
+                "hint: if using --stdin, ensure the heredoc actually delivered content;",
+                "      if --from-file, verify the path exists and isn't 0 bytes;",
+                "      if positional, your shell may have eaten the content.",
+                "      to send a bare Enter, pass --actions enter.",
+            ],
+        );
     }
     if !is_empty {
         if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
-            eprintln!("Error: {}", msg);
-            eprintln!(
-                "hint: your shell expanded a command-substitution before codeterm-CLI received it."
+            crate::cmd::print::fail_with_hints(
+                2,
+                msg.to_string(),
+                &[
+                    "hint: your shell expanded a command-substitution before codeterm-CLI received it.",
+                    "      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.",
+                ],
             );
-            eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
-            std::process::exit(2);
         }
     }
     (resolved_text, parsed_actions)
@@ -605,8 +615,7 @@ fn send_composite_over_mesh(
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
     if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
         if parsed_actions.is_some() {
-            eprintln!("Error: --actions cannot be queued with --delay/--at/--every");
-            std::process::exit(2);
+            crate::cmd::print::fail(2, "--actions cannot be queued with --delay/--at/--every");
         }
         crate::cmd::delayed::queue_over_mesh(
             json,

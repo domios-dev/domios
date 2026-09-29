@@ -32,8 +32,7 @@ pub fn handle_pad(json: bool, action: PadAction) {
         }
         Ok(_) => unreachable!(),
         Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     }
 }

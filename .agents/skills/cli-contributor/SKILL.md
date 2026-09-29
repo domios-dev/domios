@@ -53,10 +53,11 @@ propose decomposition in reports but cannot spawn sub-Workers.
   `codeterm_cli.md` alone. It trims to the longest resolvable prefix, so it does
   **not** validate flags.
 
-**No validator in this repository has any output-shape coverage.** The gate
-proves the CLI *accepts* what shipped text prescribes; nothing here asserts what
-a command *prints*, its exit code, or its JSON schema. Renaming an output field
-or dropping a printed line passes every test above. Cover those yourself.
+**Output shape has one sweep only:** `cli/tests/json_error_contract.rs` runs
+every manifest command with `--json` and pins the error envelope. Nothing else
+asserts what a command *prints* on success, its exit code, or its JSON schema.
+Renaming an output field or dropping a printed line passes every test above.
+Cover those yourself.
 
 Two structural blind spots, so you do not mistake green for complete:
 
@@ -90,6 +91,11 @@ CLI user-facing lines follow three registers, by severity:
 - **Loud** — a non-fatal condition the user must not miss. Prefix `WARNING:`.
 
 Keep one register per line; never mix `✗` and `hint:` on the same line.
+
+Every failure leaves through `cmd::print::fail`, `fail_http`, `fail_with_hints`,
+or `exit_with_cli_error`, never `eprintln!("Error: …")` plus `process::exit`:
+the shared renderer prints one `{ok:false, error:{code,message,hint}}` object
+under `--json` and classifies not-found, conflict, and refusal by structure.
 
 ## Why no hand-parsing
 

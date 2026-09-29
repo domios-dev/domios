@@ -22,8 +22,7 @@ enum LeafOutput {
 pub fn handle_theme(json: bool, action: ThemeAction) {
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api().unwrap_or_else(|error| {
-        eprintln!("Error: failed to connect to local API: {error}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
     });
     let output = match action {
         ThemeAction::List => list_output(
@@ -214,15 +213,12 @@ fn emit(json: bool, output: LeafOutput) {
         }
         LeafOutput::Json(value) => println!("{value}"),
         LeafOutput::Failure { earned, message } => {
-            for line in earned {
-                println!("{line}");
+            if !json {
+                for line in earned {
+                    println!("{line}");
+                }
             }
-            if json {
-                crate::cmd::plan_output::print_plan_error(true, &message);
-            } else {
-                eprintln!("Error: {message}");
-            }
-            std::process::exit(1);
+            crate::cmd::print::fail(1, message);
         }
     }
 }
