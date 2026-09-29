@@ -39,7 +39,7 @@ impl Incident {
                 self.path.display()
             ),
             (None, true) => format!(
-                "no valid backup, running on defaults in memory; nothing is written to {} until you fix or restore it",
+                "no valid backup; the file is held and saving is refused until you fix or restore {}",
                 self.path.display()
             ),
             (None, false) => "the current in-memory state is written in its place".to_string(),
@@ -90,6 +90,16 @@ pub fn release_hold(path: &Path) {
     if registry().lock().holds.remove(path).is_some() {
         log::info!("[state] {} loads again; saving resumed", path.display());
     }
+}
+
+pub(super) fn hold_for_repair(path: &Path, preserved: Option<PathBuf>) {
+    registry().lock().holds.insert(
+        path.to_path_buf(),
+        Hold {
+            path: path.to_path_buf(),
+            preserved,
+        },
+    );
 }
 
 /// Incidents raised before a sink exists are queued and flushed on install.

@@ -6,6 +6,9 @@ use super::schema::AppConfig;
 use super::{agent_access, dropped_keys, kpi_default, normalize_runtime_defaults, resolve_theme};
 use crate::persisted_state::{Loaded, StateFile};
 
+pub(super) const SALVAGED_CONFIG_MARKER: &str =
+    "# CodeTerm salvaged config; remove this marker after reviewing or restoring the corrupt copy.";
+
 /// Cache the parsed config, keyed by file mtime. `load_config()` runs on hot
 /// paths (mesh heartbeats, request handlers), so the file is re-parsed only when
 /// its mtime changes. The lock is held across the fill so a token for a
@@ -65,6 +68,14 @@ pub(super) fn load_config_cached(path: &Path, cache: &ConfigCache) -> AppConfig 
 
 fn load_config_uncached_at(path: &Path, last_known: Option<AppConfig>) -> AppConfig {
     let file = config_file(path);
+    if let Ok(contents) = std::fs::read_to_string(path) {
+        if is_salvaged_config(&contents) {
+            file.hold_for_repair();
+            if let Ok((config, contents)) = parse_config(&contents) {
+                return finish_loaded(&file, config, &contents, TokenPolicy::KeepConfigured);
+            }
+        }
+    }
     match file.load(parse_config) {
         Loaded::Parsed((config, contents)) => {
             finish_loaded(&file, config, &contents, TokenPolicy::GenerateWhenMissing)
@@ -73,8 +84,8 @@ fn load_config_uncached_at(path: &Path, last_known: Option<AppConfig>) -> AppCon
             value: (config, contents),
             ..
         } => finish_loaded(&file, config, &contents, TokenPolicy::KeepConfigured),
-        Loaded::Unrecoverable { raw } => held_config(last_known, raw.as_deref()),
-        Loaded::Missing if file.held().is_some() => held_config(last_known, None),
+        Loaded::Unrecoverable { raw } => held_config(&file, last_known, raw.as_deref()),
+        Loaded::Missing if file.held().is_some() => held_config(&file, last_known, None),
         Loaded::Missing => create_default(&file),
     }
 }
@@ -121,8 +132,7 @@ fn finish_loaded(
 
 fn create_default(file: &StateFile) -> AppConfig {
     let (config, _) = with_generated_token(AppConfig::default());
-    let toml_str =
-        toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
+    let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
     match file.save(&toml_str) {
         Ok(()) => log::info!("Default config created at {}", file.path().display()),
         Err(e) => log::warn!("Failed to write default config: {}", e),
@@ -133,13 +143,24 @@ fn create_default(file: &StateFile) -> AppConfig {
 /// The in-memory config while `config.toml` is held after a failed load. A
 /// token is never generated here: rotating it would lock out every client that
 /// holds the configured one.
-fn held_config(last_known: Option<AppConfig>, raw: Option<&str>) -> AppConfig {
-    if let Some(config) = last_known {
-        return config;
-    }
-    let mut config = AppConfig::default();
-    if let Some(raw) = raw {
-        salvage_critical_keys(raw, &mut config);
+fn held_config(file: &StateFile, last_known: Option<AppConfig>, raw: Option<&str>) -> AppConfig {
+    let (mut config, contents) = match (last_known, raw) {
+        (Some(config), _) => {
+            let contents = toml::to_string_pretty(&config)
+                .ok()
+                .map(|contents| mark_salvaged_config(&contents));
+            (config, contents)
+        }
+        (None, Some(raw)) => salvage_config(raw).unwrap_or_else(|| {
+            let config = AppConfig::default();
+            (config, Some(mark_salvaged_config("")))
+        }),
+        (None, None) => (AppConfig::default(), None),
+    };
+    if let Some(contents) = contents {
+        if let Err(error) = file.create_held_recovery(&contents) {
+            log::warn!("[config] could not write salvaged config: {error}");
+        }
     }
     normalize_runtime_defaults(&mut config);
     if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
@@ -150,46 +171,158 @@ fn held_config(last_known: Option<AppConfig>, raw: Option<&str>) -> AppConfig {
     config
 }
 
-/// Recover `api.token` and `agent.full_access` from the lines of an
-/// unparseable config that still parse on their own.
-pub(super) fn salvage_critical_keys(raw: &str, config: &mut AppConfig) {
-    let mut table = String::new();
+pub(super) fn is_salvaged_config(contents: &str) -> bool {
+    contents.lines().next() == Some(SALVAGED_CONFIG_MARKER)
+}
+
+pub(super) fn mark_salvaged_config(contents: &str) -> String {
+    format!("{SALVAGED_CONFIG_MARKER}\n{contents}")
+}
+
+fn salvage_config(raw: &str) -> Option<(AppConfig, String)> {
+    let mut tables = salvage_tables(raw);
+    let (token, full_access) = salvaged_critical_values(raw);
+    if let Some(token) = token {
+        insert_nested_value(&mut tables, &["api", "token"], toml::Value::String(token));
+    }
+    if let Some(full_access) = full_access {
+        insert_nested_value(
+            &mut tables,
+            &["agent", "full_access"],
+            toml::Value::Boolean(full_access),
+        );
+    }
+    let body = toml::to_string_pretty(&toml::Value::Table(tables)).ok()?;
+    let contents = mark_salvaged_config(&body);
+    let config = parse_config(&contents).ok()?.0;
+    Some((config, contents))
+}
+
+fn salvage_tables(raw: &str) -> toml::Table {
+    let mut tables = toml::Table::new();
+    let mut fragment = String::new();
+    for line in raw.lines() {
+        if is_table_header(line) && !fragment.trim().is_empty() {
+            merge_fragment(&mut tables, &fragment);
+            fragment.clear();
+        }
+        fragment.push_str(line);
+        fragment.push('\n');
+    }
+    merge_fragment(&mut tables, &fragment);
+    tables
+}
+
+fn is_table_header(line: &str) -> bool {
+    let line = line.trim();
+    if !line.starts_with('[') {
+        return false;
+    }
+    toml::from_str::<toml::Value>(line).is_ok_and(|parsed| {
+        parsed
+            .as_table()
+            .is_some_and(|root| !root.is_empty() && root.values().all(empty_section_value))
+    })
+}
+
+fn empty_section_value(value: &toml::Value) -> bool {
+    match value {
+        toml::Value::Table(table) => table.values().all(empty_section_value),
+        toml::Value::Array(array) => array.iter().all(empty_section_value),
+        _ => false,
+    }
+}
+
+fn merge_fragment(tables: &mut toml::Table, fragment: &str) {
+    if toml::from_str::<AppConfig>(fragment).is_err() {
+        return;
+    }
+    let Ok(parsed) = toml::from_str::<toml::Value>(fragment) else {
+        return;
+    };
+    if let toml::Value::Table(parsed) = parsed {
+        merge_tables(tables, parsed);
+    }
+}
+
+fn merge_tables(target: &mut toml::Table, incoming: toml::Table) {
+    for (key, value) in incoming {
+        if let Some(existing) = target.get_mut(&key) {
+            merge_values(existing, value);
+        } else {
+            target.insert(key, value);
+        }
+    }
+}
+
+fn merge_values(target: &mut toml::Value, incoming: toml::Value) {
+    match (target, incoming) {
+        (toml::Value::Table(target), toml::Value::Table(incoming)) => {
+            merge_tables(target, incoming)
+        }
+        (toml::Value::Array(target), toml::Value::Array(incoming)) => target.extend(incoming),
+        (target, incoming) => *target = incoming,
+    }
+}
+
+fn insert_nested_value(tables: &mut toml::Table, keys: &[&str], value: toml::Value) {
+    let Some((key, rest)) = keys.split_first() else {
+        return;
+    };
+    if rest.is_empty() {
+        tables.insert((*key).to_string(), value);
+        return;
+    }
+    let table = tables
+        .entry((*key).to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if let toml::Value::Table(table) = table {
+        insert_nested_value(table, rest, value);
+    }
+}
+
+fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<bool>) {
+    let mut section = String::new();
+    let mut token = None;
+    let mut full_access = None;
     for line in raw.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("[[") {
-            table.clear();
-            continue;
-        }
-        if let Some(header) = trimmed.strip_prefix('[') {
-            table = header
-                .split(']')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+        if is_table_header(trimmed) {
+            section = trimmed.to_string();
             continue;
         }
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let doc = if table.is_empty() {
+        let doc = if section.is_empty() {
             trimmed.to_string()
         } else {
-            format!("[{table}]\n{trimmed}")
+            format!("{section}\n{trimmed}")
         };
         let Ok(parsed) = toml::from_str::<toml::Table>(&doc) else {
             continue;
         };
-        if let Some(token) = lookup(&parsed, &["api", "token"]).and_then(toml::Value::as_str) {
-            if !token.is_empty() {
-                config.api.token = Some(token.to_string());
+        if let Some(value) = lookup(&parsed, &["api", "token"]).and_then(toml::Value::as_str) {
+            if !value.is_empty() {
+                token = Some(value.to_string());
             }
         }
-        if let Some(full_access) =
+        if let Some(value) =
             lookup(&parsed, &["agent", "full_access"]).and_then(toml::Value::as_bool)
         {
-            config.agent.full_access = Some(full_access);
+            full_access = Some(value);
         }
+    }
+    (token, full_access)
+}
+
+pub(super) fn salvage_critical_keys(raw: &str, config: &mut AppConfig) {
+    let (token, full_access) = salvaged_critical_values(raw);
+    if let Some(token) = token {
+        config.api.token = Some(token);
+    }
+    if let Some(full_access) = full_access {
+        config.agent.full_access = Some(full_access);
     }
 }
 
