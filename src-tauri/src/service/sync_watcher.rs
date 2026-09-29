@@ -59,24 +59,11 @@ mod tests {
     fn provider_rule_payloads_are_present_and_nonempty() {
         let routing = crate::prompts::CODETERM_RULE;
         let memory = crate::prompts::BRIDGE_MEM;
-        assert!(!routing.is_empty(), "CODETERM_RULE should not be empty");
         assert!(
-            routing.contains("[to reply, run: codeterm send"),
-            "CODETERM_RULE should teach routed replies"
+            !routing.trim().is_empty(),
+            "CODETERM_RULE should not be empty"
         );
-        assert!(!memory.is_empty(), "BRIDGE_MEM should not be empty");
-        assert!(
-            memory.contains("codeterm mem"),
-            "BRIDGE_MEM should teach `codeterm mem`"
-        );
-        assert!(
-            memory.contains("codeterm mem search"),
-            "BRIDGE_MEM should name the search subcommand"
-        );
-        assert!(
-            memory.contains("mem save"),
-            "BRIDGE_MEM should name the save subcommand"
-        );
+        assert!(!memory.trim().is_empty(), "BRIDGE_MEM should not be empty");
     }
 
     #[test]

@@ -280,10 +280,11 @@ mod no_inference {
     /// stored consent flag and the provider's own install report, latches the
     /// condition so ten launches announce once, and reads no clock and no output.
     // Daemon notices the owner asked for: consent, model fallback, restart-required, update skipped.
-    const EXPLICIT_CREATORS: [&str; 11] = [
+    const EXPLICIT_CREATORS: [&str; 12] = [
         "api/notification_routes.rs",
         "commands/hooks.rs",
         "notification/mod.rs",
+        "service/directory_trust.rs",
         "service/integration_silence.rs",
         "service/launch_readiness.rs",
         "service/notification.rs",
