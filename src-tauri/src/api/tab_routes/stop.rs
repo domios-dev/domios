@@ -89,7 +89,10 @@ pub async fn stop_tab(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Stop decision failed"))?;
     match &decision {
         StopDecision::NoAgent => {
-            log::info!("[tab-stop] outcome tab={} stopped=false reason=no_agent", tab_id)
+            log::info!(
+                "[tab-stop] outcome tab={} stopped=false reason=no_agent",
+                tab_id
+            )
         }
         StopDecision::NotWorking(status) => log::info!(
             "[tab-stop] outcome tab={} stopped=false reason=not_working status={}",
@@ -230,11 +233,7 @@ pub async fn stop_tab(
         match step {
             StopSequenceStep::Key(key) => {
                 if let Err(error) = state.svc.write_raw(&tab_id, key.as_bytes()) {
-                    log::warn!(
-                        "[tab-stop] write_failed tab={} error={}",
-                        tab_id,
-                        error
-                    );
+                    log::warn!("[tab-stop] write_failed tab={} error={}", tab_id, error);
                     return Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"));
                 }
             }

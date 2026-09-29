@@ -123,7 +123,10 @@ fn opencode_stop_keys_preserve_the_declared_sequence_and_output_gap() {
         return;
     }
     let provider = opencode();
-    assert_eq!(provider.stop_keys(), Some(vec!["\x1b".into(), "\x1b".into()]));
+    assert_eq!(
+        provider.stop_keys(),
+        Some(vec!["\x1b".into(), "\x1b".into()])
+    );
     assert!(provider.stop_key_wait_for_output());
 }
 

@@ -26,8 +26,8 @@ use crate::service::spawn::{SpawnTabSpec, TabCommand};
 use codeterm_util::lock_hold::TimedRwLock;
 use parking_lot::Mutex;
 use std::cell::{Cell, RefCell};
-use std::sync::Barrier;
 use std::sync::Arc;
+use std::sync::Barrier;
 
 #[test]
 fn provider_ready_requires_authenticated_launch_evidence() {

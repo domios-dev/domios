@@ -328,7 +328,13 @@ mod model_refresh_tests {
             boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
         ) -> Option<String> {
             (boundary.last_entry_uuid.as_deref() == Some("before-relaunch"))
-                .then(|| self.post_boundary_models.lock().unwrap().get(session_id).cloned())
+                .then(|| {
+                    self.post_boundary_models
+                        .lock()
+                        .unwrap()
+                        .get(session_id)
+                        .cloned()
+                })
                 .flatten()
         }
         fn detect_session_reasoning_effort(&self, _: &str, _: &str) -> Option<String> {

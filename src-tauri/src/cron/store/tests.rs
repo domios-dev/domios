@@ -71,7 +71,9 @@ fn set_run_session_persists_on_history_and_last_run() {
 #[test]
 fn owner_prompt_wait_state_tracks_a_nonterminal_run() {
     let mut store = temp_store();
-    let job = store.create(make_params("Prompt", "ws", "0 * * * *")).unwrap();
+    let job = store
+        .create(make_params("Prompt", "ws", "0 * * * *"))
+        .unwrap();
     store
         .record_run(&job.id, run("prompt-run", 1, CronRunStatus::Running))
         .unwrap();
@@ -84,7 +86,13 @@ fn owner_prompt_wait_state_tracks_a_nonterminal_run() {
     assert_eq!(run.status, CronRunStatus::AwaitingOwnerPrompt);
     assert_eq!(run.finished_at, None);
     assert_eq!(
-        store.get(&job.id).unwrap().last_run.as_ref().unwrap().status,
+        store
+            .get(&job.id)
+            .unwrap()
+            .last_run
+            .as_ref()
+            .unwrap()
+            .status,
         CronRunStatus::AwaitingOwnerPrompt
     );
 

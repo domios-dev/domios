@@ -303,15 +303,7 @@ impl ServiceContext {
         let Some((model, launch_report)) = evidence else {
             return;
         };
-        self.apply_session_model(
-            tab_id,
-            agent_id,
-            &sid,
-            model,
-            launch_report,
-            None,
-            false,
-        );
+        self.apply_session_model(tab_id, agent_id, &sid, model, launch_report, None, false);
     }
 
     /// The provider named the model this binding runs at session start. That
@@ -329,26 +321,28 @@ impl ServiceContext {
         }
         let cwd = {
             let mux = self.mux.read();
-            let Some(tab) = mux.get_tab(tab_id).filter(|tab| {
-                runtime_model_update_matches_session(tab, agent_id, session_id)
-            }) else {
+            let Some(tab) = mux
+                .get_tab(tab_id)
+                .filter(|tab| runtime_model_update_matches_session(tab, agent_id, session_id))
+            else {
                 return;
             };
-            let switch_turn_confirmed = tab
-                .agent_session_model_identity
-                .as_ref()
-                .is_some_and(|identity| {
-                    identity.session_id == session_id
-                        && tab.session_binding_nonce.as_deref()
-                            == Some(identity.session_binding_nonce.as_str())
-                        && tab.reported_session_binding_nonce.as_deref()
-                            == Some(identity.session_binding_nonce.as_str())
-                        && identity.model_switch_turn_confirmed
-                });
+            let switch_turn_confirmed =
+                tab.agent_session_model_identity
+                    .as_ref()
+                    .is_some_and(|identity| {
+                        identity.session_id == session_id
+                            && tab.session_binding_nonce.as_deref()
+                                == Some(identity.session_binding_nonce.as_str())
+                            && tab.reported_session_binding_nonce.as_deref()
+                                == Some(identity.session_binding_nonce.as_str())
+                            && identity.model_switch_turn_confirmed
+                    });
             if switch_turn_confirmed
-                || tab.pending_model_switch_observation.as_ref().is_some_and(|pending| {
-                    pending.session_id == session_id
-                })
+                || tab
+                    .pending_model_switch_observation
+                    .as_ref()
+                    .is_some_and(|pending| pending.session_id == session_id)
             {
                 return;
             }
@@ -364,7 +358,15 @@ impl ServiceContext {
             model: model.clone(),
             transcript_model_at_launch,
         };
-        self.apply_session_model(tab_id, agent_id, session_id, model, Some(report), None, false);
+        self.apply_session_model(
+            tab_id,
+            agent_id,
+            session_id,
+            model,
+            Some(report),
+            None,
+            false,
+        );
         super::boot_wait::notify_boot_changed();
     }
 
@@ -602,12 +604,8 @@ impl ServiceContext {
                     }
                     tab.agent_session_model = model.clone();
                     tab.agent_provider_resolved_model = model.clone();
-                    let model_identity = session_model_identity(
-                        tab,
-                        sid,
-                        launch_report,
-                        post_relaunch_turn,
-                    );
+                    let model_identity =
+                        session_model_identity(tab, sid, launch_report, post_relaunch_turn);
                     tab.agent_session_model_identity = model_identity;
                     tab.model_fallback = identity_update.fallback;
                     tab.model_identity_mismatch = identity_update.mismatch;

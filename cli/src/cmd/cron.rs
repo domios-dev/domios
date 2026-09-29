@@ -293,7 +293,11 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 }
             }
         }
-        CronAction::Complete { run_id, summary, yes } => {
+        CronAction::Complete {
+            run_id,
+            summary,
+            yes,
+        } => {
             let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
             let binding_nonce = crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE");
             let params = cron_completion_params(

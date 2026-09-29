@@ -463,7 +463,15 @@ fn cron_complete_requires_run_owner() {
 
     assert!(fixture
         .service
-        .cron_complete(&cron, &wake, run_id, Some("human-summary"), None, None, false)
+        .cron_complete(
+            &cron,
+            &wake,
+            run_id,
+            Some("human-summary"),
+            None,
+            None,
+            false
+        )
         .is_err());
 
     for (caller_tab_id, binding_nonce) in [

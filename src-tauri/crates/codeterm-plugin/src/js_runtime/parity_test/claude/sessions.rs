@@ -204,7 +204,10 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
         &session_id,
         path.to_str().unwrap()
     ));
-    assert_eq!(native.session_file_path(&cwd, &session_id), Some(path.clone()));
+    assert_eq!(
+        native.session_file_path(&cwd, &session_id),
+        Some(path.clone())
+    );
 
     let boundary = native
         .session_model_transcript_boundary(&cwd, &session_id)

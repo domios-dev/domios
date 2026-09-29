@@ -601,7 +601,10 @@ mod model_label_tests {
         .replace("claude-opus-5", "claude-haiku-4-5");
         let boundary = transcript_model_boundary(&transcript).expect("fixture boundary");
 
-        assert_eq!(transcript_model_after_boundary(&transcript, &boundary), None);
+        assert_eq!(
+            transcript_model_after_boundary(&transcript, &boundary),
+            None
+        );
 
         let appended = format!(
             "{transcript}{}\n",
