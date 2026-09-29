@@ -1,3 +1,4 @@
+use super::super::LAUNCH_REGISTRY;
 use super::LaunchGeneration;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
