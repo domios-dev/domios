@@ -4,6 +4,14 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::CronState;
 use crate::CronWake;
 
+/// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
+pub(crate) struct CronRunEnd<'a> {
+    pub(crate) job_id: &'a str,
+    pub(crate) run_id: &'a str,
+    pub(crate) status: CronRunStatus,
+    pub(crate) summary: &'a str,
+}
+
 impl ServiceContext {
     pub fn cron_create(
         &self,
@@ -179,6 +187,69 @@ impl ServiceContext {
         wake.notify_all();
         self.emit_cron_changed();
         Ok(())
+    }
+
+    pub(crate) fn cron_settle_run_end(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        end: CronRunEnd<'_>,
+    ) {
+        self.cron_settle_run_end_with(cron, wake, end, |tab_id, text| self.send_text(tab_id, text));
+    }
+
+    /// Delivers the ended run's status to its report tab, records the outcome in history,
+    /// and retires a oneshot job while keeping that history.
+    pub(crate) fn cron_settle_run_end_with(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        end: CronRunEnd<'_>,
+        deliver: impl FnOnce(&str, &str) -> Result<(), String>,
+    ) {
+        let CronRunEnd {
+            job_id,
+            run_id,
+            status,
+            summary,
+        } = end;
+        let (report_target, is_oneshot) = {
+            let store = cron.lock();
+            let job = store.get(job_id);
+            (
+                job.and_then(|job| job.report_target_tab_id.clone()),
+                job.is_some_and(|job| job.oneshot),
+            )
+        };
+        let delivery = match report_target {
+            Some(report_target) => {
+                let report = format!(
+                    "Cron run {run_id} completed with status {status:?}. Summary: {summary}"
+                );
+                match deliver(&report_target, &report) {
+                    Ok(()) => "delivered".to_string(),
+                    Err(error) => format!("failed: {error}"),
+                }
+            }
+            None => "no report target".to_string(),
+        };
+        if let Err(error) = cron
+            .lock()
+            .set_run_report(job_id, run_id, summary, delivery)
+        {
+            log::error!("Failed to record cron run report: job={job_id} run={run_id}: {error}");
+        }
+        if !is_oneshot {
+            return;
+        }
+        let Some(wake) = wake else {
+            log::error!("Failed to auto-delete oneshot cron: CronWake unavailable");
+            return;
+        };
+        log::info!("Oneshot cron auto-deleting: job={}", job_id);
+        if let Err(error) = self.cron_delete_inner(cron, wake, job_id, true) {
+            log::error!("Failed to auto-delete oneshot cron: {}", error);
+        }
     }
 
     pub fn cron_cancel_running(&self, cron: &CronState, id: &str) -> Result<usize, String> {
@@ -417,7 +488,7 @@ impl ServiceContext {
             };
             let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
 
-            let summary_text = summary.unwrap_or("(no summary provided)");
+            let summary_text = summary.unwrap_or("(no summary provided)").to_string();
             let log_text = format!(
                 "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
                 summary_text, raw_clean
@@ -428,7 +499,6 @@ impl ServiceContext {
             }
 
             let _ = store.update_run_status(&job_id, run_id, CronRunStatus::Success);
-            let report_target = store.get(&job_id).and_then(|job| job.report_target_tab_id.clone());
             let is_oneshot = store.get(&job_id).map(|j| j.oneshot).unwrap_or(false);
             store.unregister_tab(&tab_id);
             log::info!(
@@ -439,23 +509,6 @@ impl ServiceContext {
                 log_text.len()
             );
             drop(store);
-
-            if let Some(report_target) = report_target {
-                let report = format!(
-                    "Cron run {run_id} completed with status Success. Summary: {summary_text}"
-                );
-                let delivery = match self.send_text(&report_target, &report) {
-                    Ok(()) => "delivered".to_string(),
-                    Err(error) => format!("failed: {error}"),
-                };
-                let _ = cron
-                    .lock()
-                    .set_run_report(&job_id, run_id, summary_text, delivery);
-            } else {
-                let _ = cron
-                    .lock()
-                    .set_run_report(&job_id, run_id, summary_text, "no report target".into());
-            }
 
             // Tell the run-watcher this tab is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
@@ -468,15 +521,20 @@ impl ServiceContext {
             let wake = wake.clone();
             let tab_id = tab_id.clone();
             let job_id = job_id.clone();
+            let run_id = run_id.to_string();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
-                if is_oneshot {
-                    log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                    if let Err(e) = svc.cron_delete_inner(&cron, &wake, &job_id, true) {
-                        log::error!("Failed to auto-delete oneshot cron: {}", e);
-                    }
-                }
+                svc.cron_settle_run_end(
+                    &cron,
+                    Some(&wake),
+                    CronRunEnd {
+                        job_id: &job_id,
+                        run_id: &run_id,
+                        status: CronRunStatus::Success,
+                        summary: &summary_text,
+                    },
+                );
                 svc.emit_cron_changed();
             });
             Ok(())
@@ -511,8 +569,11 @@ mod tests {
 
     use parking_lot::Mutex;
 
+    use super::CronRunEnd;
     use crate::agent::test_provider::MockProvider;
-    use crate::cron::store::{CronCreateParams, CronStore, CronUpdateParams};
+    use crate::cron::store::{
+        CronCreateParams, CronRunInfo, CronRunStatus, CronStore, CronUpdateParams,
+    };
     use crate::service::test_fixture::ServiceFixture;
 
     fn fixture() -> (
@@ -671,5 +732,100 @@ mod tests {
         assert_eq!(updated.reasoning_effort, None);
         let raw = fs::read_to_string(path).unwrap();
         assert!(!raw.contains("reasoning_effort"));
+    }
+
+    fn started_job(cron: &crate::CronState, oneshot: bool, report_target: Option<&str>) -> String {
+        let mut params = create_params("settle", None);
+        params.schedule = if oneshot { "in 1h" } else { "0 * * * *" }.into();
+        params.oneshot = Some(oneshot);
+        params.report_target_tab_id = report_target.map(str::to_string);
+        let mut store = cron.lock();
+        let job = store.create(params).unwrap();
+        store
+            .record_run(
+                &job.id,
+                CronRunInfo {
+                    run_id: "settle-run".into(),
+                    started_at: 1,
+                    finished_at: None,
+                    status: CronRunStatus::Running,
+                    tab_id: Some("settle-run-tab".into()),
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                },
+            )
+            .unwrap();
+        store
+            .update_run_status(&job.id, "settle-run", CronRunStatus::Success)
+            .unwrap();
+        job.id
+    }
+
+    fn settle(
+        fixture: &ServiceFixture,
+        cron: &crate::CronState,
+        wake: &crate::CronWake,
+        job_id: &str,
+        delivery: Result<(), String>,
+    ) -> Vec<(String, String)> {
+        let mut delivered = Vec::new();
+        fixture.service.cron_settle_run_end_with(
+            cron,
+            Some(wake),
+            CronRunEnd {
+                job_id,
+                run_id: "settle-run",
+                status: CronRunStatus::Success,
+                summary: "settle-summary-token",
+            },
+            |tab_id, text| {
+                delivered.push((tab_id.to_string(), text.to_string()));
+                delivery
+            },
+        );
+        delivered
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn completed_oneshot_reports_and_keeps_history() {
+        let (fixture, cron, wake, _) = fixture();
+        let job_id = started_job(&cron, true, Some("report-tab"));
+
+        let delivered = settle(&fixture, &cron, &wake, &job_id, Ok(()));
+
+        assert_eq!(delivered.len(), 1);
+        assert_eq!(delivered[0].0, "report-tab");
+        assert!(delivered[0].1.contains("settle-summary-token"));
+        let store = cron.lock();
+        assert!(store.get(&job_id).is_none());
+        let history = store.get_history(&job_id);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, CronRunStatus::Success);
+        assert_eq!(history[0].summary.as_deref(), Some("settle-summary-token"));
+        assert_eq!(history[0].report_delivery.as_deref(), Some("delivered"));
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn recurring_run_end_reports_without_retiring_the_job() {
+        let (fixture, cron, wake, _) = fixture();
+        let job_id = started_job(&cron, false, Some("report-tab"));
+
+        let delivered = settle(&fixture, &cron, &wake, &job_id, Err("target gone".into()));
+
+        assert_eq!(delivered.len(), 1);
+        let store = cron.lock();
+        assert!(
+            store.get(&job_id).is_some(),
+            "a recurring job survives its run"
+        );
+        let history = store.get_history(&job_id);
+        assert_eq!(
+            history[0].report_delivery.as_deref(),
+            Some("failed: target gone")
+        );
     }
 }
