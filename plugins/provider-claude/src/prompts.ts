@@ -285,13 +285,6 @@ export interface ClaudeOnboardingPrompt {
   step: string;
 }
 
-interface OnboardingOption {
-  focused: boolean;
-  number: string;
-  label: string;
-  line: number;
-}
-
 export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt | null {
   const lines = String(screen || "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
