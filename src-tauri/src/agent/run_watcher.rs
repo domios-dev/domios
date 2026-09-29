@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Deserialize;
-use tauri::Manager;
 
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
+
+mod cron_end;
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
 // `memory.worker_timeout_seconds` can lower/higher this at runtime.
@@ -672,47 +673,19 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
             let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
         }
         AgentRunKind::Cron { job_id, run_id } => {
-            if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-                let log_text = format!(
-                    "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
-                    summary, clean
-                );
-                let (is_oneshot, fresh_transition) = {
-                    let mut store = cron_state.lock();
-                    let _ = store.save_log(job_id, run_id, &log_text);
-                    if let Some(ref sid) = session_id {
-                        store.set_run_session(job_id, run_id, sid, run_cwd.as_deref());
-                    }
-                    let status = if success {
-                        crate::cron::store::CronRunStatus::Success
-                    } else {
-                        crate::cron::store::CronRunStatus::Failed
-                    };
-                    let fresh = store
-                        .update_run_status(job_id, run_id, status)
-                        .unwrap_or(false);
-                    store.unregister_tab(&state.tab_id);
-                    (
-                        store.get(job_id).map(|job| job.oneshot).unwrap_or(false),
-                        fresh,
-                    )
-                };
-                if fresh_transition {
-                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
-                }
-                let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
-                if is_oneshot {
-                    if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {
-                        log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                        if let Err(error) = svc.cron_delete(&cron_state, &cron_wake, job_id) {
-                            log::error!("Failed to auto-delete oneshot cron: {}", error);
-                        }
-                    } else {
-                        log::error!("Failed to auto-delete oneshot cron: CronWake unavailable");
-                    }
-                }
-                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
-            }
+            cron_end::finish(
+                svc,
+                cron_end::EndedCronRun {
+                    tab_id: &state.tab_id,
+                    job_id,
+                    run_id,
+                    success,
+                    summary,
+                    raw_output: &clean,
+                    session_id: session_id.as_deref(),
+                    cwd: run_cwd.as_deref(),
+                },
+            );
         }
     }
 }
