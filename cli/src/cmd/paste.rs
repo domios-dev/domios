@@ -5,8 +5,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
     let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
     match action {
@@ -21,8 +20,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
         } => {
             let resolved_body = if let Some(path) = from_pad {
                 crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 })
             } else if from_stdin {
                 read_stdin_or_die("--from-stdin")
@@ -30,19 +28,21 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                 match std::fs::read_to_string(&path) {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("Error: failed to read --from-file {}: {}", path, e);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(
+                            1,
+                            format!("failed to read --from-file {}: {}", path, e),
+                        );
                     }
                 }
             } else {
                 body.unwrap_or_default()
             };
             if resolved_body.trim().is_empty() {
-                eprintln!("Error: paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).");
-                eprintln!(
-                    "hint: pipe via heredoc — codeterm paste put --from-stdin <<'EOF' ... EOF"
+                crate::cmd::print::fail_with_hints(
+                    2,
+                    "paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).",
+                    &["hint: pipe via heredoc — codeterm paste put --from-stdin <<'EOF' ... EOF"],
                 );
-                std::process::exit(2);
             }
             let mut payload = serde_json::json!({ "body": resolved_body });
             if let Some(ms) = ttl.and_then(|s| parse_duration_ms(&s)) {
@@ -67,35 +67,35 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                             .get("error")
                             .and_then(|v| v.as_str())
                             .unwrap_or("paste put failed");
-                        eprintln!("Error: HTTP {}: {}", status.as_u16(), msg);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, format!("HTTP {}: {}", status.as_u16(), msg));
                     }
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else if let Some(id) = val.get("id").and_then(|v| v.as_str()) {
                         println!("{}", id);
                     } else {
-                        eprintln!("Error: server returned no paste id");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, "server returned no paste id");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         PasteAction::Get { id, pop } => fetch_paste(&http, &base, &id, pop, json),
         PasteAction::List => match http.get(format!("{}/api/pasteboard", base)).send() {
             Ok(resp) => {
+                let status = resp.status();
                 let val: serde_json::Value = resp.json().unwrap_or_default();
+                if !status.is_success() {
+                    crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
+                }
                 if json {
                     println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     return;
                 }
                 let Some(arr) = val.as_array() else {
-                    eprintln!("Unexpected response shape");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, "Unexpected response shape");
                 };
                 if arr.is_empty() {
                     println!("No pastes.");
@@ -126,8 +126,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                 }
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         },
         PasteAction::Rm { id } => {
@@ -138,15 +137,21 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             {
                 Ok(resp) => {
                     if resp.status().is_success() {
-                        println!("Deleted: {}", id);
+                        if json {
+                            crate::cmd::print::print_json(
+                                &serde_json::json!({ "ok": true, "deleted": true, "id": id }),
+                            );
+                        } else {
+                            println!("Deleted: {}", id);
+                        }
                     } else {
-                        eprintln!("Error: HTTP {}", resp.status().as_u16());
-                        std::process::exit(1);
+                        let status = resp.status().as_u16();
+                        let body = resp.text().unwrap_or_default();
+                        crate::cmd::print::fail_http(1, status, &body);
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -181,13 +186,11 @@ fn fetch_paste(
         Ok(resp) => {
             let status = resp.status();
             if status.as_u16() == 404 {
-                eprintln!("Error: paste not found: {}", id);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, format!("paste not found: {}", id));
             }
             let val: serde_json::Value = resp.json().unwrap_or_default();
             if !status.is_success() {
-                eprintln!("Error: HTTP {}", status.as_u16());
-                std::process::exit(1);
+                crate::cmd::print::fail(1, format!("HTTP {}", status.as_u16()));
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
@@ -196,8 +199,7 @@ fn fetch_paste(
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
@@ -206,8 +208,7 @@ fn read_stdin_or_die(source: &str) -> String {
     use std::io::Read;
     let mut buf = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-        eprintln!("Error: failed to read {}: {}", source, e);
-        std::process::exit(1);
+        crate::cmd::print::fail(1, format!("failed to read {}: {}", source, e));
     }
     buf
 }

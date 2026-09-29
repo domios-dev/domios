@@ -42,10 +42,8 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let text = from_pad
                 .map(|path| {
-                    crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
-                        eprintln!("Error: {e}");
-                        std::process::exit(1)
-                    })
+                    crate::cmd::payload_source::read_from_pad(&path)
+                        .unwrap_or_else(|e| crate::cmd::print::fail(1, e.to_string()))
                 })
                 .or(text);
             if let Some(t) = text {
@@ -66,8 +64,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                         params["buttons"] = v;
                     }
                     Err(e) => {
-                        eprintln!("Invalid buttons JSON: {}", e);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, format!("Invalid buttons JSON: {}", e));
                     }
                 }
             }

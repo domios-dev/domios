@@ -13,6 +13,12 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let id = PluginId::parse(id.to_string())?;
     let dir = plugin_dir(&id);
     if !dir.exists() {
+        if is_reserved_system_id(id.as_str()) {
+            return Err(format!(
+                "plugin '{}' is bundled with this build and not extracted to the plugins directory, so it has no config to show",
+                id.as_str()
+            ));
+        }
         return Err(format!("plugin '{}' is not installed", id.as_str()));
     }
     let manifest = read_plugin_manifest_value(&dir)?;

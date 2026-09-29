@@ -199,8 +199,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         has_authorized_gates: !authorized_gates.is_empty(),
     };
     if let Err(error) = validate_spawn_context(&context) {
-        eprintln!("Error: {error}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, error.to_string());
     }
     if unplanned {
         let reason = reason
@@ -217,18 +216,15 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             || team.is_some()
             || !authorized_gates.is_empty()
         {
-            eprintln!("Error: --unplanned requires --role Worker and a non-empty --reason, and cannot combine with task bindings, --team, or --authorized-gate");
-            std::process::exit(2);
+            crate::cmd::print::fail(2, "--unplanned requires --role Worker and a non-empty --reason, and cannot combine with task bindings, --team, or --authorized-gate");
         }
     } else if reason.is_some() {
-        eprintln!("Error: --reason requires --unplanned");
-        std::process::exit(2);
+        crate::cmd::print::fail(2, "--reason requires --unplanned");
     }
     let verification_worker = context.is_verification_worker();
     if team.is_some() {
         if let Err(error) = validate_team_spawn_role(role.as_ref()) {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     }
     let team_orchestrator = team
@@ -255,12 +251,14 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             ("--non-user-facing", non_user_facing),
         ]);
         if !unsupported.is_empty() {
-            eprintln!(
-                "Error: {}: --team --role Orchestrator does not carry {}",
-                team_codes::TEAM_SPAWN_FLAG_UNSUPPORTED,
-                unsupported.join(", ")
+            crate::cmd::print::fail(
+                1,
+                format!(
+                    "{}: --team --role Orchestrator does not carry {}",
+                    team_codes::TEAM_SPAWN_FLAG_UNSUPPORTED,
+                    unsupported.join(", ")
+                ),
             );
-            std::process::exit(1);
         }
         let task = match crate::cmd::agent::resolve_spawn_task(
             task,
@@ -270,8 +268,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         ) {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         };
         add_team_orchestrator(
@@ -293,8 +290,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     ) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     if unplanned {
@@ -339,8 +335,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     ) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let interval = match interval
@@ -350,8 +345,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let nudge_cooldown = match nudge_cooldown
@@ -361,8 +355,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let is_worker = matches!(role, Some(crate::args::agent::SpawnRole::Worker));
@@ -394,8 +387,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             Ok(Some(d)) => body["description"] = serde_json::json!(d),
             Ok(None) => body["description"] = serde_json::json!(""),
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         }
     }
@@ -470,8 +462,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
                 body["creator_tab_id"] = serde_json::json!(creator_tab_id);
             }
             Err(error) => {
-                eprintln!("Error: {error}");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, error.to_string());
             }
         }
     }
@@ -510,7 +501,7 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             if let Some(pid) = pid {
                 println!("Spawned {resolved}: {title_str} (Tab {pid})");
             } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
-                eprintln!("Error: {}", err);
+                crate::cmd::print::fail(1, err.to_string());
             } else {
                 crate::cmd::print::print_object(&val);
             }

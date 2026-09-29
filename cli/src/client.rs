@@ -171,6 +171,14 @@ pub trait RpcClient {
     }
 }
 
+const RPC_ERROR_PREFIX: &str = "RPC error ";
+
+/// Inverse of the `Display` below, for callers that only hold the rendered text.
+pub(crate) fn parse_rpc_display(text: &str) -> Option<(i32, &str)> {
+    let (code, message) = text.strip_prefix(RPC_ERROR_PREFIX)?.split_once(": ")?;
+    Some((code.parse().ok()?, message))
+}
+
 impl std::fmt::Display for SocketCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -178,7 +186,9 @@ impl std::fmt::Display for SocketCallError {
             SocketCallError::Rpc(err) if crate::protocol::is_version_skew(err.code) => {
                 write!(f, "{}", err.message)
             }
-            SocketCallError::Rpc(err) => write!(f, "RPC error {}: {}", err.code, err.message),
+            SocketCallError::Rpc(err) => {
+                write!(f, "{RPC_ERROR_PREFIX}{}: {}", err.code, err.message)
+            }
         }
     }
 }

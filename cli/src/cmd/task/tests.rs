@@ -374,7 +374,7 @@ mod error_contract_tests {
             serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
-        assert_eq!(envelope["error"], DAEMON_MESSAGE);
+        assert_eq!(envelope["error"]["message"], DAEMON_MESSAGE);
     }
 
     /// Exit-code parity itself is owned by `print.rs`, whose `cli_error_exit_code`
@@ -445,7 +445,7 @@ mod error_contract_tests {
         assert!(err.is_empty(), "{err}");
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
-        assert_eq!(envelope["code"], serde_json::Value::Null);
+        assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
     }
 
     #[test]

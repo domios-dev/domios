@@ -74,8 +74,7 @@ pub fn mesh_relay_cmd(target: &str, action: &str, tab: &str, json_mode: bool) {
             serde_json::json!(null),
         ),
         _ => {
-            eprintln!("Unknown action: {}", action);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("Unknown action: {}", action));
         }
     };
     let body_str = if body.is_null() {
@@ -97,7 +96,7 @@ pub fn mesh_relay_fetch_json(
 ) -> serde_json::Value {
     match mesh_relay_invoke_result(target, method, path, body) {
         Ok(val) => val,
-        Err(failure) => failure.print_and_exit(false),
+        Err(failure) => failure.print_and_exit(crate::cmd::error_contract::json_mode()),
     }
 }
 
@@ -138,7 +137,8 @@ impl MeshSpawnFailure {
         reason: impl Into<String>,
         retry_hint: impl Into<String>,
     ) -> Self {
-        let mut failure = Self::new(peer, reason, retry_hint).with_delivery(Some(code.to_string()), Some(false));
+        let mut failure =
+            Self::new(peer, reason, retry_hint).with_delivery(Some(code.to_string()), Some(false));
         failure.class = Some(RefusalClass::Deterministic);
         failure
     }
@@ -160,10 +160,17 @@ impl MeshSpawnFailure {
             "peer": self.peer,
             "reason": self.reason,
             "retry_hint": self.retry_hint,
+            "message": format!("mesh request to '{}' failed: {}", self.peer, self.reason),
+            "hint": self.retry_hint,
         });
-        if let Some(code) = &self.code {
-            error["code"] = serde_json::json!(code);
-        }
+        error["code"] = match &self.code {
+            Some(code) => serde_json::json!(code),
+            None => {
+                serde_json::json!(
+                    crate::cmd::error_contract::classify(&self.reason, None, None).as_str()
+                )
+            }
+        };
         if let Some(written) = self.bytes_written {
             error["bytes_written"] = serde_json::json!(written);
         }
@@ -461,8 +468,7 @@ pub fn mesh_relay_generic(
         // /tabs/<id>/output returns {"text": "..."} — print raw.
         print!("{}", text);
     } else if data.is_null() {
-        eprintln!("Error: unexpected response from peer (null data)");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, "unexpected response from peer (null data)");
     } else {
         crate::cmd::print::print_human(&data);
     }

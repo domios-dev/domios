@@ -7,6 +7,7 @@ pub mod delayed;
 pub mod docs;
 pub mod dream;
 pub mod effort;
+pub mod error_contract;
 pub mod essence_map;
 pub mod graph_mutate;
 pub mod hints;

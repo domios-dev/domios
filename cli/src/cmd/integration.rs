@@ -57,8 +57,7 @@ pub fn api_request(action: &IntegrationAction) -> (String, String, Option<String
 pub fn handle_integration(json: bool, action: &IntegrationAction) {
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api().unwrap_or_else(|error| {
-        eprintln!("Error: failed to connect to local API: {error}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
     });
     let (method, path, _) = api_request(action);
     let url = format!("{base}{path}");
@@ -82,8 +81,7 @@ pub fn handle_integration(json: bool, action: &IntegrationAction) {
         Ok(value) if json => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
         Ok(value) => print_object(&value),
         Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     }
 }

@@ -23,8 +23,7 @@ pub fn send_params(
 ) -> serde_json::Value {
     let body = from_pad.map(|path| {
         crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         })
     });
     params_from_body(
@@ -38,8 +37,7 @@ pub fn send_params(
         crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
     )
     .unwrap_or_else(|e| {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, e.to_string());
     })
 }
 
