@@ -12,7 +12,10 @@ fn workspace_not_found_refusal_is_logged_with_known_ids() {
         &["known-a".into(), "known-b".into()],
     );
 
-    assert_eq!(message, "requested=requested-id known_ids=[\"known-a\", \"known-b\"]");
+    assert_eq!(
+        message,
+        "requested=requested-id known_ids=[\"known-a\", \"known-b\"]"
+    );
 }
 
 #[test]

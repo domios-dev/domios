@@ -53,7 +53,9 @@ fn team_close_transaction_preserves_unrelated_workspace_created_before_commit() 
     transaction.state_mut().remove_team(&team_id);
     let concurrent_workspace = state.create_workspace("Concurrent".into(), None);
 
-    state.commit_team_close(&team_id, &[team_tab.clone()]).unwrap();
+    state
+        .commit_team_close(&team_id, &[team_tab.clone()])
+        .unwrap();
 
     assert!(state.get_workspace(&concurrent_workspace.id).is_some());
     assert!(state.get_team(&team_id).is_none());

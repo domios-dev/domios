@@ -5,6 +5,7 @@ use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin,
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 use std::sync::Arc;
+use tauri::Manager;
 
 impl ServiceContext {
     pub(crate) fn acknowledge_remote_worker_ack(
@@ -15,7 +16,8 @@ impl ServiceContext {
         peer_id: &str,
         worker_tab_id: &str,
     ) {
-        let identity = remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
+        let identity =
+            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
         self.worker_ack.acknowledge(&identity);
     }
 
@@ -29,7 +31,8 @@ impl ServiceContext {
         worker_tab_id: &str,
         parent_tab_id: &str,
     ) {
-        let identity = remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
+        let identity =
+            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
         let arm = self.worker_ack.arm(identity.clone());
         let Some(receiver) = arm.receiver.filter(|_| arm.starts_supervisor) else {
             return;
@@ -74,7 +77,8 @@ impl ServiceContext {
                     &worker_tab_id,
                     epoch_ms(),
                 )
-            }.unwrap_or(false);
+            }
+            .unwrap_or(false);
             if !finalized {
                 return;
             }
