@@ -11,8 +11,14 @@ impl LaunchGeneration {
         task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
         public_send_key: Option<crate::service::public_send_readiness::PublicSendGateKey>,
         origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+        resume_session_id: Option<&str>,
     ) -> Result<(), String> {
-        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
+        let nonce = match resume_session_id {
+            Some(session_id) => {
+                svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
+            }
+            None => svc.rotate_session_binding_nonce(&self.tab_id),
+        };
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
         // A relaunched Worker keeps its persisted task binding, but its dispatch

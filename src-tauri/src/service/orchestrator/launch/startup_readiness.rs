@@ -41,14 +41,13 @@ pub(super) fn first_turn_binding_required(
     provider_starts_session_on_first_turn && (restored_resume || !has_startup_task_turn)
 }
 
-pub(super) fn input_ready_stage_after_provider_ready(
-    session_starts_on_first_turn: bool,
-) -> BootStage {
-    if session_starts_on_first_turn {
-        BootStage::AgentReady
-    } else {
-        BootStage::ProviderReady
-    }
+pub(super) fn provider_ready_stage(
+    settlement: &LaunchSettlement,
+    session_authenticated: bool,
+) -> Option<BootStage> {
+    settlement
+        .authorizes_agent_ready(session_authenticated)
+        .then_some(BootStage::ProviderReady)
 }
 
 pub(super) fn finish_waiting_for_first_turn(

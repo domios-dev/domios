@@ -289,6 +289,17 @@ impl ScreenState {
             .map(|parser| parser.screen().bracketed_paste())
     }
 
+    pub fn reset_input_modes(&mut self, pty_id: &str) -> bool {
+        let Some(parser) = self.parsers.get_mut(pty_id) else {
+            return false;
+        };
+        let (rows, cols) = parser.screen().size();
+        let defaults = vt100::Parser::new(rows, cols, 500);
+        let reset = defaults.screen().input_mode_diff(parser.screen());
+        parser.process(&reset);
+        true
+    }
+
     pub fn native_prompt_input(
         &self,
         pty_id: &str,

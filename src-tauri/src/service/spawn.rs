@@ -728,6 +728,7 @@ impl ServiceContext {
             agent.extra_env.clone(),
             task_identity,
             ready_tx,
+            None,
         );
 
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
