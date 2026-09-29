@@ -292,6 +292,14 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("summary"))
                 .and_then(|v| v.as_str());
+            let caller_tab_id = params
+                .as_ref()
+                .and_then(|p| p.get("caller_tab_id"))
+                .and_then(|v| v.as_str());
+            let binding_nonce = params
+                .as_ref()
+                .and_then(|p| p.get("session_binding_nonce"))
+                .and_then(|v| v.as_str());
             let cron_state = app
                 .try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError {
@@ -306,7 +314,14 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            svc.cron_complete(&cron_state, &cron_wake, &run_id, summary)
+            svc.cron_complete(
+                &cron_state,
+                &cron_wake,
+                &run_id,
+                summary,
+                caller_tab_id,
+                binding_nonce,
+            )
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,

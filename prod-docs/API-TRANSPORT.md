@@ -205,7 +205,7 @@ carries the exact command).
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.cancel` | `{id}` | Stop currently-running executions (`{cancelled: N}`) without deleting the job |
 | `cron.history` | `{id}` | Get run history |
-| `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
+| `cron.complete` | `{run_id, summary?, caller_tab_id?, session_binding_nonce?}` | Mark a cron run complete. A tab caller must match the run's owning tab and binding nonce; a request without tab identity is the local human path. |
 | `services.list` | `{kind?, enabled?}` | List registered services (cron + daemon). |
 | `services.create` | `{name, kind:"daemon", health_mode, ...}` | Register a daemon-kind service. Same body shape as `POST /api/services`. Returns `{service, token}`; rejects non-daemon kinds with `-32602` (use `cron.create` for cron jobs). |
 | `services.get` | `{id}` | Get one service (with latest health snapshot). |
@@ -235,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
