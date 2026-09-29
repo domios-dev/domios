@@ -47,7 +47,7 @@ fn parse_prompt_negative_parity() {
 }
 
 #[test]
-fn stop_keystroke_native_js_parity() {
+fn stop_sequence_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
@@ -62,6 +62,8 @@ fn stop_keystroke_native_js_parity() {
         Some("\u{1b}"),
         "Claude interrupts on Esc"
     );
+    assert_eq!(n.stop_keys(), j.stop_keys());
+    assert_eq!(n.stop_key_wait_for_output(), j.stop_key_wait_for_output());
 }
 
 #[test]

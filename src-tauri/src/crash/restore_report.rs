@@ -181,17 +181,28 @@ pub fn build_restore_report(
     }
 }
 
-/// Select pane lines that this restore wave has not logged yet.
-fn unlogged_pane_ids(report: &RestoreReport, logged: &mut BTreeSet<String>) -> Vec<String> {
+/// Select finalized pane outcomes that have not been logged in their current state.
+fn unlogged_pane_ids(
+    report: &RestoreReport,
+    logged: &mut BTreeMap<String, PaneOutcome>,
+) -> Vec<String> {
+    if !report_is_finalized(report) {
+        return Vec::new();
+    }
     report
         .panes
         .iter()
         .filter_map(|outcome| {
-            logged
-                .insert(outcome.pane.tab_id.clone())
-                .then(|| outcome.pane.tab_id.clone())
+            (logged.get(&outcome.pane.tab_id) != Some(outcome)).then(|| {
+                logged.insert(outcome.pane.tab_id.clone(), outcome.clone());
+                outcome.pane.tab_id.clone()
+            })
         })
         .collect()
+}
+
+fn report_is_finalized(report: &RestoreReport) -> bool {
+    report.unobserved == 0
 }
 
 fn report_path() -> PathBuf {
@@ -256,7 +267,7 @@ struct PendingRestore {
     backend_materialization: Option<String>,
     observed: BTreeMap<String, AgentLiveness>,
     restored_ids: BTreeSet<String>,
-    logged_panes: BTreeSet<String>,
+    logged_outcomes: BTreeMap<String, PaneOutcome>,
     revision: u64,
 }
 
@@ -283,7 +294,7 @@ fn log_pending_report(report: &RestoreReport, pending: &mut PendingRestore) {
     if report.bound == 0 {
         return;
     }
-    let fresh = unlogged_pane_ids(report, &mut pending.logged_panes);
+    let fresh = unlogged_pane_ids(report, &mut pending.logged_outcomes);
     for tab_id in fresh {
         if let Some(outcome) = report.panes.iter().find(|pane| pane.pane.tab_id == tab_id) {
             let level = if outcome.restored {
@@ -327,6 +338,9 @@ fn publish_pending_report(report: &RestoreReport, revision: u64) -> bool {
     if pending.revision != revision {
         return false;
     }
+    if !report_is_finalized(report) {
+        return true;
+    }
     persist(report);
     log_pending_report(report, pending);
     if report.dropped == 0 {
@@ -349,8 +363,7 @@ fn update_pending_observations(
     true
 }
 
-/// Arm the wave and write the honest opening report: at this point the tab
-/// records are back and not one agent has been observed.
+/// Arm the wave. The report is published once every pane has a final outcome.
 pub fn arm(bound: Vec<RestorePane>, restored_ids: &BTreeSet<String>) -> RestoreReport {
     let previous_epoch_end = previous_epoch_end_label();
     let observed: BTreeMap<String, AgentLiveness> = BTreeMap::new();
@@ -367,15 +380,14 @@ pub fn arm(bound: Vec<RestorePane>, restored_ids: &BTreeSet<String>) -> RestoreR
         backend_materialization: None,
         observed,
         restored_ids: restored_ids.clone(),
-        logged_panes: BTreeSet::new(),
+        logged_outcomes: BTreeMap::new(),
         revision: 1,
     });
     publish_pending_report(&report, 1);
     report
 }
 
-/// Name why the armed wave is still unobserved: restored agents went to the
-/// backend without a frontend. Re-records at once; a no-op once the wave settled.
+/// Retain why the armed wave is unobserved until its final report can be written.
 pub fn note_backend_materialization(note: &str, restored_ids: &BTreeSet<String>) -> bool {
     let Some((bound, previous_epoch_end, observed, revision)) = ({
         let mut guard = PENDING.lock();
@@ -516,7 +528,7 @@ mod tests {
             backend_materialization: None,
             observed: BTreeMap::new(),
             restored_ids: restored_ids.clone(),
-            logged_panes: BTreeSet::new(),
+            logged_outcomes: BTreeMap::new(),
             revision: 0,
         };
 
@@ -528,7 +540,7 @@ mod tests {
         let first = build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed);
         assert_eq!(first.dropped, 1);
         assert_eq!(
-            unlogged_pane_ids(&first, &mut pending.logged_panes),
+            unlogged_pane_ids(&first, &mut pending.logged_outcomes),
             vec!["opencode"]
         );
 
@@ -542,15 +554,35 @@ mod tests {
             build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed);
         assert_eq!(reconciled.dropped, 0);
         assert_eq!(reconciled.restored, 1);
-        assert!(unlogged_pane_ids(&reconciled, &mut pending.logged_panes).is_empty());
+        assert_eq!(
+            unlogged_pane_ids(&reconciled, &mut pending.logged_outcomes),
+            vec!["opencode"]
+        );
     }
 
     #[test]
-    fn restore_report_logs_each_pane_once_across_revisions() {
+    fn restore_report_withholds_unobserved_panes_until_liveness_is_known() {
+        let bound = vec![pane("opencode", Some("worker"), Some("provider"))];
+        let restored_ids = ids(&["opencode"]);
+        let mut logged = BTreeMap::new();
+        let opening = build_restore_report(&bound, &restored_ids, &observed(&[]));
+
+        assert_eq!(opening.unobserved, 1);
+        assert!(!report_is_finalized(&opening));
+        assert!(unlogged_pane_ids(&opening, &mut logged).is_empty());
+        assert!(logged.is_empty());
+
+        let live = build_restore_report(&bound, &restored_ids, &live(&["opencode"]));
+        assert!(report_is_finalized(&live));
+        assert_eq!(unlogged_pane_ids(&live, &mut logged), vec!["opencode"]);
+    }
+
+    #[test]
+    fn restore_report_logs_changed_outcomes_across_revisions() {
         let pane = pane("pane-1", Some("worker"), Some("provider"));
         let bound = vec![pane];
         let restored_ids = ids(&["pane-1"]);
-        let mut logged = BTreeSet::new();
+        let mut logged = BTreeMap::new();
         let absent = build_restore_report(
             &bound,
             &restored_ids,
@@ -559,7 +591,7 @@ mod tests {
         assert_eq!(unlogged_pane_ids(&absent, &mut logged), vec!["pane-1"]);
 
         let live_report = build_restore_report(&bound, &restored_ids, &live(&["pane-1"]));
-        assert!(unlogged_pane_ids(&live_report, &mut logged).is_empty());
+        assert_eq!(unlogged_pane_ids(&live_report, &mut logged), vec!["pane-1"]);
     }
 
     #[test]

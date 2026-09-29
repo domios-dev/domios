@@ -118,11 +118,13 @@ fn provider_turn_error_surfaces_status_event_capability() {
 }
 
 #[test]
-fn opencode_stop_key_preserves_its_declared_interrupt_sequence() {
+fn opencode_stop_keys_preserve_the_declared_sequence_and_output_gap() {
     if require_plugins().is_none() {
         return;
     }
-    assert_eq!(opencode().stop_keystroke(), Some("\x1b\x1b"));
+    let provider = opencode();
+    assert_eq!(provider.stop_keys(), Some(vec!["\x1b".into(), "\x1b".into()]));
+    assert!(provider.stop_key_wait_for_output());
 }
 
 #[test]

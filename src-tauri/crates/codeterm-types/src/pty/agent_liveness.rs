@@ -66,6 +66,8 @@ pub struct LivenessEvidence {
     /// The shell reported its foreground command finished (OSC 633 `D`) after
     /// the agent was proven up. The agent process exited; the shell survived.
     pub provider_exit_observed: bool,
+    /// A provider or backend surfaced a question the owner can answer.
+    pub pending_prompt: bool,
 }
 
 /// Pure. The single classifier every reader goes through.
@@ -75,6 +77,15 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
     }
     if evidence.provider_exit_observed {
         return AgentLiveness::Absent;
+    }
+    if evidence.pending_prompt {
+        match evidence.backing {
+            AgentBacking::Pty {
+                pty_live: Some(true),
+            }
+            | AgentBacking::ChatBackend { session_open: true } => return AgentLiveness::Live,
+            _ => {}
+        }
     }
     match evidence.backing {
         AgentBacking::ChatBackend { session_open } => {
@@ -173,6 +184,7 @@ mod tests {
             boot_stage,
             boot_in_flight: false,
             provider_exit_observed: false,
+            pending_prompt: false,
         }
     }
 
@@ -249,6 +261,24 @@ mod tests {
                 "{stage:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_live_pty_with_a_pending_prompt_is_live_without_a_session_binding() {
+        let mut e = evidence(Some(BootStage::AwaitingOwnerPrompt));
+        e.boot_in_flight = true;
+        e.pending_prompt = true;
+        assert_eq!(classify_agent_liveness(e), AgentLiveness::Live);
+    }
+
+    #[test]
+    fn a_pending_prompt_needs_a_live_backing() {
+        let mut e = evidence(Some(BootStage::AwaitingOwnerPrompt));
+        e.pending_prompt = true;
+        e.backing = AgentBacking::Pty { pty_live: None };
+        assert_eq!(classify_agent_liveness(e), AgentLiveness::Unobserved);
+        e.backing = pty(false);
+        assert_eq!(classify_agent_liveness(e), AgentLiveness::Absent);
     }
 
     #[test]
