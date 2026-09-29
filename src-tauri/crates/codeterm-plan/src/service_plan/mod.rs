@@ -68,6 +68,7 @@ mod task_keys;
 pub mod task_queries;
 pub mod task_recovery;
 mod task_remove;
+mod text_bounds;
 mod types;
 pub mod usage_digest;
 pub mod watcher;

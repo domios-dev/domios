@@ -153,7 +153,10 @@ pub async fn mem_save(
     ))?;
     let scope = body
         .scope
-        .map(|s| MemScope::from_str(&s))
+        .as_deref()
+        .map(MemScope::from_str)
+        .transpose()
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?
         .unwrap_or(MemScope::Global);
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body

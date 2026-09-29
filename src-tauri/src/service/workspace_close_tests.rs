@@ -3,7 +3,61 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::plan::{OrchestratorRef, Plan};
 use crate::service::plan::NewTask;
+use crate::service::tab::{normalize_tab_description, validate_tab_title, MAX_TAB_TITLE_CHARS};
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::workspace::{validate_workspace_name, MAX_WORKSPACE_NAME_CHARS};
+
+#[test]
+fn names_and_titles_validated() {
+    assert!(validate_workspace_name("Project Alpha").is_ok());
+    for name in ["", "   ", "line\nbreak", "raw\u{1b}escape", "bell\u{7}"] {
+        assert!(validate_workspace_name(name).is_err());
+    }
+    assert!(validate_workspace_name(&"w".repeat(MAX_WORKSPACE_NAME_CHARS)).is_ok());
+    assert!(validate_workspace_name(&"w".repeat(MAX_WORKSPACE_NAME_CHARS + 1)).is_err());
+
+    assert!(validate_tab_title("Worker42").is_ok());
+    for title in ["", "two words", "raw\u{1b}escape", "bell\u{7}"] {
+        assert!(validate_tab_title(title).is_err());
+    }
+    assert!(validate_tab_title(&"w".repeat(MAX_TAB_TITLE_CHARS)).is_ok());
+    assert!(validate_tab_title(&"w".repeat(MAX_TAB_TITLE_CHARS + 1)).is_err());
+
+    assert!(normalize_tab_description("single line").is_ok());
+    assert!(normalize_tab_description("line one\nline two").is_err());
+    assert!(normalize_tab_description("raw\u{1b}escape").is_err());
+}
+
+#[test]
+fn move_tab_missing_workspace_names_target() {
+    let (mux, tab_id) = MultiplexerState::new();
+    let from_workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let error = fixture
+        .service
+        .move_tab(&tab_id, &from_workspace_id, "missing-workspace")
+        .unwrap_err();
+    assert_eq!(error, "Workspace not found: missing-workspace");
+}
+
+#[test]
+fn close_tab_keeps_focus_in_workspace() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let middle_tab = mux.create_tab(&workspace_id).unwrap();
+    let adjacent_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.set_active_tab(&workspace_id, &middle_tab).unwrap();
+    mux.set_focused_tab(&middle_tab).unwrap();
+
+    mux.close_tab(&middle_tab).unwrap();
+
+    let focused_tab = mux.get_focused_tab_id().unwrap();
+    assert_eq!(focused_tab, adjacent_tab);
+    assert_eq!(
+        mux.find_workspace_for_tab(focused_tab).as_deref(),
+        Some(workspace_id.as_str())
+    );
+}
 
 #[test]
 fn workspace_not_found_refusal_is_logged_with_known_ids() {

@@ -165,6 +165,19 @@ codeterm config get                            # no key → dump the whole redac
 
 Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Changes are saved to disk immediately and trigger a `config-changed` event.
 
+## Value limits
+
+Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load. Config strings are limited to 65536 UTF-8 bytes, control characters are refused except line breaks and tabs, collections are limited to 4096 entries, and the full config is limited to 4 MiB. Invalid file values are rejected with a warning and CodeTerm uses the last valid config or defaults.
+
+| Key | Allowed value |
+|---|---|
+| `font.size` | integer from 8 to 72 |
+| `agent.poll_interval_ms` | integer from 100 to 60000 |
+| `agent.idle_timeout_s` | integer from 1 to 3600 |
+| `memory.workers_per_provider` | integer from 1 to 16; default 3 |
+
+Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
+
 ## When config.toml fails to load
 
 A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so the API token and `agent.full_access` survive. With no valid backup CodeTerm runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API token is never regenerated after a parse error: it and `agent.full_access` are salvaged from the broken file's intact lines, otherwise token-authenticated calls are refused. A save that finds a hand-edited file that no longer parses preserves it the same way first.
@@ -194,4 +207,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

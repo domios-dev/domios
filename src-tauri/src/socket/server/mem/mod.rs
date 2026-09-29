@@ -184,6 +184,8 @@ fn mem_save(
         .scope
         .as_deref()
         .map(MemScope::from_str)
+        .transpose()
+        .map_err(invalid_params)?
         .unwrap_or(MemScope::Global);
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body
