@@ -784,14 +784,14 @@ fn owner_tab_is_gone(svc: &ServiceState, owner_tab_id: Option<&str>) -> bool {
     owner_tab_id.is_none_or(|tab_id| svc.mux.read().get_tab(tab_id).is_none())
 }
 
-pub(super) async fn verify_task_mutation_owner(
+// A never-dispatched task has no Worker owner to prove, so only the Plan
+// Orchestrator, its Planner, or a confirmed human may mutate it.
+async fn require_plan_role_for_unowned_task(
     svc: &ServiceState,
     headers: &HeaderMap,
     plan_id: &str,
-    task_id: &str,
-    recovery: TaskMutationKind,
+    caller: &crate::service::AuthenticatedPlanCaller,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
     let confirmed_human = headers
         .get("X-CodeTerm-Plan-Confirmation")
         .and_then(|value| value.to_str().ok())
@@ -804,7 +804,7 @@ pub(super) async fn verify_task_mutation_owner(
     }
     if !confirmed_human
         && !matches!(
-            svc.classify_planning_caller_async(plan_id, &caller).await,
+            svc.classify_planning_caller_async(plan_id, caller).await,
             Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
         )
     {
@@ -813,16 +813,27 @@ pub(super) async fn verify_task_mutation_owner(
             "the caller is not the Plan Orchestrator or Planner",
         ));
     }
+    Ok(())
+}
+
+pub(super) async fn verify_task_mutation_owner(
+    svc: &ServiceState,
+    headers: &HeaderMap,
+    plan_id: &str,
+    task_id: &str,
+    recovery: TaskMutationKind,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
     let detail = svc
         .plan_store
         .show_task(task_id)
         .filter(|detail| detail.plan_id == plan_id)
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
-    if detail.task.interruption.owner_epoch == 0 {
-        return Ok(());
-    }
     let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
+    if detail.task.interruption.owner_epoch == 0 {
+        return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
+    }
     if recovery == TaskMutationKind::Recovery
+        && caller.tab_id.as_deref().is_some_and(|tab_id| !tab_id.is_empty())
         && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
     {
         match svc
