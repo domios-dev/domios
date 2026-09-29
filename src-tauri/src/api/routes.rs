@@ -662,6 +662,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/disconnect",
             post(mesh_routes::mesh_disconnect_peer),
         )
+        .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
         .route(
             "/api/mesh/pair/request",
             post(mesh_routes::mesh_pair_request),
