@@ -73,6 +73,23 @@ fn close_task_with_open_subtask_errors() {
 }
 
 #[test]
+fn closing_pending_task_is_refused_before_done() {
+    let (store, plan_id, task_id) = store_with_task();
+    let error = store
+        .close_task(&plan_id, &task_id, None, AgentRef::from_tab("owner"), 30)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::TransitionDenied {
+            from: TaskStatus::Pending,
+            to: TaskStatus::Done
+        }
+    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.status, TaskStatus::Pending);
+}
+
+#[test]
 fn add_task_rejects_terminal_and_child_parents() {
     let (store, plan_id, parent_id) = store_with_task();
     for status in [TaskStatus::Done, TaskStatus::Cancelled] {

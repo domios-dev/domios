@@ -357,6 +357,12 @@ impl PlanStore {
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
+            if p.tasks[task_index].status == TaskStatus::Pending {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
             let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
             super::finalize_task_done(p, task_index, now_ms)?;
             if was_in_review {
@@ -412,6 +418,12 @@ impl PlanStore {
                 &plan.tasks[task_index],
                 authority,
             )?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
             let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
             super::finalize_task_done(plan, task_index, now_ms)?;
             if was_in_review {

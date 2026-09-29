@@ -87,6 +87,7 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
             NewTask {
                 name: "retry lane".into(),
                 kind: "implement".into(),
+                personality: Some("Ranker".into()),
                 model: Some("codex/gpt-5.5".into()),
                 body: "Fix the task history respawn CLI.".into(),
                 role_guidance: Some("Act as planner; do not implement.".into()),
@@ -137,6 +138,7 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.planned_model.as_deref(), Some("codex/gpt-5.5"));
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
+    assert_eq!(draft.title.as_deref(), Some("Ranker"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     assert!(draft.task_prompt.starts_with(
         "Act as planner; do not implement.\n\
