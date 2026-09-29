@@ -9,7 +9,7 @@ const CLAUDE_SIBLING: &str = "bbbb2222-find-4bbb-8bbb-bbbbbbbbbbbb";
 const CODEX_INDEXED: &str = "11111111-1111-1111-1111-111111111111";
 const CODEX_UNINDEXED: &str = "33333333-3333-3333-3333-333333333333";
 
-fn claude_js_rooted_at(projects_root: &std::path::Path) -> JsProvider {
+pub(super) fn claude_js_rooted_at(projects_root: &std::path::Path) -> JsProvider {
     let dir = workspace_plugins_root().join("provider-claude");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("plugin.json")).unwrap()).unwrap();
