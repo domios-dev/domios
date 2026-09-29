@@ -249,18 +249,17 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         self.with_plan(plan_id, now_ms, |plan| {
-            if !plan.task_groups.iter().any(|group| group.key == group_key) {
-                if plan
+            if !plan.task_groups.iter().any(|group| group.key == group_key)
+                && plan
                     .tasks
                     .iter()
                     .any(|task| task.group.as_deref() == Some(group_key))
-                {
-                    plan.task_groups.push(crate::plan::TaskGroup {
-                        key: group_key.to_string(),
-                        label: group_key.to_string(),
-                        color: None,
-                    });
-                }
+            {
+                plan.task_groups.push(crate::plan::TaskGroup {
+                    key: group_key.to_string(),
+                    label: group_key.to_string(),
+                    color: None,
+                });
             }
             let group = plan
                 .task_groups
