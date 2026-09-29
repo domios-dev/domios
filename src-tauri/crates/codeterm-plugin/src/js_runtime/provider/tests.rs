@@ -208,6 +208,71 @@ fn session_file_path_uses_manifest_root() {
 }
 
 #[test]
+fn session_search_file_enumeration_avoids_per_file_vm_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("codex");
+    let sessions = root.join("sessions/2026/09/29");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let mut expected = Vec::new();
+    for index in 0..24 {
+        let id = format!("{index:08x}-1111-2222-3333-444444444444");
+        let path = sessions.join(format!("rollout-2026-09-29T15-02-00-{id}.jsonl"));
+        std::fs::write(&path, "{}\n").unwrap();
+        expected.push((id, path.to_string_lossy().to_string()));
+    }
+    let mut manifest: serde_json::Value = serde_json::from_str(MIN_MANIFEST).unwrap();
+    manifest["sessions"] = serde_json::json!({
+        "rootDir": root.to_string_lossy(),
+        "cwdEncoding": "none",
+        "fileExtension": "jsonl",
+        "searchFiles": {
+            "rootSubdir": "sessions",
+            "directoryDepth": 3,
+            "fileStemRegex": "^rollout-.{19}-([A-Za-z0-9._-]{1,128})$"
+        }
+    });
+    let script = r#"
+        let enumerateCalls = 0;
+        let describeCalls = 0;
+        module.exports.default = {
+            enumerateSessions() { enumerateCalls++; return []; },
+            describeSession() { describeCalls++; return { projectPath: '/work/project' }; },
+            enumerateCallCount() { return enumerateCalls; },
+            describeCallCount() { return describeCalls; },
+            parseSessionMessages() { return []; }
+        };
+    "#;
+    let provider = load(&manifest.to_string(), script);
+
+    let sessions = provider.enumerate_sessions_for_search();
+
+    assert_eq!(sessions.len(), 24);
+    assert_eq!(
+        sessions
+            .iter()
+            .map(|session| (session.session_id.clone(), session.file_path.clone()))
+            .collect::<std::collections::HashSet<_>>(),
+        expected.into_iter().collect()
+    );
+    assert_eq!(
+        provider.try_call::<usize>("enumerateCallCount", &[]),
+        Some(0)
+    );
+    assert_eq!(
+        provider.try_call::<usize>("describeCallCount", &[]),
+        Some(0)
+    );
+
+    let described = provider.describe_session_for_search(&sessions[0]);
+
+    assert_eq!(described.project_path.as_deref(), Some("/work/project"));
+    assert_eq!(
+        provider.try_call::<usize>("describeCallCount", &[]),
+        Some(1)
+    );
+}
+
+#[test]
 fn parse_session_messages_delegates_to_js() {
     let js = r#"
             module.exports.default = {

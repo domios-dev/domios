@@ -57,7 +57,9 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.additional_writable_dir_flag.clone()
     }
 
-    fn sandboxed_linux_launch_capability(&self) -> Option<provider::SandboxedLinuxLaunchCapability> {
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<provider::SandboxedLinuxLaunchCapability> {
         self.manifest.spawn.sandboxed_linux_launch.clone()
     }
 
@@ -548,6 +550,45 @@ impl AgentProvider for JsProvider {
                 .collect();
         }
         self.manifest_enumerate_sessions()
+    }
+
+    fn enumerate_sessions_for_search(&self) -> Vec<SessionMetadata> {
+        if self.session_content_source() == provider::SessionContentSource::SessionFile
+            && self.manifest.sessions.is_some()
+            && (self
+                .manifest
+                .sessions
+                .as_ref()
+                .is_some_and(|sessions| sessions.search_files.is_some())
+                || !self.has_js("enumerateSessions"))
+        {
+            return self.manifest_enumerate_sessions_for_search();
+        }
+        self.enumerate_sessions()
+    }
+
+    fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
+        let described = if self.has_js("describeSession") {
+            self.manifest_describe_session(session)
+        } else if self.has_js("findSession") {
+            self.find_session(&session.session_id)
+                .map(|described| SessionMetadata {
+                    project_path: described.project_path,
+                    title: described.title,
+                    summary: described.summary,
+                    ..session.clone()
+                })
+                .unwrap_or_else(|| session.clone())
+        } else {
+            session.clone()
+        };
+        SessionMetadata {
+            transcript_path: described.transcript_path.clone().or_else(|| {
+                crate::session_evidence::stored_transcript_path(&described.session_id)
+                    .map(|path| path.to_string_lossy().to_string())
+            }),
+            ..described
+        }
     }
 
     fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {

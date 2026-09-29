@@ -41,12 +41,13 @@ pub(super) fn scan_provider(provider: &dyn AgentProvider, ctx: &ScanCtx) -> Prov
     let started = Instant::now();
     let source = provider.session_content_source();
     let mut sessions: Vec<SessionMetadata> = provider
-        .enumerate_sessions()
+        .enumerate_sessions_for_search()
         .into_iter()
         .filter(|meta| {
-            ctx.project_path
-                .as_deref()
-                .is_none_or(|proj| meta.project_path.as_deref() == Some(proj))
+            ctx.project_path.as_deref().is_none_or(|project| {
+                meta.project_path.as_deref() == Some(project)
+                    || (source == SessionContentSource::SessionFile && meta.project_path.is_none())
+            })
         })
         .collect();
     let enumerated = sessions.len();
@@ -141,14 +142,23 @@ fn scan_session_files(
                 FileProbe::Skip(reason) => tally.skip(reason, 1),
                 FileProbe::Miss => {}
                 FileProbe::Parse => {
+                    let mut candidate = meta.clone();
+                    let mut described = false;
+                    if ctx.project_path.is_some() && candidate.project_path.is_none() {
+                        candidate = provider.describe_session_for_search(&candidate);
+                        described = true;
+                        if candidate.project_path.as_deref() != ctx.project_path.as_deref() {
+                            continue;
+                        }
+                    }
                     tally.parsed += 1;
-                    let messages = provider.parse_session_messages(Path::new(&meta.file_path));
-                    if let Some(hit) = match_messages(
-                        meta.clone(),
-                        &messages,
-                        &ctx.lowered_terms,
-                        ctx.max_snippets,
-                    ) {
+                    let messages = provider.parse_session_messages(Path::new(&candidate.file_path));
+                    if let Some(mut hit) =
+                        match_messages(candidate, &messages, &ctx.lowered_terms, ctx.max_snippets)
+                    {
+                        if ctx.project_path.is_none() && !described {
+                            hit.meta = provider.describe_session_for_search(&hit.meta);
+                        }
                         tally.hits.push(hit);
                     }
                 }
