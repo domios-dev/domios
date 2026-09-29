@@ -278,6 +278,18 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
     }
 }
 
+pub(crate) fn publish_shell_exit(svc: &super::ServiceContext, pty_id: &str) {
+    let exit_code = svc
+        .pty
+        .lock()
+        .get_session(pty_id)
+        .and_then(|session| session.child_exit_code());
+    crate::service::shell_exec::publish(
+        pty_id,
+        crate::service::shell_exec::ExecCompletion::ShellExited { exit_code },
+    );
+}
+
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     handle_pty_death_with_cause(
@@ -322,6 +334,7 @@ fn handle_pty_death_with_cause(
         tracker.set_dead(pty_id);
         prev
     };
+    publish_shell_exit(svc, pty_id);
     svc.shell_caps.lock().remove(pty_id);
 
     if preserve_tab_authority(shutdown) {

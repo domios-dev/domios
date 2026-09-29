@@ -523,6 +523,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 tracker.set_dead(&pty_id);
                 prev
             };
+            crate::service::pty_lifecycle::publish_shell_exit(svc, &pty_id);
             let tab_id = mux.write().tab_id_for_pty(&pty_id);
             if let Some(ref pid) = tab_id {
                 let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);

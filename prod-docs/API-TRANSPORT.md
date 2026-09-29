@@ -24,8 +24,8 @@ Send a command and wait for its output in one call:
 curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "echo hello", "timeout_ms": 5000}'
-# Response: {"output": "hello\r\n...", "offset": 1600}
-# If timeout: {"output": "...", "offset": 1600, "timeout": true}
+# Response: {"output": "hello\r\n...", "offset": 1600, "exit_code": 0, "completion": "command_finished"}
+# Timeout is a failure: "completion": "timeout", "timeout": true
 ```
 
 ### SSE Output Stream
@@ -235,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

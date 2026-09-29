@@ -104,6 +104,13 @@ impl CommandPort for StartupBlockedPort {
         panic!("the blocking snapshot path must not be used by this API seam")
     }
 
+    fn mux_snapshot_until(
+        &self,
+        _: std::time::Instant,
+    ) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
+        None
+    }
+
     fn send_text(&self, _: &str, _: &str) -> Result<(), String> {
         unreachable!()
     }
@@ -210,6 +217,111 @@ fn health_and_tabs_do_not_share_a_blocking_startup_wait() {
     )
     .unwrap_err();
     assert_eq!(tabs, TAB_SUMMARY_BUSY_ERROR);
+}
+
+#[test]
+fn tab_summary_waits_for_read_lock() {
+    use crate::multiplexer::state::{snapshot_with_status_until, MultiplexerState};
+    use codeterm_types::pty::TabStatusTracker;
+    use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
+    use std::sync::{mpsc, Arc};
+    use std::time::{Duration, Instant};
+
+    let (state, root_tab) = MultiplexerState::new();
+    let mux = Arc::new(TimedRwLock::new("mux", state));
+    let tracker = Arc::new(TimedMutex::new("agent_tracker", TabStatusTracker::new()));
+    let deadline = || Instant::now() + Duration::from_secs(30);
+
+    let other_reader = mux.read();
+    assert!(
+        snapshot_with_status_until(&mux, &tracker, deadline(), |_, status| status).is_some(),
+        "a concurrent mux reader must not refuse the summary"
+    );
+    drop(other_reader);
+
+    let (held_tx, held_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let holder_tracker = tracker.clone();
+    let holder = std::thread::spawn(move || {
+        let guard = holder_tracker.lock();
+        held_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        drop(guard);
+    });
+    held_rx.recv().unwrap();
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let waiter_mux = mux.clone();
+    let waiter_tracker = tracker.clone();
+    let waiter = std::thread::spawn(move || {
+        let snapshot =
+            snapshot_with_status_until(&waiter_mux, &waiter_tracker, deadline(), |_, s| s);
+        done_tx
+            .send(snapshot.map(|snapshot| snapshot.tabs.contains_key(&root_tab)))
+            .unwrap();
+    });
+    assert!(
+        done_rx.try_recv().is_err(),
+        "the summary cannot complete while another reader holds agent_tracker"
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        done_rx.recv_timeout(Duration::from_secs(30)).unwrap(),
+        Some(true),
+        "the summary completes once the other reader releases agent_tracker"
+    );
+    holder.join().unwrap();
+    waiter.join().unwrap();
+
+    let writer = mux.write();
+    assert!(
+        snapshot_with_status_until(&mux, &tracker, Instant::now(), |_, s| s).is_none(),
+        "a writer holding mux past the deadline is the only refusal"
+    );
+    drop(writer);
+}
+
+#[test]
+fn tab_summary_status_uses_the_resolved_tab_status() {
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::{TabStatus, TabStatusTracker, TabVerdict, TimelineState};
+
+    let (mut state, tab_id) = MultiplexerState::new();
+    {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-streaming".into());
+        tab.agent_type = Some("opaque-provider".into());
+        tab.agent_state = Some(
+            TabVerdict {
+                state: TimelineState::Idle,
+                subtype: None,
+            }
+            .into(),
+        );
+    }
+    let mut tracker = TabStatusTracker::new();
+    tracker.update_output("pty-streaming", [7u8; 32]);
+    let snapshot = state.snapshot_with_status(&tracker);
+    assert_eq!(
+        snapshot.tab_statuses.get(&tab_id),
+        Some(&TabStatus::Working)
+    );
+
+    let rows = build_tab_summary_json(&snapshot, None, None, false, false);
+    let row = rows
+        .iter()
+        .find(|row| row["id"] == tab_id.as_str())
+        .unwrap();
+    assert_eq!(row["status"], TabStatus::Working.label());
+
+    tracker.set_dead("pty-streaming");
+    let snapshot = state.snapshot_with_status(&tracker);
+    let rows = build_tab_summary_json(&snapshot, None, None, false, false);
+    let row = rows
+        .iter()
+        .find(|row| row["id"] == tab_id.as_str())
+        .unwrap();
+    assert_eq!(row["status"], TabStatus::Dead.label());
 }
 
 // ── Command enum round-trip tests ───────────────────────────────

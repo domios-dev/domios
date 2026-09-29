@@ -82,6 +82,14 @@ mod imp {
                 inner,
             })
         }
+        pub fn try_lock_until(&self, deadline: Instant) -> Option<TimedGuard<MutexGuard<'_, T>>> {
+            self.inner.try_lock_until(deadline).map(|inner| TimedGuard {
+                name: self.name,
+                kind: "try_lock_until",
+                start: Instant::now(),
+                inner,
+            })
+        }
     }
 
     pub struct TimedRwLock<T> {
@@ -113,6 +121,17 @@ mod imp {
                 inner,
             })
         }
+        pub fn try_read_until(
+            &self,
+            deadline: Instant,
+        ) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
+            self.inner.try_read_until(deadline).map(|inner| TimedGuard {
+                name: self.name,
+                kind: "try_read_until",
+                start: Instant::now(),
+                inner,
+            })
+        }
         pub fn write(&self) -> TimedGuard<RwLockWriteGuard<'_, T>> {
             let inner = self.inner.write();
             TimedGuard {
@@ -136,6 +155,7 @@ mod imp {
 #[cfg(not(debug_assertions))]
 mod imp {
     use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+    use std::time::Instant;
 
     #[repr(transparent)]
     pub struct TimedMutex<T>(Mutex<T>);
@@ -151,6 +171,10 @@ mod imp {
         #[inline(always)]
         pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
             self.0.try_lock()
+        }
+        #[inline(always)]
+        pub fn try_lock_until(&self, deadline: Instant) -> Option<MutexGuard<'_, T>> {
+            self.0.try_lock_until(deadline)
         }
     }
 
@@ -168,6 +192,10 @@ mod imp {
         #[inline(always)]
         pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
             self.0.try_read()
+        }
+        #[inline(always)]
+        pub fn try_read_until(&self, deadline: Instant) -> Option<RwLockReadGuard<'_, T>> {
+            self.0.try_read_until(deadline)
         }
         #[inline(always)]
         pub fn write(&self) -> RwLockWriteGuard<'_, T> {
