@@ -28,10 +28,8 @@ impl ServiceContext {
         let Some(cron) = self.app_handle.try_state::<CronState>() else {
             return;
         };
-        match cron
-            .lock()
-            .set_tab_awaiting_owner_prompt(tab_id, awaiting)
-        {
+        let updated = cron.lock().set_tab_awaiting_owner_prompt(tab_id, awaiting);
+        match updated {
             Ok(true) => self.emit_cron_changed(),
             Ok(false) => {}
             Err(error) => {
