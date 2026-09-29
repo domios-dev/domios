@@ -40,7 +40,7 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
                 return true;
             }
             *method == Method::POST
-                && ["/send", "/exec", "/respond", "/report", "/clear"]
+                && ["/send", "/attachments", "/exec", "/respond", "/report", "/clear"]
                     .iter()
                     .any(|suffix| path.ends_with(suffix))
         }

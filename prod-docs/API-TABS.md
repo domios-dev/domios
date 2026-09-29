@@ -206,7 +206,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 |---|---|
 | Full | All peer API routes, including announce, sync, and peer introductions, except local-only routes. |
 | ReadOnly | Permitted `GET` routes only, except local-only routes. `POST /api/mesh/sync` is scoped to the sender's liveness and identity; announce and third-party introductions are refused. |
-| AgentIsolated | `POST /api/agents/spawn`; `GET /api/tabs` returns only this peer's spawned tabs; `GET /api/tabs/{id}/text` and `POST` send, exec, respond, report, and clear are allowed only when `{id}` belongs to this peer. No workspace inventory, other tabs, mesh inventory, memory, config, secrets, or notifications. |
+| AgentIsolated | `POST /api/agents/spawn`; `GET /api/tabs` returns only this peer's spawned tabs; `GET /api/tabs/{id}/text` and `POST` send, attachments, exec, respond, report, and clear are allowed only when `{id}` belongs to this peer. No workspace inventory, other tabs, mesh inventory, memory, config, secrets, or notifications. |
 | Custom | Only configured `Permission` grants; `Admin` grants ordinary peer API access and sender-only sync except local-only routes and Full-only announce/introduction controls. |
 
 The daemon records the authenticated spawning peer on each spawned tab and checks it on every tab-scoped route. Body-supplied ownership does not grant access.
@@ -230,4 +230,4 @@ The daemon records the authenticated spawning peer on each spawned tab and check
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
