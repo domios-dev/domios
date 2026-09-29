@@ -151,10 +151,11 @@ fn held_config(file: &StateFile, last_known: Option<AppConfig>, raw: Option<&str
                 .map(|contents| mark_salvaged_config(&contents));
             (config, contents)
         }
-        (None, Some(raw)) => salvage_config(raw).unwrap_or_else(|| {
-            let config = AppConfig::default();
-            (config, Some(mark_salvaged_config("")))
-        }),
+        (None, Some(raw)) => {
+            let (config, contents) = salvage_config(raw)
+                .unwrap_or_else(|| (AppConfig::default(), mark_salvaged_config("")));
+            (config, Some(contents))
+        }
         (None, None) => (AppConfig::default(), None),
     };
     if let Some(contents) = contents {
@@ -281,7 +282,7 @@ fn insert_nested_value(tables: &mut toml::Table, keys: &[&str], value: toml::Val
     }
 }
 
-fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<bool>) {
+pub(super) fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<bool>) {
     let mut section = String::new();
     let mut token = None;
     let mut full_access = None;
@@ -314,16 +315,6 @@ fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<bool>) {
         }
     }
     (token, full_access)
-}
-
-pub(super) fn salvage_critical_keys(raw: &str, config: &mut AppConfig) {
-    let (token, full_access) = salvaged_critical_values(raw);
-    if let Some(token) = token {
-        config.api.token = Some(token);
-    }
-    if let Some(full_access) = full_access {
-        config.agent.full_access = Some(full_access);
-    }
 }
 
 fn lookup<'a>(table: &'a toml::Table, keys: &[&str]) -> Option<&'a toml::Value> {

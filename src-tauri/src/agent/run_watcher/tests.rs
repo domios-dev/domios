@@ -349,7 +349,7 @@
             .lock()
             .process(
                 &pty_id,
-                b"opaque-question-62\n❯ opaque-choice-62\nPress Enter to confirm",
+                "opaque-question-62\n❯ opaque-choice-62\nPress Enter to confirm".as_bytes(),
             );
         (fixture, tab_id, pty_id)
     }
@@ -428,6 +428,7 @@
     #[test]
     #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
     fn dead_cron_run_is_reaped_on_process_exit() {
+        use tauri::Manager as _;
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
         let pty_id = "cron-process-exit-pty".to_string();
