@@ -30,6 +30,8 @@ var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-bindi
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
+var ASSISTANT_MESSAGE_MAX_BYTES = 1 << 20;
+var MESSAGE_ROLE_MAX_BYTES = 16 << 20;
 var lastPromptShape = "horizontal";
 function parsePermissionPrompt(text) {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
@@ -244,7 +246,7 @@ function discoverOpencodeGroupUsage() {
   if (!db || !host.fs.fileExists(db)) return [];
   const rows = host.fs.sqliteQuery(
     db,
-    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
+    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
     []
   );
   const out = [];
@@ -655,8 +657,8 @@ function scanMessagesForQualifiedModel(db, sessionId) {
   try {
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
     );
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;
@@ -1045,8 +1047,8 @@ var plugin = {
     if (!sessionId) return null;
     return scanMessagesForModel(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
     );
   },
   usesStructuredChat() {
@@ -1060,8 +1062,8 @@ var plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
-      [sessionId, sinceMs]
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages = [];
     let lastTs = sinceMs;
@@ -1078,9 +1080,7 @@ var plugin = {
       seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
-      let role = "assistant";
-      const msg = safeJson(rows[i].msg);
-      if (msg && msg.role) role = msg.role;
+      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
       const cm = partToChatMsg(part, role, id, created);
       if (cm) messages.push(cm);
     }

@@ -6,6 +6,9 @@ export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-sess
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 export const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
+// json_extract parses a row whole; only user rows carrying diffs outgrow these bounds.
+export const ASSISTANT_MESSAGE_MAX_BYTES = 1 << 20;
+export const MESSAGE_ROLE_MAX_BYTES = 16 << 20;
 export let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 // Types
@@ -323,7 +326,8 @@ export function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
       "SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, " +
       "SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, " +
       "SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost " +
-      "FROM message WHERE json_extract(data,'$.role')='assistant' " +
+      "FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " " +
+      "AND json_extract(data,'$.role')='assistant' " +
       "AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
     []
   );
@@ -764,8 +768,9 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
   try {
     const rows = host.fs.sqliteQuery<{ data?: string }>(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId],
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES],
     );
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;
