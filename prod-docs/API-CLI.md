@@ -135,23 +135,19 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-Choose a model with `codeterm agent models <provider>` and pass its id with
-`codeterm agent spawn [provider] --model <id>`. When provider is omitted, a
-uniquely advertised bare id selects its provider; otherwise spawn uses the
-configured default provider. Providers with an authoritative
-catalogue refuse unknown ids before creating a tab and list valid catalogue ids
-in the error. Free-form providers also validate ids against a published live
-model list. If no live list is available, the requested id is passed through
-unchanged. Provider-qualified ids select their provider; an unqualified id
-advertised by one provider routes to that provider. If multiple providers
-advertise it, `plan task dispatch` requires `--agent`; `agent spawn` requires
-the provider as its positional argument. Ambiguous ids are refused instead of
-falling through to the default provider. A provider alias advertised by another
-provider is refused instead of being passed across providers.
-
-For providers that require live discovery, `codeterm agent models <provider>`
-refreshes the current catalogue before listing. If discovery cannot publish a
-new snapshot, the command warns and shows the registered catalogue.
+Choose a model with `codeterm agent models <provider>`, which first refreshes a
+catalogue that requires live discovery and, when no new snapshot publishes,
+warns and lists the registered one. Pass the id with `codeterm agent spawn
+[provider] --model <id>`. Without a provider, a uniquely advertised bare id
+selects its provider; otherwise spawn uses the configured default provider.
+Authoritative catalogues refuse unknown ids before creating a tab and list the
+valid ids in the error. Free-form providers validate ids against a published
+live model list and pass the id through unchanged when none exists.
+Provider-qualified ids select their provider; an unqualified id advertised by
+one provider routes to it. If several advertise it, `plan task dispatch`
+requires `--agent` and `agent spawn` requires the positional provider.
+Ambiguous ids and aliases advertised by another provider are refused instead of
+falling through or crossing providers.
 
 Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and
 `session_model` separate. The resolved field stays null until launch resolution
@@ -241,4 +237,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
