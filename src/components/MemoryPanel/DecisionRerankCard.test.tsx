@@ -1,6 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HelpSectionId } from "../../help/types";
 import type { MemoryConfig } from "../../lib/types";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 
@@ -57,9 +58,9 @@ function mem(over: Partial<MemoryConfig> = {}): MemoryConfig {
   };
 }
 
-async function render(m: MemoryConfig = mem(), onUpdate: (...a: unknown[]) => void = () => {}) {
+async function render(m: MemoryConfig = mem(), onUpdate: (...a: unknown[]) => void = () => {}, onOpenGuide: (section: HelpSectionId) => void = () => {}) {
   await act(async () => {
-    root.render(<DecisionRerankCard mem={m} onUpdate={onUpdate as never} apiBase={API} apiHeaders={AUTH} />);
+    root.render(<DecisionRerankCard mem={m} onUpdate={onUpdate as never} onOpenGuide={onOpenGuide} apiBase={API} apiHeaders={AUTH} />);
   });
 }
 
@@ -194,6 +195,14 @@ describe("DecisionRerankCard", () => {
     expect(hrefs).toEqual(["https://docs.typesafe.ai", "https://console.typesafe.ai/keys"]);
   });
 
+  it("guide_link_opens_decision_rerank_section", async () => {
+    const onOpenGuide = vi.fn();
+    await render(mem(), () => {}, onOpenGuide);
+    await act(async () => q<HTMLButtonElement>("decision-rerank-guide-link")!.click());
+    expect(onOpenGuide).toHaveBeenCalledTimes(1);
+    expect(onOpenGuide).toHaveBeenCalledWith("decision-rerank");
+  });
+
   it("accessible_names_and_focus_order", async () => {
     await render();
     const focusables = Array.from(host.querySelectorAll<HTMLElement>("button, input, a[href]"));
@@ -209,6 +218,6 @@ describe("DecisionRerankCard", () => {
         : el.tagName === "A" ? "link"
         : el.getAttribute("data-testid")?.replace("decision-rerank-token-", ""),
     );
-    expect(order).toEqual(["toggle", "input", "save", "clear", "link", "link"]);
+    expect(order).toEqual(["toggle", "input", "save", "clear", "decision-rerank-guide-link", "link", "link"]);
   });
 });

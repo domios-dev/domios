@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ExternalLink, Sparkles } from "lucide-react";
 import type { AppConfig, DecisionRerankConfig, MemoryConfig } from "../../lib/types";
+import type { HelpSectionId } from "../../help/types";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
 import { AboutLink, SettingsCard, Toggle } from "../Settings/shared";
@@ -22,11 +23,12 @@ interface DecisionStatus {
 interface Props {
   mem: MemoryConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onOpenGuide: (section: HelpSectionId) => void;
   apiBase: string;
   apiHeaders: HeadersInit;
 }
 
-export function DecisionRerankCard({ mem, onUpdate, apiBase, apiHeaders }: Props) {
+export function DecisionRerankCard({ mem, onUpdate, onOpenGuide, apiBase, apiHeaders }: Props) {
   const adapter = mem.decision_rerank?.adapter ?? DEFAULT_ADAPTER;
   const inputId = useId();
   const tokenRef = useRef<HTMLInputElement>(null);
@@ -157,6 +159,14 @@ export function DecisionRerankCard({ mem, onUpdate, apiBase, apiHeaders }: Props
       </div>
 
       <div className="flex flex-wrap items-center gap-4" data-testid="decision-rerank-help">
+        <button
+          type="button"
+          onClick={() => onOpenGuide("decision-rerank")}
+          className="text-[11px] text-[var(--ct-accent)] underline underline-offset-2 hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+          data-testid="decision-rerank-guide-link"
+        >
+          How it works
+        </button>
         <AboutLink href={DOCS_URL} label="TypeSafe docs" Icon={ExternalLink} />
         <AboutLink href={KEYS_URL} label="Get a token" Icon={ExternalLink} />
       </div>
