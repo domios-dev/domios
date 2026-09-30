@@ -169,7 +169,8 @@ An optional second stage over `mem search`: recall fetches a candidate pool, a r
 |-----|------|---------|-------------|
 | `memory.decision_rerank.enabled` | `bool` | `false` | Apply the stage to every search that does not override it. |
 | `memory.decision_rerank.adapter` | `string` | `"typesafe-jev"` | Registry id of the decision adapter. An unregistered id falls back with reason `no_adapter`. |
-| `memory.decision_rerank.candidates` | `usize` | `10` | Candidate pool size (`1..=50`); the pool is never smaller than the request limit. |
+| `memory.decision_rerank.sources.recall` | `usize` | `10` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
+| `memory.decision_rerank.sources.graph` | `usize` | `0` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
 | `memory.decision_rerank.max_concurrency` | `usize` | `8` | Parallel adapter calls (`1..=32`). |
 | `memory.decision_rerank.deadline_ms` | `u64` | `3000` | Failure deadline for the whole stage (`100..=30000`). |
 | `memory.decision_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
@@ -180,7 +181,10 @@ An optional second stage over `mem search`: recall fetches a candidate pool, a r
 ```toml
 [memory.decision_rerank]
 enabled = false
-candidates = 10
+
+[memory.decision_rerank.sources]
+recall = 10
+graph = 0
 ```
 
 ### Librarian
@@ -221,4 +225,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

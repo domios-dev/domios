@@ -156,13 +156,7 @@ pub(crate) fn baseline_search<B: RecallBackend + ?Sized>(
     p: &SearchParams,
 ) -> Result<serde_json::Value, String> {
     validate_search_query(&p.q)?;
-    let q = SearchQuery {
-        query: p.q.clone(),
-        kind: p.kind.clone(),
-        scope: p.scope.clone(),
-        area: p.area.clone(),
-        limit: p.limit,
-    };
+    let q = mem_query(p);
     let project = p.project.clone();
     let hits = if p.rerank.unwrap_or(false) {
         let cfg = RerankConfig {
@@ -191,20 +185,30 @@ pub(crate) fn baseline_search<B: RecallBackend + ?Sized>(
         }
         backend.recall(&q, &sc)?
     };
-    let mut tagged_hits = hits
-        .into_iter()
-        .map(|hit| {
-            let mut value = serde_json::to_value(hit).unwrap_or_default();
-            if let Some(obj) = value.as_object_mut() {
-                obj.insert("source".into(), serde_json::json!("mem"));
-            }
-            value
-        })
-        .collect::<Vec<_>>();
+    let mut tagged_hits = hits.into_iter().map(mem_hit_value).collect::<Vec<_>>();
     if let Some(project) = project {
         append_plan_hits(backend, &mut tagged_hits, &project, &q)?;
     }
     Ok(serde_json::json!({ "hits": tagged_hits }))
+}
+
+pub(crate) fn mem_query(p: &SearchParams) -> SearchQuery {
+    SearchQuery {
+        query: p.q.clone(),
+        kind: p.kind.clone(),
+        scope: p.scope.clone(),
+        area: p.area.clone(),
+        limit: p.limit,
+    }
+}
+
+/// The wire shape of one mem hit in a search response.
+pub(crate) fn mem_hit_value(hit: SearchHit) -> serde_json::Value {
+    let mut value = serde_json::to_value(hit).unwrap_or_default();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("source".into(), serde_json::json!("mem"));
+    }
+    value
 }
 
 fn validate_search_query(query: &str) -> Result<(), String> {

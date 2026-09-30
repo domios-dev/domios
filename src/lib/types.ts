@@ -759,10 +759,15 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
+export interface DecisionSources {
+  recall: number;
+  graph: number;
+}
+
 export interface DecisionRerankConfig {
   enabled: boolean;
   adapter: string;
-  candidates: number;
+  sources: DecisionSources;
   max_concurrency: number;
   deadline_ms: number;
   low_confidence_threshold: number;

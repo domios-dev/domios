@@ -150,6 +150,23 @@ impl MemManager {
         Ok(reranker.rerank(&q.query, candidates, q.limit.unwrap_or(5)))
     }
 
+    /// Graph-linked mem items in graph rank order, score 0.0; hydration records no access.
+    pub fn graph_candidates_untouched(
+        &self,
+        q: &SearchQuery,
+        m: usize,
+    ) -> Result<Vec<SearchHit>, String> {
+        let conn = self.conn.lock();
+        let _read = UntouchedRead::begin(&conn)?;
+        let mut hits = Vec::new();
+        for id in search::graph_source::graph_candidates(&conn, q, m)? {
+            if let Some(item) = store::get(&conn, &id, &self.blobs_dir)? {
+                hits.push(SearchHit { item, score: 0.0 });
+            }
+        }
+        Ok(hits)
+    }
+
     /// Record one access per distinct id, exactly as one hydrating read would.
     pub fn record_access(&self, ids: &[String]) -> Result<(), String> {
         let conn = self.conn.lock();
