@@ -191,10 +191,16 @@ fn params(limit: usize) -> SearchParams {
     }
 }
 
+/// Recall-only pool: the shipped defaults add graph candidates, which these tests do not cover.
 fn enabled_cfg() -> DecisionRerankConfig {
     DecisionRerankConfig {
         enabled: true,
         adapter: STUB_ID.into(),
+        sources: crate::config::schema::DecisionSources {
+            graph: 0,
+            docs: 0,
+            ..crate::config::schema::DecisionSources::default()
+        },
         ..DecisionRerankConfig::default()
     }
 }

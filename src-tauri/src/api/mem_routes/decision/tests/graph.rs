@@ -64,7 +64,7 @@ fn graph_cfg(graph: usize) -> DecisionRerankConfig {
     DecisionRerankConfig {
         sources: DecisionSources {
             graph,
-            ..DecisionSources::default()
+            ..enabled_cfg().sources
         },
         ..enabled_cfg()
     }

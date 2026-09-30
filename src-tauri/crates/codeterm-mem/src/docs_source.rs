@@ -115,10 +115,7 @@ impl Index {
                 *frequencies.entry(term.clone()).or_insert(0) += 1;
             }
         }
-        let average_length = indexed
-            .iter()
-            .map(|section| section.length)
-            .sum::<usize>() as f64
+        let average_length = indexed.iter().map(|section| section.length).sum::<usize>() as f64
             / indexed.len().max(1) as f64;
         Self {
             sections: indexed,
@@ -146,14 +143,12 @@ impl Index {
                         let count = *section.terms.get(term)? as f64;
                         let document_frequency = *self.frequencies.get(term)? as f64;
                         let idf = (1.0
-                            + (total - document_frequency + 0.5)
-                                / (document_frequency + 0.5))
+                            + (total - document_frequency + 0.5) / (document_frequency + 0.5))
                             .ln();
                         let norm = count
                             + 1.2
                                 * (0.25
-                                    + 0.75 * section.length as f64
-                                        / self.average_length.max(1.0));
+                                    + 0.75 * section.length as f64 / self.average_length.max(1.0));
                         Some(idf * count * 2.2 / norm)
                     })
                     .sum::<f64>();

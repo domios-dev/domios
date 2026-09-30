@@ -5,7 +5,7 @@ fn docs_cfg(docs: usize) -> DecisionRerankConfig {
     DecisionRerankConfig {
         sources: DecisionSources {
             docs,
-            ..DecisionSources::default()
+            ..enabled_cfg().sources
         },
         ..enabled_cfg()
     }
@@ -32,13 +32,8 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
     let registry = relevance_registry(&[(&title, 0.99)]);
     let before = access_counts(&backend);
 
-    let output = resolve_search(
-        &backend,
-        &registry,
-        &docs_cfg(1),
-        applied_query(query, 1),
-    )
-    .unwrap();
+    let output =
+        resolve_search(&backend, &registry, &docs_cfg(1), applied_query(query, 1)).unwrap();
 
     assert_eq!(
         output["hits"],
@@ -102,13 +97,8 @@ fn docs_zero_keeps_the_existing_applied_output() {
         },
     });
 
-    let output = resolve_search(
-        &backend,
-        &registry,
-        &docs_cfg(0),
-        applied_query(QUERY, 2),
-    )
-    .unwrap();
+    let output =
+        resolve_search(&backend, &registry, &docs_cfg(0), applied_query(QUERY, 2)).unwrap();
 
     assert_eq!(normalized(output), normalized(expected));
 }
@@ -124,20 +114,16 @@ fn docs_are_absent_from_off_and_fallback_results() {
         ..SearchParams::default()
     };
     let baseline = baseline_oracle(&backend, &plain);
-    let off = resolve_search(
-        &backend,
-        &relevance_registry(&[]),
-        &docs_cfg(3),
-        plain,
-    )
-    .unwrap();
+    let off = resolve_search(&backend, &relevance_registry(&[]), &docs_cfg(3), plain).unwrap();
     assert_eq!(normalized(off), normalized(baseline));
 
     let request = applied_query(query, 2);
     let baseline = baseline_oracle(&backend, &request);
     let failed = resolve_search(
         &backend,
-        &registry_with(StubMode::Fail(DecisionError::Unavailable("no token".into()))),
+        &registry_with(StubMode::Fail(DecisionError::Unavailable(
+            "no token".into(),
+        ))),
         &docs_cfg(3),
         request,
     )
