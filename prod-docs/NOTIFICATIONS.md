@@ -121,16 +121,15 @@ per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not
 `notify send` refuses a blank title, a title over 200 characters (put detail in
 the pad body), and a `--target-tab` that names no open tab on this machine.
 
-Two notices are raised by CodeTerm itself, never by an agent: **Agent needs your
-response** (the agent is blocked on a prompt) and **Agent process exited** or
-**Agent recovery stopped** (the tab needs a restart). Each belongs to one standing
-condition of one tab, so a tab holds at most one live notice per condition and the
-same prompt or exit never opens a second one. The notice resolves when the
-condition ends: the prompt is answered or goes away, the agent reaches readiness
-again after `codeterm agent restart`, or the tab closes. Hidden automation routes
-its prompts and exits to a live report owner, and only writes them to the CodeTerm
-log when it has none. Cron prompts go to the job's creator tab when that tab is
-live; when the job has no live creator, they notify the user.
+Pending prompt detection updates tab state but never creates a notification.
+Agents that need owner attention must explicitly run
+`codeterm notify send "<title>" --level action_needed`. CodeTerm still raises process-exit
+and recovery-stopped notices for tabs that need a restart; each notice belongs to
+one standing condition of one tab and resolves when that condition ends or the
+tab closes. Hidden automation routes prompts and exits to a live report owner,
+and only writes them to the CodeTerm log when it has none. A cron run with a
+pending prompt remains awaiting its owner; prompt detection itself does not
+notify the user.
 
 Unread sticky notices — the condition notices above, and any record created with
 `sticky` over the API — survive a restart of CodeTerm, kept in
@@ -143,4 +142,4 @@ does an offer to turn a surface on, which must be sent again.
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

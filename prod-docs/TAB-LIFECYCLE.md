@@ -23,7 +23,7 @@ Restored agent PTYs are materialized by the backend once the frontend reports re
 
 Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its inputs are facts: a live PtyManager session, a boot stage emitted at a real launch transition, a shell reporting its foreground command with a matching nonce and then finished (OSC 633 `E` → `D`), an open plugin session. Elapsed time is never an input.
 
-A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. The prompt raises one notification however many times the provider renders it.
+A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. The prompt stays in tab state and does not create a notification; an agent that needs owner attention must explicitly run `codeterm notify send "<title>" --level action_needed`.
 
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it. In-tab provider relaunch, exit recovery and routed-slash behaviour: `.agents/skills/agent-restart/SKILL.md`.
 
@@ -151,4 +151,4 @@ The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 30 -->
+<!-- revision: 31 -->
