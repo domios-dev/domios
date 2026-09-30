@@ -241,13 +241,27 @@ impl StateFile {
 
     fn corrupt_target(&self) -> PathBuf {
         let base = format!("{}.corrupt-{:013}", self.file_name(), unix_millis());
-        let mut candidate = self.path.with_file_name(&base);
-        let mut suffix = 1;
-        while candidate.exists() {
-            candidate = self.path.with_file_name(format!("{base}-{suffix:03}"));
-            suffix += 1;
+        let suffixed = format!("{base}-");
+        // Continue after the newest same-millisecond copy, even an evicted base,
+        // so name order stays age order.
+        let newest_suffix = self
+            .corrupt_copies()
+            .iter()
+            .filter_map(|copy| copy.file_name()?.to_str().map(str::to_string))
+            .filter_map(|name| {
+                if name == base {
+                    Some(0)
+                } else {
+                    name.strip_prefix(&suffixed)?.parse::<u32>().ok()
+                }
+            })
+            .max();
+        match newest_suffix {
+            None => self.path.with_file_name(&base),
+            Some(newest) => self
+                .path
+                .with_file_name(format!("{base}-{:03}", newest + 1)),
         }
-        candidate
     }
 
     pub fn corrupt_copies(&self) -> Vec<PathBuf> {

@@ -42,10 +42,23 @@ worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm ru
 open a PR from `release/X.Y.Z` into `master`, and merge it only after required checks are green.
 Releases are cut from the resulting `master` commit.
 
+**Step one of every release — every release runner is online:**
+
+```bash
+bash scripts/check-release-runners.sh   # exit 1 names each offline label
+```
+
+It requires an online runner for each of `codeterm-builder` (Mac: macOS and arm64 Linux),
+`windows-build` (ROG: Windows) and `linux-build` (x86_64 Linux). Run it before the version bump
+and again right before pushing the tag. An offline runner leaves its job queued forever: the PR CI
+check never starts and the release run never reaches `release-manifest`. Get the owner to bring the
+machine up first; never tag around it.
+
 **Hard preflight before version bump / master PR:**
 
 ```bash
 VER=X.Y.Z
+bash scripts/check-release-runners.sh
 git fetch origin --prune
 git checkout "release/$VER"
 git pull --ff-only origin "release/$VER"
@@ -256,6 +269,7 @@ gh pr view <pr-number> --json mergeable,mergeStateStatus,statusCheckRollup,headR
 git checkout master
 git pull origin master --no-rebase   # get the merge commit GitHub created
 INTENDED_MASTER_SHA=$(git rev-parse HEAD)
+bash scripts/check-release-runners.sh           # every release runner online
 git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"  # must be empty
 test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
 git tag "release-$VER" "$INTENDED_MASTER_SHA"
