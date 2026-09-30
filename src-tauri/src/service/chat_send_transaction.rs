@@ -148,7 +148,6 @@ impl ChatSendLedger {
         self.try_start_scoped_with_normalization(
             tab_id,
             text,
-            text,
             anchor,
             live_binding,
             turn_normalization,
@@ -158,7 +157,6 @@ impl ChatSendLedger {
     pub(crate) fn try_start_scoped_with_normalization(
         &self,
         tab_id: &str,
-        text: &str,
         turn_evidence_text: &str,
         anchor: Option<SendEvidenceAnchor>,
         live_binding: Option<SendLiveBinding>,
@@ -558,7 +556,6 @@ impl crate::service::ServiceContext {
         let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
         let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
             tab_id,
-            &text,
             &turn_evidence_text,
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
@@ -889,7 +886,6 @@ mod tests {
         let pending = ledger
             .try_start_scoped_with_normalization(
                 "tab-1",
-                "opaque-body",
                 "opaque-body suffix-token",
                 None,
                 None,
@@ -920,7 +916,6 @@ mod tests {
         let pending = ledger
             .try_start_scoped_with_normalization(
                 "tab-1",
-                "name\tvalue\n\talpha\tbeta",
                 "name\tvalue\n\talpha\tbeta",
                 None,
                 Some(SendLiveBinding {

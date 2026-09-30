@@ -1,4 +1,4 @@
-use super::{DeferredSubmitWait, Observation, SubmitTransport, MAX_SUBMIT_KEY_WRITES};
+use super::{DeferredSubmitWait, SubmitTransport, MAX_SUBMIT_KEY_WRITES};
 use crate::agent::provider::{PasteCapability, VerifySubmitStrategy};
 use crate::service::inject_verify::{InjectionError, InjectionResult, VerifyOpts};
 use std::time::{Duration, Instant};
