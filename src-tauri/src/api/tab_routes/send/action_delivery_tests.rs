@@ -274,6 +274,50 @@ fn plain_text_preflight_delivers_once_when_no_provider_dialog_is_visible() {
 }
 
 #[test]
+fn provider_action_preflight_uses_the_current_screen_frame() {
+    use crate::agent::test_provider::MockProvider;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+
+    const PROVIDER_ID: &str = "send-current-frame-fixture";
+    let pty_id = "pty-send-current-frame-fixture";
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, pty_id.into());
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some(PROVIDER_ID.into());
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::new(PROVIDER_ID).with_directory_trust_frame_marker(
+            "TRUST_DIALOG_FRAME",
+            codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+        ),
+    ));
+
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"TRUST_DIALOG_FRAME");
+    assert!(fixture.service.provider_action_refusal(&tab_id).is_some());
+
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"\x1b[2J\x1b[HReady for a new user turn");
+    assert!(fixture.service.provider_action_refusal(&tab_id).is_none());
+
+    let mut deliveries = 0;
+    fixture
+        .service
+        .with_provider_action_preflight(&tab_id, || {
+            deliveries += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(deliveries, 1);
+}
+
+#[test]
 fn a_keystroke_only_send_carries_no_return_address() {
     use super::prefixes_return_address;
     assert!(!prefixes_return_address("", true));

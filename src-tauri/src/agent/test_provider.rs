@@ -26,6 +26,10 @@ pub struct MockProvider {
     status_bar_rows: u16,
     update_command: Option<String>,
     directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    directory_trust_frame_marker: Option<(
+        String,
+        codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    )>,
     directory_trusted_path: Option<String>,
     directory_trust_state: Option<codeterm_plugin::provider::DirectoryTrustState>,
     trusted_directory: Option<String>,
@@ -69,6 +73,7 @@ impl MockProvider {
             status_bar_rows: 0,
             update_command: None,
             directory_trust_response: None,
+            directory_trust_frame_marker: None,
             directory_trusted_path: None,
             directory_trust_state: None,
             trusted_directory: None,
@@ -305,6 +310,15 @@ impl MockProvider {
             directory_trust_response: Some(response),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_directory_trust_frame_marker(
+        mut self,
+        marker: &str,
+        response: codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    ) -> Self {
+        self.directory_trust_frame_marker = Some((marker.to_string(), response));
+        self
     }
 
     pub fn with_directory_trusted_path(mut self, path: &str) -> Self {
@@ -580,9 +594,14 @@ impl AgentProvider for MockProvider {
     }
     fn directory_trust_prompt_response(
         &self,
-        _screen: &str,
+        screen: &str,
     ) -> Option<codeterm_plugin::provider::DirectoryTrustPromptResponse> {
-        self.directory_trust_response.clone()
+        self.directory_trust_response.clone().or_else(|| {
+            self.directory_trust_frame_marker
+                .as_ref()
+                .filter(|(marker, _)| screen.contains(marker))
+                .map(|(_, response)| response.clone())
+        })
     }
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
         Ok(self.directory_trusted_path.as_deref() == Some(path))
