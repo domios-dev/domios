@@ -165,9 +165,12 @@ pub fn folder_skill_folder_to_remove(
     let (normalized_path, windows_path) = lexical_path(source_path.trim_start_matches("file:"));
     let skill_md = Path::new(&normalized_path);
     // Stored Windows sources are case folded, so their file name reads `skill.md`.
-    let is_skill_md = skill_md.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-        name == "SKILL.md" || (windows_path && name.eq_ignore_ascii_case("SKILL.md"))
-    });
+    let is_skill_md = skill_md
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name == "SKILL.md" || (windows_path && name.eq_ignore_ascii_case("SKILL.md"))
+        });
     if !is_skill_md {
         return None;
     }
