@@ -106,25 +106,26 @@ fn detected_prompt_stays_respondable_without_notification() {
         .expect("classified trust choices");
     let (prompt, kind) = parsed;
     assert_eq!(kind, codeterm_types::pty::PromptKind::DirectoryTrust);
-    let decision = fixture.service.prompt_detector.lock().evaluate_pty_output_parsed(
-        &tab_id,
-        true,
-        true,
-        Some(crate::agent::prompt::ResolvedPrompt {
-            prompt: prompt.clone(),
-            explicit: false,
-        }),
-    );
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
     assert!(matches!(
         &decision,
         crate::agent::prompt::PromptDecision::NewPrompt { .. }
     ));
-    fixture.service.apply_prompt_decision_with_kind(
-        &decision,
-        Some(&screen),
-        kind,
-        true,
-    );
+    fixture
+        .service
+        .apply_prompt_decision_with_kind(&decision, Some(&screen), kind, true);
     assert_eq!(
         fixture
             .service
@@ -140,11 +141,13 @@ fn detected_prompt_stays_respondable_without_notification() {
     let actions = prompt
         .options
         .iter()
-        .map(|option| codeterm_types::notification::NotificationAction::RespondPromptOption {
-            label: option.label.clone(),
-            value: option.value.clone(),
-            identity: identity.clone(),
-        })
+        .map(
+            |option| codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: option.label.clone(),
+                value: option.value.clone(),
+                identity: identity.clone(),
+            },
+        )
         .collect();
     let existing_id = fixture.service.create_prompt_notification_ext(
         "opaque title".into(),
