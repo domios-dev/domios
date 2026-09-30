@@ -319,6 +319,9 @@ mod model_refresh_tests {
         ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
             Some(codeterm_types::agent::SessionModelTranscriptBoundary {
                 last_entry_uuid: Some("before-relaunch".into()),
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
             })
         }
         fn detect_session_model_after_boundary(
@@ -422,6 +425,9 @@ mod model_refresh_tests {
                 launched_model: "sonnet".into(),
                 transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
                     last_entry_uuid: Some("before-relaunch".into()),
+                    last_entry_timestamp: None,
+                    last_entry_type: None,
+                    boundary_found: true,
                 },
             });
         let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);

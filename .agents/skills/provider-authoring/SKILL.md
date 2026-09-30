@@ -254,8 +254,8 @@ instead.
 | `detectLaunchSession(evidence)` | `{cwd, launchMarker, launchedAtMs, processes: [{pid, depth, startToken}]}` for this tab's own launch; `processes` is its PTY tree with OS start times | `{sessionId, source: "pid_registry" \| "launch_marker"}` or `null` | `null`. Core asks only after a hooked provider missed its launch binding deadline, then binds through the same ownership validation as a hook report. Read only records keyed to this launch (a pid whose recorded start equals `startToken`, or text carrying `launchMarker`); never cwd or recency. |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
 | `detectSessionModel(cwd, sessionId)` | cwd, id | model id or `null` (resolved through the model catalog) | `null`. |
-| `sessionModelTranscriptBoundary(cwd, sessionId)` | cwd, id | `{lastEntryUuid}` or `null` — cursor for the exact session transcript at relaunch | `null`; `restart_resume` requires a cursor. |
-| `detectSessionModelAfterBoundary(cwd, sessionId, boundary)` | cwd, id, cursor | model id from an assistant entry after the cursor or `null` | `null`; old transcript entries never confirm a switch. |
+| `sessionModelTranscriptBoundary(cwd, sessionId)` | cwd, id | `{lastEntryUuid, lastEntryTimestamp, lastEntryType, boundaryFound}` or `null` — cursor for the exact session transcript at relaunch; a UUID-less user/assistant cursor uses its type and timestamp | `null` records an unknown cursor; `restart_resume` proceeds and leaves model confirmation pending. |
+| `detectSessionModelAfterBoundary(cwd, sessionId, boundary)` | cwd, id, cursor | model id from an assistant entry after a known cursor or `null` | `null`; unknown cursors and old transcript entries never confirm a switch. |
 | `detectSessionReasoningEffort(cwd, sessionId)` | cwd, id | effort id or `null` | `null`. |
 | `sessionCreatedMs(cwd, sessionId)` | cwd, id | epoch ms or `null` | `null`. |
 | `enumerateSessions()` | — | `[{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}]` | manifest-driven walk of `rootDir` (one directory level, uuid-ish stems), calling `describeSession` per file. |

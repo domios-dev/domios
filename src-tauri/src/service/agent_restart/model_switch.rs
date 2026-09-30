@@ -157,12 +157,7 @@ impl ModelSwitchLaunch {
                 provider.session_model_transcript_boundary(cwd, session_id)
             })
             .flatten()
-            .ok_or_else(|| {
-                ModelSwitchError::NotSwitchable(
-                    "the provider cannot establish a model transcript boundary for this session"
-                        .to_string(),
-                )
-            })?;
+            .unwrap_or_default();
         let registry = &svc.agent_registry;
         let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             registry,

@@ -12,3 +12,8 @@
 {"parentUuid":"r-0011","isSidechain":false,"attachment":{"type":"queued_command","prompt":"then update the changelog","source_uuid":"s-0012","commandMode":"prompt","origin":{"kind":"human"},"timestamp":"2026-09-11T18:19:39.000Z"},"type":"attachment","uuid":"q-0012","timestamp":"2026-09-11T18:19:39.000Z","sessionId":"fixture-session","version":"2.1.269"}
 {"parentUuid":"q-0012","isSidechain":false,"attachment":{"type":"queued_command","prompt":"and tag the release","source_uuid":"s-0013","commandMode":"prompt","origin":{"kind":"human"},"timestamp":"2026-09-11T18:19:40.000Z"},"type":"attachment","uuid":"q-0013","timestamp":"2026-09-11T18:19:40.000Z","sessionId":"fixture-session","version":"2.1.269"}
 {"parentUuid":"q-0013","isSidechain":false,"type":"assistant","message":{"model":"claude-opus-5","id":"msg_fixture_3","type":"message","role":"assistant","content":[{"type":"text","text":"Changelog updated and release tagged."}]},"uuid":"a-0014","timestamp":"2026-09-11T18:19:46.000Z","sessionId":"fixture-session","version":"2.1.269"}
+{"type":"last-prompt","lastPrompt":"and tag the release","leafUuid":"a-0014","sessionId":"fixture-session"}
+{"type":"ai-title","aiTitle":"Release work","sessionId":"fixture-session"}
+{"type":"mode","mode":"normal","sessionId":"fixture-session"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"fixture-session"}
+{"type":"atis-latch","atis":"","sessionId":"fixture-session"}

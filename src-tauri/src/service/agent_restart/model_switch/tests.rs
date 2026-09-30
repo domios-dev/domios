@@ -244,6 +244,9 @@ fn agent_model_switch_waits_past_a_mismatching_start_report_for_the_first_turn()
             launched_model: NEXT_MODEL.into(),
             transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
                 last_entry_uuid: None,
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
             },
         });
     let fixture = ServiceFixture::new(mux);
@@ -307,6 +310,9 @@ fn model_switch_without_model_evidence_returns_pending_confirmation() {
             launched_model: NEXT_MODEL.into(),
             transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
                 last_entry_uuid: None,
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
             },
         });
     let fixture = ServiceFixture::new(mux);
@@ -332,4 +338,53 @@ fn model_switch_without_model_evidence_returns_pending_confirmation() {
     .expect("an unobserved model leaves confirmation pending");
 
     assert_eq!(confirmation, ModelSwitchConfirmation::Pending);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn model_switch_prepares_with_an_unavailable_boundary_and_keeps_confirmation_pending() {
+    const PROVIDER: &str = "switchable-no-boundary-2b7e";
+    let (mux, tab_id) = seeded_tab(PROVIDER);
+    let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        MockProvider::with_session(PROVIDER, SESSION)
+            .with_model_switch(ModelSwitchMode::RestartResume)
+            .with_missing_session_model_boundary(),
+    ));
+
+    let snap = snapshot(&tab_id, PROVIDER);
+    let launch = ModelSwitchLaunch::prepare(&fixture.service, &snap, SESSION, NEXT_MODEL)
+        .expect("an unavailable transcript boundary does not block relaunch preparation");
+    assert!(!launch.transcript_boundary.boundary_found);
+    assert!(launch.command(&fixture.service, &snap).is_some());
+    launch.commit(&fixture.service, &tab_id);
+    assert!(!fixture.service.observe_post_launch_turn_after_stop(&tab_id));
+
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pending_model_switch_observation.clone())
+        .expect("the relaunch keeps a confirmation observation pending");
+    assert_eq!(pending.transcript_boundary, launch.transcript_boundary);
+    assert_eq!(
+        fixture
+            .service
+            .agent_registry
+            .with_provider(PROVIDER, |provider| {
+                provider.detect_session_model_after_boundary(
+                    snap.cwd.as_deref().unwrap(),
+                    SESSION,
+                    &pending.transcript_boundary,
+                )
+            })
+            .flatten(),
+        None
+    );
+    assert_eq!(
+        model_switch_confirmation(&fixture.service.agent_registry, PROVIDER, NEXT_MODEL, None)
+            .unwrap(),
+        ModelSwitchConfirmation::Pending
+    );
 }
