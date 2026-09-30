@@ -189,16 +189,14 @@ fn unlogged_pane_ids(
     if !report_is_finalized(report) {
         return Vec::new();
     }
-    report
-        .panes
-        .iter()
-        .filter_map(|outcome| {
-            (logged.get(&outcome.pane.tab_id) != Some(outcome)).then(|| {
-                logged.insert(outcome.pane.tab_id.clone(), outcome.clone());
-                outcome.pane.tab_id.clone()
-            })
-        })
-        .collect()
+    let mut unlogged = Vec::new();
+    for outcome in &report.panes {
+        if logged.get(&outcome.pane.tab_id) != Some(outcome) {
+            logged.insert(outcome.pane.tab_id.clone(), outcome.clone());
+            unlogged.push(outcome.pane.tab_id.clone());
+        }
+    }
+    unlogged
 }
 
 fn report_is_finalized(report: &RestoreReport) -> bool {
@@ -239,10 +237,9 @@ fn build_record(
     previous_epoch_end: Option<String>,
     backend_materialization: Option<String>,
 ) -> RestoreReport {
-    let report = build_restore_report(bound, restored_ids, liveness)
+    build_restore_report(bound, restored_ids, liveness)
         .with_previous_epoch_end(previous_epoch_end)
-        .with_backend_materialization(backend_materialization);
-    report
+        .with_backend_materialization(backend_materialization)
 }
 
 /// How the epoch that owned these panes ended, as one label. Restore losses

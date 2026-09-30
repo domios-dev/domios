@@ -82,13 +82,11 @@ pub(crate) async fn hook_provider_event(
                 "provider idle tab has no PTY status".to_string(),
             ));
         }
-    } else if turn_started {
-        if pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id) {
-            return Err((
-                StatusCode::CONFLICT,
-                "provider active tab has no PTY status".to_string(),
-            ));
-        }
+    } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id)) {
+        return Err((
+            StatusCode::CONFLICT,
+            "provider active tab has no PTY status".to_string(),
+        ));
     }
     Ok(Json(serde_json::json!({
         "ok": true,
