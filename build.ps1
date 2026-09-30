@@ -1,9 +1,18 @@
 param(
   [Parameter(ValueFromRemainingArguments = $true)]
-  [string[]] $BuildArgs
+  [string[]] $BuildArgs,
+  [Parameter(Position = 100)]
+  [string] $NotifyTab
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($PSBoundParameters.ContainsKey("NotifyTab")) {
+  if ([string]::IsNullOrEmpty($NotifyTab)) {
+    throw "-NotifyTab requires a non-empty tab id."
+  }
+  $BuildArgs += @("--notify-tab", $NotifyTab)
+}
 
 $candidates = @(
   "$env:ProgramFiles\Git\bin\bash.exe",
