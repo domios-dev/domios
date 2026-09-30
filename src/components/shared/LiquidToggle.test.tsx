@@ -20,8 +20,8 @@ async function run() {
   assert(toggle.classList.contains("ct-liquid-toggle"));
   const knob = host.querySelector<HTMLElement>(".ct-liquid-toggle__knob--travel");
   assert(knob, "toggle starts gallery travel lifecycle");
-  assert.equal(knob.style.getPropertyValue("--kx-from"), "0rem");
-  assert.equal(knob.style.getPropertyValue("--kx-to"), "1.55rem");
+  assert.equal(knob.style.getPropertyValue("--kx-from"), "0px");
+  assert.equal(knob.style.getPropertyValue("--kx-to"), "var(--ct-liquid-toggle-travel)");
 
   let meshEnabled = false;
   await act(async () => root.render(
