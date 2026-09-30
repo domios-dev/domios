@@ -783,7 +783,7 @@ fn typed_follow_up_is_written_once_between_the_paste_and_submit_key() {
         Some(follow_up),
         VerifySubmitStrategy::None,
         opts(),
-        |_| Ok(()),
+        |_, _| Ok(()),
     )
     .unwrap();
 
@@ -816,7 +816,7 @@ fn typed_follow_up_is_written_once_between_the_paste_and_submit_key() {
         Some(follow_up),
         VerifySubmitStrategy::None,
         opts(),
-        |_| Ok(()),
+        |_, _| Ok(()),
     )
     .unwrap_err();
     assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));

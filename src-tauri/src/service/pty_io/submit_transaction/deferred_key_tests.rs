@@ -1,5 +1,8 @@
 use super::*;
-use crate::service::pty_io::submit_transaction::cycle::SubmitCycleClaim;
+use crate::agent::status::TabStatus;
+use crate::service::pty_io::submit_transaction::cycle::{
+    CycleWait, SubmitCycleClaim, SubmitCycleSignal,
+};
 use crate::service::pty_io::test_support::join;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -16,6 +19,9 @@ struct State {
     turn_started: bool,
     exact_turn_seen: bool,
     deferred_ready_seen: bool,
+    draft_visible: bool,
+    paste_marks_working: bool,
+    pause_after_paste: bool,
 }
 
 struct EventTransport {
@@ -25,6 +31,9 @@ struct EventTransport {
     paste_tx: Sender<()>,
     deferred_wait_tx: Sender<()>,
     event_wait_tx: Sender<()>,
+    paste_release_tx: Sender<()>,
+    paste_release_rx: Mutex<Receiver<()>>,
+    cycle_events: Mutex<Option<(SubmitCycleClaim, Receiver<SubmitCycleSignal>)>>,
 }
 
 impl EventTransport {
@@ -36,6 +45,7 @@ impl EventTransport {
         let (paste_tx, paste_rx) = mpsc::channel();
         let (deferred_wait_tx, deferred_wait_rx) = mpsc::channel();
         let (event_wait_tx, event_wait_rx) = mpsc::channel();
+        let (paste_release_tx, paste_release_rx) = mpsc::channel();
         (
             Arc::new(Self {
                 state: Mutex::new(State {
@@ -49,12 +59,18 @@ impl EventTransport {
                     turn_started: busy,
                     exact_turn_seen: false,
                     deferred_ready_seen: false,
+                    draft_visible: false,
+                    paste_marks_working: false,
+                    pause_after_paste: false,
                 }),
                 event_tx,
                 event_rx: Mutex::new(event_rx),
                 paste_tx,
                 deferred_wait_tx,
                 event_wait_tx,
+                paste_release_tx,
+                paste_release_rx: Mutex::new(paste_release_rx),
+                cycle_events: Mutex::new(None),
             }),
             paste_rx,
             deferred_wait_rx,
@@ -64,6 +80,25 @@ impl EventTransport {
 
     fn signal(&self) {
         self.event_tx.send(()).unwrap();
+    }
+
+    fn make_paste_mark_working(&self) {
+        self.state.lock().unwrap().paste_marks_working = true;
+    }
+
+    fn pause_after_paste(&self) {
+        self.state.lock().unwrap().pause_after_paste = true;
+    }
+
+    fn release_paste(&self) {
+        self.paste_release_tx.send(()).unwrap();
+    }
+
+    fn connect_submit_cycle(&self, pty_id: &str) {
+        let claim = claim_submit_cycle(pty_id);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        claim.cycle.install_waiter(claim.generation, sender);
+        *self.cycle_events.lock().unwrap() = Some((claim, receiver));
     }
 }
 
@@ -83,7 +118,11 @@ impl SubmitTransport for EventTransport {
     }
 
     fn draft_evidence_count(&self, _text: &str) -> usize {
-        0
+        if self.state.lock().unwrap().draft_visible {
+            1
+        } else {
+            0
+        }
     }
 
     fn generation(&self) -> u64 {
@@ -108,6 +147,15 @@ impl SubmitTransport for EventTransport {
 
     fn wait_for_submit_event(&self, deadline: Instant) -> bool {
         let _ = self.event_wait_tx.send(());
+        let cycle_events = self.cycle_events.lock().unwrap();
+        if let Some((claim, receiver)) = cycle_events.as_ref() {
+            return matches!(
+                claim
+                    .cycle
+                    .wait_for_wake_until(claim.generation, deadline, receiver),
+                CycleWait::Event
+            );
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         self.event_rx
             .lock()
@@ -141,12 +189,23 @@ impl SubmitTransport for EventTransport {
     }
 
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
-        self.state
-            .lock()
-            .unwrap()
-            .writes
-            .push(format!("paste:{text}"));
+        let mut state = self.state.lock().unwrap();
+        state.writes.push(format!("paste:{text}"));
+        state.draft_visible = true;
+        let pause_after_paste = state.pause_after_paste;
+        if state.paste_marks_working {
+            state.busy = true;
+            state.turn_started = true;
+        }
+        drop(state);
         let _ = self.paste_tx.send(());
+        if pause_after_paste {
+            self.paste_release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .expect("test releases the paste after setting idle status");
+        }
         Ok(text.len())
     }
 
@@ -167,6 +226,7 @@ impl SubmitTransport for EventTransport {
             state.swallowed_keys -= 1;
             return Ok(());
         }
+        state.draft_visible = false;
         state.busy = true;
         state.turn_started = true;
         state.turn_generation += 1;
@@ -211,27 +271,28 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |initial_key| {
+        |_initial_key, turn_was_started| {
             let state = transport.state.lock().unwrap();
             if state.dialog {
                 return Err(InjectionError::AgentTuiPresent {
                     pty_id: "test-pty".into(),
                 });
             }
-            if state.busy && !state.composer_ready {
+            if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready) {
                 return Err(InjectionError::AgentInputUnavailable {
                     pty_id: "test-pty".into(),
                 });
             }
-            let _ = initial_key;
             Ok(())
         },
     )
 }
 
 #[test]
-fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
+fn idle_poll_transition_after_paste_wakes_the_deferred_first_key() {
+    let pty_id = "idle-poll-deferred-first-key";
     let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
+    transport.connect_submit_cycle(pty_id);
     let send_transport = Arc::clone(&transport);
     let send = std::thread::spawn(move || {
         run_with_readiness_guard_and_follow_up(&send_transport, "first", Some(" follow-up"))
@@ -249,7 +310,7 @@ fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
         state.busy = false;
         state.turn_started = false;
     }
-    transport.signal();
+    notify_submit_cycle_status_transition(pty_id, TabStatus::Working, TabStatus::Idle);
 
     let result = join(send, "deferred first key send").unwrap().unwrap();
     assert!(result.submit_observed);
@@ -257,6 +318,38 @@ fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
         transport.state.lock().unwrap().writes,
         ["paste:first", "follow_up: follow-up", "enter"]
     );
+}
+
+#[test]
+fn idle_paste_echo_then_idle_poll_keeps_first_key_immediate() {
+    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(false, 0);
+    transport.make_paste_mark_working();
+    transport.pause_after_paste();
+    let pty_id = "idle-paste-echo-idle-poll";
+    transport.connect_submit_cycle(pty_id);
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "idle"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    {
+        let mut state = transport.state.lock().unwrap();
+        assert!(state.busy, "paste echo marks the tracker Working");
+        state.busy = false;
+        state.turn_started = false;
+    }
+    notify_submit_cycle_status_transition(pty_id, TabStatus::Working, TabStatus::Idle);
+    transport.release_paste();
+    let result = join(send, "idle paste submit").unwrap().unwrap();
+
+    assert!(result.submit_observed);
+    assert_eq!(result.submit_key_writes, 1);
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:idle", "enter"]
+    );
+    assert!(event_wait_rx.try_recv().is_err());
 }
 
 #[test]
@@ -271,12 +364,19 @@ fn active_turn_wait_expires_without_an_idle_event() {
     event_wait_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("busy readiness waits on an event with a failure deadline");
+    {
+        let state = transport.state.lock().unwrap();
+        assert!(state.draft_visible);
+        assert!(!state.dialog);
+    }
 
-    assert!(matches!(
-        join(send, "active turn wait").unwrap(),
-        Err(InjectionError::SubmitNeverConfirmed { .. })
-    ));
-    assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
+    let result = join(send, "active turn wait").unwrap().unwrap();
+    assert!(result.submit_observed);
+    assert_eq!(result.submit_key_writes, 1);
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:busy", "enter"]
+    );
 }
 
 #[test]
