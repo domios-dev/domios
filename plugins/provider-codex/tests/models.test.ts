@@ -39,7 +39,15 @@ const manifestSeed = {
 const bundledManifest = JSON.parse(fs.readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"),
   "utf8",
-)) as { models?: Array<{ id: string }> };
+)) as { models?: Array<{ id: string; description?: string }>; defaultModel?: string };
+
+eq(bundledManifest.models?.[0]?.id, "gpt-6.1-sol", "new Codex model leads the seed catalogue");
+eq(bundledManifest.defaultModel, "gpt-6.1-sol", "new priority-one workhorse is the default");
+eq(
+  bundledManifest.models?.find((model) => model.id === "gpt-6-sol")?.description,
+  "Previous generation workhorse model.",
+  "previous generation description matches the current catalogue",
+);
 
 const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
@@ -115,12 +123,19 @@ console.log("\n--- discoverModels ---\n");
   eq(
     models.map((model) => [model.id, model.reasoningEfforts?.map((effort) => effort.id)]),
     [
-      ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+      ["gpt-6.1-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
       ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
-      ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+      ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
       ["gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
+      ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
     ],
-    "live reasoning levels are carried per model without adding unsupported levels",
+    "new cache entries are discovered in cache priority order with per-model reasoning",
+  );
+  assert(!models.some((model) => model.id === "gpt-reserve"), "hidden cache entries stay hidden");
+  eq(
+    models.find((model) => model.id === "gpt-6.1-sol")?.defaultReasoningEffort,
+    "low",
+    "new default model carries its cache default reasoning effort",
   );
   eq(
     models.find((model) => model.id === "gpt-5.6-sol")?.defaultReasoningEffort,

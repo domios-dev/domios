@@ -347,7 +347,20 @@ mod tests {
     fn claude_seed_is_manifest_derived_stable_aliases_with_sonnet_default() {
         let p = super::super::ClaudeProvider::new();
         let ids: Vec<String> = p.available_models().into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, vec!["opus", "sonnet", "haiku", "fable"]);
+        assert_eq!(
+            ids,
+            vec![
+                "opus",
+                "sonnet",
+                "haiku",
+                "fable",
+                "best",
+                "sonnet[1m]",
+                "opus[1m]",
+                "fable[1m]",
+                "opusplan"
+            ]
+        );
         assert_eq!(p.default_model().as_deref(), Some("sonnet"));
         let seed = manifest_defaults();
         assert_eq!(seed.default.as_deref(), Some("sonnet"));

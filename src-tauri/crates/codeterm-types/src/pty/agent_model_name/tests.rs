@@ -49,14 +49,15 @@ fn catalogue_ids_all_resolve() {
 }
 
 #[test]
-fn a_recognised_codex_model_renders_its_codename() {
+fn a_recognised_codex_model_renders_its_version_and_family() {
     for (id, expected) in [
-        ("gpt-5.6-sol", "sol"),
-        ("gpt-5.6-luna", "luna"),
-        ("gpt-5.6-terra", "terra"),
+        ("gpt-5.6-sol", "5.6-sol"),
+        ("gpt-6.1-sol", "6.1-sol"),
+        ("gpt-5.6-luna", "5.6-luna"),
+        ("gpt-5.6-terra", "5.6-terra"),
         ("gpt-6-astra", "astra"),
-        ("gpt-5.3-codex-spark", "spark"),
-        ("gpt-5.4-mini", "mini"),
+        ("gpt-5.3-codex-spark", "5.3-spark"),
+        ("gpt-5.4-mini", "5.4-mini"),
     ] {
         assert_eq!(short_model_name(id).as_deref(), Some(expected), "{id}");
     }
@@ -96,7 +97,20 @@ fn a_long_vendor_id_resolves_to_the_same_family_as_its_short_form() {
     ] {
         assert_eq!(short_model_name(id).as_deref(), Some("opus"), "{id}");
     }
-    assert_eq!(short_model_name("gpt-5.9-sol").as_deref(), Some("sol"));
+    assert_eq!(short_model_name("gpt-5.9-sol").as_deref(), Some("5.9-sol"));
+}
+
+#[test]
+fn claude_context_aliases_resolve_to_their_family() {
+    for (id, expected) in [
+        ("sonnet[1m]", "sonnet"),
+        ("opus[1m]", "opus"),
+        ("fable[1m]", "fable"),
+        ("best", "best"),
+        ("opusplan", "opusplan"),
+    ] {
+        assert_eq!(short_model_name(id).as_deref(), Some(expected), "{id}");
+    }
 }
 
 #[test]

@@ -149,6 +149,10 @@ the provider as its positional argument. Ambiguous ids are refused instead of
 falling through to the default provider. A provider alias advertised by another
 provider is refused instead of being passed across providers.
 
+For providers that require live discovery, `codeterm agent models <provider>`
+refreshes the current catalogue before listing. If discovery cannot publish a
+new snapshot, the command warns and shows the registered catalogue.
+
 Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and
 `session_model` separate. The resolved field stays null until launch resolution
 identifies the model; the session field stays null until detection reads that

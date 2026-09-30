@@ -4,6 +4,7 @@
 use super::*;
 
 mod cache_schema;
+mod freshness;
 mod model_resolution;
 
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
@@ -235,7 +236,6 @@ fn reregistering_unchanged_seed_keeps_live_overlay_changed_seed_replaces_it() {
     );
     cleanup(id);
 }
-
 #[test]
 fn register_twice_replaces() {
     let id = "test-register-twice-replaces";
@@ -1093,95 +1093,6 @@ fn unknown_verdict_never_persists_as_a_negative() {
         answered_no.availability(),
         ModelAvailability::Unavailable,
         "a genuine negative is still a negative"
-    );
-    cleanup(id);
-}
-
-/// Unknown is retried rather than settled: a reader-driven refresh runs even
-/// inside the TTL window while a verdict is still unknown.
-#[tokio::test]
-async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
-    let id = "test-reader-refresh-unknown";
-    cleanup(id);
-    register(
-        id,
-        RegisteredDefaults {
-            models: vec![model("seed", "Seed")],
-            default: Some("seed".into()),
-        },
-    );
-    put_live(id, vec![unknown_model("fable", "Fable")], None);
-    assert!(has_unknown_verdict(id));
-    assert!(
-        !is_stale(id, DEFAULT_TTL, SystemTime::now()),
-        "the snapshot is fresh by TTL, so only the unknown verdict can force a retry"
-    );
-
-    let provider: Arc<dyn AgentProvider> = Arc::new(DiscoverStub {
-        id: id.to_string(),
-        default: Some("fable".into()),
-        discovery: Some(vec![ModelInfo {
-            default_reasoning_effort: None,
-            id: "fable".into(),
-            display_name: "Fable".into(),
-            description: None,
-            available: Some(true),
-            availability: Some(ModelAvailability::Available),
-            featured: None,
-            badge: None,
-            group: None,
-            reasoning_efforts: None,
-        }]),
-    });
-    let refreshed = refresh_for_reader(provider).await;
-
-    assert!(refreshed.is_some(), "an unknown verdict must be retried");
-    assert!(!has_unknown_verdict(id));
-    assert_eq!(
-        resolve_models(id)[0].availability(),
-        ModelAvailability::Available
-    );
-    cleanup(id);
-}
-
-/// A settled snapshot inside the TTL costs no probe, so opening the picker
-/// repeatedly is not a fork per open.
-#[tokio::test]
-async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
-    let id = "test-reader-refresh-ttl-gate";
-    cleanup(id);
-    register(
-        id,
-        RegisteredDefaults {
-            models: vec![model("seed", "Seed")],
-            default: Some("seed".into()),
-        },
-    );
-    put_live(
-        id,
-        vec![ModelInfo {
-            default_reasoning_effort: None,
-            id: "fable".into(),
-            display_name: "Fable".into(),
-            description: None,
-            available: Some(true),
-            availability: Some(ModelAvailability::Available),
-            featured: None,
-            badge: None,
-            group: None,
-            reasoning_efforts: None,
-        }],
-        Some("fable".into()),
-    );
-
-    let provider: Arc<dyn AgentProvider> = Arc::new(DiscoverStub {
-        id: id.to_string(),
-        default: Some("fable".into()),
-        discovery: Some(vec![model("other", "Other")]),
-    });
-    assert!(
-        refresh_for_reader(provider).await.is_none(),
-        "a settled, fresh snapshot must not re-probe on every reader"
     );
     cleanup(id);
 }
