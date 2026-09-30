@@ -5,6 +5,8 @@
 //! crate only defines the trait so it never depends on `codeterm-plugin`.
 
 pub mod rerank;
+pub mod token_store;
+pub mod typesafe;
 
 use std::collections::BTreeMap;
 use std::fmt;
