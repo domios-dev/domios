@@ -13,6 +13,13 @@ fn opencode() -> JsProvider {
     load_js("opencode")
 }
 
+// Resume reads the session's stored cwd, so it needs the same env lock and an empty store.
+fn empty_session_store() -> (EnvGuard, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
+    (env, dir)
+}
+
 fn opencode_invocation(command: &str) -> &str {
     let start = command
         .match_indices("opencode")
@@ -60,6 +67,7 @@ fn build_resume_command_shape() {
     if require_plugins().is_none() {
         return;
     }
+    let _store = empty_session_store();
     let j = opencode();
     // Resume goes through the normal TUI path: `opencode --session <id>`.
     let cmd = j.build_resume_command(SES_ID, true).unwrap();
@@ -108,6 +116,7 @@ fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     if require_plugins().is_none() {
         return;
     }
+    let _store = empty_session_store();
     let command = opencode()
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
             session_id: SES_ID.into(),
@@ -138,6 +147,7 @@ fn resume_with_context_restages_the_session_config() {
     if require_plugins().is_none() {
         return;
     }
+    let _store = empty_session_store();
     let j = opencode();
     let prompt = "## Composed identity\nopencode-sentinel-6b40";
     let task_root = tempfile::tempdir().unwrap();
