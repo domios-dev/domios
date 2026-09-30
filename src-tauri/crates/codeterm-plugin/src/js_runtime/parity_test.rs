@@ -899,6 +899,32 @@ fn paste_limit_capability_native_js_parity() {
 }
 
 #[test]
+fn typed_follow_up_capability_native_js_parity_and_threshold() {
+    let Some(_) = require_plugins() else {
+        return;
+    };
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let claude = load_js("claude");
+    let capability = native
+        .paste_capability()
+        .expect("native provider declares paste handling");
+
+    assert_eq!(claude.paste_capability(), Some(capability.clone()));
+    assert_eq!(
+        capability.typed_follow_up_for("a\nb\nc"),
+        None,
+        "three-line messages remain unchanged"
+    );
+    assert_eq!(
+        capability.typed_follow_up_for("a\nb\nc\nd"),
+        None,
+        "messages at the declared threshold remain unchanged"
+    );
+    assert!(capability.typed_follow_up_for("a\nb\nc\nd\ne").is_some());
+    assert_eq!(load_js("codex").paste_capability(), None);
+}
+
+#[test]
 fn launch_adapter_matrix_uses_each_installed_descriptor() {
     let Some(root) = require_plugins() else {
         return;

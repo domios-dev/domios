@@ -382,10 +382,14 @@ impl ServiceContext {
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
         let require_provider_turn = verify_submit && track_exact_session_turn;
+        let typed_follow_up = verify_submit
+            .then(|| self.typed_follow_up_for_agent(Some(&delivery.provider_id), text))
+            .flatten();
         super::submit_transaction::submit_entry(entry, text, |text| {
             self.send_text_verified_guarded(
                 &delivery.pty_id,
                 text,
+                typed_follow_up.as_deref(),
                 true,
                 strategy,
                 delivery.permit.clone(),
@@ -596,6 +600,9 @@ impl ServiceContext {
             .as_ref()
             .map(|_| sanitize_agent_prompt_input(text))
             .unwrap_or_else(|| text.to_string());
+        let typed_follow_up = submit
+            .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), &text))
+            .flatten();
         let strategy = agent_type
             .as_deref()
             .and_then(|agent_id| {
@@ -610,10 +617,11 @@ impl ServiceContext {
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
         let require_provider_turn = submit && track_exact_session_turn;
-        super::submit_transaction::submit_text_with_key_claimed(
+        super::submit_transaction::submit_text_with_key_claimed_and_follow_up(
             self,
             pty_id,
             &text,
+            typed_follow_up.as_deref(),
             submit,
             submit_key,
             strategy,
@@ -648,6 +656,18 @@ impl ServiceContext {
             ),
             None => (None, None),
         }
+    }
+
+    fn typed_follow_up_for_agent(&self, provider_id: Option<&str>, text: &str) -> Option<String> {
+        provider_id.and_then(|provider_id| {
+            self.agent_registry
+                .with_provider(provider_id, |provider| {
+                    provider.paste_capability().and_then(|capability| {
+                        capability.typed_follow_up_for(text).map(str::to_string)
+                    })
+                })
+                .flatten()
+        })
     }
 
     /// Deliver the initial agent launch command to a bare shell — no verify path
