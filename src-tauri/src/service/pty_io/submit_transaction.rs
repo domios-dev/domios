@@ -14,8 +14,8 @@ mod cycle;
 mod evidence_watcher;
 mod runner;
 pub(crate) use cycle::{
-    claim_submit_cycle, wake_submit_cycle, wake_submit_cycle_output, wake_submit_cycle_status,
-    SubmitCycleClaim,
+    claim_submit_cycle, notify_submit_cycle_status_transition, wake_submit_cycle,
+    wake_submit_cycle_output, SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
@@ -581,6 +581,14 @@ fn provider_dialog_visible(
         .unwrap_or(false)
 }
 
+fn submit_key_readiness(
+    turn_was_started_at_claim: bool,
+    turn_started_now: bool,
+    composer_ready: bool,
+) -> bool {
+    composer_ready || !turn_was_started_at_claim || !turn_started_now
+}
+
 fn provider_dialog_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
     let (tab_id, agent_id, session_id, cwd, owns_pty) = {
         let mux = svc.mux.read();
@@ -622,6 +630,10 @@ fn provider_dialog_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), Injec
         screen_text: screen.clone(),
     };
     if provider_dialog_visible(svc, &agent_id, &snapshot, &screen) {
+        log::info!(
+            "[submit-transaction] automatic submit stopped: provider dialog detected on current frame pty={}",
+            pty_id
+        );
         Err(InjectionError::AgentTuiPresent {
             pty_id: pty_id.to_string(),
         })
@@ -788,7 +800,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
         turn_signaled: std::cell::Cell::new(false),
         deferred_ready_seen: Cell::new(false),
     };
-    let mut key_guard = |allow_initial_key: bool| {
+    let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
         let (tab_id, agent_id, session_bound, session_id, cwd, owns_pty) = {
             let mux = svc.mux.read();
             let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
@@ -850,31 +862,59 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
         }
         let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
             let provider_tui = provider.screen_has_tui(&screen);
-            let composer_ready = input.as_ref().is_some_and(|state| {
-                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
-                    state.cursor_visible,
-                    state.cursor_row,
-                    state.rows,
-                ) || state
-                    .inverse_caret_row
-                    .zip(state.last_nonblank_row)
-                    .is_some_and(|(row, bottom)| {
-                        crate::agent::offline_state_classifier::composer_cursor_ready(
-                            true,
-                            row,
-                            bottom.saturating_add(1),
-                        )
-                    });
-                cursor_ready && (provider_tui || state.alternate_screen)
-            });
-            composer_ready
+            let (cursor_ready, alternate_screen) =
+                input
+                    .as_ref()
+                    .map(|state| {
+                        let cursor_ready =
+                            crate::agent::offline_state_classifier::composer_cursor_ready(
+                                state.cursor_visible,
+                                state.cursor_row,
+                                state.rows,
+                            ) || state
+                                .inverse_caret_row
+                                .zip(state.last_nonblank_row)
+                                .is_some_and(|(row, bottom)| {
+                                    crate::agent::offline_state_classifier::composer_cursor_ready(
+                                        true,
+                                        row,
+                                        bottom.saturating_add(1),
+                                    )
+                                });
+                        (cursor_ready, state.alternate_screen)
+                    })
+                    .unwrap_or((false, false));
+            let composer_ready = cursor_ready && (provider_tui || alternate_screen);
+            (provider_tui, cursor_ready, alternate_screen, composer_ready)
         });
-        let Some(composer_ready) = readiness else {
+        let Some((provider_tui, cursor_ready, alternate_screen, composer_ready)) = readiness else {
+            log::info!(
+                "[submit-audit] key-guard pty={} provider_available=false session_bound={} turn_started_at_claim={} allowed=false",
+                pty_id,
+                session_bound,
+                turn_was_started
+            );
             return Err(InjectionError::AgentInputUnavailable {
                 pty_id: pty_id.to_string(),
             });
         };
-        if composer_ready || (session_bound && !transport.turn_started()) {
+        let turn_started_now = transport.turn_started();
+        let allowed = submit_key_readiness(turn_was_started, turn_started_now, composer_ready);
+        if allow_initial_key || !allowed {
+            log::info!(
+                "[submit-audit] key-guard pty={} session_bound={} turn_started_at_claim={} turn_started_now={} provider_available=true provider_tui={} cursor_ready={} alternate_screen={} composer_ready={} allowed={}",
+                pty_id,
+                session_bound,
+                turn_was_started,
+                turn_started_now,
+                provider_tui,
+                cursor_ready,
+                alternate_screen,
+                composer_ready,
+                allowed
+            );
+        }
+        if allowed {
             Ok(())
         } else {
             Err(InjectionError::AgentInputUnavailable {
