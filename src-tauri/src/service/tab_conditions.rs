@@ -199,9 +199,10 @@ impl ServiceContext {
         let service = self.clone();
         let reporter = tab_id.to_string();
         let condition = TabCondition::PendingPrompt;
+        let reported_to = target.clone();
         std::thread::spawn(move || match service.gateway.submit(&service, message) {
             Ok(_) => log::info!(
-                "[tab-condition] tab={reporter} condition={} reported to {target}",
+                "[tab-condition] tab={reporter} condition={} reported to {reported_to}",
                 condition.as_str()
             ),
             Err(error) => log::warn!(
