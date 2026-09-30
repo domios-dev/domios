@@ -23,6 +23,11 @@ struct EmbeddedDoc {
     body: &'static str,
 }
 
+const CLI_REFERENCE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../generated/cli/cli.md"
+));
+
 macro_rules! embedded_docs {
     ($($name:literal),+ $(,)?) => {
         &[$(EmbeddedDoc {
@@ -186,6 +191,7 @@ pub fn search(query: &str, limit: usize) -> Vec<DocCandidate> {
             Index::from_sections(
                 DOCS.iter()
                     .flat_map(|doc| chunks_for_document(doc.name, doc.body))
+                    .chain(chunks_for_cli_reference(CLI_REFERENCE))
                     .collect(),
             )
         })
@@ -193,6 +199,21 @@ pub fn search(query: &str, limit: usize) -> Vec<DocCandidate> {
 }
 
 fn chunks_for_document(doc_name: &'static str, body: &str) -> Vec<DocSection> {
+    chunks_for_headings(doc_name, body, 2, 3, true, false)
+}
+
+fn chunks_for_cli_reference(body: &str) -> Vec<DocSection> {
+    chunks_for_headings("CLI", body, 4, 4, false, true)
+}
+
+fn chunks_for_headings(
+    doc_name: &'static str,
+    body: &str,
+    min_level: usize,
+    max_level: usize,
+    keep_preamble: bool,
+    trim_code_ticks: bool,
+) -> Vec<DocSection> {
     let mut sections = Vec::new();
     let mut heading: Option<String> = None;
     let mut lines = Vec::new();
@@ -211,13 +232,22 @@ fn chunks_for_document(doc_name: &'static str, body: &str) -> Vec<DocSection> {
             fence = Some((marker, count));
             continue;
         }
-        if let Some(title) = section_heading(line) {
+        if let Some(title) = section_heading(line, min_level, max_level) {
+            let title = if trim_code_ticks {
+                title.trim_start_matches('`').trim_end_matches('`')
+            } else {
+                title
+            };
             if let Some(previous) = heading.replace(title.to_string()) {
                 push_section(doc_name, previous, &mut lines, &mut anchors, &mut sections);
+            } else if !keep_preamble {
+                lines.clear();
             }
             continue;
         }
-        lines.push(line);
+        if keep_preamble || heading.is_some() {
+            lines.push(line);
+        }
     }
     if let Some(title) = heading {
         push_section(doc_name, title, &mut lines, &mut anchors, &mut sections);
@@ -260,10 +290,10 @@ fn push_section(
     });
 }
 
-fn section_heading(line: &str) -> Option<&str> {
+fn section_heading(line: &str, min_level: usize, max_level: usize) -> Option<&str> {
     let trimmed = line.trim_start();
     let level = trimmed.chars().take_while(|ch| *ch == '#').count();
-    if !(2..=3).contains(&level) || trimmed.as_bytes().get(level) != Some(&b' ') {
+    if !(min_level..=max_level).contains(&level) || trimmed.as_bytes().get(level) != Some(&b' ') {
         return None;
     }
     Some(trimmed[level..].trim().trim_end_matches('#').trim())
@@ -314,7 +344,10 @@ fn term_frequencies(terms: &[String]) -> HashMap<String, usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunks_for_document, terms, DocSection, Index, DOCS};
+    use super::{
+        chunks_for_cli_reference, chunks_for_document, terms, DocSection, Index, CLI_REFERENCE,
+        DOCS,
+    };
 
     #[test]
     fn headings_split_sections_deterministically_and_ignore_fences() {
@@ -377,6 +410,22 @@ mod tests {
             .collect::<Vec<_>>();
         let daemon_names = DOCS.iter().map(|doc| doc.name).collect::<Vec<_>>();
         assert_eq!(daemon_names, cli_names);
+    }
+
+    #[test]
+    fn generated_cli_reference_is_an_extra_command_chunk_corpus() {
+        assert!(DOCS.iter().all(|doc| doc.name != "CLI"));
+        let sections = chunks_for_cli_reference(CLI_REFERENCE);
+        assert!(!sections.is_empty());
+        assert!(sections.iter().all(|section| section.doc_name == "CLI"));
+        assert!(sections
+            .iter()
+            .all(|section| section.section_title.starts_with("codeterm")));
+
+        let result = Index::from_sections(sections).search("codeterm sessions search", 1);
+
+        assert_eq!(result[0].doc_name, "CLI");
+        assert_eq!(result[0].section_title, "codeterm sessions search");
     }
 
     #[test]

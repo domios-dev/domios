@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     extract::{Query, State as AxumState},
@@ -20,7 +20,7 @@ use super::search::{
 use crate::api::routes::AppState;
 use crate::config::schema::DecisionRerankConfig;
 use crate::mem::decision::rerank::{
-    run_stage, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
+    run_stage, run_stage_until, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
 };
 use crate::mem::decision::token_store::{TokenStatus, TokenStore};
 use crate::mem::decision::typesafe::TypeSafeAdapter;
@@ -31,6 +31,8 @@ use crate::mem::SearchHit;
 use crate::service::plan::ports::PlanIndexQuery;
 use crate::service::plan::search_index::PlanSearchHit;
 use crate::service::ServiceContext;
+
+pub(crate) mod sessions_source;
 
 pub type DecisionRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
 
@@ -74,6 +76,15 @@ pub(crate) trait DecisionBackend: RecallBackend {
         q: &SearchQuery,
         m: usize,
     ) -> Result<Vec<SearchHit>, String>;
+    fn session_candidates(
+        &self,
+        _: &str,
+        _: usize,
+        _: usize,
+        _: Instant,
+    ) -> Vec<sessions_source::SessionCandidate> {
+        Vec::new()
+    }
     fn record_access(&self, ids: &[String]) -> Result<(), String>;
 }
 
@@ -100,6 +111,22 @@ impl DecisionBackend for ServiceContext {
         m: usize,
     ) -> Result<Vec<SearchHit>, String> {
         self.mem.graph_candidates_untouched(q, m)
+    }
+
+    fn session_candidates(
+        &self,
+        query: &str,
+        limit: usize,
+        max_body_chars: usize,
+        deadline: Instant,
+    ) -> Vec<sessions_source::SessionCandidate> {
+        sessions_source::search(
+            self.agent_registry.clone(),
+            query,
+            limit,
+            max_body_chars,
+            deadline,
+        )
     }
 
     fn record_access(&self, ids: &[String]) -> Result<(), String> {
@@ -192,6 +219,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     };
     let graph_on = cfg.sources.graph > 0;
     let docs_on = cfg.sources.docs > 0;
+    let sessions_on = cfg.sources.sessions > 0;
     let recall_count = hits.len();
     if graph_on {
         let additions = graph_additions(backend, p, &hits, cfg.sources.graph);
@@ -213,7 +241,29 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(doc_hit_value(&doc));
         candidates.push(doc_candidate(&doc));
     }
-    match run_stage(model, &p.q, &candidates, &stage_config(cfg)) {
+    let stage_config = stage_config(cfg);
+    let stage_deadline = sessions_on.then(|| Instant::now() + stage_config.deadline);
+    let sessions = if let Some(deadline) = stage_deadline {
+        let source_budget = Duration::from_millis((cfg.deadline_ms / 4).min(250));
+        backend.session_candidates(
+            &p.q,
+            cfg.sources.sessions,
+            cfg.max_body_chars,
+            (Instant::now() + source_budget).min(deadline),
+        )
+    } else {
+        Vec::new()
+    };
+    let sessions_count = sessions.len();
+    for session in sessions {
+        hits.push(session.hit);
+        candidates.push(session.candidate);
+    }
+    let outcome = match stage_deadline {
+        Some(deadline) => run_stage_until(model, &p.q, &candidates, &stage_config, deadline),
+        None => run_stage(model, &p.q, &candidates, &stage_config),
+    };
+    match outcome {
         StageOutcome::Applied {
             order,
             relevance,
@@ -228,13 +278,15 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     let mut hit = slots.get_mut(index)?.take()?;
                     if let Some(object) = hit.as_object_mut() {
                         object.insert("relevance".into(), json!(score));
-                        if graph_on || docs_on {
+                        if graph_on || docs_on || sessions_on {
                             let via = if index < recall_count {
                                 "recall"
                             } else if index < recall_count + graph_count {
                                 "graph"
-                            } else {
+                            } else if index < recall_count + graph_count + docs_count {
                                 "docs"
+                            } else {
+                                "sessions"
                             };
                             object.insert("via".into(), json!(via));
                         }
@@ -251,7 +303,14 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                 "low_confidence": low_confidence,
                 "max_relevance": max_relevance,
             });
-            if docs_on {
+            if sessions_on {
+                envelope["sources"] = json!({
+                    "recall": recall_count,
+                    "graph": graph_count,
+                    "docs": docs_count,
+                    "sessions": sessions_count,
+                });
+            } else if docs_on {
                 envelope["sources"] = json!({
                     "recall": recall_count,
                     "graph": graph_count,
@@ -339,12 +398,17 @@ fn candidate(index: usize, hit: &Value) -> RerankCandidate {
 }
 
 fn doc_hit_value(doc: &crate::mem::docs_source::DocCandidate) -> Value {
+    let pointer = if doc.doc_name == "CLI" {
+        format!("{} --help", doc.section_title)
+    } else {
+        format!("codeterm docs {}", doc.doc_name)
+    };
     json!({
         "source": "doc",
         "doc": doc.doc_name,
         "section": doc.section_title,
         "anchor": doc.anchor,
-        "pointer": format!("codeterm docs {}", doc.doc_name),
+        "pointer": pointer,
     })
 }
 

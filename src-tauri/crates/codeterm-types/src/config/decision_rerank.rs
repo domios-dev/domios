@@ -32,13 +32,14 @@ impl Default for DecisionRerankConfig {
     }
 }
 
-/// Candidate sources pooled for stage 2: recall hits, plus graph and docs when enabled.
+/// Candidate sources pooled for stage 2: recall hits, plus optional sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DecisionSources {
     pub recall: usize,
     pub graph: usize,
     pub docs: usize,
+    pub sessions: usize,
 }
 
 impl Default for DecisionSources {
@@ -47,6 +48,7 @@ impl Default for DecisionSources {
             recall: 30,
             graph: 3,
             docs: 3,
+            sessions: 0,
         }
     }
 }

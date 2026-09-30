@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use super::rerank::{
-    run_stage, truncate_chars, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
-    SCORE_LEVELS,
+    run_stage, run_stage_until, truncate_chars, FallbackReason, RerankCandidate, StageConfig,
+    StageOutcome, SCORE_LEVELS,
 };
 use super::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
@@ -350,6 +350,19 @@ fn decision_stage_empty_candidates_makes_no_call() {
         }
     );
     assert_eq!(model.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn stage_uses_the_shared_deadline_after_optional_source_work() {
+    let outcome = run_stage_until(
+        noul_by_index(vec![0.5]),
+        "q",
+        &candidates(1),
+        &cfg(),
+        Instant::now(),
+    );
+
+    assert_eq!(fallback_reason(outcome), FallbackReason::Deadline);
 }
 
 #[test]
