@@ -191,6 +191,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           items: [
             "Graph — adds related memories linked through the knowledge graph. Configure it with memory.decision_rerank.sources.graph; it adds up to 3 candidates by default, and 0 turns it off.",
+            "CodeTerm docs — adds matching sections of the built-in CodeTerm documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. Configure it with memory.decision_rerank.sources.docs; it adds up to 3 sections by default, and 0 turns it off.",
           ],
         },
         {
