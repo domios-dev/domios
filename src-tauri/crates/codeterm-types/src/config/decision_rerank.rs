@@ -23,7 +23,7 @@ impl Default for DecisionRerankConfig {
             adapter: "typesafe-jev".into(),
             sources: DecisionSources::default(),
             max_concurrency: 8,
-            deadline_ms: 3000,
+            deadline_ms: 1500,
             low_confidence_threshold: 0.15,
             max_body_chars: 8000,
             endpoint: None,
