@@ -278,16 +278,62 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
     }
 }
 
+/// Failure deadline for an exit the watcher has not recorded when the stream ends.
+const SHELL_EXIT_CODE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub(crate) fn publish_shell_exit(svc: &super::ServiceContext, pty_id: &str) {
-    let exit_code = svc
+    let child_exit = svc
         .pty
         .lock()
         .get_session(pty_id)
-        .and_then(|session| session.child_exit_code());
+        .map(|session| session.child_exit.clone());
+    publish_shell_exit_from(pty_id, child_exit, SHELL_EXIT_CODE_DEADLINE);
+}
+
+fn publish_shell_exit_code(pty_id: &str, exit_code: Option<i32>) {
     crate::service::shell_exec::publish(
         pty_id,
         crate::service::shell_exec::ExecCompletion::ShellExited { exit_code },
     );
+}
+
+/// On Unix the output stream can end before the exit watcher records the code,
+/// so a pending exit is awaited on its own thread, never on the async runtime.
+fn publish_shell_exit_from(
+    pty_id: &str,
+    child_exit: Option<std::sync::Arc<codeterm_pty::pty::manager::ChildExit>>,
+    deadline: std::time::Duration,
+) {
+    let Some(child_exit) = child_exit else {
+        publish_shell_exit_code(pty_id, None);
+        return;
+    };
+    if let Some(exit_code) = child_exit.resolved() {
+        publish_shell_exit_code(pty_id, exit_code);
+        return;
+    }
+    let waiter_pty_id = pty_id.to_string();
+    let waiter_exit = child_exit.clone();
+    let spawned = std::thread::Builder::new()
+        .name("pty-exit-publish".into())
+        .spawn(move || {
+            let exit_code = waiter_exit.wait_resolved(deadline).unwrap_or_else(|| {
+                log::warn!(
+                    "[pty-exit] pty {} exit code not recorded within {:?}; publishing unknown",
+                    &waiter_pty_id[..waiter_pty_id.len().min(8)],
+                    deadline
+                );
+                None
+            });
+            publish_shell_exit_code(&waiter_pty_id, exit_code);
+        });
+    if let Err(error) = spawned {
+        log::warn!(
+            "[pty-exit] pty {} exit waiter spawn failed: {error}; publishing unknown",
+            &pty_id[..pty_id.len().min(8)]
+        );
+        publish_shell_exit_code(pty_id, child_exit.code());
+    }
 }
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
@@ -511,6 +557,62 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
+
+    use crate::service::shell_exec::{ExecCompletion, ExecWaiter};
+    use codeterm_pty::pty::manager::ChildExit;
+
+    /// The stream ended while the exit was still pending; the exit recorded
+    /// afterwards is the one published, whichever thread runs first.
+    #[tokio::test]
+    async fn shell_exit_after_stream_end_publishes_the_later_recorded_code() {
+        let pty_id = "pty-exit-after-stream-end";
+        let waiter = ExecWaiter::register(pty_id);
+        let child_exit = Arc::new(ChildExit::default());
+
+        super::publish_shell_exit_from(pty_id, Some(child_exit.clone()), Duration::from_secs(30));
+        assert!(child_exit.record(Some(3)));
+
+        assert_eq!(
+            waiter.wait(Duration::from_secs(30)).await,
+            Some(ExecCompletion::ShellExited { exit_code: Some(3) })
+        );
+    }
+
+    #[tokio::test]
+    async fn shell_exit_publishes_unknown_when_the_exit_cannot_resolve() {
+        let unrecorded = "pty-exit-deadline";
+        let deadline_waiter = ExecWaiter::register(unrecorded);
+        super::publish_shell_exit_from(
+            unrecorded,
+            Some(Arc::new(ChildExit::default())),
+            Duration::ZERO,
+        );
+        assert_eq!(
+            deadline_waiter.wait(Duration::from_secs(30)).await,
+            Some(ExecCompletion::ShellExited { exit_code: None })
+        );
+
+        let unobservable = "pty-exit-unobservable";
+        let unobservable_waiter = ExecWaiter::register(unobservable);
+        let child_exit = Arc::new(ChildExit::default());
+        child_exit.mark_unobservable();
+        super::publish_shell_exit_from(unobservable, Some(child_exit), Duration::from_secs(30));
+        assert_eq!(
+            unobservable_waiter.wait(Duration::ZERO).await,
+            Some(ExecCompletion::ShellExited { exit_code: None }),
+            "an unobservable exit publishes at once"
+        );
+    }
+
+    #[test]
+    fn child_exit_is_recorded_exactly_once() {
+        let child_exit = ChildExit::default();
+        assert_eq!(child_exit.resolved(), None);
+        assert!(child_exit.record(Some(3)));
+        assert!(!child_exit.record(Some(4)));
+        child_exit.mark_unobservable();
+        assert_eq!(child_exit.wait_resolved(Duration::ZERO), Some(Some(3)));
+    }
 
     #[test]
     fn update_owned_eof_preserves_tab_authority() {
