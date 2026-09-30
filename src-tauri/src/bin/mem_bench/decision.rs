@@ -1,7 +1,6 @@
 //! WHAT: Compare stage-2 decision ordering with the ordinary recall order.
 //! WHY: The optional quality probe must leave the established bench oracle intact.
 //! ORACLE: Off reports have no decision key; enabled reports score both orders and absent answers.
-//! With `--decision-graph M` a third arm re-ranks recall plus up to M graph-only candidates.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -19,7 +18,7 @@ use codeterm_lib::mem::decision::{
 use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
 use serde::{Deserialize, Serialize};
 
-use super::{Fixture, TestCase};
+use super::{Fixture, SessionCandidateFixture, TestCase};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
@@ -69,6 +68,8 @@ pub(super) struct DecisionQuery {
     pub graph: Option<GraphQuery>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub docs: Option<DocsQuery>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sessions: Option<SessionsQuery>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -106,6 +107,23 @@ pub(super) struct DocsArm {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct SessionsQuery {
+    pub rank: Option<usize>,
+    pub added: usize,
+    pub top1_from_sessions: bool,
+    pub stage_latency_ms: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct SessionsArm {
+    pub sources_sessions: usize,
+    pub metrics: RankingMetrics,
+    pub added: usize,
+    pub sessions_top1: usize,
+    pub sessions_only_winners: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct DecisionReport {
     pub mode: String,
     pub baseline: RankingMetrics,
@@ -114,6 +132,8 @@ pub(super) struct DecisionReport {
     pub graph: Option<GraphArm>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub docs: Option<DocsArm>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sessions: Option<SessionsArm>,
     pub fallbacks: BTreeMap<String, usize>,
     pub negatives: NegativeMetrics,
     pub per_query: Vec<DecisionQuery>,
@@ -180,6 +200,8 @@ struct NegativeCase {
     id: String,
     query: String,
     expect_none: bool,
+    #[serde(default)]
+    session_candidates: Vec<SessionCandidateFixture>,
 }
 
 struct StubModel;
@@ -280,6 +302,58 @@ fn doc_candidate(doc: &codeterm_lib::mem::docs_source::DocCandidate) -> RerankCa
     }
 }
 
+fn session_additions(
+    query: &str,
+    sessions: &[SessionCandidateFixture],
+    limit: usize,
+) -> Vec<SessionCandidateFixture> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    let terms: Vec<String> = query
+        .split_whitespace()
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let mut matches: Vec<_> = sessions
+        .iter()
+        .filter(|session| {
+            let excerpt = session.excerpt.to_ascii_lowercase();
+            terms.iter().all(|term| excerpt.contains(term))
+        })
+        .cloned()
+        .collect();
+    matches.sort_by(|a, b| {
+        b.modified_ts
+            .unwrap_or(0)
+            .cmp(&a.modified_ts.unwrap_or(0))
+            .then_with(|| a.provider.cmp(&b.provider))
+            .then_with(|| a.session_id.cmp(&b.session_id))
+    });
+    matches.truncate(limit);
+    matches
+}
+
+fn session_candidate(session: &SessionCandidateFixture, max_body_chars: usize) -> RerankCandidate {
+    let date = session
+        .modified_ts
+        .map(|timestamp| format!("Unix timestamp {timestamp}"))
+        .unwrap_or_else(|| "unknown".into());
+    let body = format!(
+        "title: {}\nprovider: {}\ndate: {date}\nmatched excerpt: {}",
+        session.title, session.provider, session.excerpt
+    );
+    let body = match body.char_indices().nth(max_body_chars) {
+        Some((byte, _)) => body[..byte].to_string(),
+        None => body,
+    };
+    RerankCandidate {
+        key: format!("session:{}:{}", session.provider, session.session_id),
+        title: session.title.clone(),
+        kind: "session".into(),
+        body,
+    }
+}
+
 fn stage_order(outcome: StageOutcome, n: usize) -> Vec<usize> {
     match outcome {
         StageOutcome::Applied { order, .. } => order,
@@ -358,6 +432,7 @@ pub(super) fn evaluate(
     top_k: usize,
     graph: usize,
     docs: usize,
+    sessions: usize,
 ) -> Result<DecisionReport, String> {
     let negatives_path = fixture_path
         .parent()
@@ -389,17 +464,35 @@ pub(super) fn evaluate(
     let mut docs_ranks = Vec::new();
     let mut docs_added = 0;
     let mut docs_top1 = 0;
+    let mut sessions_ranks = Vec::new();
+    let mut sessions_added = 0;
+    let mut sessions_top1 = 0;
+    let mut sessions_only_winners = 0;
     let cases = fixture
         .test_cases
         .iter()
-        .map(|tc| (tc.id.as_str(), tc.query.as_str(), Some(tc)))
+        .map(|tc| {
+            (
+                tc.id.as_str(),
+                tc.query.as_str(),
+                Some(tc),
+                tc.session_candidates.as_slice(),
+            )
+        })
         .chain(
             negatives
                 .test_cases
                 .iter()
-                .map(|tc| (tc.id.as_str(), tc.query.as_str(), None)),
+                .map(|tc| {
+                    (
+                        tc.id.as_str(),
+                        tc.query.as_str(),
+                        None,
+                        tc.session_candidates.as_slice(),
+                    )
+                }),
         );
-    for (id, query, positive) in cases {
+    for (id, query, positive, session_fixture) in cases {
         let hits = mem
             .recall(&SearchQuery {
                 query: query.into(),
@@ -513,6 +606,59 @@ pub(super) fn evaluate(
         } else {
             None
         };
+        let sessions_query = if sessions > 0 {
+            let additions = session_additions(query, session_fixture, sessions);
+            let candidates = hits
+                .iter()
+                .map(candidate)
+                .chain(
+                    additions
+                        .iter()
+                        .map(|session| session_candidate(session, cfg.max_body_chars)),
+                )
+                .collect::<Vec<_>>();
+            let started = Instant::now();
+            let outcome = run_stage(model.clone(), query, &candidates, &cfg);
+            let sessions_stage_latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let (order, applied) = match outcome {
+                StageOutcome::Applied { order, .. } => (order, true),
+                StageOutcome::Fallback { .. } => ((0..hits.len()).collect(), false),
+            };
+            let ids = order
+                .iter()
+                .filter_map(|&index| {
+                    if let Some(hit) = hits.get(index) {
+                        id_map.get(&hit.item.id).cloned()
+                    } else {
+                        additions
+                            .get(index.saturating_sub(hits.len()))
+                            .map(|session| session.session_id.clone())
+                    }
+                })
+                .take(top_k)
+                .collect::<Vec<_>>();
+            let sessions_rank = rank(&ids, &expected);
+            let top1_from_sessions =
+                applied && order.first().is_some_and(|&index| index >= hits.len());
+            sessions_added += additions.len();
+            if top1_from_sessions {
+                sessions_top1 += 1;
+                if positive.is_some() && sessions_rank == Some(1) {
+                    sessions_only_winners += 1;
+                }
+            }
+            if positive.is_some() {
+                sessions_ranks.push(sessions_rank);
+            }
+            Some(SessionsQuery {
+                rank: sessions_rank,
+                added: additions.len(),
+                top1_from_sessions,
+                stage_latency_ms: sessions_stage_latency_ms,
+            })
+        } else {
+            None
+        };
         if positive.is_some() {
             baseline_ranks.push(baseline_rank);
             reranked_ranks.push(reranked_rank);
@@ -529,6 +675,7 @@ pub(super) fn evaluate(
             reranked_rank,
             graph: graph_query,
             docs: docs_query,
+            sessions: sessions_query,
         });
     }
     Ok(DecisionReport {
@@ -552,6 +699,13 @@ pub(super) fn evaluate(
             metrics: ranking_metrics(&docs_ranks, top_k),
             added: docs_added,
             docs_top1,
+        }),
+        sessions: (sessions > 0).then(|| SessionsArm {
+            sources_sessions: sessions,
+            metrics: ranking_metrics(&sessions_ranks, top_k),
+            added: sessions_added,
+            sessions_top1,
+            sessions_only_winners,
         }),
         fallbacks,
         negatives: negative_metrics(&negative_flags, &positive_flags),
@@ -600,9 +754,14 @@ mod tests {
             reranked_rank: None,
             graph: None,
             docs: None,
+            sessions: None,
         };
         assert!(serde_json::to_value(&query).unwrap().get("graph").is_none());
         assert!(serde_json::to_value(&query).unwrap().get("docs").is_none());
+        assert!(serde_json::to_value(&query)
+            .unwrap()
+            .get("sessions")
+            .is_none());
     }
 
     #[test]
@@ -635,6 +794,71 @@ mod tests {
         );
 
         assert_eq!(candidate.kind, "doc");
+        assert!(matches!(outcome, StageOutcome::Applied { order, .. } if order == vec![1, 0]));
+    }
+
+    #[test]
+    fn decision_session_candidates_match_all_terms_and_use_recent_order() {
+        let fixtures = vec![
+            SessionCandidateFixture {
+                session_id: "older".into(),
+                provider: "claude".into(),
+                title: "Deploy notes".into(),
+                excerpt: "Use codeterm sessions get for the deploy notes".into(),
+                modified_ts: Some(10),
+            },
+            SessionCandidateFixture {
+                session_id: "recent".into(),
+                provider: "codex".into(),
+                title: "Deploy command".into(),
+                excerpt: "Use codeterm sessions get to inspect deploy".into(),
+                modified_ts: Some(20),
+            },
+            SessionCandidateFixture {
+                session_id: "miss".into(),
+                provider: "claude".into(),
+                title: "Deploy command".into(),
+                excerpt: "Use codeterm sessions search instead".into(),
+                modified_ts: Some(30),
+            },
+        ];
+
+        let result = session_additions("codeterm sessions get", &fixtures, 1);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].session_id, "recent");
+    }
+
+    #[test]
+    fn decision_session_candidate_can_win_under_the_stub() {
+        let session = SessionCandidateFixture {
+            session_id: "sess-42".into(),
+            provider: "claude".into(),
+            title: "Get prior command".into(),
+            excerpt: "Run codeterm sessions get sess-42 for the earlier result".into(),
+            modified_ts: Some(100),
+        };
+        let candidate = session_candidate(&session, 2000);
+        let unrelated = RerankCandidate {
+            key: "memory-1".into(),
+            title: "Terminal colors".into(),
+            kind: "fact".into(),
+            body: "The terminal background is blue.".into(),
+        };
+
+        let outcome = run_stage(
+            Arc::new(StubModel),
+            "codeterm sessions get",
+            &[unrelated, candidate.clone()],
+            &StageConfig {
+                max_concurrency: 1,
+                deadline: Duration::from_secs(1),
+                low_confidence_threshold: 0.15,
+                max_body_chars: 2000,
+            },
+        );
+
+        assert_eq!(candidate.kind, "session");
         assert!(matches!(outcome, StageOutcome::Applied { order, .. } if order == vec![1, 0]));
     }
     #[test]

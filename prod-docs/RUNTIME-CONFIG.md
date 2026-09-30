@@ -171,7 +171,8 @@ An optional second stage over `mem search`: recall fetches a candidate pool, a r
 | `memory.decision_rerank.adapter` | `string` | `"typesafe-jev"` | Registry id of the decision adapter. An unregistered id falls back with reason `no_adapter`. |
 | `memory.decision_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
 | `memory.decision_rerank.sources.graph` | `usize` | `3` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
-| `memory.decision_rerank.sources.docs` | `usize` | `3` | Extra embedded prod-docs sections (`0..=10`), selected by an in-memory BM25 index built once; `0` disables docs candidates. |
+| `memory.decision_rerank.sources.docs` | `usize` | `3` | Extra embedded prod-docs sections and generated CLI command sections (`0..=10`), selected by an in-memory BM25 index built once; `0` disables docs candidates. |
+| `memory.decision_rerank.sources.sessions` | `usize` | `0` | Top past-session snippets from the in-process sessions search (`0..=5`); skipped on error or deadline, and `0` disables session candidates. |
 | `memory.decision_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
 | `memory.decision_rerank.deadline_ms` | `u64` | `3000` | Failure deadline for the whole stage (`100..=30000`). |
 | `memory.decision_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
@@ -187,6 +188,7 @@ enabled = false
 recall = 30
 graph = 3
 docs = 3
+sessions = 0
 ```
 
 ### Librarian
@@ -227,4 +229,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

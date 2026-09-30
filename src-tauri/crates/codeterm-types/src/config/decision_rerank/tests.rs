@@ -11,6 +11,7 @@ fn decision_rerank_defaults_off() {
             recall: 30,
             graph: 3,
             docs: 3,
+            sessions: 0,
         }
     );
     assert_eq!(cfg.max_concurrency, 16);
@@ -43,6 +44,7 @@ fn decision_rerank_missing_section_uses_defaults() {
                 recall: 30,
                 graph: 3,
                 docs: 4,
+                sessions: 0,
             },
             ..DecisionRerankConfig::default()
         }

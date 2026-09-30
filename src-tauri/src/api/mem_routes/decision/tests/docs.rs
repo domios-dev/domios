@@ -55,6 +55,33 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
 }
 
 #[test]
+fn cli_command_candidate_points_to_its_help_command() {
+    let backend = seeded();
+    let query = "codeterm sessions search";
+    let section = crate::mem::docs_source::search(query, 1)
+        .into_iter()
+        .next()
+        .expect("CLI command source match");
+    assert_eq!(section.doc_name, "CLI");
+    assert_eq!(section.section_title, "codeterm sessions search");
+    let title = format!("{} § {}", section.doc_name, section.section_title);
+    let registry = relevance_registry(&[(&title, 0.99)]);
+
+    let output = resolve_search(
+        &backend,
+        &registry,
+        &docs_cfg(1),
+        applied_query(query, 1),
+    )
+    .unwrap();
+
+    assert_eq!(output["hits"][0]["source"], "doc");
+    assert_eq!(output["hits"][0]["doc"], "CLI");
+    assert_eq!(output["hits"][0]["pointer"], "codeterm sessions search --help");
+    assert_eq!(output["hits"][0]["via"], "docs");
+}
+
+#[test]
 fn docs_zero_keeps_the_existing_applied_output() {
     let backend = seeded();
     let baseline = baseline_oracle(&backend, &params(10));

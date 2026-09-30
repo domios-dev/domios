@@ -46,6 +46,7 @@ struct Args {
     decision_data_dir: Option<PathBuf>,
     decision_graph: usize,
     decision_docs: usize,
+    decision_sessions: usize,
 }
 
 impl Args {
@@ -62,6 +63,7 @@ impl Args {
         let mut decision_data_dir = None;
         let mut decision_graph = 0;
         let mut decision_docs = 0;
+        let mut decision_sessions = 0;
 
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -105,6 +107,13 @@ impl Args {
                         .parse()
                         .map_err(|e| format!("--decision-docs: {}", e))?;
                 }
+                "--decision-sessions" => {
+                    decision_sessions = it
+                        .next()
+                        .ok_or("--decision-sessions needs value")?
+                        .parse()
+                        .map_err(|e| format!("--decision-sessions: {}", e))?;
+                }
                 "--top-k" => {
                     top_k = it
                         .next()
@@ -129,6 +138,12 @@ impl Args {
         if decision_docs > 10 {
             return Err("--decision-docs must be 0..=10".into());
         }
+        if decision_sessions > 0 && decision_rerank == Mode::Off {
+            return Err("--decision-sessions requires --decision-rerank stub|live".into());
+        }
+        if decision_sessions > 5 {
+            return Err("--decision-sessions must be 0..=5".into());
+        }
         Ok(Self {
             fixture,
             db,
@@ -141,6 +156,7 @@ impl Args {
             decision_data_dir,
             decision_graph,
             decision_docs,
+            decision_sessions,
         })
     }
 }
@@ -161,6 +177,7 @@ fn print_help() {
            --decision-data-dir PATH  Data directory for live token\n  \
            --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (default 0)\n  \
            --decision-docs M  Add a re-rank+docs arm with up to M prod-docs sections (default 0)\n  \
+           --decision-sessions M  Add a re-rank+sessions arm with up to M fixture snippets (default 0)\n  \
            -h, --help          Show this help\n"
     );
 }
@@ -211,6 +228,18 @@ struct TestCase {
     expected_id_contains: Option<Vec<String>>,
     #[serde(default)]
     category: String,
+    #[serde(default)]
+    session_candidates: Vec<SessionCandidateFixture>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct SessionCandidateFixture {
+    session_id: String,
+    provider: String,
+    title: String,
+    excerpt: String,
+    #[serde(default)]
+    modified_ts: Option<i64>,
 }
 
 impl TestCase {
@@ -395,6 +424,7 @@ fn run() -> Result<(), String> {
             args.top_k,
             args.decision_graph,
             args.decision_docs,
+            args.decision_sessions,
         )?),
         None => None,
     };
@@ -667,8 +697,14 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
         } else {
             ""
         };
-        out.push_str(&format!("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th>{graph_head}</tr>"));
+        let sessions_head = if d.sessions.is_some() {
+            "<th>re-rank+sessions</th>"
+        } else {
+            ""
+        };
+        out.push_str(&format!("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th>{graph_head}{sessions_head}</tr>"));
         let graph_metrics = d.graph.as_ref().map(|g| &g.metrics);
+        let sessions_metrics = d.sessions.as_ref().map(|s| &s.metrics);
         let rows: [(&str, fn(&RankingMetrics) -> f64); 3] = [
             ("Recall@1", |m| m.recall_at_1),
             ("Recall@K", |m| m.recall_at_k),
@@ -679,8 +715,11 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
             let graph_cell = graph_metrics
                 .map(|g| format!("<td>{:.3}</td>", pick(g)))
                 .unwrap_or_default();
+            let sessions_cell = sessions_metrics
+                .map(|s| format!("<td>{:.3}</td>", pick(s)))
+                .unwrap_or_default();
             out.push_str(&format!(
-                "<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td>{graph_cell}</tr>"
+                "<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td>{graph_cell}{sessions_cell}</tr>"
             ));
         }
         out.push_str(&format!("</table><p>Negative low-confidence precision: {:.3}; positive false-positive rate: {:.3}</p>", d.negatives.low_confidence_precision, d.negatives.positive_low_confidence_false_positive_rate));
@@ -688,6 +727,12 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
             out.push_str(&format!(
                 "<p>Graph source (M={}): {} candidates added; top-1 from graph {}; graph-only winners {}</p>",
                 g.sources_graph, g.added, g.graph_only_top1, g.graph_only_winners
+            ));
+        }
+        if let Some(s) = &d.sessions {
+            out.push_str(&format!(
+                "<p>Sessions source (M={}): {} fixture candidates added; top-1 from sessions {}; session-only winners {}</p>",
+                s.sources_sessions, s.added, s.sessions_top1, s.sessions_only_winners
             ));
         }
         out.push_str("</section>");

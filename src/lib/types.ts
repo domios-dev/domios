@@ -763,6 +763,7 @@ export interface DecisionSources {
   recall: number;
   graph: number;
   docs: number;
+  sessions: number;
 }
 
 export interface DecisionRerankConfig {

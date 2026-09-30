@@ -35,8 +35,8 @@ python3 evals/mem-rerank-live/export.py
 # Review or regenerate the private questions.json against the new snapshot.
 bash evals/mem-rerank-live/import.sh memrerank
 python3 evals/mem-rerank-live/run.py --dev-instance memrerank
-# Include up to three embedded prod-docs sections in the applied arm.
-python3 evals/mem-rerank-live/run.py --dev-instance memrerank --docs 3
+# Include docs and past-session candidates in the applied arm.
+python3 evals/mem-rerank-live/run.py --dev-instance memrerank --docs 3 --sessions 2
 ```
 
 Keep every question and result local. Check each positive `answer_ids` entry
@@ -70,9 +70,10 @@ python3 -m unittest evals/mem-rerank-live/test_metrics.py
 ## Questions and scoring
 
 Each private question has `id`, `category`, `query`, `answer_ids`, `kind`, and
-`note`. `answer_ids` always contain original snapshot IDs. `run.py` maps those
-IDs through the private import map before scoring; titles never determine
-relevance. `answerable` and `decoy_buried` questions contribute to R@1, R@3,
+`note`; optional `session_answer_ids` lists provider session ids when a past
+session is a valid answer. `answer_ids` contain original snapshot IDs. `run.py`
+maps memory IDs through the private import map and compares session IDs as
+returned; titles never determine relevance. `answerable` and `decoy_buried` questions contribute to R@1, R@3,
 and MRR@10. `absent` and `decoy_absent` questions contribute to gate
 precision/recall. A missing maximum relevance is not treated as a gate.
 
@@ -80,7 +81,7 @@ The rerank arm makes live TypeSafe calls. Budget roughly 10 calls per query;
 an 80-question run can therefore make about 800 billable calls. Do not run it
 as an automated gate.
 
-`--docs M` sets `memory.decision_rerank.sources.docs` on the named dev instance
-for the evaluation, records returned doc pointers and source metrics, and
-restores the previous config value even when a query fails. The option accepts
-`0..=10`; omitted leaves the instance config untouched.
+`--docs M` and `--sessions M` set their matching source budgets on the named
+dev instance for the evaluation, record returned source hits and metrics, and
+restore the previous values even when a query fails. The limits are `0..=10`
+for docs and `0..=5` for sessions; omitted leaves that config value untouched.
