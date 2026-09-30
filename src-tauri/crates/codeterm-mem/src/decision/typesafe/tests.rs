@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use super::super::NoulCriteria;
 use super::*;
 
 const TOKEN: &str = "local-test-secret";
@@ -14,12 +15,13 @@ const ANSWER_SCORE: &str = include_str!("../fixtures/answer_score.json");
 const ANSWER_CHOICE: &str = include_str!("../fixtures/answer_choice.json");
 const ANSWER_MALFORMED: &str = include_str!("../fixtures/answer_malformed.json");
 const REQUEST_NOUL: &str = include_str!("../fixtures/request_noul.json");
+const REQUEST_NOUL_PLAIN: &str = include_str!("../fixtures/request_noul_plain.json");
 const REQUEST_SCORE: &str = include_str!("../fixtures/request_score.json");
 const REQUEST_CHOICE: &str = include_str!("../fixtures/request_choice.json");
 
 fn question(kind: &str) -> DecisionQuestion {
     match kind {
-        "noul" => DecisionQuestion::Noul,
+        "noul" => DecisionQuestion::Noul { criteria: None },
         "score" => DecisionQuestion::Score {
             levels: vec!["low".into(), "medium".into(), "high".into()],
         },
@@ -33,38 +35,83 @@ fn question(kind: &str) -> DecisionQuestion {
     }
 }
 
-fn request(kind: &str) -> DecisionRequest {
-    DecisionRequest {
-        state: "A customer requests a refund.".into(),
-        instructions: "Classify the request.".into(),
-        question: question(kind),
-    }
-}
-
 fn fixture(source: &str) -> Value {
     serde_json::from_str(source).unwrap()
 }
 
+fn request_from_fixture(source: &str) -> (DecisionRequest, Value) {
+    let body = fixture(source);
+    let question_body = &body["questions"]["q"];
+    let question = match question_body["type"].as_str().unwrap() {
+        "noul" => DecisionQuestion::Noul {
+            criteria: question_body.get("criteria").map(|criteria| NoulCriteria {
+                true_def: criteria["true"].as_str().unwrap().to_string(),
+                false_def: criteria["false"].as_str().unwrap().to_string(),
+            }),
+        },
+        "score" => DecisionQuestion::Score {
+            levels: question_body["criteria"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|level| level.as_str().unwrap().to_string())
+                .collect(),
+        },
+        "choice" => DecisionQuestion::Choice {
+            options: question_body["criteria"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
+                .collect(),
+        },
+        _ => unreachable!(),
+    };
+    (
+        DecisionRequest {
+            state: body["state"].clone(),
+            instructions: question_body["instructions"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            question,
+        },
+        body,
+    )
+}
+
 #[test]
-fn typesafe_request_noul_matches_fixture() {
-    assert_eq!(
-        TypeSafeAdapter::build_request_body("jev-latest", &request("noul")),
-        fixture(REQUEST_NOUL)
-    );
+fn typesafe_request_noul_with_criteria_matches_fixture() {
+    let (request, expected) = request_from_fixture(REQUEST_NOUL);
+    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
+}
+
+#[test]
+fn typesafe_request_noul_plain_omits_criteria() {
+    let (request, expected) = request_from_fixture(REQUEST_NOUL_PLAIN);
+    let body = TypeSafeAdapter::build_request_body("jev-latest", &request);
+    assert_eq!(body, expected);
+    assert!(body["state"].is_string());
+    assert!(body["questions"]["q"].get("criteria").is_none());
+}
+
+#[test]
+fn typesafe_request_state_object_round_trips() {
+    let (request, expected) = request_from_fixture(REQUEST_NOUL);
+    let body = TypeSafeAdapter::build_request_body("jev-latest", &request);
+    assert!(request.state.is_object());
+    assert_eq!(body["state"], request.state);
+    assert_eq!(body, expected);
 }
 #[test]
 fn typesafe_request_score_matches_fixture() {
-    assert_eq!(
-        TypeSafeAdapter::build_request_body("jev-latest", &request("score")),
-        fixture(REQUEST_SCORE)
-    );
+    let (request, expected) = request_from_fixture(REQUEST_SCORE);
+    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
 }
 #[test]
 fn typesafe_request_choice_matches_fixture() {
-    assert_eq!(
-        TypeSafeAdapter::build_request_body("jev-latest", &request("choice")),
-        fixture(REQUEST_CHOICE)
-    );
+    let (request, expected) = request_from_fixture(REQUEST_CHOICE);
+    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
 }
 
 #[test]
