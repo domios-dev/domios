@@ -194,7 +194,6 @@ mod tests {
         let (path, paths) = capture("tab-A", || {
             write_at(&root, &marker, "tab-A", "payload", Some(".ct-task.md")).unwrap()
         });
-        let path = path;
         assert_eq!(path.parent(), Some(root.as_path()));
         assert_eq!(paths, vec![path.clone()]);
         assert!(path
