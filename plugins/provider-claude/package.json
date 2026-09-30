@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/provider-claude",
-  "version": "1.11.11",
+  "version": "1.12.1",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for Claude Code — JSONL parser, detection, fancy chat renderer.",
