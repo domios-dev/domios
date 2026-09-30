@@ -279,7 +279,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn untrusted_shared_lookup_surfaces_one_owner_prompt() {
+fn untrusted_shared_lookup_stores_one_owner_prompt_without_notification() {
     let folder = tempfile::tempdir().expect("owner checkout");
     let cwd = folder.path().to_string_lossy().into_owned();
     let (mut mux, tab_id) = state_with_tab(Some(&cwd), None);
@@ -352,7 +352,16 @@ fn untrusted_shared_lookup_surfaces_one_owner_prompt() {
             .and_then(|tab| tab.pending_prompt.as_ref()),
         Some(&prompt)
     );
-    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt_kind),
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    );
+    assert!(fixture.service.notif.lock().list(false).is_empty());
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-owner-trust"),
         0,
