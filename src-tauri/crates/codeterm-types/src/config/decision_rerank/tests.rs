@@ -10,7 +10,7 @@ fn decision_rerank_defaults_off() {
         DecisionSources {
             recall: 30,
             graph: 3,
-            docs: 0,
+            docs: 3,
         }
     );
     assert_eq!(cfg.max_concurrency, 16);

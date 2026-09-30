@@ -46,7 +46,7 @@ impl Default for DecisionSources {
         Self {
             recall: 30,
             graph: 3,
-            docs: 0,
+            docs: 3,
         }
     }
 }
