@@ -35,6 +35,8 @@ python3 evals/mem-rerank-live/export.py
 # Review or regenerate the private questions.json against the new snapshot.
 bash evals/mem-rerank-live/import.sh memrerank
 python3 evals/mem-rerank-live/run.py --dev-instance memrerank
+# Include up to three embedded prod-docs sections in the applied arm.
+python3 evals/mem-rerank-live/run.py --dev-instance memrerank --docs 3
 ```
 
 Keep every question and result local. Check each positive `answer_ids` entry
@@ -77,3 +79,8 @@ precision/recall. A missing maximum relevance is not treated as a gate.
 The rerank arm makes live TypeSafe calls. Budget roughly 10 calls per query;
 an 80-question run can therefore make about 800 billable calls. Do not run it
 as an automated gate.
+
+`--docs M` sets `memory.decision_rerank.sources.docs` on the named dev instance
+for the evaluation, records returned doc pointers and source metrics, and
+restores the previous config value even when a query fails. The option accepts
+`0..=10`; omitted leaves the instance config untouched.

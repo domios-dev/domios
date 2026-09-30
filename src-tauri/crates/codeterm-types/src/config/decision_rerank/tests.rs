@@ -9,7 +9,8 @@ fn decision_rerank_defaults_off() {
         cfg.sources,
         DecisionSources {
             recall: 10,
-            graph: 0
+            graph: 0,
+            docs: 0,
         }
     );
     assert_eq!(cfg.max_concurrency, 8);
@@ -31,7 +32,7 @@ fn decision_rerank_missing_section_uses_defaults() {
     );
 
     let partial: AppConfig = toml::from_str(
-        "[memory.decision_rerank]\nenabled = true\n\n[memory.decision_rerank.sources]\ngraph = 3\n",
+        "[memory.decision_rerank]\nenabled = true\n\n[memory.decision_rerank.sources]\ngraph = 3\ndocs = 4\n",
     )
     .unwrap();
     assert_eq!(
@@ -40,7 +41,8 @@ fn decision_rerank_missing_section_uses_defaults() {
             enabled: true,
             sources: DecisionSources {
                 recall: 10,
-                graph: 3
+                graph: 3,
+                docs: 4,
             },
             ..DecisionRerankConfig::default()
         }

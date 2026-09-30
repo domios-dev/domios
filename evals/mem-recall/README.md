@@ -157,6 +157,14 @@ ignores:
 Link ends are seed ids or entity ids. `benchmark.json` carries no graph
 yet, so on it the graph arm adds nothing and equals the reranked arm.
 
+`--decision-docs M` (stub or live only, `0..=10`) adds up to M matching
+sections from the embedded `prod-docs` corpus to another re-rank arm. The
+`decision.docs` report records memory-answer ranking after docs are added,
+the total docs candidates, and how often a docs candidate ranked first. The
+per-query docs entry records its memory-answer rank, candidates added, and
+whether docs ranked first. Docs with no matching sections leave that query's
+pool unchanged.
+
 `bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
 TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
 `--decision-data-dir PATH`. A missing or unreadable token fails before any

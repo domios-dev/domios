@@ -27,6 +27,7 @@ GATE_THRESHOLDS = (0.10, 0.15, 0.25, 0.35, 0.50)
 POSITIVE_KINDS = {"answerable", "decoy_buried"}
 ABSENT_KINDS = {"absent", "decoy_absent"}
 DC_SHELL = 'source "$1"; shift; dc "$@"'
+DOCS_CONFIG_KEY = "memory.decision_rerank.sources.docs"
 
 
 def private_root() -> Path:
@@ -85,10 +86,9 @@ def load_questions() -> list[dict[str, Any]]:
     return questions
 
 
-def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, Any], float]:
+def run_dc_command(lib_path: Path, instance: str, args: list[str]) -> str:
     env = os.environ.copy()
     env["CODETERM_INSTANCE"] = instance
-    started = time.perf_counter()
     result = subprocess.run(
         ["bash", "-c", DC_SHELL, "mem-rerank-live", str(lib_path), *args],
         env=env,
@@ -96,22 +96,61 @@ def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, An
         text=True,
         check=False,
     )
-    latency_ms = (time.perf_counter() - started) * 1000.0
     if result.returncode:
         raise RuntimeError(
-            f"dc mem search failed ({result.returncode}): "
+            f"dc {' '.join(args[:2])} failed ({result.returncode}): "
             f"{result.stderr.strip() or result.stdout.strip()}"
         )
-    value = json.loads(result.stdout)
+    return result.stdout
+
+
+def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, Any], float]:
+    started = time.perf_counter()
+    output = run_dc_command(lib_path, instance, args)
+    latency_ms = (time.perf_counter() - started) * 1000.0
+    value = json.loads(output)
     if not isinstance(value, dict) or not isinstance(value.get("hits"), list):
         raise RuntimeError("mem search returned an unexpected JSON shape")
     return value, latency_ms
 
 
+def read_docs_config(lib_path: Path, instance: str) -> int:
+    output = run_dc_command(
+        lib_path,
+        instance,
+        ["config", "get", DOCS_CONFIG_KEY, "--json"],
+    )
+    value = json.loads(output).get("value", 0)
+    if type(value) is not int or not 0 <= value <= 10:
+        raise RuntimeError(f"unexpected docs config value: {value!r}")
+    return value
+
+
+def write_docs_config(lib_path: Path, instance: str, docs: int) -> None:
+    run_dc_command(
+        lib_path,
+        instance,
+        ["config", "set", DOCS_CONFIG_KEY, str(docs), "--json"],
+    )
+
+
 def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> dict[str, Any]:
     hits = []
     ids = []
-    for hit in value.get("hits", []):
+    docs = []
+    for rank, hit in enumerate(value.get("hits", []), start=1):
+        if hit.get("source") == "doc":
+            docs.append(
+                {
+                    "rank": rank,
+                    "doc": hit.get("doc"),
+                    "section": hit.get("section"),
+                    "anchor": hit.get("anchor"),
+                    "pointer": hit.get("pointer"),
+                    "relevance": hit.get("relevance"),
+                }
+            )
+            continue
         item = hit.get("item", hit)
         item_id = item.get("id")
         if not isinstance(item_id, str):
@@ -130,6 +169,7 @@ def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> d
         "first_ground_truth_rank": rank,
         "reciprocal_rank_at_10": reciprocal_rank(rank, 10),
         "hits": hits,
+        "docs": docs,
         "decision_rerank": value.get("decision_rerank"),
         "latency_ms": latency_ms,
     }
@@ -237,6 +277,18 @@ def fallback_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def docs_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    returned = [hit for row in rows for hit in row["rerank"]["docs"]]
+    absent = [row for row in rows if row["kind"] in ABSENT_KINDS]
+    by_doc = Counter(hit["doc"] for hit in returned if isinstance(hit.get("doc"), str))
+    return {
+        "queries_with_doc_hits": sum(bool(row["rerank"]["docs"]) for row in rows),
+        "absent_queries_with_doc_hits": sum(bool(row["rerank"]["docs"]) for row in absent),
+        "returned_doc_hits": len(returned),
+        "by_doc": dict(sorted(by_doc.items())),
+    }
+
+
 def markdown_summary(
     timestamp: str,
     rows: list[dict[str, Any]],
@@ -245,6 +297,7 @@ def markdown_summary(
     gates: dict[str, Any],
     comparisons: dict[str, int],
     fallbacks: dict[str, int],
+    docs: dict[str, Any],
 ) -> str:
     lines = [
         f"# Live memory decision re-rank evaluation: {timestamp}",
@@ -267,6 +320,10 @@ def markdown_summary(
             "",
             f"Better / worse / tie on {comparisons['queries_compared']} positive queries by per-query MRR: {comparisons['better']} / "
             f"{comparisons['worse']} / {comparisons['tie']}.",
+            "",
+            "## Docs candidates",
+            "",
+            f"Queries returning docs: {docs['queries_with_doc_hits']}; absent probes returning docs: {docs['absent_queries_with_doc_hits']}; doc hits: {docs['returned_doc_hits']}.",
             "",
             "## Per category",
             "",
@@ -313,17 +370,12 @@ def fmt(value: float | int | None) -> str:
     return "—" if value is None else f"{value:.3f}" if isinstance(value, float) else str(value)
 
 
-def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
-    root = private_root()
-    parent_env = parent_environment()
-    questions = load_questions()
-    mapping_data = json.loads(MAP_PATH.read_text(encoding="utf-8"))
-    item_map = mapping_data.get("items", {})
-    missing = sorted({answer_id for q in questions for answer_id in q["answer_ids"] if answer_id not in item_map})
-    if missing:
-        raise RuntimeError(f"ground-truth ids missing from import map: {len(missing)}")
-
-    lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+def evaluate_records(
+    questions: list[dict[str, Any]],
+    item_map: dict[str, str],
+    lib_path: Path,
+    instance: str,
+) -> list[dict[str, Any]]:
     records = []
     for question in questions:
         mapped_answers = {item_map[item_id] for item_id in question["answer_ids"]}
@@ -331,7 +383,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         for arm_name, mode in (("cosine", "off"), ("rerank", "on")):
             value, latency_ms = run_dc(
                 lib_path,
-                args.dev_instance,
+                instance,
                 [
                     "mem",
                     "search",
@@ -351,6 +403,39 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
                 **arms,
             }
         )
+    return records
+
+
+def parse_docs_count(value: str) -> int:
+    try:
+        count = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer from 0 to 10") from error
+    if not 0 <= count <= 10:
+        raise argparse.ArgumentTypeError("must be an integer from 0 to 10")
+    return count
+
+
+def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
+    root = private_root()
+    parent_env = parent_environment()
+    questions = load_questions()
+    mapping_data = json.loads(MAP_PATH.read_text(encoding="utf-8"))
+    item_map = mapping_data.get("items", {})
+    missing = sorted({answer_id for q in questions for answer_id in q["answer_ids"] if answer_id not in item_map})
+    if missing:
+        raise RuntimeError(f"ground-truth ids missing from import map: {len(missing)}")
+
+    lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    if args.docs is None:
+        records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
+    else:
+        previous_docs = read_docs_config(lib_path, args.dev_instance)
+        try:
+            write_docs_config(lib_path, args.dev_instance, args.docs)
+            records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
+        finally:
+            write_docs_config(lib_path, args.dev_instance, previous_docs)
 
     overall = {
         "cosine": arm_metrics(records, "cosine"),
@@ -360,6 +445,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     gates = gate_metrics(records)
     comparisons = comparison_counts(records)
     fallbacks = fallback_counts(records)
+    docs = docs_metrics(records)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result_dir = RESULTS_ROOT / timestamp
     result_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
@@ -367,11 +453,13 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     result_path = result_dir / "results.json"
     summary_path = result_dir / "summary.md"
     summary = markdown_summary(
-        timestamp, records, overall, by_category, gates, comparisons, fallbacks
+        timestamp, records, overall, by_category, gates, comparisons, fallbacks, docs
     )
     payload = {
         "timestamp_utc": timestamp,
         "dev_instance": args.dev_instance,
+        "decision_docs": args.docs,
+        "docs": docs,
         "question_count": len(records),
         "rank_metrics_include": sorted(POSITIVE_KINDS),
         "rank_source": "mapped ground-truth IDs, never titles",
@@ -403,6 +491,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev-instance", default="memrerank")
+    parser.add_argument("--docs", type=parse_docs_count)
     return parser.parse_args()
 
 
