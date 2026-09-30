@@ -617,6 +617,36 @@ Manually trigger a calibration sweep (Sunday only unless --force)
 
 - `--force` — Bypass the day-of-week gate. Manual / testing
 
+#### `codeterm mem decision`
+
+Decision re-rank adapters: API token (stdin only) and status
+
+#### `codeterm mem decision status`
+
+Show the decision re-rank config, registered adapters and token presence
+
+#### `codeterm mem decision token`
+
+Manage a decision adapter's API token. The value is read from stdin only and is never printed
+
+#### `codeterm mem decision token clear`
+
+Remove the stored token
+
+- `--adapter`
+
+#### `codeterm mem decision token set`
+
+Store the token piped on stdin, e.g. `pbpaste | codeterm mem decision token set --adapter typesafe-jev`. There is deliberately no argv flag for the value
+
+- `--adapter`
+
+#### `codeterm mem decision token status`
+
+Report token presence, file path and mode (never the value). Without --adapter, every registered adapter is listed
+
+- `--adapter`
+
 #### `codeterm mem delete`
 
 Delete an item by id
@@ -1005,11 +1035,12 @@ Save a stable user/machine preference for wake-up context
 Search across mem_items (FTS5 + hybrid scoring)
 
 - `--area` — Filter by area tag
+- `--decision-rerank` — Force the decision re-rank stage on or off for this search; omitted, `[memory.decision_rerank].enabled` decides
 - `--kind` — Filter by kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
 - `--limit` — Max results (default 5)
 - `--project` — Project path whose in-project plan index should be searched too
 - `<query>` — Query text
-- `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)
+- `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--decision-rerank on`
 - `--scope` — Restrict to global / workspace / workspace:<id>
 
 #### `codeterm mem secret`

@@ -25,6 +25,9 @@ Files regenerate on every dev/prod start.
 ```bash
 # Search
 codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
+codeterm mem search "<query>" --decision-rerank on|off      # per-request override of the decision re-rank stage
+codeterm mem decision status                        # config, adapters, token presence
+printf %s "$TOKEN" | codeterm mem decision token set [--adapter <id>]   # stdin only; also token clear|status
 codeterm mem get <id>                               # full item body
 codeterm mem wake-up                                # L0 identity + L1 critical
 codeterm mem wake-up                                # inherit the calling tab's workspace
@@ -72,6 +75,7 @@ Save identity is the exact kind and title. Saving an unchanged body after whites
 
 `/api/mem/*` — parallel to CLI:
 - `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
+- `GET /search?decision_rerank=true|false` — per-request decision re-rank override; `GET|POST|DELETE /decision/token`, `GET /decision/status` (contract in `codeterm docs API-MEMORY`)
 - `GET /pinned?limit=N` — list pinned items (default 100, max 500)
 - `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
 - `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted; other scope values are refused)
@@ -113,4 +117,4 @@ Memory Tabl UI reads this directly.
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryTabl/` — UI
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

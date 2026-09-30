@@ -8,7 +8,7 @@ use crate::api::mem_routes::items::{
     wake_up_options_from_params, AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams,
     RestoreBody, SaveBody, TailParams, TaxonomyParams, UpdateBody, WakeUpParams,
 };
-use crate::api::mem_routes::search::{execute_search, SearchParams};
+use crate::api::mem_routes::search::{execute_search, SearchError, SearchParams};
 use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 use crate::mem::learnings::{self, LearnKind};
@@ -43,7 +43,7 @@ pub(super) fn dispatch(
             if request.q.trim().is_empty() {
                 return Err(invalid_params("search query must not be empty".to_string()));
             }
-            execute_search(svc, request).map_err(internal_error)
+            execute_search(svc, request).map_err(search_error)
         }
         "mem.get" => mem_get(params, svc),
         "mem.save" => mem_save(params, svc),
@@ -79,15 +79,36 @@ pub(super) fn dispatch(
     }
 }
 
+/// Socket-rejected method prefixes: `(prefix, surface, bearer HTTP route)`.
+const HTTP_ONLY_METHODS: [(&str, &str, &str); 2] = [
+    ("mem.secret.", "mem secret", "/api/secrets/*"),
+    (
+        "mem.decision.token.",
+        "mem decision token",
+        "/api/mem/decision/token",
+    ),
+];
+
 /// Reject secret RPC explicitly because this socket has no bearer-token gate.
 fn secret_socket_rejection(method: &str) -> Option<JsonRpcError> {
-    method.starts_with("mem.secret.").then(|| JsonRpcError {
+    let (_, surface, route) = HTTP_ONLY_METHODS
+        .iter()
+        .find(|(prefix, _, _)| method.starts_with(prefix))?;
+    Some(JsonRpcError {
         code: -32004,
-        message: "mem secret is authenticated-HTTP-only by design: secrets never traverse the \
-                   unauthenticated local socket. Use the HTTP API (/api/secrets/*)."
-            .to_string(),
+        message: format!(
+            "{surface} is authenticated-HTTP-only by design: secrets never traverse the \
+             unauthenticated local socket. Use the HTTP API ({route})."
+        ),
         data: None,
     })
+}
+
+fn search_error(error: SearchError) -> JsonRpcError {
+    match error {
+        SearchError::InvalidParams(message) => invalid_params(message),
+        SearchError::Internal(message) => internal_error(message),
+    }
 }
 
 pub(super) fn internal_error(message: String) -> JsonRpcError {
@@ -695,7 +716,7 @@ fn mem_worker_kill(
 
 #[cfg(test)]
 mod tests {
-    use super::secret_socket_rejection;
+    use super::{search_error, secret_socket_rejection, SearchError};
 
     #[test]
     fn secret_methods_are_explicitly_rejected_over_socket() {
@@ -723,5 +744,29 @@ mod tests {
                 "{method} should not hit the secret rejection"
             );
         }
+    }
+
+    #[test]
+    fn decision_socket_rejects_token_methods() {
+        let secret = secret_socket_rejection("mem.secret.get").unwrap();
+        for method in [
+            "mem.decision.token.set",
+            "mem.decision.token.clear",
+            "mem.decision.token.status",
+        ] {
+            let err = secret_socket_rejection(method)
+                .unwrap_or_else(|| panic!("{method} must be rejected over socket"));
+            assert_eq!(err.code, secret.code);
+            assert!(err.message.contains("/api/mem/decision/token"));
+        }
+        assert!(secret_socket_rejection("mem.search").is_none());
+    }
+
+    #[test]
+    fn decision_socket_maps_exclusive_rerank_to_invalid_params() {
+        let err = search_error(SearchError::InvalidParams("x".into()));
+        assert_eq!(err.code, -32602);
+        assert_eq!(err.message, "x");
+        assert_eq!(search_error(SearchError::Internal("y".into())).code, -32000);
     }
 }

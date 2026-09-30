@@ -161,6 +161,32 @@ l1_budget_tokens = 300
 
 The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a 0..30 min delay-only jitter window — so it fires between 6:00 and 6:30 AM. Schedule and jitter are managed by `ensure_dreaming_cron` (`src-tauri/src/mem/dreaming.rs`) and not exposed as config keys. Legacy installs that still hold the v1.1 `0 3 * * *` schedule with 0..90 min delay-only jitter are auto-migrated to the new values on the next daemon startup. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated via `strftime('%w','now') == '0'`); the endpoints are documented in `codeterm docs API-MEMORY`.
 
+### Decision re-rank
+
+An optional second stage over `mem search`: recall fetches a candidate pool, a registered decision adapter grades each candidate, and hits are re-sorted by that absolute relevance. Off by default; a request can force it either way with `decision_rerank=true|false`. Any adapter failure returns the plain recall hits unchanged, with a `decision_rerank.status = "fallback"` envelope naming the reason. Whenever the stage is effective (applied, fallback or skipped), only the mem hits actually returned count as accessed, once each; pool-only candidates are not touched. Adapter tokens are set through `POST /api/mem/decision/token` and stored under `<data dir>/decision-models/`, never in `config.toml`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `memory.decision_rerank.enabled` | `bool` | `false` | Apply the stage to every search that does not override it. |
+| `memory.decision_rerank.adapter` | `string` | `"typesafe-jev"` | Registry id of the decision adapter. An unregistered id falls back with reason `no_adapter`. |
+| `memory.decision_rerank.sources.recall` | `usize` | `10` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
+| `memory.decision_rerank.sources.graph` | `usize` | `0` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
+| `memory.decision_rerank.max_concurrency` | `usize` | `8` | Parallel adapter calls (`1..=32`). |
+| `memory.decision_rerank.deadline_ms` | `u64` | `3000` | Failure deadline for the whole stage (`100..=30000`). |
+| `memory.decision_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
+| `memory.decision_rerank.max_body_chars` | `usize` | `8000` | Characters of each candidate sent to the adapter (`256..=100000`). |
+| `memory.decision_rerank.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
+| `memory.decision_rerank.model` | `string?` | adapter default | Adapter model override. Read at daemon start. |
+
+```toml
+[memory.decision_rerank]
+enabled = false
+
+[memory.decision_rerank.sources]
+recall = 10
+graph = 0
+```
+
 ### Librarian
 
 The Librarian is a background skill vectorizer that watches skill folders and re-indexes `SKILL.md` files when they change on disk.
@@ -199,4 +225,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 7 -->
+<!-- revision: 10 -->

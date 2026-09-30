@@ -107,6 +107,7 @@ pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
 };
+pub use args::mem_decision::{DecisionRerankMode, MemDecisionAction, MemDecisionTokenAction};
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
     WebAction, WorkspaceAction,
@@ -189,6 +190,18 @@ fn main_impl() {
             eprintln!(
                 "Error: secrets do not cross the mesh. Run on the local machine \
                  (vault peer), or design a trust model first."
+            );
+            std::process::exit(7);
+        }
+        // Decision adapter tokens are secrets too: the token and its status stay on this machine.
+        if matches!(
+            cli.command,
+            Commands::Mem {
+                action: MemAction::Decision { .. }
+            }
+        ) {
+            eprintln!(
+                "Error: decision adapter tokens do not cross the mesh. Run on the local machine."
             );
             std::process::exit(7);
         }
