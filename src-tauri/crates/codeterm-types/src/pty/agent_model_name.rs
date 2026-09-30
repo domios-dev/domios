@@ -4,15 +4,15 @@
 //! The provider catalogues (`plugins/provider-*/plugin.json`) own the model
 //! ids; this module owns the one policy that turns such an id into the short
 //! family a bracket shows. The policy is structural so it survives a version
-//! bump — `gpt-5.6-sol` and a later `gpt-5.9-sol` both render `sol` — and it is
+//! bump — `gpt-5.6-sol` and `gpt-5.9-sol` keep their dotted versions — and it is
 //! closed over [`MODEL_FAMILIES`] so an id no catalogue carries is reported
 //! unrecognised instead of guessed at. `catalogue_ids_all_resolve` keeps the
 //! two in step: a new catalogue entry fails it until its family is listed.
 
-/// Codenames the shipped catalogues carry, lowercased. Version-free by design.
+/// Catalogue aliases and family tokens, lowercased.
 pub const MODEL_FAMILIES: &[&str] = &[
     // provider-claude
-    "opus", "sonnet", "haiku", "fable", // provider-codex
+    "opus", "sonnet", "haiku", "fable", "best", "opusplan", // provider-codex
     "astra", "sol", "terra", "luna", "spark", "mini",
 ];
 
@@ -26,7 +26,8 @@ const NOISE_TOKENS: &[&str] = &["codex"];
 
 fn tokenize(model: &str) -> Vec<String> {
     let lowered = model.trim().to_ascii_lowercase();
-    let body = lowered.rsplit('/').next().unwrap_or("");
+    let leaf = lowered.rsplit('/').next().unwrap_or("");
+    let body = leaf.strip_suffix("[1m]").unwrap_or(leaf);
     body.split(|c: char| c == '-' || c == '_' || c.is_whitespace())
         .filter(|token| !token.is_empty() && !NOISE_TOKENS.contains(token))
         .map(str::to_string)
@@ -42,10 +43,21 @@ fn is_version(token: &str) -> bool {
 /// Pure: it only decides what to render and never speaks for the stored value.
 pub fn short_model_name(model: &str) -> Option<String> {
     let tokens = tokenize(model);
-    if let Some(family) = tokens
+    if let Some((family_index, family)) = tokens
         .iter()
-        .find(|token| MODEL_FAMILIES.contains(&token.as_str()))
+        .enumerate()
+        .find(|(_, token)| MODEL_FAMILIES.contains(&token.as_str()))
     {
+        if tokens.first().is_some_and(|vendor| vendor == "gpt") {
+            if let Some(version) = tokens[..family_index]
+                .iter()
+                .rev()
+                .find(|token| is_version(token))
+                .filter(|version| version.contains('.'))
+            {
+                return Some(format!("{version}-{family}"));
+            }
+        }
         return Some(family.clone());
     }
     let (vendor, version) = tokens.split_first()?;

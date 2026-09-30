@@ -6,6 +6,18 @@ use super::*;
 use crate::cmd::report_guard::ReportRefusal;
 
 #[test]
+fn agent_models_recognizes_the_live_catalogue_wire_field() {
+    let provider = serde_json::json!({
+        "model_catalogue": {
+            "authority": "authoritative",
+            "liveDiscoveryRequired": true
+        }
+    });
+
+    assert!(provider_requires_live_model_discovery(&provider));
+}
+
+#[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
     let message = missing_report_binding_incident("tab-worker");
     assert!(message.contains("ORCHESTRATION AUTHORITY REFUSED"));
@@ -42,7 +54,7 @@ fn agent_models_formats_descriptor_models_from_api_snapshot() {
 fn agent_models_formats_per_model_efforts_and_provider_fallback() {
     let provider = serde_json::json!({
         "id": "codex",
-        "default_model": "gpt-6-sol",
+        "default_model": "gpt-6.1-sol",
         "default_reasoning_effort": "medium",
         "reasoning_efforts": [
             { "id": "low", "display_name": "Low" },
@@ -52,8 +64,8 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
         ],
         "available_models": [
             {
-                "id": "gpt-6-sol",
-                "display_name": "GPT-6 Sol",
+                "id": "gpt-6.1-sol",
+                "display_name": "GPT-6.1-Sol",
                 "reasoning_efforts": [
                     { "id": "low" }, { "id": "medium" }, { "id": "max" }, { "id": "ultra" }
                 ]
@@ -80,7 +92,7 @@ fn agent_models_formats_per_model_efforts_and_provider_fallback() {
     let out = format_agent_models(&provider, "codex");
 
     assert!(out.contains(
-        "GPT-6 Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"
+        "GPT-6.1-Sol (default)\n             Reasoning effort: low, medium (default), max, ultra"
     ));
     assert!(
         out.contains("GPT-5.5\n             Reasoning effort: low, medium (default), high, xhigh")
@@ -132,6 +144,12 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let discovered = discovered.expect("cache fixture produces live models");
     let models: Vec<ModelInfo> = discovered.iter().map(ModelInfo::from).collect();
     assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("gpt-6.1-sol"),
+        "live discovery includes the new priority-one cache entry"
+    );
+    assert_eq!(manifest.default_model.as_deref(), Some("gpt-6.1-sol"));
+    assert_eq!(
         models
             .iter()
             .find(|model| model.id == "gpt-5.6-sol")
@@ -144,13 +162,19 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
         model_catalog::models_dir().join(format!("{catalog_provider_id}.cache.json"));
     let _ = std::fs::remove_file(&catalog_cache_path);
     model_catalog::put_live(catalog_provider_id, models, manifest.default_model.clone());
+    assert_eq!(
+        model_catalog::resolve_default(catalog_provider_id).as_deref(),
+        Some("gpt-6.1-sol")
+    );
     let available_models = codeterm_plugin::provider::AgentProvider::available_models(&provider);
     let descriptor = serde_json::json!({
+        "default_model": model_catalog::resolve_default(catalog_provider_id),
         "default_reasoning_effort": manifest.default_reasoning_effort,
         "available_models": available_models,
     });
 
     let rendered = format_agent_models(&descriptor, &manifest.id);
+    assert!(rendered.contains("GPT-6.1-Sol (default)"));
     assert!(rendered.contains(
         "GPT-5.6 Sol\n             Reasoning effort: low (default), medium, high, xhigh"
     ));

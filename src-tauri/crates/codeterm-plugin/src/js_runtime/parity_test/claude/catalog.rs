@@ -184,7 +184,20 @@ fn claude_manifest_aliases_remain_versionless_at_execution() {
     }
     let (manifest_models, manifest_default) = manifest_expectation();
     let ids: Vec<&str> = manifest_models.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, ["opus", "sonnet", "haiku", "fable"]);
+    assert_eq!(
+        ids,
+        [
+            "opus",
+            "sonnet",
+            "haiku",
+            "fable",
+            "best",
+            "sonnet[1m]",
+            "opus[1m]",
+            "fable[1m]",
+            "opusplan"
+        ]
+    );
     assert_eq!(manifest_default.as_deref(), Some("sonnet"));
     for alias in ids {
         assert_eq!(

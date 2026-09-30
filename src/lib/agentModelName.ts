@@ -6,17 +6,19 @@
  * The provider catalogues (`plugins/provider-*\/plugin.json`) own the model ids;
  * this module owns the one policy that turns such an id into the short family a
  * bracket shows. The policy is structural so it survives a version bump —
- * `gpt-5.6-sol` and a later `gpt-5.9-sol` both render `sol` — and it is closed
+ * `gpt-5.6-sol` and `gpt-5.9-sol` keep their dotted versions — and it is closed
  * over `MODEL_FAMILIES` so an id no catalogue carries is reported unrecognised
  * instead of guessed at.
  */
 
-/** Codenames the shipped catalogues carry, lowercased. Version-free by design. */
+/** Catalogue aliases and family tokens, lowercased. */
 export const MODEL_FAMILIES = [
   "opus",
   "sonnet",
   "haiku",
   "fable",
+  "best",
+  "opusplan",
   "astra",
   "sol",
   "terra",
@@ -37,7 +39,8 @@ const NOISE_TOKENS = new Set(["codex"]);
 const FAMILIES = new Set<string>(MODEL_FAMILIES);
 
 function tokenize(model: string): string[] {
-  const body = model.trim().toLowerCase().split("/").pop() ?? "";
+  const leaf = model.trim().toLowerCase().split("/").pop() ?? "";
+  const body = leaf.replace(/\[1m\]$/, "");
   return body
     .split(/[-_\s]+/)
     .filter((token) => token.length > 0 && !NOISE_TOKENS.has(token));
@@ -53,8 +56,15 @@ function isVersion(token: string): boolean {
  */
 export function shortModelName(model: string): string | null {
   const tokens = tokenize(model);
-  const family = tokens.find((token) => FAMILIES.has(token));
-  if (family) return family;
+  const familyIndex = tokens.findIndex((token) => FAMILIES.has(token));
+  if (familyIndex >= 0) {
+    const family = tokens[familyIndex];
+    if (tokens[0] === "gpt") {
+      const version = tokens.slice(0, familyIndex).reverse().find(isVersion);
+      if (version?.includes(".")) return `${version}-${family}`;
+    }
+    return family;
+  }
   const [vendor, ...version] = tokens;
   if (!vendor || !VERSIONED_VENDORS.has(vendor) || version.length === 0) return null;
   return version.every(isVersion) ? `${vendor} ${version.join(".")}` : null;
