@@ -6,7 +6,9 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 
 | Command | Purpose |
 |---------|---------|
-| `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. |
+| `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank] [--decision-rerank on\|off]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. `--decision-rerank` forces the optional decision re-rank stage on or off for this call (absent = config decides, default off; exclusive with `--rerank`). When it ran, hits carry `relevance` (shown as `rel N%`) and the response a `decision_rerank` envelope: `applied` (`low_confidence: true` means nothing relevant was found, so treat hits as weak leads), `fallback` or `skipped` with a reason. |
+| `codeterm mem decision status` / `token status [--adapter ID]` / `token clear [--adapter ID]` | Decision re-rank config, registered adapters and token presence/path/`mode_ok`; never the token value. |
+| `printf %s "$TOKEN" \| codeterm mem decision token set [--adapter ID]` | Store an adapter token. Stdin only (no value flag, refuses a terminal), default adapter `typesafe-jev`. Local machine only; it never crosses `--mesh`. |
 | `codeterm mem get <id>` | Print the full body of one item. Bumps `evidence_count` for `skill\|lesson\|rule\|fact\|preference` (skipped automatically when called from a worker tab via `$CODETERM_WORKER_ID`). |
 | `codeterm mem save --kind <kind> [--title T] [--area A] [--tags T] [--source-path P] [--scope global\|workspace:<id>] [--workspace WS] [--pin] [--importance N] [--replace] [--skip-extract] "<body>"` | Capture something new. `--pin` sets `is_pinned_wakeup=1` in the same INSERT (atomic, no follow-up PATCH). `--workspace WS` is shorthand for `--scope workspace:WS`. |
 | `codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags T] [--body B] [--importance N] [--changed-by ACTOR]` | Patch an existing item. `--changed-by` sets the `X-CodeTerm-Actor` header so the change lands in `mem_item_history.changed_by` with that label (default `"user"`). |
