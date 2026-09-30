@@ -58,7 +58,11 @@ pub(super) fn search(
         Ok(candidates) => ("applied", candidates),
         Err(error) => {
             log::debug!("[mem.decision] sessions source skipped: {error}");
-            let status = if error == "deadline" { "timeout" } else { "error" };
+            let status = if error == "deadline" {
+                "timeout"
+            } else {
+                "error"
+            };
             (status, Vec::new())
         }
     };
@@ -88,8 +92,8 @@ where
     reply_rx
         .recv_timeout(deadline.saturating_duration_since(Instant::now()))
         .map_err(|error| match error {
-            mpsc::RecvTimeoutError::Timeout => "deadline".into(),
-            mpsc::RecvTimeoutError::Disconnected => "worker stopped".into(),
+            mpsc::RecvTimeoutError::Timeout => String::from("deadline"),
+            mpsc::RecvTimeoutError::Disconnected => String::from("worker stopped"),
         })?
 }
 
@@ -176,8 +180,8 @@ mod tests {
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
-    use crate::agent::provider::{SessionMetadata, SessionSnippet};
-    use crate::agent::registry::SessionSearchHit;
+    use crate::agent::provider::SessionMetadata;
+    use crate::agent::registry::{SessionSearchHit, SessionSnippet};
 
     use super::{run_bounded_search, session_candidate};
 
@@ -211,7 +215,10 @@ mod tests {
         assert_eq!(result.hit["session_id"], "s-1");
         assert_eq!(result.hit["provider"], "claude");
         assert_eq!(result.hit["title"], "Release plan");
-        assert_eq!(result.hit["excerpt"], "Use the codeterm sessions get command");
+        assert_eq!(
+            result.hit["excerpt"],
+            "Use the codeterm sessions get command"
+        );
         assert_eq!(result.hit["pointer"], "codeterm sessions get s-1");
         assert!(!result.hit.to_string().contains("/private/session.jsonl"));
     }
