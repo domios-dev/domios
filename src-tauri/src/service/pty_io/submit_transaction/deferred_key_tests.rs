@@ -293,7 +293,7 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
     let (first, first_paste_rx, first_deferred_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
     let (second, second_paste_rx, _, _) = EventTransport::new(false, 0);
-    let first_send = start_claimed_send(first_claim, first, "first", None);
+    let first_send = start_claimed_send(first_claim, Arc::clone(&first), "first", None);
     first_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("first payload is written once");
