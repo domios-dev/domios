@@ -25,7 +25,7 @@ let statusBody: unknown;
 let writeStatus: number;
 let writeRejects: boolean;
 
-function statusFixture(present: boolean, modeOk = true, registered = true) {
+function statusFixture(present: boolean, modeOk: boolean | null = true, registered = true) {
   return {
     config: { token: TOKEN },
     adapter_registered: registered,
@@ -161,6 +161,17 @@ describe("DecisionRerankCard", () => {
     expect(q("decision-rerank-mode-warning")).not.toBeNull();
     expect(q("decision-rerank-adapter-missing")).not.toBeNull();
     expect(host.innerHTML).not.toContain(TOKEN);
+  });
+
+  it.each([
+    ["absent file, mode unknown", false, null, false],
+    ["present, mode unknown (non-Unix)", true, null, false],
+    ["present, mode not owner-only", true, false, true],
+  ] as const)("mode_warning: %s", async (_name, present, modeOk, warns) => {
+    statusBody = statusFixture(present, modeOk);
+    await render();
+    expect(q("decision-rerank-token-state")!.textContent).toBe(present ? "set" : "not set");
+    expect(q("decision-rerank-mode-warning") !== null).toBe(warns);
   });
 
   it("token_never_logged_or_rendered", async () => {
