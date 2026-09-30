@@ -28,6 +28,7 @@ const BRACKETED_PASTE_END: &str = "\x1b[201~";
 enum DeferredSubmitWait {
     Ready,
     Woken,
+    Deadline,
     Inactive,
 }
 
@@ -128,18 +129,18 @@ trait SubmitTransport {
         self.wait_retry_deadline(deadline);
         self.exact_user_turn_present(text)
     }
-    fn wait_for_submit_event(&self) -> bool {
+    fn wait_for_submit_event(&self, _deadline: Instant) -> bool {
         false
     }
     fn dialog_guard(&self) -> Result<(), InjectionError> {
         Ok(())
     }
     fn prepare_paste(&self, _text: &str, _enter: bool) {}
-    fn wait_for_deferred_submit_ready(&self) -> DeferredSubmitWait {
-        if self.wait_for_submit_event() {
+    fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
+        if self.wait_for_submit_event(deadline) {
             DeferredSubmitWait::Woken
         } else {
-            DeferredSubmitWait::Inactive
+            DeferredSubmitWait::Deadline
         }
     }
     fn retry_active(&self) -> bool {
@@ -380,12 +381,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         false
     }
 
-    fn wait_for_submit_event(&self) -> bool {
-        self.wait_for_cycle_event()
+    fn wait_for_submit_event(&self, deadline: Instant) -> bool {
+        self.wait_for_cycle_event(deadline)
     }
 
-    fn wait_for_deferred_submit_ready(&self) -> DeferredSubmitWait {
-        self.wait_for_deferred_submit_event()
+    fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
+        self.wait_for_deferred_submit_event(deadline)
     }
 
     fn retry_active(&self) -> bool {
@@ -641,16 +642,8 @@ fn run_with_submit_key<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    loop {
-        match transport.dialog_guard() {
-            Ok(()) => break,
-            Err(error @ InjectionError::AgentTuiPresent { .. }) => {
-                if !transport.wait_for_submit_event() {
-                    return Err(error);
-                }
-            }
-            Err(error) => return Err(error),
-        }
+    if let Err(error) = transport.dialog_guard() {
+        return Err(error);
     }
     transport.prepare_paste(text, enter);
     let started = Instant::now();
@@ -686,6 +679,7 @@ fn run_with_submit_key<T: SubmitTransport>(
     let submit_started = Instant::now();
     let mut first_submit_key_at = (submit_key_writes > 0).then_some(submit_started);
     let mut submit_observed = !two_phase;
+    let mut dialog_blocked = false;
     while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
         if (submit_key_writes > 0 && submit_observed)
             || (exact_turn_evidence && transport.exact_user_turn_present(text))
@@ -731,15 +725,13 @@ fn run_with_submit_key<T: SubmitTransport>(
         let key_ready = loop {
             match key_guard(allow_initial_key) {
                 Ok(()) => break true,
-                Err(error)
-                    if bytes_written > 0
-                        && matches!(
-                            &error,
-                            InjectionError::AgentInputUnavailable { .. }
-                                | InjectionError::AgentTuiPresent { .. }
-                        ) =>
-                {
-                    if transport.wait_for_submit_event() {
+                Err(error @ InjectionError::AgentTuiPresent { .. }) if bytes_written > 0 => {
+                    dialog_blocked = true;
+                    key_error = Some(error);
+                    break false;
+                }
+                Err(error @ InjectionError::AgentInputUnavailable { .. }) if bytes_written > 0 => {
+                    if transport.wait_for_submit_event(turn_deadline) {
                         continue;
                     }
                     key_error = Some(error);
@@ -819,14 +811,16 @@ fn run_with_submit_key<T: SubmitTransport>(
         && !submit_observed
         && bytes_written > 0
         && submit_key_writes > 0
+        && !dialog_blocked
         && transport.retry_active()
     {
+        let deferred_deadline = Instant::now() + opts.submit_timeout;
         loop {
             if exact_turn_evidence && transport.exact_user_turn_present(text) {
                 submit_observed = true;
                 break;
             }
-            match transport.wait_for_deferred_submit_ready() {
+            match transport.wait_for_deferred_submit_ready(deferred_deadline) {
                 DeferredSubmitWait::Ready => {}
                 DeferredSubmitWait::Woken => {
                     if exact_turn_evidence && transport.exact_user_turn_present(text) {
@@ -835,7 +829,7 @@ fn run_with_submit_key<T: SubmitTransport>(
                     }
                     continue;
                 }
-                DeferredSubmitWait::Inactive => break,
+                DeferredSubmitWait::Deadline | DeferredSubmitWait::Inactive => break,
             }
             if exact_turn_evidence && transport.exact_user_turn_present(text) {
                 submit_observed = true;
@@ -843,14 +837,9 @@ fn run_with_submit_key<T: SubmitTransport>(
             }
             match key_guard(false) {
                 Ok(()) => {}
-                Err(error)
-                    if matches!(
-                        &error,
-                        InjectionError::AgentInputUnavailable { .. }
-                            | InjectionError::AgentTuiPresent { .. }
-                    ) =>
-                {
-                    if transport.wait_for_submit_event() {
+                Err(InjectionError::AgentTuiPresent { .. }) => break,
+                Err(InjectionError::AgentInputUnavailable { .. }) => {
+                    if transport.wait_for_submit_event(deferred_deadline) {
                         continue;
                     }
                     break;
@@ -875,7 +864,7 @@ fn run_with_submit_key<T: SubmitTransport>(
             submit_key_writes += 1;
             if exact_turn_evidence {
                 while !transport.exact_user_turn_present(text) {
-                    if !transport.wait_for_submit_event() {
+                    if !transport.wait_for_submit_event(deferred_deadline) {
                         break;
                     }
                 }
@@ -967,7 +956,8 @@ pub(crate) fn submit_text_with_key_claimed(
             pty_id: pty_id.to_string(),
         });
     }
-    if !claim.wait_until_active() {
+    provider_dialog_guard(svc, pty_id)?;
+    if !claim.wait_until_active(Instant::now() + opts.submit_timeout) {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
