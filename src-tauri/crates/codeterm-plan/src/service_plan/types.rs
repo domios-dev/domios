@@ -666,7 +666,6 @@ impl PlanError {
     }
 }
 
-#[derive(Default)]
 pub struct NewTask {
     pub name: String,
     pub kind: String,
@@ -693,6 +692,39 @@ pub struct NewTask {
     pub priority: Option<crate::plan::TaskPriority>,
     pub handle: Option<String>,
     pub tags: Vec<String>,
+}
+
+/// Defaults to the `task` kind the REST surface applies, since an empty kind is refused.
+impl Default for NewTask {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            kind: "task".into(),
+            section_ids: Vec::new(),
+            model: None,
+            model_rationale: None,
+            personality: None,
+            personality_provenance: None,
+            acceptance_criteria: Vec::new(),
+            test_plan: None,
+            qa_plan: None,
+            correctness: None,
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            execution_intent: Default::default(),
+            parent_task_id: None,
+            depends_on: Vec::new(),
+            assigned_tab_id: None,
+            lane: Default::default(),
+            group: None,
+            priority: None,
+            handle: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 #[derive(Default, Clone)]

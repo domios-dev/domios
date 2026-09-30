@@ -250,7 +250,7 @@ mod tests {
         plan.id = "pl_ingest".into();
         plan.sections.push(Section {
             id: "sec_existing".into(),
-            title: String::new(),
+            title: "Draft backend".into(),
             handle: Some("backend".into()),
             tags: vec![],
             body: String::new(),
