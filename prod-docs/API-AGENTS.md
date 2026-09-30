@@ -36,6 +36,7 @@ The three transition fields are independent observations. `restart_accepted` mea
 Failures after acceptance include `error` plus the same transition fields. Every boolean stays false unless that leg was observed; `new_pty_id` appears only if a replacement PTY was linked. Rejections (`400`, `404`, `429`) precede acceptance and keep compact error bodies. A failed restart is never returned in the ready `202` shape.
 
 CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]`.
+With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer; the local caller's `CODETERM_TAB_ID` is never used.
 
 #### Agent Model Switch (POST /api/tabs/{id}/agent/model)
 
