@@ -10,11 +10,19 @@ import os
 import statistics
 import sys
 import time
+import ssl
 import urllib.error
 import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+try:
+    import certifi
+
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -144,12 +152,13 @@ def call_jev(
     )
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         return None, (time.perf_counter() - started) * 1000, f"http_{error.code}"
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return None, (time.perf_counter() - started) * 1000, "transport_error"
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        reason = getattr(error, "reason", error)
+        return None, (time.perf_counter() - started) * 1000, f"transport_error: {type(reason).__name__}"
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None, (time.perf_counter() - started) * 1000, "invalid_json"
     elapsed = (time.perf_counter() - started) * 1000
