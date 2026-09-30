@@ -112,30 +112,49 @@ dev_notify_is_sent() {
 
 dev_notify_waiter_cleanup() {
   local fifo="$1" tail_pid="$2"
-  if [ "${DEV_NOTIFY_WAITER_FD_OPEN:-0}" = 1 ]; then
-    exec 3<&-
-    DEV_NOTIFY_WAITER_FD_OPEN=0
-  fi
   if [ -n "$tail_pid" ]; then
     kill "$tail_pid" 2>/dev/null || true
     wait "$tail_pid" 2>/dev/null || true
+  fi
+  if [ "${DEV_NOTIFY_WAITER_FD_OPEN:-0}" = 1 ]; then
+    exec 3<&-
+    DEV_NOTIFY_WAITER_FD_OPEN=0
   fi
   rm -f "$fifo"
 }
 
 dev_notify_wait_stream() {
   local log_file="$1" deadline_s="$2" launcher_pid="$3" tab_id="$4"
-  local fifo tail_pid deadline remaining line read_status result=0
+  local fifo tail_pid deadline remaining line read_status result=0 stream_token stream_status
   if [ ! -f "$log_file" ]; then : > "$log_file" || return 1; fi
   fifo="${TMPDIR:-/tmp}/codeterm-dev-notify.$$.${RANDOM}.fifo"
+  stream_token="__DEV_NOTIFY_TAIL_$$-${RANDOM}__"
   if ! mkfifo "$fifo"; then
     dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" stream "${CT_INSTANCE:-}" "${CT_PORT:-7686}" "$log_file" 1
     return 1
   fi
   deadline=$(( $(date +%s) + deadline_s ))
-  tail -n +1 -F "$log_file" > "$fifo" 2>/dev/null &
+  (
+    stream_tail_pid=
+    dev_notify_tail_wrapper_cleanup() {
+      if [ -n "$stream_tail_pid" ]; then
+        kill "$stream_tail_pid" 2>/dev/null || true
+        wait "$stream_tail_pid" 2>/dev/null || true
+      fi
+      exit 143
+    }
+    trap 'dev_notify_tail_wrapper_cleanup' INT TERM
+    printf '%s:START\n' "$stream_token"
+    tail -F -n +1 "$log_file" &
+    stream_tail_pid=$!
+    if [ -n "${DEV_NOTIFY_TAIL_PID_FILE:-}" ]; then printf '%s\n' "$stream_tail_pid" > "$DEV_NOTIFY_TAIL_PID_FILE"; fi
+    stream_status=0
+    wait "$stream_tail_pid" || stream_status=$?
+    stream_tail_pid=
+    trap - INT TERM
+    printf '\n%s:EXIT:%s\n' "$stream_token" "$stream_status"
+  ) > "$fifo" 2>/dev/null &
   tail_pid=$!
-  if [ -n "${DEV_NOTIFY_TAIL_PID_FILE:-}" ]; then printf '%s\n' "$tail_pid" > "$DEV_NOTIFY_TAIL_PID_FILE"; fi
   trap 'dev_notify_waiter_cleanup "$fifo" "$tail_pid"' EXIT
   trap 'dev_notify_waiter_cleanup "$fifo" "$tail_pid"; exit 130' INT
   trap 'dev_notify_waiter_cleanup "$fifo" "$tail_pid"; exit 143' TERM
@@ -161,6 +180,15 @@ dev_notify_wait_stream() {
       result=$?
       break
     fi
+    if [ "$line" = "${stream_token}:START" ]; then continue; fi
+    case "$line" in
+      "${stream_token}:EXIT:"*)
+        stream_status="${line#"${stream_token}:EXIT:"}"
+        dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" stream "${CT_INSTANCE:-}" "${CT_PORT:-7686}" "$log_file" "$stream_status"
+        result=$?
+        break
+        ;;
+    esac
     if type dev_notify_health_proof >/dev/null 2>&1 && dev_notify_health_proof "$tab_id"; then
       result=0
       break
