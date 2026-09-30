@@ -56,7 +56,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
-1. `rust-unit` — uncapped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
+1. `rust-unit` — `cargo test --lib` through `scripts/test-capped.sh` with its 600-second default cap (always runs)
 2. `ts-unit` — `npm run test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
@@ -156,18 +156,20 @@ without losing the mode switch or identity labels.
 
 ### Rust test wrapper preflight
 
-`scripts/test-capped.sh` is the required Rust-test wrapper. In a fresh worktree,
-it creates the ignored, zero-byte `bundled-embed` sidecar only when that sidecar
-is absent, then waits for the requested test to finish. Set
-`TEST_CAP_SECS=<positive-seconds>` only for a targeted diagnostic that needs a
-process-group deadline and exit 124. The wrapper logs the test-only repair once;
-a later run and a real canonical sidecar are no-ops. The bundle script rejects
-empty sidecars, so this preflight cannot produce a release artifact.
+`scripts/test-capped.sh` is the required Rust-test wrapper. Focused invocations
+default to 600 seconds; `build.sh test` and `verify` set 3600 seconds for each
+Cargo test invocation. `TEST_CAP_SECS=<positive-seconds>` overrides either cap;
+`TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the process group,
+exits 124, and repeats libtest's active case names from its captured output.
+Stable Rust cannot use `--ensure-time`: it is nightly-only and reports a long
+test only after it finishes, so the process deadline owns hang recovery. In a
+fresh worktree, the wrapper also creates the ignored, zero-byte `bundled-embed`
+sidecar only when absent. The bundle script rejects empty sidecars.
 
-The TypeScript scheduler also waits for every file and the full suite by
+The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
-`TS_UNIT_SUITE_TIMEOUT_SECONDS=<positive-seconds>` only for an explicit
-diagnostic deadline; ordinary `npm run test:unit` has neither implicit limit.
+`TS_UNIT_SUITE_TIMEOUT_SECONDS=<positive-seconds>` for an explicit diagnostic
+deadline; ordinary `npm run test:unit` has neither implicit limit.
 
 On Linux, a repository-watcher silence test that reports existing `refs/`
 directories is an inotify access event from recursive watch registration, not

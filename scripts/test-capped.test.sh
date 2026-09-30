@@ -132,6 +132,10 @@ full_run_passes_through() {
         printf 'full_run_passes_through: fixture did not exercise a populated binary\n' >&2
         exit 1
     }
+    grep -q '^\[test-capped\] process cap: 600s$' "$output" || {
+        printf 'full_run_passes_through: default focused-test cap was not enabled\n' >&2
+        exit 1
+    }
 }
 
 if [ "$#" -gt 0 ]; then
@@ -229,7 +233,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'printf "default path invoked timeout\\n" >&
     >"$no_timeout_bin/timeout"
 chmod +x "$no_timeout_bin/timeout"
 
-run_uncapped_case() {
+run_cap_disabled_case() {
     local name=$1
     local expected_exit=$2
     local command=$3
@@ -237,7 +241,7 @@ run_uncapped_case() {
     local actual_exit=0
     local output="$TMPDIR/$name.out"
 
-    if env -u TEST_CAP_SECS PATH="$no_timeout_bin:$PATH" CARGO_TEST_CMD="$command" \
+    if TEST_CAP_SECS=0 PATH="$no_timeout_bin:$PATH" CARGO_TEST_CMD="$command" \
         "$WRAPPER" "$@" >"$output" 2>&1; then
         actual_exit=0
     else
@@ -249,7 +253,7 @@ run_uncapped_case() {
         return 1
     }
     ! grep -q 'default path invoked timeout' "$output" || {
-        printf '%s: uncapped default invoked the timeout runner\n' "$name" >&2
+        printf '%s: disabled cap invoked the timeout runner\n' "$name" >&2
         return 1
     }
     ! grep -q 'DEADLOCK / HANG' "$output" || {
@@ -258,8 +262,8 @@ run_uncapped_case() {
     }
 }
 
-run_uncapped_case uncapped-success 0 true
-run_uncapped_case uncapped-exit-124 124 bash -c 'exit 124'
+run_cap_disabled_case disabled-cap-success 0 true
+run_cap_disabled_case disabled-cap-exit-124 124 bash -c 'exit 124'
 
 shared_home="$TMPDIR/shared-home"
 ephemeral_data="$TMPDIR/ephemeral-data"
@@ -353,6 +357,8 @@ mkfifo "$blocking_fifo"
 timeout_exit=0
 timeout_output="$TMPDIR/timeout.out"
 if TEST_CAP_SECS=2 CARGO_TEST_CMD=bash "$WRAPPER" -c '
+    printf "running 1 test\n" >&2
+    printf "test service::pty_io::tests::provider_update_and_trust_frames_refuse_initial_submit has been running for over 60 seconds\n" >&2
     cat "$1" >/dev/null &
     child_pid=$!
     printf "%s" "$child_pid" > "$2"
@@ -369,6 +375,14 @@ fi
 }
 [ "$(grep -c 'DEADLOCK / HANG' "$timeout_output")" -eq 1 ] || {
     printf 'timeout: expected one timeout banner\n' >&2
+    exit 1
+}
+grep -q 'Tests still running at the cap:' "$timeout_output" || {
+    printf 'timeout: missing active-test summary\n' >&2
+    exit 1
+}
+grep -q 'service::pty_io::tests::provider_update_and_trust_frames_refuse_initial_submit (over 60 seconds)' "$timeout_output" || {
+    printf 'timeout: active test name was not echoed\n' >&2
     exit 1
 }
 [ -s "$child_pid_file" ] || {
