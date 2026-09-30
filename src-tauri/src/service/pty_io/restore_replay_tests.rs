@@ -9,12 +9,13 @@ use crate::service::launch_delivery::{
     LaunchConsumptionError, LaunchConsumptionOutcome, LaunchDeliveryGate,
 };
 use crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore;
+use crate::service::pty_io::test_support::{join, DeadlineBarrier};
 use codeterm_util::lock_hold::TimedRwLock;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 
 #[derive(Default)]
 struct ReplayRecording {
@@ -211,22 +212,22 @@ fn restore_confirmed_never_redelivers() {
 #[test]
 fn duplicate_restore_single_replay() {
     let fixture = Arc::new(RestoreReplayFixture::restored(false));
-    let barrier = Arc::new(Barrier::new(3));
+    let barrier = Arc::new(DeadlineBarrier::new(3));
     let attempts = (0..2)
         .map(|_| {
             let fixture = fixture.clone();
             let barrier = barrier.clone();
             std::thread::spawn(move || {
-                barrier.wait();
+                barrier.wait("duplicate restore worker");
                 fixture.restore().unwrap()
             })
         })
         .collect::<Vec<_>>();
 
-    barrier.wait();
+    barrier.wait("duplicate restore caller");
     let winners = attempts
         .into_iter()
-        .map(|attempt| attempt.join().unwrap())
+        .map(|attempt| join(attempt, "duplicate restore attempt").unwrap())
         .filter(|won| *won)
         .count();
     fixture.mark_shell_ready();
@@ -247,24 +248,24 @@ fn relink_racing_consumption_no_double_delivery() {
     assert!(fixture.restore().unwrap());
     fixture.mark_shell_ready();
     fixture.mark_provider_ready();
-    let barrier = Arc::new(Barrier::new(2));
+    let barrier = Arc::new(DeadlineBarrier::new(2));
     let consumer = {
         let fixture = fixture.clone();
         let barrier = barrier.clone();
         std::thread::spawn(move || {
             fixture.consume_replay_with(|| {
-                barrier.wait();
-                barrier.wait();
+                barrier.wait("replay consumption start");
+                barrier.wait("replay consumption release");
                 true
             })
         })
     };
 
-    barrier.wait();
+    barrier.wait("relink restore start");
     assert!(!fixture.restore().unwrap());
-    barrier.wait();
+    barrier.wait("relink restore release");
     assert_eq!(
-        consumer.join().unwrap().unwrap(),
+        join(consumer, "relink replay consumer").unwrap().unwrap(),
         LaunchConsumptionOutcome::Confirmed
     );
     assert!(!fixture.restore().unwrap());
