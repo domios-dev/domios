@@ -306,6 +306,123 @@ mod model_refresh_tests {
         assert!(fixture.service.notif.lock().list(false).is_empty());
     }
 
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    #[test]
+    fn model_switch_observation_survives_same_session_exit_and_claim() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let observation = crate::multiplexer::types::PendingModelSwitchObservation {
+            session_id: "session-live".into(),
+            launched_model: "sonnet".into(),
+            transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: Some("before-relaunch".into()),
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
+            },
+        };
+        {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.session_binding_nonce = Some("binding-switch".into());
+            tab.reported_session_binding_nonce = Some("binding-switch".into());
+            tab.agent_requested_model = Some("sonnet".into());
+            tab.agent_provider_resolved_model = Some("sonnet".into());
+            tab.pending_model_switch_observation = Some(observation.clone());
+        }
+        let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);
+        models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "haiku".into());
+        let post_boundary_models = provider.post_boundary_models.clone();
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+            assert_eq!(
+                tab.pending_model_switch_observation.as_ref(),
+                Some(&observation)
+            );
+        }
+        fixture
+            .service
+            .notify_surviving_shell_restart_required(&tab_id, "pty-switch");
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+
+        let claim = crate::api::hook_routes::bind_reported_session(
+            &fixture.service.mux,
+            fixture.service.agent_registry.as_ref(),
+            &tab_id,
+            AGENT,
+            "session-live",
+            Some("binding-switch"),
+        )
+        .expect("the resumed provider reclaims its existing session");
+        assert!(claim.changed);
+        assert!(claim.nonce_verified);
+        assert!(matches!(
+            fixture.service.write_hook_tab_agent_type_from_claim(
+                &tab_id,
+                AGENT.into(),
+                Some(&tab_id),
+                claim.identity_evidence(),
+            ),
+            Some(
+                crate::service::provider_identity::AgentTypeWriteOutcome::Applied { .. }
+                    | crate::service::provider_identity::AgentTypeWriteOutcome::Kept { .. }
+            )
+        ));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.pending_model_switch_observation.as_ref()),
+            Some(&observation)
+        );
+
+        fixture
+            .service
+            .record_launch_reported_model(&tab_id, AGENT, "session-live", "haiku");
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+
+        post_boundary_models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "claude-sonnet-5-5".into());
+        fixture.service.record_post_launch_turn_model(
+            &tab_id,
+            observation,
+            "binding-switch",
+        );
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_model.as_deref(), Some("sonnet"));
+        assert!(tab
+            .agent_session_model_identity
+            .as_ref()
+            .is_some_and(|identity| identity.model_switch_turn_confirmed));
+        assert!(tab.pending_model_switch_observation.is_none());
+        assert!(tab.model_fallback.is_none());
+        assert!(tab.model_identity_mismatch.is_none());
+        drop(mux);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+    }
+
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn claude_worker_tab_detects_its_own_session_model() {
