@@ -369,7 +369,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             ) {
                 CycleWait::Event(_) => self.observe_deferred_readiness(),
                 CycleWait::Deadline | CycleWait::Inactive => return false,
-            }
+            };
             if self.require_exact_session_turn && self.exact_user_turn_present(text) {
                 return true;
             }
