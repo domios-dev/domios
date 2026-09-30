@@ -67,10 +67,11 @@ fn a_launch_verdict_is_read_from_the_tabs_own_boot_stage() {
 
 #[test]
 fn output_tail_keeps_the_last_bounded_lines_without_escapes_or_secrets() {
+    // A PTY translates newlines to CRLF; a bare LF would stair-step the emulated screen.
     let mut screen: String = (0..40)
-        .map(|line| format!("\x1b[31mline-{line}\x1b[0m\n"))
+        .map(|line| format!("\x1b[31mline-{line}\x1b[0m\r\n"))
         .collect();
-    screen.push_str("ANTHROPIC_API_KEY=sk-fixture-secret\n\n\n   \n");
+    screen.push_str("ANTHROPIC_API_KEY=sk-fixture-secret\r\n\r\n\r\n   \r\n");
 
     let tail = output_tail(&screen).expect("printed output has a tail");
 

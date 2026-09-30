@@ -274,6 +274,7 @@ fn plain_text_preflight_delivers_once_when_no_provider_dialog_is_visible() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn provider_action_preflight_uses_the_current_screen_frame() {
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::state::MultiplexerState;

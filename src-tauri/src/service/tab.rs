@@ -20,7 +20,7 @@ pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 pub const MAX_TAB_TITLE_CHARS: usize = 64;
 pub(crate) const TAB_TITLE_ERROR: &str =
-    "tab title must be one word of at most 64 characters with no whitespace or control characters";
+    "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
 
 pub(crate) fn validate_tab_title(title: &str) -> Result<(), String> {
     if title.is_empty()
@@ -69,13 +69,14 @@ pub(crate) fn is_coordinator(
 }
 
 pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
-    if value
+    // Surrounding whitespace, tabs included, is trimmed rather than refused.
+    let trimmed = value.trim();
+    if trimmed
         .chars()
         .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
     {
         return Err("description must be one line without control characters".into());
     }
-    let trimmed = value.trim();
     if trimmed.chars().count() > MAX_TAB_DESCRIPTION_CHARS {
         return Err(format!(
             "description must be {} characters or fewer",
