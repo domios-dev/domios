@@ -987,9 +987,8 @@ pub fn run() {
                 });
             }
 
-            // Resume extraction for items that were saved but never finished (previous run crashed mid-extraction, LLM API errored, bulk import).
-            // run_extract_pending returns fast after spawning its tokio task.
-            {
+            // Resume unfinished extraction only when auto-extract is on; `mem extract-pending` stays the manual path.
+            if crate::config::memory_config().auto_extract {
                 let svc_for_extract = service_state.clone();
                 let queued = crate::mem::auto_extract::run_extract_pending(
                     svc_for_extract,
