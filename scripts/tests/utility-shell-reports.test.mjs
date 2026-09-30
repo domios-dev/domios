@@ -4,9 +4,11 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   chmodSync,
+  closeSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -366,6 +368,7 @@ test("dev_notify_stream_waiter_deadline", () => {
     const log = path.join(h.dir, "quiet.log");
     const marker = path.join(h.dir, "deadline-sent");
     writeFileSync(log, "");
+    const logWriter = openSync(log, "a");
     const script = [
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
@@ -375,11 +378,52 @@ test("dev_notify_stream_waiter_deadline", () => {
       "dev_notify_health_proof() { return 1; }",
       "dev_notify_wait_stream " + shellQuote(log) + " 2 \"$$\" agent-tab",
     ].join("\n");
-    const result = runBash(["-c", script], h.env);
+    let result;
+    try {
+      result = runBash(["-c", script], h.env);
+    } finally {
+      closeSync(logWriter);
+    }
     assert.equal(result.status, 0, result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.match(sent[0].body, /^FAILED stage=deadline instance=quiet-instance api_port=7690\n/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("dev_notify_stream_waiter_eof_reports_stream_failure", () => {
+  const h = makeHarness();
+  try {
+    const log = path.join(h.dir, "stream.log");
+    const marker = path.join(h.dir, "stream-sent");
+    const tailBin = path.join(h.dir, "tail-bin");
+    const tailArgs = path.join(h.dir, "tail-args");
+    const fakeTail = path.join(tailBin, "tail");
+    mkdirSync(tailBin, { recursive: true });
+    writeFileSync(log, "");
+    writeFileSync(fakeTail, "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$TAIL_ARGS_FILE\"\nexit 17\n", { mode: 0o755 });
+    chmodSync(fakeTail, 0o755);
+    const script = [
+      "source " + shellQuote(helperPath),
+      "dev_notify_capture_parent",
+      "DEV_NOTIFY_SENT_MARKER=" + shellQuote(marker),
+      "CT_INSTANCE=stream-instance",
+      "CT_PORT=7690",
+      "dev_notify_wait_stream " + shellQuote(log) + " 10 \"$$\" agent-tab",
+    ].join("\n");
+    const env = {
+      ...h.env,
+      PATH: tailBin + path.delimiter + h.env.PATH,
+      TAIL_ARGS_FILE: tailArgs,
+    };
+    const result = runBash(["-c", script], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(tailArgs, "utf8").trim().split("\n"), ["-F", "-n", "+1", log]);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].body, /^FAILED stage=stream rc=17 instance=stream-instance api_port=7690\n/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
