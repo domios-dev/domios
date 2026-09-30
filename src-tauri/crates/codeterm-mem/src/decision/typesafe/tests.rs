@@ -35,6 +35,14 @@ fn question(kind: &str) -> DecisionQuestion {
     }
 }
 
+fn request(kind: &str) -> DecisionRequest {
+    DecisionRequest {
+        state: Value::String("test-state".into()),
+        instructions: "test-instructions".into(),
+        question: question(kind),
+    }
+}
+
 fn fixture(source: &str) -> Value {
     serde_json::from_str(source).unwrap()
 }
@@ -70,10 +78,7 @@ fn request_from_fixture(source: &str) -> (DecisionRequest, Value) {
     (
         DecisionRequest {
             state: body["state"].clone(),
-            instructions: question_body["instructions"]
-                .as_str()
-                .unwrap()
-                .to_string(),
+            instructions: question_body["instructions"].as_str().unwrap().to_string(),
             question,
         },
         body,
@@ -83,7 +88,10 @@ fn request_from_fixture(source: &str) -> (DecisionRequest, Value) {
 #[test]
 fn typesafe_request_noul_with_criteria_matches_fixture() {
     let (request, expected) = request_from_fixture(REQUEST_NOUL);
-    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
+    assert_eq!(
+        TypeSafeAdapter::build_request_body("jev-latest", &request),
+        expected
+    );
 }
 
 #[test]
@@ -106,12 +114,18 @@ fn typesafe_request_state_object_round_trips() {
 #[test]
 fn typesafe_request_score_matches_fixture() {
     let (request, expected) = request_from_fixture(REQUEST_SCORE);
-    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
+    assert_eq!(
+        TypeSafeAdapter::build_request_body("jev-latest", &request),
+        expected
+    );
 }
 #[test]
 fn typesafe_request_choice_matches_fixture() {
     let (request, expected) = request_from_fixture(REQUEST_CHOICE);
-    assert_eq!(TypeSafeAdapter::build_request_body("jev-latest", &request), expected);
+    assert_eq!(
+        TypeSafeAdapter::build_request_body("jev-latest", &request),
+        expected
+    );
 }
 
 #[test]
