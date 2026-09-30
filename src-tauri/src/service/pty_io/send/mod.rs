@@ -41,6 +41,23 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("\x1b[200~ {}\x1b[201~", cmd).into_bytes())
 }
 
+#[cfg(unix)]
+pub(crate) fn build_launch_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    build_spawn_dispatch(cmd)
+}
+
+#[cfg(windows)]
+/// PowerShell can retain paste mode after a TUI is forced to exit.
+pub(crate) fn build_launch_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    if cmd.contains('\r') || cmd.contains('\n') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "launch command must be a single line",
+        ));
+    }
+    Ok(format!(" {}\r", cmd).into_bytes())
+}
+
 /// Re-arms allowed after the armed signal is torn down by a generation rebind.
 /// Each one needs a real teardown event, so this only bounds a pathological loop.
 const SHELL_READY_REARM_LIMIT: u32 = 4;
@@ -560,6 +577,10 @@ impl ServiceContext {
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         #[cfg(windows)]
+        let payload = build_launch_dispatch(cmd).map_err(|error| error.to_string())?;
+        #[cfg(not(windows))]
+        let payload = format!("{}\r", cmd).into_bytes();
+        #[cfg(windows)]
         {
             use std::time::Duration;
             if !await_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4)) {
@@ -567,11 +588,15 @@ impl ServiceContext {
                 await_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4));
             }
         }
-        let payload: Vec<u8> = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
-        } else {
-            format!("{}\r", cmd).into_bytes()
-        };
+        self.pty.lock().write(pty_id, &payload)
+    }
+
+    pub fn send_launch_command_to_pty_after_ready(
+        &self,
+        pty_id: &str,
+        cmd: &str,
+    ) -> Result<(), String> {
+        let payload = build_launch_dispatch(cmd).map_err(|error| error.to_string())?;
         self.pty.lock().write(pty_id, &payload)
     }
 
