@@ -14,6 +14,9 @@ BENCHMARK_JSON="$SCRIPT_DIR/benchmark.json"
 RESULT_DIR="$SCRIPT_DIR/results"
 REPORT_DIR="$SCRIPT_DIR/reports"
 BASELINE_PATH="$SCRIPT_DIR/baseline.json"
+DECISION_MODE=off
+DECISION_DATA_DIR=""
+DECISION_GRAPH=0
 
 # Regression policy (derived from observed run-to-run variance on this machine).
 CHECK_MODE=0
@@ -26,11 +29,14 @@ TOTAL_TOL=2.0
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh [--check] [--baseline PATH]
+  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M]
 
 Options:
   --check           Compare latest mem-bench run against baseline.json.
   --baseline PATH   Baseline file for --check (default: baseline.json)
+  --decision-rerank MODE  Optional A/B mode: off, stub, or live.
+  --decision-data-dir PATH  Data directory containing decision-models token.
+  --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (needs stub or live).
   -h, --help       Show this help.
 
 Defaults:
@@ -50,6 +56,21 @@ while [[ $# -gt 0 ]]; do
       BASELINE_PATH="${1:?--baseline needs path}"
       shift
       ;;
+    --decision-rerank)
+      shift
+      DECISION_MODE="${1:?--decision-rerank needs mode}"
+      shift
+      ;;
+    --decision-data-dir)
+      shift
+      DECISION_DATA_DIR="${1:?--decision-data-dir needs path}"
+      shift
+      ;;
+    --decision-graph)
+      shift
+      DECISION_GRAPH="${1:?--decision-graph needs count}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -62,13 +83,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "$CHECK_MODE" -eq 1 && "$DECISION_MODE" != off ]]; then
+  echo "ERROR: --check requires --decision-rerank off"
+  exit 1
+fi
+
 run() {
+  local decision_args=(--decision-rerank "$DECISION_MODE")
+  if [[ -n "$DECISION_DATA_DIR" ]]; then
+    decision_args+=(--decision-data-dir "$DECISION_DATA_DIR")
+  fi
+  if [[ "$DECISION_GRAPH" != 0 ]]; then
+    decision_args+=(--decision-graph "$DECISION_GRAPH")
+  fi
   (
     cd "$ROOT_DIR/src-tauri"
     cargo run -p codeterm --manifest-path "$ROOT_DIR/src-tauri/Cargo.toml" --bin mem-bench --release -- \
       --fixture "$BENCHMARK_JSON" \
       --output-dir "$RESULT_DIR" \
-      --report-dir "$REPORT_DIR"
+      --report-dir "$REPORT_DIR" \
+      "${decision_args[@]}"
   )
 }
 
@@ -80,7 +114,7 @@ if [[ ${#json_files[@]} -eq 0 ]]; then
   echo "ERROR: no results produced in $RESULT_DIR"
   exit 1
 fi
-LATEST_JSON="${json_files[-1]}"
+LATEST_JSON="${json_files[${#json_files[@]}-1]}"
 printf 'latest: %s\n' "$LATEST_JSON"
 
 if [[ "$CHECK_MODE" -ne 1 ]]; then

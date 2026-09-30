@@ -788,6 +788,8 @@ dev_target_record() {
 record_dev_target() {
   local target="$1" target_win
   mkdir -p "$(dirname "$(dev_target_record)")"
+  # A fresh named --wait target has only release/ until tauri dev links debug/.
+  mkdir -p "$target"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     target_win="$(cd "$target" 2>/dev/null && pwd -W 2>/dev/null || true)"
     [ -n "$target_win" ] || target_win="$(pwd -W 2>/dev/null || pwd)/$target"

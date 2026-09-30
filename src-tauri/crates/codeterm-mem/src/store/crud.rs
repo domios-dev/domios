@@ -325,6 +325,14 @@ pub fn exists(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
     Ok(n > 0)
 }
 
+/// Record one read of `id`; hydration and callers that defer access both land here.
+pub fn touch_access(conn: &Connection, id: &str, now: &str) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE mem_items SET accessed_at = ?1, access_count = access_count + 1 WHERE id = ?2",
+        params![now, id],
+    )
+}
+
 pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemItem>, String> {
     let row: Option<(
         String,
@@ -455,10 +463,7 @@ pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemIt
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
     let now = chrono::Utc::now().to_rfc3339();
-    let touched = conn.execute(
-        "UPDATE mem_items SET accessed_at = ?1, access_count = access_count + 1 WHERE id = ?2",
-        params![&now, &id],
-    );
+    let touched = touch_access(conn, &id, &now);
     let (new_accessed_at, new_access_count) = match touched {
         Ok(n) if n > 0 => (Some(now.clone()), access_count + 1),
         _ => (accessed_at, access_count),

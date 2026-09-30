@@ -1,0 +1,14 @@
+{
+  "description": "Answer-absent probes for optional decision re-rank quality; none is answered by benchmark.json seeds.",
+  "test_cases": [
+    {"id":"absent_01","query":"What is the launch date for the Mars rover Perseverance successor?","expect_none":true},
+    {"id":"absent_02","query":"Which dentist performed the owner's root canal last week?","expect_none":true},
+    {"id":"absent_03","query":"What is the serial number of the office projector?","expect_none":true},
+    {"id":"absent_04","query":"Which hotel was booked for the Kyoto conference?","expect_none":true},
+    {"id":"absent_05","query":"What are the ingredients in grandma's lentil soup recipe?","expect_none":true},
+    {"id":"absent_06","query":"How many kilometers did the blue bicycle travel yesterday?","expect_none":true},
+    {"id":"absent_07","query":"What is the warranty expiration of the kitchen dishwasher?","expect_none":true},
+    {"id":"absent_08","query":"Who won the neighborhood chess tournament in 2024?","expect_none":true},
+    {"id":"absent_09","query":"What is the gate number for the flight to Lisbon?","expect_none":true}
+  ]
+}

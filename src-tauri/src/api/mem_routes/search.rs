@@ -5,14 +5,21 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::decision::{self, DecisionBackend, DecisionRegistry};
 use crate::api::routes::{check_auth, AppState};
+use crate::config::schema::DecisionRerankConfig;
 use crate::mem::{
     rerank::RerankConfig,
     search::{SearchConfig, SearchMode, SearchQuery},
+    SearchHit,
 };
-use crate::service::ServiceState;
+use crate::service::plan::ports::PlanIndexQuery;
+use crate::service::plan::search_index::PlanSearchHit;
+use crate::service::{ServiceContext, ServiceState};
 
-#[derive(Deserialize)]
+pub(crate) const RERANK_EXCLUSIVE: &str = "rerank and decision_rerank are mutually exclusive";
+
+#[derive(Deserialize, Clone, Default)]
 pub(crate) struct SearchParams {
     pub q: String,
     #[serde(default)]
@@ -26,11 +33,58 @@ pub(crate) struct SearchParams {
     #[serde(default)]
     pub rerank: Option<bool>,
     #[serde(default)]
+    pub decision_rerank: Option<bool>,
+    #[serde(default)]
     pub project: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
     pub weight: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SearchError {
+    InvalidParams(String),
+    Internal(String),
+}
+
+impl From<String> for SearchError {
+    fn from(message: String) -> Self {
+        Self::Internal(message)
+    }
+}
+
+impl SearchError {
+    pub(crate) fn into_http(self) -> (StatusCode, String) {
+        match self {
+            Self::InvalidParams(message) => (StatusCode::BAD_REQUEST, message),
+            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
+        }
+    }
+}
+
+/// The stores recall reads; the daemon implements it on `ServiceContext`, tests on a seeded store.
+pub(crate) trait RecallBackend {
+    fn recall(&self, q: &SearchQuery, cfg: &SearchConfig) -> Result<Vec<SearchHit>, String>;
+    fn legacy_rerank(&self, q: &SearchQuery, cfg: &RerankConfig) -> Result<Vec<SearchHit>, String>;
+    fn plan_hits(&self, project: &str, q: &PlanIndexQuery) -> Result<Vec<PlanSearchHit>, String>;
+}
+
+impl RecallBackend for ServiceContext {
+    fn recall(&self, q: &SearchQuery, cfg: &SearchConfig) -> Result<Vec<SearchHit>, String> {
+        self.mem.recall_with_config(q, cfg)
+    }
+
+    fn legacy_rerank(&self, q: &SearchQuery, cfg: &RerankConfig) -> Result<Vec<SearchHit>, String> {
+        self.mem.search_with_rerank(q, cfg)
+    }
+
+    fn plan_hits(&self, project: &str, q: &PlanIndexQuery) -> Result<Vec<PlanSearchHit>, String> {
+        let project_root = self
+            .ensure_plan_project_loaded(std::path::Path::new(project))
+            .map_err(|e| e.to_string())?;
+        self.plan_store.search_plan_index(&project_root, q)
+    }
 }
 
 pub async fn mem_search(
@@ -45,23 +99,64 @@ pub async fn mem_search(
             "search query must not be empty".into(),
         ));
     }
-    execute_search(&state.svc, p)
+    let svc = state.svc.clone();
+    run_blocking_search(move || execute_search(&svc, p))
+        .await
         .map(Json)
-        .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))
+}
+
+/// Recall and stage 2 block on SQLite and adapter IO, so they never run on the async runtime.
+pub(crate) async fn run_blocking_search<F>(
+    search: F,
+) -> Result<serde_json::Value, (StatusCode, String)>
+where
+    F: FnOnce() -> Result<serde_json::Value, SearchError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(search)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("mem search task failed: {error}"),
+            )
+        })?
+        .map_err(SearchError::into_http)
 }
 
 pub(crate) fn execute_search(
     svc: &ServiceState,
     p: SearchParams,
+) -> Result<serde_json::Value, SearchError> {
+    let cfg = crate::config::memory_config().decision_rerank;
+    resolve_search(&**svc, &svc.decision_models, &cfg, p)
+}
+
+pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
+    backend: &B,
+    models: &DecisionRegistry,
+    cfg: &DecisionRerankConfig,
+    p: SearchParams,
+) -> Result<serde_json::Value, SearchError> {
+    let legacy = p.rerank == Some(true);
+    if legacy && p.decision_rerank == Some(true) {
+        return Err(SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
+    }
+    if !p.decision_rerank.unwrap_or(cfg.enabled) {
+        return Ok(baseline_search(backend, &p)?);
+    }
+    if legacy {
+        return decision::skipped_search(backend, &p);
+    }
+    decision::decision_search(backend, models, cfg, &p)
+}
+
+/// Today's recall path; feature-off and every fallback return exactly this.
+pub(crate) fn baseline_search<B: RecallBackend + ?Sized>(
+    backend: &B,
+    p: &SearchParams,
 ) -> Result<serde_json::Value, String> {
     validate_search_query(&p.q)?;
-    let q = SearchQuery {
-        query: p.q,
-        kind: p.kind,
-        scope: p.scope,
-        area: p.area,
-        limit: p.limit,
-    };
+    let q = mem_query(p);
     let project = p.project.clone();
     let hits = if p.rerank.unwrap_or(false) {
         let cfg = RerankConfig {
@@ -70,7 +165,7 @@ pub(crate) fn execute_search(
             api_key_env: None,
             model: None,
         };
-        svc.mem.search_with_rerank(&q, &cfg)?
+        backend.legacy_rerank(&q, &cfg)?
     } else {
         let mut sc = SearchConfig::default();
         match p.mode.as_deref() {
@@ -88,22 +183,32 @@ pub(crate) fn execute_search(
             }
             sc.vector_rerank_weight = w;
         }
-        svc.mem.recall_with_config(&q, &sc)?
+        backend.recall(&q, &sc)?
     };
-    let mut tagged_hits = hits
-        .into_iter()
-        .map(|hit| {
-            let mut value = serde_json::to_value(hit).unwrap_or_default();
-            if let Some(obj) = value.as_object_mut() {
-                obj.insert("source".into(), serde_json::json!("mem"));
-            }
-            value
-        })
-        .collect::<Vec<_>>();
+    let mut tagged_hits = hits.into_iter().map(mem_hit_value).collect::<Vec<_>>();
     if let Some(project) = project {
-        append_plan_hits(svc, &mut tagged_hits, &project, &q)?;
+        append_plan_hits(backend, &mut tagged_hits, &project, &q)?;
     }
     Ok(serde_json::json!({ "hits": tagged_hits }))
+}
+
+pub(crate) fn mem_query(p: &SearchParams) -> SearchQuery {
+    SearchQuery {
+        query: p.q.clone(),
+        kind: p.kind.clone(),
+        scope: p.scope.clone(),
+        area: p.area.clone(),
+        limit: p.limit,
+    }
+}
+
+/// The wire shape of one mem hit in a search response.
+pub(crate) fn mem_hit_value(hit: SearchHit) -> serde_json::Value {
+    let mut value = serde_json::to_value(hit).unwrap_or_default();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("source".into(), serde_json::json!("mem"));
+    }
+    value
 }
 
 fn validate_search_query(query: &str) -> Result<(), String> {
@@ -137,16 +242,12 @@ fn effective_plan_index_limit(limit: usize) -> usize {
         .max(limit.min(PLAN_INDEX_LIMIT_CAP))
 }
 
-fn append_plan_hits(
-    svc: &ServiceState,
+fn append_plan_hits<B: RecallBackend + ?Sized>(
+    backend: &B,
     tagged_hits: &mut Vec<serde_json::Value>,
     project: &str,
     q: &SearchQuery,
 ) -> Result<(), String> {
-    use crate::service::plan::ports::PlanIndexQuery;
-    let project_root = svc
-        .ensure_plan_project_loaded(std::path::Path::new(project))
-        .map_err(|e| e.to_string())?;
     let mut plan_query = PlanIndexQuery {
         query: q.query.clone(),
         kind: q.kind.clone(),
@@ -156,16 +257,14 @@ fn append_plan_hits(
     if let Some(limit) = q.limit {
         plan_query.limit = Some(effective_plan_index_limit(limit));
     }
-    let plan_hits = svc
-        .plan_store
-        .search_plan_index(&project_root, &plan_query)?;
+    let plan_hits = backend.plan_hits(project, &plan_query)?;
     merge_plan_hits(tagged_hits, plan_hits, q.limit);
     Ok(())
 }
 
 fn merge_plan_hits(
     tagged_hits: &mut Vec<serde_json::Value>,
-    plan_hits: Vec<crate::service::plan::search_index::PlanSearchHit>,
+    plan_hits: Vec<PlanSearchHit>,
     limit: Option<usize>,
 ) {
     if plan_hits.is_empty() {
