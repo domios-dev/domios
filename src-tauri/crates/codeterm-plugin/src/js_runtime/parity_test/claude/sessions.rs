@@ -185,7 +185,8 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
         crate::session_evidence::EVIDENCE_DIR_ENV,
         evidence.to_str().unwrap(),
     )]);
-    let cwd = cwd.to_string_lossy().into_owned();
+    // The JS plugin encodes the cwd as given, so use the resolved path (macOS /var is a symlink).
+    let cwd = codeterm_paths::canonical_cwd(&cwd.to_string_lossy());
     let session_id = uuid::Uuid::new_v4().to_string();
     let native = ClaudeProvider::new();
     let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
@@ -261,7 +262,8 @@ fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
         crate::session_evidence::EVIDENCE_DIR_ENV,
         evidence.to_str().unwrap(),
     )]);
-    let cwd = cwd.to_string_lossy().into_owned();
+    // The JS plugin encodes the cwd as given, so use the resolved path (macOS /var is a symlink).
+    let cwd = codeterm_paths::canonical_cwd(&cwd.to_string_lossy());
     let session_id = uuid::Uuid::new_v4().to_string();
     let native = ClaudeProvider::new();
     let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));

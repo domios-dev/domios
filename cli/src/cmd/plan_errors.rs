@@ -325,6 +325,12 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             "✗ plan skill slug is empty after normalization.\nfix: choose a slug containing letters or digits."
                 .into(),
         ),
+        "invalid_plan_text" => Some(format!(
+            "✗ invalid plan text: {}\nfix: shorten the text or remove control characters, then retry.",
+            data.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("text exceeds the plan bounds")
+        )),
         "invalid_external_ref" => Some(format!(
             "✗ invalid external reference: {}",
             data.get("message")
