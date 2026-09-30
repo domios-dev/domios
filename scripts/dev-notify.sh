@@ -166,7 +166,8 @@ dev_notify_wait_stream() {
     IFS= read -r -t "$remaining" line <&3
     read_status=$?
     if [ "$read_status" -ne 0 ]; then
-      if [ "$read_status" -gt 128 ]; then
+      # bash 3.2 (macOS /bin/bash) reports a read -t timeout as 1, not >128 like bash 4+.
+      if [ "$read_status" -gt 128 ] || [ "$(date +%s)" -ge "$deadline" ]; then
         dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" deadline "${CT_INSTANCE:-}" "${CT_PORT:-7686}" "$log_file"
       else
         dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" stream "${CT_INSTANCE:-}" "${CT_PORT:-7686}" "$log_file" "$read_status"

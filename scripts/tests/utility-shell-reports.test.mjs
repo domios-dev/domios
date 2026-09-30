@@ -189,7 +189,9 @@ test("qa_report_failure_includes_tail", () => {
     assert.equal(result.status, 1);
     const body = records(h.parentRecord)[0].body;
     assert.match(body, /\[1\/1\] rc=3/);
-    assert.ok(body.endsWith(Array.from({ length: 25 }, (_, i) => String(i + 6)).join("\n") + "\n"));
+    const lastLines = Array.from({ length: 25 }, (_, i) => String(i + 6)).join("\n") + "\n";
+    assert.ok(body.includes(":\n" + lastLines), "summary carries exactly the last 25 lines");
+    assert.ok(!body.includes("\n5\n"), "lines before the last 25 are not included");
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
