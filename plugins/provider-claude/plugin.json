@@ -90,6 +90,31 @@
       "id": "fable",
       "displayName": "Claude Fable",
       "description": "Most capable for your hardest and longest-running tasks."
+    },
+    {
+      "id": "best",
+      "displayName": "Claude Best",
+      "description": "Claude Code's dynamic best-model alias."
+    },
+    {
+      "id": "sonnet[1m]",
+      "displayName": "Claude Sonnet (1M context)",
+      "description": "Claude Code's Sonnet long-context alias."
+    },
+    {
+      "id": "opus[1m]",
+      "displayName": "Claude Opus (1M context)",
+      "description": "Claude Code's Opus long-context alias."
+    },
+    {
+      "id": "fable[1m]",
+      "displayName": "Claude Fable (1M context)",
+      "description": "Claude Code's Fable long-context alias."
+    },
+    {
+      "id": "opusplan",
+      "displayName": "Claude Opus Plan",
+      "description": "Claude Code's Opus planning alias."
     }
   ],
   "defaultModel": "sonnet",

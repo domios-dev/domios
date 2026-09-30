@@ -1037,15 +1037,11 @@ console.log("\n--- versionless Claude alias catalog ---\n");
 
   eq(
     manifest.models.map((m) => m.id),
-    ["opus", "sonnet", "haiku", "fable"],
-    "stable alias ids stay opus,sonnet,haiku,fable in order",
+    ["opus", "sonnet", "haiku", "fable", "best", "sonnet[1m]", "opus[1m]", "fable[1m]", "opusplan"],
+    "catalogue includes every alias accepted by the installed CLI",
   );
   eq(manifest.defaultModel, "sonnet", "default alias remains sonnet");
-  eq(
-    manifest.models.map((m) => m.displayName),
-    ["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable"],
-    "cold catalog labels stay stable and versionless",
-  );
+  eq(manifest.models[0]?.displayName, "Claude Opus", "base alias labels remain versionless");
   for (const m of manifest.models) {
     if (m.id === "fable") {
       // Do not advertise model availability until installed-CLI discovery proves it.

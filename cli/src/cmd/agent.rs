@@ -14,6 +14,14 @@ use agent_models::{format_agent_models, format_agent_models_json, provider_avail
 #[cfg(test)]
 use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
 
+fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {
+    provider
+        .get("model_catalogue")
+        .and_then(|catalogue| catalogue.get("liveDiscoveryRequired"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
     caller_cwd: &std::path::Path,
@@ -338,7 +346,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .send()
             {
                 Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    let mut val: serde_json::Value = resp.json().unwrap_or_default();
                     let Some(arr) = val.as_array() else {
                         crate::cmd::print::fail(1, "Unexpected response shape");
                     };
@@ -356,6 +364,50 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             known.join(", ")
                         );
                         std::process::exit(1);
+                    };
+                    let discovery_required = provider_requires_live_model_discovery(target);
+                    if discovery_required {
+                        let response = match local_http
+                            .post(format!("{}/api/agents/providers/refresh", base))
+                            .json(&serde_json::json!({"provider_id": provider.as_str()}))
+                            .send()
+                        {
+                            Ok(response) => response,
+                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                        };
+                        let status = response.status();
+                        let refresh: serde_json::Value = response.json().unwrap_or_default();
+                        if !status.is_success() {
+                            crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
+                        }
+                        if !refresh
+                            .get("refreshed")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                        }
+                        let response = match local_http
+                            .get(format!("{}/api/agents/providers", base))
+                            .send()
+                        {
+                            Ok(response) => response,
+                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                        };
+                        let status = response.status();
+                        val = response.json().unwrap_or_default();
+                        if !status.is_success() {
+                            crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
+                        }
+                    }
+                    let Some(arr) = val.as_array() else {
+                        crate::cmd::print::fail(1, "Unexpected response shape");
+                    };
+                    let Some(target) = arr
+                        .iter()
+                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()))
+                    else {
+                        crate::cmd::print::fail(1, format!("Provider disappeared: {provider}"));
                     };
                     if json {
                         println!("{}", format_agent_models_json(target));
