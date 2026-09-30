@@ -36,6 +36,7 @@ pub struct MockProvider {
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
+    session_model_boundary_available: bool,
     session_reasoning_efforts: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
     empty_launch_command: bool,
@@ -78,6 +79,7 @@ impl MockProvider {
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
+            session_model_boundary_available: true,
             session_reasoning_efforts: Default::default(),
             usage_source: None,
             empty_launch_command: false,
@@ -100,6 +102,11 @@ impl MockProvider {
 
     pub fn with_model_switch(mut self, mode: codeterm_plugin::provider::ModelSwitchMode) -> Self {
         self.model_switch = mode;
+        self
+    }
+
+    pub fn with_missing_session_model_boundary(mut self) -> Self {
+        self.session_model_boundary_available = false;
         self
     }
 
@@ -522,18 +529,25 @@ impl AgentProvider for MockProvider {
         _cwd: &str,
         _session_id: &str,
     ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
-        Some(codeterm_types::agent::SessionModelTranscriptBoundary {
-            last_entry_uuid: None,
-        })
+        self.session_model_boundary_available
+            .then_some(codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: None,
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
+            })
     }
 
     fn detect_session_model_after_boundary(
         &self,
         cwd: &str,
         session_id: &str,
-        _boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
     ) -> Option<String> {
-        self.detect_session_model(cwd, session_id)
+        boundary
+            .boundary_found
+            .then(|| self.detect_session_model(cwd, session_id))
+            .flatten()
     }
 
     fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {

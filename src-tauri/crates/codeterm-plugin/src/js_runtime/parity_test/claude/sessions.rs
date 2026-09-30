@@ -212,6 +212,8 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
     let boundary = native
         .session_model_transcript_boundary(&cwd, &session_id)
         .expect("native captures the relaunch boundary");
+    assert_eq!(boundary.last_entry_uuid.as_deref(), Some("a-0014"));
+    assert!(boundary.boundary_found);
     assert_eq!(
         js.session_model_transcript_boundary(&cwd, &session_id),
         Some(boundary.clone())
@@ -241,6 +243,104 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
     assert_eq!(
         js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
         Some(native_model)
+    );
+}
+
+#[test]
+fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::AgentProvider;
+
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().join("project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence.to_str().unwrap(),
+    )]);
+    let cwd = cwd.to_string_lossy().into_owned();
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js
+        .session_file_path(&cwd, &session_id)
+        .expect("Claude transcript path");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let transcript = concat!(
+        r#"{"type":"assistant","uuid":"before-uuidless-turn","timestamp":"2026-09-11T18:19:45.000Z","message":{"model":"claude-opus-5"}}"#,
+        "\n",
+        r#"{"type":"assistant","timestamp":"2026-09-11T18:19:46.000Z","message":{"model":"claude-haiku-4-5"}}"#,
+        "\n",
+        r#"{"type":"mode","mode":"normal","sessionId":"fixture-session"}"#,
+        "\n",
+    );
+    std::fs::write(&path, transcript).unwrap();
+    assert!(crate::session_evidence::record(
+        &session_id,
+        path.to_str().unwrap()
+    ));
+
+    let boundary = native
+        .session_model_transcript_boundary(&cwd, &session_id)
+        .expect("native captures a UUID-less conversation boundary");
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        Some(boundary.clone())
+    );
+    assert_eq!(boundary.last_entry_uuid, None);
+    assert_eq!(boundary.last_entry_type.as_deref(), Some("assistant"));
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    let unavailable = codeterm_types::agent::SessionModelTranscriptBoundary::default();
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &unavailable),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &unavailable),
+        None
+    );
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(
+        file,
+        r#"{{"type":"assistant","uuid":"after-relaunch","message":{{"model":"claude-sonnet-5-5"}}}}"#
+    )
+    .unwrap();
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        Some("Sonnet".into())
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        Some("Sonnet".into())
+    );
+
+    std::fs::write(
+        &path,
+        r#"{"type":"mode","mode":"normal","sessionId":"fixture-session"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        native.session_model_transcript_boundary(&cwd, &session_id),
+        None
+    );
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        None
     );
 }
 
