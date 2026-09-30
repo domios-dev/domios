@@ -12,6 +12,13 @@ export interface SessionDeltaContext {
   from_offset: number;
 }
 
+export interface SessionModelTranscriptBoundary {
+  lastEntryUuid: string | null;
+  lastEntryTimestamp: string | null;
+  lastEntryType: string | null;
+  boundaryFound: boolean;
+}
+
 // ── statusBubble ──
 
 export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
@@ -241,13 +248,11 @@ export interface AgentProvider {
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
-  sessionModelTranscriptBoundary?(cwd: string, sessionId: string): {
-    lastEntryUuid: string | null;
-  } | null;
+  sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;
   detectSessionModelAfterBoundary?(
     cwd: string,
     sessionId: string,
-    boundary: { lastEntryUuid: string | null },
+    boundary: SessionModelTranscriptBoundary,
   ): string | null;
   detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];

@@ -1,3 +1,4 @@
+import type { SessionModelTranscriptBoundary } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
@@ -37,10 +38,6 @@ export interface ClaudeEntry {
   sessionId?: unknown;
   isSidechain?: unknown;
   agentId?: unknown;
-}
-
-export interface SessionModelTranscriptBoundary {
-  lastEntryUuid: string | null;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = {
@@ -91,16 +88,49 @@ export function sessionModelTranscriptBoundary(
   if (!path || !host.fs.fileExists(path)) return null;
   const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
   if (contents === null) return null;
-  if (!contents) return { lastEntryUuid: null };
-  if (!contents.endsWith("\n")) return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true,
+    };
+  }
   const lines = contents.split("\n");
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  if (!lines.length) return { lastEntryUuid: null };
-  let entry: ClaudeEntry;
-  try { entry = JSON.parse(lines[lines.length - 1]); } catch (_) { return null; }
-  return typeof entry.uuid === "string" && entry.uuid
-    ? { lastEntryUuid: entry.uuid }
-    : null;
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry: ClaudeEntry;
+    try { entry = JSON.parse(line); } catch (_) { continue; }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true,
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp
+        ? {
+          lastEntryUuid: null,
+          lastEntryTimestamp: timestamp,
+          lastEntryType: entry.type,
+          boundaryFound: true,
+        }
+        : null;
+    }
+  }
+  return lines.some(line => line.trim())
+    ? null
+    : {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true,
+    };
 }
 
 export function detectSessionModelAfterBoundary(
@@ -112,15 +142,39 @@ export function detectSessionModelAfterBoundary(
   if (!path || !host.fs.fileExists(path)) return null;
   const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
   if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
   const entries: ClaudeEntry[] = [];
   for (const line of contents.split("\n")) {
     if (!line) continue;
-    try { entries.push(JSON.parse(line) as ClaudeEntry); } catch (_) { continue; }
+    try {
+      const entry = JSON.parse(line) as ClaudeEntry;
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
+    } catch (_) {
+      continue;
+    }
   }
-  const boundaryIndex = boundary.lastEntryUuid === null
-    ? -1
-    : entries.findIndex(entry => entry.uuid === boundary.lastEntryUuid);
-  if (boundary.lastEntryUuid !== null && boundaryIndex < 0) return null;
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (
+        entry.type === boundary.lastEntryType
+        && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp
+      ) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
   for (let index = entries.length - 1; index > boundaryIndex; index--) {
     const entry = entries[index];
     if (entry.type !== "assistant") continue;

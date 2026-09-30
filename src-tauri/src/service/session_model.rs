@@ -261,6 +261,9 @@ impl ServiceContext {
             })
         });
         if let Some(pending) = pending_switch.as_ref() {
+            if !pending.transcript_boundary.boundary_found {
+                return;
+            }
             let Some(binding_nonce) = pending_binding_nonce.as_deref() else {
                 return;
             };
@@ -376,6 +379,9 @@ impl ServiceContext {
         observation: crate::multiplexer::types::PendingModelSwitchObservation,
         binding_nonce: &str,
     ) {
+        if !observation.transcript_boundary.boundary_found {
+            return;
+        }
         let (agent_id, cwd) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -462,7 +468,8 @@ impl ServiceContext {
                 tab.pending_model_switch_observation
                     .as_ref()
                     .filter(|pending| {
-                        tab.agent_session_id.as_deref() == Some(pending.session_id.as_str())
+                        pending.transcript_boundary.boundary_found
+                            && tab.agent_session_id.as_deref() == Some(pending.session_id.as_str())
                     })
             else {
                 return false;
