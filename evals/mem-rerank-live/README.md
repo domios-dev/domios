@@ -85,3 +85,30 @@ as an automated gate.
 dev instance for the evaluation, record returned source hits and metrics, and
 restore the previous values even when a query fails. The limits are `0..=10`
 for docs and `0..=5` for sessions; omitted leaves that config value untouched.
+
+## CLI usage-error probes
+
+`cli_mistakes.json` is a separate, public fixture of 15 CLI mistakes sourced
+from the `pl_blazzd` task history and the CodeTerm skill's known wrong-flag
+list. It contains synthetic probe identifiers only. Its `error_text` values
+were captured from the named `memrerank` dev CLI through `dc`.
+
+Run it from the parent Orchestrator environment after rebuilding the named dev
+instance with the CLI-reference corpus:
+
+```bash
+python3 evals/mem-rerank-live/cli_eval.py --dev-instance memrerank
+```
+
+The runner requires `memory.decision_rerank.sources.docs >= 3` and the shipping
+`sessions = 0` default. It only reads those settings, then sends one
+`--decision-rerank on` query per fixture through `dc`; it does not change config.
+Results stay under the private `mem-eval-local/results/cli-mistakes/` directory,
+and the summary is sent to the parent Orchestrator tab. The fixture's expected
+values are CLI heading titles such as `codeterm plan task add`: the re-rank
+response's `section` field is that title, not the generated anchor.
+
+The summary reports hit@1 and hit@3, the median top-1 relevance for correct and
+wrong results, confident-but-wrong counts at 0.50/0.70/0.85, and p50 latency.
+The preselected gate uses hit@1 >= 70% and confident-but-wrong at 0.70 <= 1/15.
+It prints whether to proceed with or cancel the CLI error hint task.
