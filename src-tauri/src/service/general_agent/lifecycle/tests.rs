@@ -481,13 +481,19 @@ fn general_agent_reused_shell_reconciliation_requires_authenticated_binding() {
     tab.agent_booting = false;
     tab.boot_stage = Some(BootStage::ShellReady);
 
-    assert!(crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+    assert!(crate::service::boot_stage::binding_observes_in_tab_launch(
+        tab
+    ));
 
     tab.reported_session_binding_nonce = Some("nonce-mismatch".into());
-    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(
+        tab
+    ));
 
     tab.reported_session_binding_nonce = None;
-    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(
+        tab
+    ));
     assert_eq!(tab.boot_stage, Some(BootStage::ShellReady));
 }
 
