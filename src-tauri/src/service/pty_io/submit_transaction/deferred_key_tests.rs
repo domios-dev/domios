@@ -1,5 +1,6 @@
 use super::*;
 use crate::service::pty_io::submit_transaction::cycle::SubmitCycleClaim;
+use crate::service::pty_io::test_support::join;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -250,7 +251,7 @@ fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
     }
     transport.signal();
 
-    let result = send.join().unwrap().unwrap();
+    let result = join(send, "deferred first key send").unwrap().unwrap();
     assert!(result.submit_observed);
     assert_eq!(
         transport.state.lock().unwrap().writes,
@@ -272,7 +273,7 @@ fn active_turn_wait_expires_without_an_idle_event() {
         .expect("busy readiness waits on an event with a failure deadline");
 
     assert!(matches!(
-        send.join().unwrap(),
+        join(send, "active turn wait").unwrap(),
         Err(InjectionError::SubmitNeverConfirmed { .. })
     ));
     assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
@@ -307,7 +308,7 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
     transport.state.lock().unwrap().composer_ready = true;
     transport.signal();
 
-    let result = send.join().unwrap().unwrap();
+    let result = join(send, "composer ready send").unwrap().unwrap();
     assert_eq!(result.submit_key_writes, MAX_SUBMIT_KEY_WRITES + 1);
     assert!(result.submit_observed);
     let state = transport.state.lock().unwrap();
@@ -365,7 +366,7 @@ fn deferred_key_wait_expires_without_a_readiness_event() {
         .recv_timeout(Duration::from_secs(2))
         .expect("the deferred event wait starts after bounded keys finish");
 
-    let result = send.join().unwrap().unwrap();
+    let result = join(send, "readiness timeout send").unwrap().unwrap();
     assert!(!result.submit_observed);
     assert!(result.submit_anomaly);
     assert_eq!(
@@ -431,7 +432,12 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
     first.state.lock().unwrap().composer_ready = true;
     first.signal();
 
-    assert!(first_send.join().unwrap().unwrap().submit_observed);
+    assert!(
+        join(first_send, "first active cycle send")
+            .unwrap()
+            .unwrap()
+            .submit_observed
+    );
     {
         let state = first.state.lock().unwrap();
         assert_eq!(state.turn_generation, 1);
@@ -447,7 +453,12 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
     second_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("second payload starts only after the first cycle finishes");
-    assert!(second_send.join().unwrap().unwrap().submit_observed);
+    assert!(
+        join(second_send, "second active cycle send")
+            .unwrap()
+            .unwrap()
+            .submit_observed
+    );
     assert_eq!(second.state.lock().unwrap().turn_generation, 1);
     assert_eq!(
         second.state.lock().unwrap().writes,
@@ -473,7 +484,7 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
         state.composer_ready = true;
     }
     transport.signal();
-    let result = send.join().unwrap().unwrap();
+    let result = join(send, "dialog readiness send").unwrap().unwrap();
     assert!(!result.submit_observed);
     assert!(result.submit_anomaly);
     assert_eq!(
