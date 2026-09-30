@@ -365,6 +365,10 @@ if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
   if [ -n "$DEV_NOTIFY_TAB" ]; then
     printf 'notify_tab=%s\nparent_cli=%s\n' "$DEV_NOTIFY_TAB" "$DEV_NOTIFY_PARENT_CLI"
   fi
+  if [ "${CODETERM_TEST_SEND_PARENT_REPORT:-0}" = "1" ] && [ -n "$DEV_NOTIFY_TAB" ]; then
+    dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "${CT_INSTANCE:-}" "${CT_PORT:-7686}" \
+      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 "$(pwd -P)"
+  fi
   exit 0
 fi
 
@@ -2007,6 +2011,11 @@ EOF
             echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
             dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
             exit 0
+          elif [ -n "$CT_INSTANCE" ]; then
+            DEV_NOTIFY_STAGE=stale-health
+            DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
+            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_INSTANCE=$CT_INSTANCE ./build.sh kill before retrying." >&2
+            exit 1
           fi
         else
           echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
