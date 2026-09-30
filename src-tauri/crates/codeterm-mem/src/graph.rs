@@ -173,7 +173,7 @@ pub fn timeline(
 /// - `include_invalidated`: pass-through, no filter.
 /// - `as_of` set: time-travel — `valid_from <= as_of AND (valid_to IS NULL OR datetime(valid_to) > datetime(as_of))`.
 /// - default: `valid_to IS NULL` (active-only).
-fn append_active_filter(
+pub(crate) fn append_active_filter(
     sql: &mut String,
     binds: &mut Vec<String>,
     include_invalidated: bool,

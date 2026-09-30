@@ -1,6 +1,7 @@
 //! WHAT: Compare stage-2 decision ordering with the ordinary recall order.
 //! WHY: The optional quality probe must leave the established bench oracle intact.
 //! ORACLE: Off reports have no decision key; enabled reports score both orders and absent answers.
+//! With `--decision-graph M` a third arm re-ranks recall plus up to M graph-only candidates.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -15,7 +16,7 @@ use codeterm_lib::mem::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest,
 };
-use codeterm_lib::mem::{MemManager, SearchQuery};
+use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
 use serde::{Deserialize, Serialize};
 
 use super::{Fixture, TestCase};
@@ -64,6 +65,26 @@ pub(super) struct DecisionQuery {
     pub low_confidence: Option<bool>,
     pub baseline_rank: Option<usize>,
     pub reranked_rank: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub graph: Option<GraphQuery>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct GraphQuery {
+    pub rank: Option<usize>,
+    pub added: usize,
+    pub top1_from_graph: bool,
+}
+
+/// The re-rank+graph arm; a graph-only winner is a positive query whose expected
+/// answer ranks first and reached the pool only through the graph source.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct GraphArm {
+    pub sources_graph: usize,
+    pub metrics: RankingMetrics,
+    pub added: usize,
+    pub graph_only_top1: usize,
+    pub graph_only_winners: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -71,9 +92,62 @@ pub(super) struct DecisionReport {
     pub mode: String,
     pub baseline: RankingMetrics,
     pub reranked: RankingMetrics,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub graph: Option<GraphArm>,
     pub fallbacks: BTreeMap<String, usize>,
     pub negatives: NegativeMetrics,
     pub per_query: Vec<DecisionQuery>,
+}
+
+/// Optional fixture graph: entity ids plus links whose ends are seed ids or entity ids.
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct FixtureGraph {
+    #[serde(default)]
+    entities: Vec<String>,
+    #[serde(default)]
+    links: Vec<FixtureLink>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FixtureLink {
+    from: String,
+    to: String,
+}
+
+/// Raw SQL entities: `graph_create_entity` would embed, and default recall ignores the graph.
+pub(super) fn seed_graph(
+    mem: &MemManager,
+    graph: &FixtureGraph,
+    engine_ids: &HashMap<String, String>,
+) -> Result<(), String> {
+    let resolve = |id: &String| engine_ids.get(id).unwrap_or(id).clone();
+    mem.with_conn(|conn| {
+        for id in &graph.entities {
+            conn.execute(
+                "INSERT OR IGNORE INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
+                 VALUES (?1, 'Concept', 'global', '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [id],
+            )
+            .map_err(|e| format!("seed entity {id}: {e}"))?;
+        }
+        for link in &graph.links {
+            codeterm_lib::mem::graph::insert_relation(
+                conn,
+                &codeterm_lib::mem::Relation {
+                    from_id: resolve(&link.from),
+                    relation_type: "mentions".into(),
+                    to_id: resolve(&link.to),
+                    scope: "global".into(),
+                    valid_from: "2026-01-01T00:00:00Z".into(),
+                    valid_to: None,
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                },
+            )?;
+        }
+        Ok(())
+    })
 }
 
 #[derive(Deserialize)]
@@ -159,6 +233,48 @@ pub(super) fn prepare_model(
     }
 }
 
+fn candidate(hit: &SearchHit) -> RerankCandidate {
+    RerankCandidate {
+        key: hit.item.id.clone(),
+        text: format!(
+            "{}\n{}\n{}",
+            hit.item.title,
+            hit.item.summary.as_deref().unwrap_or(""),
+            hit.item.body
+        ),
+    }
+}
+
+fn stage_order(outcome: StageOutcome, n: usize) -> Vec<usize> {
+    match outcome {
+        StageOutcome::Applied { order, .. } => order,
+        StageOutcome::Fallback { .. } => (0..n).collect(),
+    }
+}
+
+/// Up to `m` graph-linked items absent from `pool`, fetched without recording access.
+fn graph_additions(
+    mem: &MemManager,
+    query: &str,
+    pool: &[SearchHit],
+    m: usize,
+) -> Result<Vec<SearchHit>, String> {
+    let q = SearchQuery {
+        query: query.into(),
+        kind: None,
+        scope: None,
+        area: None,
+        limit: None,
+    };
+    let pooled: BTreeSet<&str> = pool.iter().map(|h| h.item.id.as_str()).collect();
+    Ok(mem
+        .graph_candidates_untouched(&q, m + pooled.len())?
+        .into_iter()
+        .filter(|h| !pooled.contains(h.item.id.as_str()))
+        .take(m)
+        .collect())
+}
+
 fn rank(ids: &[String], expected: &[String]) -> Option<usize> {
     ids.iter()
         .position(|id| expected.contains(id))
@@ -196,6 +312,7 @@ fn negative_metrics(negative_flags: &[bool], positive_flags: &[bool]) -> Negativ
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn evaluate(
     mode: Mode,
     model: Arc<dyn DecisionModel>,
@@ -204,6 +321,7 @@ pub(super) fn evaluate(
     mem: &MemManager,
     id_map: &HashMap<String, String>,
     top_k: usize,
+    graph: usize,
 ) -> Result<DecisionReport, String> {
     let negatives_path = fixture_path
         .parent()
@@ -228,6 +346,10 @@ pub(super) fn evaluate(
     let mut positive_flags = Vec::new();
     let mut fallbacks = BTreeMap::new();
     let mut per_query = Vec::new();
+    let mut graph_ranks = Vec::new();
+    let mut graph_added = 0;
+    let mut graph_only_top1 = 0;
+    let mut graph_only_winners = 0;
     let cases = fixture
         .test_cases
         .iter()
@@ -248,18 +370,7 @@ pub(super) fn evaluate(
                 limit: Some(top_k.max(10)),
             })
             .map_err(|e| format!("decision recall {id}: {e}"))?;
-        let candidates: Vec<_> = hits
-            .iter()
-            .map(|h| RerankCandidate {
-                key: h.item.id.clone(),
-                text: format!(
-                    "{}\n{}\n{}",
-                    h.item.title,
-                    h.item.summary.as_deref().unwrap_or(""),
-                    h.item.body
-                ),
-            })
-            .collect();
+        let candidates: Vec<_> = hits.iter().map(candidate).collect();
         let started = Instant::now();
         let outcome = run_stage(model.clone(), query, &candidates, &cfg);
         let stage_latency_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -291,6 +402,41 @@ pub(super) fn evaluate(
         let expected = positive.map(TestCase::expected_set).unwrap_or_default();
         let baseline_rank = rank(&baseline_ids, &expected);
         let reranked_rank = rank(&reranked_ids, &expected);
+        let graph_query = if graph > 0 {
+            let additions = graph_additions(mem, query, &hits, graph)
+                .map_err(|e| format!("decision graph {id}: {e}"))?;
+            let (graph_rank, top1_from_graph) = if additions.is_empty() {
+                (reranked_rank, false)
+            } else {
+                let pool: Vec<&SearchHit> = hits.iter().chain(&additions).collect();
+                let pooled: Vec<_> = pool.iter().map(|h| candidate(h)).collect();
+                let order = stage_order(run_stage(model.clone(), query, &pooled, &cfg), pool.len());
+                let ids: Vec<String> = order
+                    .iter()
+                    .filter_map(|&i| id_map.get(&pool[i].item.id).cloned())
+                    .take(top_k)
+                    .collect();
+                let top1_from_graph = order.first().is_some_and(|&i| i >= hits.len());
+                (rank(&ids, &expected), top1_from_graph)
+            };
+            graph_added += additions.len();
+            if top1_from_graph {
+                graph_only_top1 += 1;
+                if positive.is_some() && graph_rank == Some(1) {
+                    graph_only_winners += 1;
+                }
+            }
+            if positive.is_some() {
+                graph_ranks.push(graph_rank);
+            }
+            Some(GraphQuery {
+                rank: graph_rank,
+                added: additions.len(),
+                top1_from_graph,
+            })
+        } else {
+            None
+        };
         if positive.is_some() {
             baseline_ranks.push(baseline_rank);
             reranked_ranks.push(reranked_rank);
@@ -305,6 +451,7 @@ pub(super) fn evaluate(
             low_confidence,
             baseline_rank,
             reranked_rank,
+            graph: graph_query,
         });
     }
     Ok(DecisionReport {
@@ -316,6 +463,13 @@ pub(super) fn evaluate(
         .into(),
         baseline: ranking_metrics(&baseline_ranks, top_k),
         reranked: ranking_metrics(&reranked_ranks, top_k),
+        graph: (graph > 0).then(|| GraphArm {
+            sources_graph: graph,
+            metrics: ranking_metrics(&graph_ranks, top_k),
+            added: graph_added,
+            graph_only_top1,
+            graph_only_winners,
+        }),
         fallbacks,
         negatives: negative_metrics(&negative_flags, &positive_flags),
         per_query,
@@ -331,6 +485,79 @@ mod tests {
         assert_eq!(metrics.recall_at_1, 0.25);
         assert_eq!(metrics.recall_at_k, 0.5);
         assert!((metrics.mrr - (1.0 + 1.0 / 3.0 + 0.5) / 4.0).abs() < 1e-12);
+    }
+    #[test]
+    fn decision_graph_off_adds_no_graph_keys() {
+        let query = DecisionQuery {
+            test_id: "T01".into(),
+            stage_latency_ms: 0.0,
+            fallback: None,
+            low_confidence: None,
+            baseline_rank: None,
+            reranked_rank: None,
+            graph: None,
+        };
+        assert!(serde_json::to_value(query).unwrap().get("graph").is_none());
+    }
+    #[test]
+    fn decision_graph_additions_skip_pooled_and_cap() {
+        use codeterm_lib::mem::{graph, MemKind, MemScope, NewMemItem, Relation};
+        let mem = MemManager::open_in_memory().unwrap();
+        let ids: Vec<String> = ["pooled one", "graph two", "graph three"]
+            .iter()
+            .map(|title| {
+                mem.insert_raw(&NewMemItem {
+                    kind: MemKind::Fact,
+                    scope: MemScope::Global,
+                    title: (*title).into(),
+                    summary: None,
+                    area: None,
+                    tags: Vec::new(),
+                    body: format!("{title} body"),
+                    source: None,
+                    importance: 3.0,
+                    source_path: None,
+                    pinned: false,
+                })
+                .unwrap()
+            })
+            .collect();
+        mem.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
+                 VALUES ('tech_quasar', 'Tech', 'global', '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+            for id in &ids {
+                graph::insert_relation(
+                    conn,
+                    &Relation {
+                        from_id: id.clone(),
+                        relation_type: "mentions".into(),
+                        to_id: "tech_quasar".into(),
+                        scope: "global".into(),
+                        valid_from: "2026-01-01T00:00:00Z".into(),
+                        valid_to: None,
+                        confidence: 1.0,
+                        properties: serde_json::json!({}),
+                        reason: None,
+                    },
+                )
+                .unwrap();
+            }
+        });
+        let pool: Vec<SearchHit> = graph_additions(&mem, "quasar", &[], 10)
+            .unwrap()
+            .into_iter()
+            .filter(|h| h.item.id == ids[0])
+            .collect();
+        assert_eq!(pool.len(), 1);
+        for (m, expected) in [(1, 1), (5, 2)] {
+            let added = graph_additions(&mem, "quasar", &pool, m).unwrap();
+            assert_eq!(added.len(), expected, "m={m}");
+            assert!(added.iter().all(|h| h.item.id != ids[0]), "m={m}");
+        }
     }
     #[test]
     fn decision_negative_low_confidence_precision() {
