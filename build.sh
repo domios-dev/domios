@@ -1661,7 +1661,7 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+    cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets
     cargo check --manifest-path cli/Cargo.toml --all-targets
     ;;
   frontend)
