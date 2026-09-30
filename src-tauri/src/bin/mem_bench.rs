@@ -80,10 +80,12 @@ impl Args {
                     save_baseline = true;
                 }
                 "--decision-rerank" => {
-                    decision_rerank = Mode::parse(&it.next().ok_or("--decision-rerank needs value")?)?;
+                    decision_rerank =
+                        Mode::parse(&it.next().ok_or("--decision-rerank needs value")?)?;
                 }
                 "--decision-data-dir" => {
-                    decision_data_dir = Some(it.next().ok_or("--decision-data-dir needs value")?.into());
+                    decision_data_dir =
+                        Some(it.next().ok_or("--decision-data-dir needs value")?.into());
                 }
                 "--top-k" => {
                     top_k = it
@@ -247,7 +249,8 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = Args::parse()?;
 
-    let decision_model = mem_bench_decision::prepare_model(args.decision_rerank, args.decision_data_dir.as_deref())?;
+    let decision_model =
+        mem_bench_decision::prepare_model(args.decision_rerank, args.decision_data_dir.as_deref())?;
 
     let fixture_raw = fs::read_to_string(&args.fixture)
         .map_err(|e| format!("read fixture {}: {}", args.fixture.display(), e))?;
@@ -344,7 +347,15 @@ fn run() -> Result<(), String> {
     let commit = git_commit();
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let decision = match decision_model {
-        Some(model) => Some(mem_bench_decision::evaluate(args.decision_rerank, model, &fixture, &args.fixture, &mem, &id_map, args.top_k)?),
+        Some(model) => Some(mem_bench_decision::evaluate(
+            args.decision_rerank,
+            model,
+            &fixture,
+            &args.fixture,
+            &mem,
+            &id_map,
+            args.top_k,
+        )?),
         None => None,
     };
     let report = BenchReport {
@@ -612,8 +623,14 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
 
     if let Some(d) = &report.decision {
         out.push_str("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th></tr>");
-        for (label, before, after) in [("Recall@1", d.baseline.recall_at_1, d.reranked.recall_at_1), ("Recall@K", d.baseline.recall_at_k, d.reranked.recall_at_k), ("MRR", d.baseline.mrr, d.reranked.mrr)] {
-            out.push_str(&format!("<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td></tr>"));
+        for (label, before, after) in [
+            ("Recall@1", d.baseline.recall_at_1, d.reranked.recall_at_1),
+            ("Recall@K", d.baseline.recall_at_k, d.reranked.recall_at_k),
+            ("MRR", d.baseline.mrr, d.reranked.mrr),
+        ] {
+            out.push_str(&format!(
+                "<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td></tr>"
+            ));
         }
         out.push_str(&format!("</table><p>Negative low-confidence precision: {:.3}; positive false-positive rate: {:.3}</p></section>", d.negatives.low_confidence_precision, d.negatives.positive_low_confidence_false_positive_rate));
     }
@@ -719,7 +736,16 @@ mod decision_mode_tests {
     use super::*;
     #[test]
     fn decision_mode_off_adds_no_keys() {
-        let report = BenchReport { commit: String::new(), timestamp: String::new(), fixture_path: String::new(), fixture_description: String::new(), top_k: 10, metrics: compute_metrics(&[], 0.0), per_query: vec![], decision: None };
+        let report = BenchReport {
+            commit: String::new(),
+            timestamp: String::new(),
+            fixture_path: String::new(),
+            fixture_description: String::new(),
+            top_k: 10,
+            metrics: compute_metrics(&[], 0.0),
+            per_query: vec![],
+            decision: None,
+        };
         let value = serde_json::to_value(report).unwrap();
         assert!(value.get("decision").is_none());
     }
