@@ -5,7 +5,6 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
 use super::{DeferredSubmitWait, SubmitTransport};
-use codeterm_plugin::tab_state::TabState;
 use parking_lot::{Condvar, Mutex};
 
 impl<'a> super::PtySubmitTransport<'a> {
@@ -161,7 +160,7 @@ impl SubmitCycle {
         generation
     }
 
-    fn is_current(&self, generation: u64) -> bool {
+    pub(super) fn is_current(&self, generation: u64) -> bool {
         self.state.lock().current_generation == Some(generation)
     }
 
