@@ -429,3 +429,69 @@ fn try_conn_for_times_out_when_held_by_another_thread() {
         "lock should be reacquirable after holder drops"
     );
 }
+
+fn access_fixture() -> (Arc<MemManager>, Vec<String>) {
+    let mem = MemManager::open_in_memory().unwrap();
+    let ids = ["harbor alpha", "harbor bravo", "harbor charlie"]
+        .iter()
+        .map(|title| {
+            mem.insert_raw(&NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: (*title).into(),
+                summary: None,
+                area: None,
+                tags: Vec::new(),
+                body: format!("{title} harbor pilot note"),
+                source: None,
+                importance: 0.5,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap()
+        })
+        .collect();
+    (mem, ids)
+}
+
+fn access_counts(mem: &MemManager, ids: &[String]) -> Vec<i64> {
+    ids.iter()
+        .map(|id| mem.access_count(id).unwrap().unwrap())
+        .collect()
+}
+
+#[test]
+fn untouched_recall_records_no_access_until_recorded() {
+    let (mem, ids) = access_fixture();
+    let q = SearchQuery {
+        query: "harbor".into(),
+        kind: None,
+        scope: None,
+        area: None,
+        limit: Some(2),
+    };
+    let untouched = mem
+        .recall_with_config_untouched(&q, &search::SearchConfig::default())
+        .unwrap();
+    assert!(!untouched.is_empty());
+    assert_eq!(access_counts(&mem, &ids), vec![0, 0, 0]);
+
+    let touched = mem
+        .recall_with_config(&q, &search::SearchConfig::default())
+        .unwrap();
+    let untouched_ids: Vec<&str> = untouched.iter().map(|h| h.item.id.as_str()).collect();
+    let touched_ids: Vec<&str> = touched.iter().map(|h| h.item.id.as_str()).collect();
+    assert_eq!(untouched_ids, touched_ids);
+    assert!(access_counts(&mem, &ids).iter().all(|count| *count >= 1));
+
+    let before = access_counts(&mem, &ids);
+    mem.record_access(&[ids[0].clone(), ids[0].clone(), ids[2].clone()])
+        .unwrap();
+    let after = access_counts(&mem, &ids);
+    assert_eq!(
+        after,
+        vec![before[0] + 1, before[1], before[2] + 1],
+        "one access per distinct id"
+    );
+    assert_eq!(mem.access_count("missing").unwrap(), None);
+}

@@ -163,7 +163,7 @@ The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local
 
 ### Decision re-rank
 
-An optional second stage over `mem search`: recall fetches a candidate pool, a registered decision adapter grades each candidate, and hits are re-sorted by that absolute relevance. Off by default; a request can force it either way with `decision_rerank=true|false`. Any adapter failure returns the plain recall hits unchanged, with a `decision_rerank.status = "fallback"` envelope naming the reason. Adapter tokens are set through `POST /api/mem/decision/token` and stored under `<data dir>/decision-models/`, never in `config.toml`.
+An optional second stage over `mem search`: recall fetches a candidate pool, a registered decision adapter grades each candidate, and hits are re-sorted by that absolute relevance. Off by default; a request can force it either way with `decision_rerank=true|false`. Any adapter failure returns the plain recall hits unchanged, with a `decision_rerank.status = "fallback"` envelope naming the reason. Whenever the stage is effective (applied, fallback or skipped), only the mem hits actually returned count as accessed, once each; pool-only candidates are not touched. Adapter tokens are set through `POST /api/mem/decision/token` and stored under `<data dir>/decision-models/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -221,4 +221,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
