@@ -14,7 +14,7 @@ if [[ ! -f "$ITEMS_PATH" || ! -f "$GRAPH_PATH" ]]; then
   exit 1
 fi
 
-python3 - "$REPO_ROOT/evals/_lib/lib.sh" "$LOCAL_ROOT" "$ITEMS_PATH" "$GRAPH_PATH" "$MAP_PATH" "$INSTANCE" <<'PY'
+python3 - "$SCRIPT_DIR" "$REPO_ROOT/evals/_lib/lib.sh" "$LOCAL_ROOT" "$ITEMS_PATH" "$GRAPH_PATH" "$MAP_PATH" "$INSTANCE" <<'PY'
 import json
 import os
 import subprocess
@@ -22,7 +22,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-lib_path, local_root, items_path, graph_path, map_path, instance = sys.argv[1:]
+script_dir, lib_path, local_root, items_path, graph_path, map_path, instance = sys.argv[1:]
+sys.path.insert(0, script_dir)
+from import_titles import disambiguate_title, proposed_item_id
+
 local_root = Path(local_root)
 map_path = Path(map_path)
 local_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -54,16 +57,41 @@ def dc(*args):
 
 def response_id(raw):
     value = json.loads(raw)
-    candidates = [value]
-    while candidates:
-        current = candidates.pop()
-        if isinstance(current, dict):
-            if isinstance(current.get("id"), str):
-                return current["id"]
-            candidates.extend(current.values())
-        elif isinstance(current, list):
-            candidates.extend(current)
+    if isinstance(value, dict) and isinstance(value.get("id"), str):
+        return value["id"]
     raise RuntimeError("mem save response did not contain a new id")
+
+
+def json_or_jsonl(raw):
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+
+def existing_dev_ids():
+    orphans = json.loads(dc("mem", "graph", "orphans", "--json", "--limit", "100000"))
+    islands = json_or_jsonl(dc(
+        "mem", "graph", "islands", "--json", "--max-size", "100000", "--limit", "100000"
+    ))
+    if isinstance(islands, list):
+        islands = islands[0] if len(islands) == 1 and isinstance(islands[0], dict) else {"islands": islands}
+    nodes = list(orphans.get("orphans", []))
+    nodes.extend(
+        member
+        for component in islands.get("islands", [])
+        for member in component.get("members", [])
+    )
+    ids = [node.get("id") for node in nodes if isinstance(node, dict)]
+    if len(ids) != len(nodes) or not all(isinstance(node_id, str) for node_id in ids):
+        raise RuntimeError("dev graph inventory returned a node without an id")
+    if len(ids) != len(set(ids)):
+        raise RuntimeError("dev graph inventory returned duplicate node ids")
+    stats = json.loads(dc("mem", "stats", "--json"))
+    expected = int(stats["total_items"]) + int(stats["total_entities"])
+    if len(ids) != expected:
+        raise RuntimeError(f"dev graph inventory returned {len(ids)} nodes; stats reports {expected}")
+    return set(ids)
 
 
 def persist_map(mapping, imported, graph_counts=None):
@@ -80,8 +108,16 @@ def persist_map(mapping, imported, graph_counts=None):
     os.chmod(map_path, 0o600)
 
 
+previous_items = {}
+if map_path.exists():
+    previous = json.loads(map_path.read_text(encoding="utf-8"))
+    if previous.get("instance") == instance and isinstance(previous.get("items"), dict):
+        previous_items = previous["items"]
+
 mapping = {}
 imported = 0
+reserved_ids = existing_dev_ids()
+seen_base_ids = set()
 with tempfile.TemporaryDirectory(prefix="mem-rerank-import-", dir=local_root) as temp_dir:
     for line_number, line in enumerate(Path(items_path).read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
@@ -89,6 +125,20 @@ with tempfile.TemporaryDirectory(prefix="mem-rerank-import-", dir=local_root) as
         record = json.loads(line)
         original_kind = str(record["kind"])
         import_kind = original_kind if original_kind in supported else "note"
+        source_id = str(record["id"])
+        original_title = str(record.get("title") or "untitled")
+        base_id = proposed_item_id(import_kind, original_title)
+        force_suffix = base_id in seen_base_ids
+        seen_base_ids.add(base_id)
+        previous_id = previous_items.get(source_id)
+        import_title = disambiguate_title(
+            original_title,
+            source_id,
+            import_kind,
+            reserved_ids,
+            force_suffix=force_suffix,
+            own_id=previous_id if isinstance(previous_id, str) else None,
+        )
         tags = list(record.get("tags") or [])
         if import_kind != original_kind:
             tags.append(f"orig-kind-{original_kind}")
@@ -96,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix="mem-rerank-import-", dir=local_root) as
         body_path.write_text(str(record.get("body") or ""), encoding="utf-8")
         args = [
             "mem", "save", "--json", "--kind", import_kind,
-            "--title", str(record.get("title") or "untitled"),
+            "--title", import_title,
             "--body-file", str(body_path),
             "--importance", str(float(record.get("importance", 3.0))),
             "--skip-extract", "--replace",
@@ -106,9 +156,12 @@ with tempfile.TemporaryDirectory(prefix="mem-rerank-import-", dir=local_root) as
         if record.get("area"):
             args.extend(["--area", str(record["area"])])
         new_id = response_id(dc(*args))
-        if new_id in mapping.values() and mapping.get(record["id"]) != new_id:
+        if new_id in reserved_ids and new_id != previous_id:
+            raise RuntimeError(f"mem save returned an id occupied by another dev item at snapshot line {line_number}")
+        if new_id in mapping.values() and mapping.get(source_id) != new_id:
             raise RuntimeError(f"multiple source ids map to dev id at snapshot line {line_number}")
-        mapping[record["id"]] = new_id
+        mapping[source_id] = new_id
+        reserved_ids.add(new_id)
         imported += 1
         persist_map(mapping, imported)
 
