@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use super::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest, NoulCriteria,
-};
+use super::{DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest};
 
 pub const NOUL_INSTRUCTIONS_TEMPLATE: &str =
     "Does this memory directly and usefully answer: {query}?";
@@ -121,12 +119,7 @@ pub fn run_stage(
     let jobs: VecDeque<Job> = candidates
         .iter()
         .enumerate()
-        .map(|(i, c)| {
-            (
-                i,
-                build_request(primitive, query, c, cfg.max_body_chars),
-            )
-        })
+        .map(|(i, c)| (i, build_request(primitive, query, c, cfg.max_body_chars)))
         .collect();
     let queue = Arc::new(Mutex::new(jobs));
     let (tx, rx) = mpsc::channel::<JobResult>();
