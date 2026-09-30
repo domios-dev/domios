@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::decision::{self, DecisionRegistry};
+use super::decision::{self, DecisionBackend, DecisionRegistry};
 use crate::api::routes::{check_auth, AppState};
 use crate::config::schema::DecisionRerankConfig;
 use crate::mem::{
@@ -131,7 +131,7 @@ pub(crate) fn execute_search(
     resolve_search(&**svc, &svc.decision_models, &cfg, p)
 }
 
-pub(crate) fn resolve_search<B: RecallBackend + ?Sized>(
+pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
     backend: &B,
     models: &DecisionRegistry,
     cfg: &DecisionRerankConfig,
@@ -145,9 +145,7 @@ pub(crate) fn resolve_search<B: RecallBackend + ?Sized>(
         return Ok(baseline_search(backend, &p)?);
     }
     if legacy {
-        let mut output = baseline_search(backend, &p)?;
-        decision::insert_envelope(&mut output, decision::skipped_legacy());
-        return Ok(output);
+        return decision::skipped_search(backend, &p);
     }
     decision::decision_search(backend, models, cfg, &p)
 }

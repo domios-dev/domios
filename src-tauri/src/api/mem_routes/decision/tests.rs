@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
-use super::{decision_token_dir, token_store, DecisionRegistry};
+use super::{decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched};
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
@@ -33,6 +33,7 @@ const TITLES: [&str; 4] = [
 
 struct SeededBackend {
     mem: Arc<MemManager>,
+    ids: Vec<String>,
     plans: Vec<PlanSearchHit>,
 }
 
@@ -58,28 +59,95 @@ impl RecallBackend for SeededBackend {
     }
 }
 
+impl DecisionBackend for SeededBackend {
+    fn recall_untouched(
+        &self,
+        q: &SearchQuery,
+        cfg: &SearchConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        self.mem.recall_with_config_untouched(q, cfg)
+    }
+
+    fn legacy_rerank_untouched(
+        &self,
+        q: &SearchQuery,
+        _cfg: &RerankConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        let mut hits = self
+            .mem
+            .recall_with_config_untouched(q, &SearchConfig::default())?;
+        hits.reverse();
+        Ok(hits)
+    }
+
+    fn record_access(&self, ids: &[String]) -> Result<(), String> {
+        self.mem.record_access(ids)
+    }
+}
+
 fn seeded() -> SeededBackend {
     let mem = MemManager::open_in_memory().unwrap();
+    let mut ids = Vec::new();
     for (index, title) in TITLES.iter().enumerate() {
-        mem.insert_raw(&NewMemItem {
-            kind: MemKind::Fact,
-            scope: MemScope::Global,
-            title: (*title).to_string(),
-            summary: None,
-            area: None,
-            tags: Vec::new(),
-            body: format!("{QUERY} keeper log entry number {index}"),
-            source: None,
-            importance: 0.5,
-            source_path: None,
-            pinned: false,
-        })
-        .unwrap();
+        let id = mem
+            .insert_raw(&NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: (*title).to_string(),
+                summary: None,
+                area: None,
+                tags: Vec::new(),
+                body: format!("{QUERY} keeper log entry number {index}"),
+                source: None,
+                importance: 0.5,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap();
+        ids.push(id);
     }
     SeededBackend {
         mem,
+        ids,
         plans: vec![plan_hit()],
     }
+}
+
+/// What the baseline returns for `p` on the store's current state, without mutating it.
+fn baseline_oracle(backend: &SeededBackend, p: &SearchParams) -> Value {
+    baseline_search(&Untouched(backend), p).unwrap()
+}
+
+/// `accessed_at` is the wall-clock time of the read, the one field two reads never share.
+fn normalized(mut output: Value) -> String {
+    if let Some(hits) = output["hits"].as_array_mut() {
+        for hit in hits {
+            if let Some(stamp) = hit.pointer_mut("/item/accessed_at") {
+                if !stamp.is_null() {
+                    *stamp = json!("<accessed_at>");
+                }
+            }
+        }
+    }
+    serde_json::to_string(&output).unwrap()
+}
+
+fn access_counts(backend: &SeededBackend) -> HashMap<String, i64> {
+    backend
+        .ids
+        .iter()
+        .map(|id| (id.clone(), backend.mem.access_count(id).unwrap().unwrap()))
+        .collect()
+}
+
+fn returned_mem_ids(output: &Value) -> HashSet<String> {
+    output["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|hit| hit["source"] == "mem")
+        .map(|hit| hit["item"]["id"].as_str().unwrap().to_string())
+        .collect()
 }
 
 fn plan_hit() -> PlanSearchHit {
@@ -212,23 +280,26 @@ fn decision_off_response_is_byte_identical() {
     let registry = relevance_registry(&[(TITLES[3], 0.9)]);
     let mut request = params(3);
     request.project = Some("/seeded/project".into());
-    let baseline = baseline_search(&backend, &request).unwrap();
-    assert!(!baseline["hits"].as_array().unwrap().is_empty());
-
     let off = DecisionRerankConfig {
         adapter: STUB_ID.into(),
         ..DecisionRerankConfig::default()
     };
-    let default_out = resolve_search(&backend, &registry, &off, request.clone()).unwrap();
     let overridden = SearchParams {
         decision_rerank: Some(false),
         ..request.clone()
     };
-    let override_out = resolve_search(&backend, &registry, &enabled_cfg(), overridden).unwrap();
+    for (cfg, request) in [(off, request.clone()), (enabled_cfg(), overridden)] {
+        let expected = baseline_oracle(&backend, &request);
+        assert!(!expected["hits"].as_array().unwrap().is_empty());
+        let before = access_counts(&backend);
+        let output = resolve_search(&backend, &registry, &cfg, request).unwrap();
+        let after = access_counts(&backend);
 
-    let expected = serde_json::to_string(&baseline).unwrap();
-    for output in [default_out, override_out] {
-        assert_eq!(serde_json::to_string(&output).unwrap(), expected);
+        assert_eq!(normalized(output.clone()), normalized(expected));
+        // Off is the unchanged baseline path, so it still records access for every item it hydrates.
+        assert!(returned_mem_ids(&output)
+            .iter()
+            .all(|id| after[id] > before[id]));
         assert!(output.get("decision_rerank").is_none());
         assert!(output["hits"]
             .as_array()
@@ -242,7 +313,7 @@ fn decision_off_response_is_byte_identical() {
 fn decision_applied_reorders_and_annotates() {
     let backend = seeded();
     let cfg = enabled_cfg();
-    let pooled = baseline_search(&backend, &params(cfg.candidates)).unwrap();
+    let pooled = baseline_oracle(&backend, &params(cfg.candidates));
     let pool_titles = titles(&pooled);
     assert_eq!(pool_titles.len(), TITLES.len());
     let n = pool_titles.len() as f64;
@@ -264,7 +335,7 @@ fn decision_applied_reorders_and_annotates() {
     assert_eq!(titles(&output), expected);
     assert_ne!(
         titles(&output),
-        titles(&baseline_search(&backend, &params(limit)).unwrap())
+        titles(&baseline_oracle(&backend, &params(limit)))
     );
     for hit in output["hits"].as_array().unwrap() {
         let wanted = by_title
@@ -343,10 +414,8 @@ fn decision_fallback_hits_equal_baseline() {
     let backend = seeded();
     let mut request = params(2);
     request.project = Some("/seeded/project".into());
-    let baseline = baseline_search(&backend, &request).unwrap();
-    let expected_hits = serde_json::to_string(&baseline["hits"]).unwrap();
-
     for (reason, registry, cfg) in cases {
+        let baseline = baseline_oracle(&backend, &request);
         let output = resolve_search(
             &backend,
             &registry,
@@ -358,15 +427,19 @@ fn decision_fallback_hits_equal_baseline() {
         )
         .unwrap();
         assert_eq!(
-            serde_json::to_string(&output["hits"]).unwrap(),
-            expected_hits,
+            normalized(json!({ "hits": output["hits"] })),
+            normalized(json!({ "hits": baseline["hits"] })),
             "{reason}"
         );
         assert_eq!(
             output["decision_rerank"],
             json!({ "status": "fallback", "reason": reason })
         );
-        assert_eq!(without_envelope(output), baseline, "{reason}");
+        assert_eq!(
+            normalized(without_envelope(output)),
+            normalized(baseline),
+            "{reason}"
+        );
     }
 }
 
@@ -394,7 +467,7 @@ fn decision_legacy_with_config_enabled_reports_skipped() {
         rerank: Some(true),
         ..params(3)
     };
-    let legacy = baseline_search(&backend, &request).unwrap();
+    let legacy = baseline_oracle(&backend, &request);
     let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
 
     assert_eq!(
@@ -406,7 +479,64 @@ fn decision_legacy_with_config_enabled_reports_skipped() {
         .unwrap()
         .iter()
         .all(|hit| hit.get("relevance").is_none()));
-    assert_eq!(without_envelope(output), legacy);
+    assert_eq!(normalized(without_envelope(output)), normalized(legacy));
+}
+
+#[test]
+fn decision_access_delta_matches_returned_hits() {
+    let backend = seeded();
+    let mut request = params(2);
+    request.project = Some("/seeded/project".into());
+    let pool_titles = titles(&baseline_oracle(&backend, &params(10)));
+    let by_title: Vec<(&str, f64)> = pool_titles
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.as_str(), (i as f64 + 1.0) / 10.0))
+        .collect();
+    let cases: Vec<(&str, DecisionRegistry, SearchParams)> = vec![
+        (
+            "applied",
+            relevance_registry(&by_title),
+            SearchParams {
+                decision_rerank: Some(true),
+                ..request.clone()
+            },
+        ),
+        (
+            "fallback",
+            registry_with(StubMode::Fail(DecisionError::Http(500))),
+            SearchParams {
+                decision_rerank: Some(true),
+                ..request.clone()
+            },
+        ),
+        (
+            "skipped",
+            relevance_registry(&by_title),
+            SearchParams {
+                rerank: Some(true),
+                ..request.clone()
+            },
+        ),
+    ];
+
+    for (status, registry, request) in cases {
+        let before = access_counts(&backend);
+        let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
+        let after = access_counts(&backend);
+        assert_eq!(output["decision_rerank"]["status"], status);
+
+        let returned = returned_mem_ids(&output);
+        assert!(!returned.is_empty(), "{status}");
+        assert!(
+            returned.len() < backend.ids.len(),
+            "{status}: no pool-only item"
+        );
+        for id in &backend.ids {
+            let expected = i64::from(returned.contains(id));
+            assert_eq!(after[id] - before[id], expected, "{status}: {id}");
+        }
+    }
 }
 
 #[test]
