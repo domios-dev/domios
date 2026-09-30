@@ -18,6 +18,9 @@ For a health-proven dev startup that exits when ready:
 ./build.sh dev-prebuilt --wait --notify-tab <agent-tab-id>
 ```
 
+If a named instance is already running with stale health, stop it before
+restarting: `CODETERM_INSTANCE=<n> ./build.sh kill`.
+
 For a visible foreground dev process, use the same flag without `--wait`:
 
 ```bash
@@ -57,9 +60,11 @@ Every report body is written to a file before it is sent.
 `build.sh` captures the parent `codeterm` path and its connection and request
 identity values before `setup_env` and before named-instance exports. The dev
 CLI is later put first on `PATH`, and `CODETERM_INSTANCE` / `CODETERM_API_PORT`
-then select the dev daemon. A bare `codeterm` at that point can send a report to
-dev. The notification helper clears every `CODETERM_*` variable and restores
-only the captured parent values before invoking the captured CLI path.
+can override the caller's socket selection and then select the dev daemon, even
+when set by a command prefix before `build.sh` starts. The notification helper
+clears every `CODETERM_*` variable, restores the captured parent URL, socket,
+token, tab, and request identity, and leaves `CODETERM_INSTANCE` and
+`CODETERM_API_PORT` unset before invoking the captured CLI path.
 
 Bench helpers use a dev-pinned `dc` wrapper, and named-instance exports retarget
 bare `codeterm` calls to dev. Capture the parent CLI and connection before those
@@ -89,4 +94,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
