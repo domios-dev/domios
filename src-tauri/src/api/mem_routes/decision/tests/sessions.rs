@@ -36,38 +36,48 @@ fn request(query: &str, limit: usize) -> SearchParams {
 }
 
 #[test]
-fn session_candidate_can_win_without_touching_mem_access_counts() {
+fn session_candidate_can_win_and_recall_hits_remain_in_the_pool() {
     let mut backend = seeded();
     backend.sessions.push(session_candidate());
     let before = access_counts(&backend);
     let registry = relevance_registry(&[("Release command", 0.99)]);
-
-    let output = resolve_search(
+    let query = request("lighthouse", TITLES.len() + 1);
+    let expected_recall = baseline_oracle(
         &backend,
-        &registry,
-        &sessions_cfg(1),
-        request("codeterm sessions get", 1),
-    )
-    .unwrap();
+        &SearchParams {
+            limit: Some(sessions_cfg(1).sources.recall),
+            ..query.clone()
+        },
+    )["hits"]
+        .as_array()
+        .unwrap()
+        .len();
 
-    assert_eq!(
-        output["hits"],
-        json!([{
-            "source": "session",
-            "session_id": "sess-42",
-            "provider": "claude",
-            "title": "Release command",
-            "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
-            "pointer": "codeterm sessions get sess-42",
-            "relevance": 0.99,
-            "via": "sessions",
-        }])
-    );
+    let output = resolve_search(&backend, &registry, &sessions_cfg(1), query).unwrap();
+
+    assert_eq!(output["hits"][0]["source"], "session");
+    assert_eq!(output["hits"][0]["session_id"], "sess-42");
+    assert_eq!(output["hits"][0]["via"], "sessions");
+    let returned_mem = returned_mem_ids(&output);
+    assert_eq!(returned_mem.len(), expected_recall);
+    assert_eq!(returned_mem.len(), TITLES.len());
     assert_eq!(
         output["decision_rerank"]["sources"],
-        json!({ "recall": TITLES.len(), "graph": 0, "docs": 0, "sessions": 1 })
+        json!({
+            "recall": expected_recall,
+            "graph": 0,
+            "docs": 0,
+            "sessions": 1,
+        })
     );
-    assert_eq!(access_counts(&backend), before);
+    let after = access_counts(&backend);
+    for (id, count) in before {
+        assert_eq!(
+            after[&id] - count,
+            if returned_mem.contains(&id) { 1 } else { 0 },
+            "unexpected access delta for {id}"
+        );
+    }
 }
 
 #[test]
