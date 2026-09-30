@@ -188,7 +188,7 @@ pub enum AgentAction {
     },
     /// Restart a live agent, or resume an exited provider's verified session in its shell
     Restart {
-        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        /// Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
