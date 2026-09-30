@@ -821,7 +821,11 @@ impl ServiceContext {
         if released {
             let now = self.reconciled_tab_status_for_id(tab_id, TabStatus::Idle);
             self.emit_tab_status_if_changed(pty_id, TabStatus::Waiting, now);
-            crate::service::pty_io::submit_transaction::wake_submit_cycle_status(pty_id);
+            crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                pty_id,
+                TabStatus::Waiting,
+                TabStatus::Idle,
+            );
         }
     }
 

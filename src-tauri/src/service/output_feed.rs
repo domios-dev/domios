@@ -53,9 +53,9 @@ impl ServiceContext {
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);
-        if statuses.0 != statuses.1 && statuses.1 == TabStatus::Idle {
-            crate::service::pty_io::submit_transaction::wake_submit_cycle_status(pty_id);
-        }
+        crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+            pty_id, statuses.0, statuses.1,
+        );
         let status_us = stage.elapsed().as_micros();
         if trace && data.len() > 16 {
             log::info!(
@@ -129,9 +129,9 @@ impl ServiceContext {
             (previous, tracker.get_status(&pty_id))
         };
         self.emit_tab_status_if_changed(&pty_id, previous, current);
-        if status == TabStatus::Idle {
-            crate::service::pty_io::submit_transaction::wake_submit_cycle_status(&pty_id);
-        }
+        crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+            &pty_id, previous, current,
+        );
         self.emit_state_changed();
         true
     }

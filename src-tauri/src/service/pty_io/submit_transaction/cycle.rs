@@ -339,6 +339,19 @@ pub(crate) fn wake_submit_cycle_status(pty_id: &str) {
     wake_submit_cycle_with(pty_id, SubmitCycleSignal::TurnStatus);
 }
 
+pub(crate) fn notify_submit_cycle_status_transition(
+    pty_id: &str,
+    previous: crate::agent::status::TabStatus,
+    current: crate::agent::status::TabStatus,
+) {
+    if previous != current
+        && (current == crate::agent::status::TabStatus::Idle
+            || (previous.has_active_turn() && !current.has_active_turn()))
+    {
+        wake_submit_cycle_status(pty_id);
+    }
+}
+
 fn wake_submit_cycle_with(pty_id: &str, signal: SubmitCycleSignal) {
     let cycle = submit_cycles().lock().get(pty_id).and_then(Weak::upgrade);
     if let Some(cycle) = cycle {
@@ -349,6 +362,7 @@ fn wake_submit_cycle_with(pty_id: &str, signal: SubmitCycleSignal) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::status::TabStatus;
 
     #[test]
     fn provider_turn_event_wakes_the_bounded_submit_wait() {
@@ -360,6 +374,18 @@ mod tests {
         wake_submit_cycle(pty_id);
 
         assert_eq!(receiver.try_recv(), Ok(SubmitCycleSignal::SessionEvidence));
+    }
+
+    #[test]
+    fn idle_poll_transition_wakes_the_deferred_submit_waiter() {
+        let pty_id = "idle-poll-submit-wake";
+        let claim = claim_submit_cycle(pty_id);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        claim.cycle.install_waiter(claim.generation, sender);
+
+        notify_submit_cycle_status_transition(pty_id, TabStatus::Working, TabStatus::Idle);
+
+        assert_eq!(receiver.try_recv(), Ok(SubmitCycleSignal::TurnStatus));
     }
 
     #[test]

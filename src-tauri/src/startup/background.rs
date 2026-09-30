@@ -308,6 +308,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 }; // tracker lock released here
 
                 for (pty_id, raw_prev, raw_now) in changed {
+                    crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                        &pty_id, raw_prev, raw_now,
+                    );
                     let tab_id = mux.write().tab_id_for_pty(&pty_id);
                     if let Some(pid) = tab_id {
                         log::info!(
