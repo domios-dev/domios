@@ -344,35 +344,85 @@ function sessionModelTranscriptBoundary(cwd, sessionId) {
   if (!path || !host.fs.fileExists(path)) return null;
   const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
   if (contents === null) return null;
-  if (!contents) return { lastEntryUuid: null };
-  if (!contents.endsWith("\n")) return null;
-  const lines = contents.split("\n");
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  if (!lines.length) return { lastEntryUuid: null };
-  let entry;
-  try {
-    entry = JSON.parse(lines[lines.length - 1]);
-  } catch (_) {
-    return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true
+    };
   }
-  return typeof entry.uuid === "string" && entry.uuid ? { lastEntryUuid: entry.uuid } : null;
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp ? {
+        lastEntryUuid: null,
+        lastEntryTimestamp: timestamp,
+        lastEntryType: entry.type,
+        boundaryFound: true
+      } : null;
+    }
+  }
+  return lines.some((line) => line.trim()) ? null : {
+    lastEntryUuid: null,
+    lastEntryTimestamp: null,
+    lastEntryType: null,
+    boundaryFound: true
+  };
 }
 function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
   const path = claudeSessionFilePath(cwd, sessionId);
   if (!path || !host.fs.fileExists(path)) return null;
   const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
   if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
   const entries = [];
   for (const line of contents.split("\n")) {
     if (!line) continue;
     try {
-      entries.push(JSON.parse(line));
+      const entry = JSON.parse(line);
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
     } catch (_) {
       continue;
     }
   }
-  const boundaryIndex = boundary.lastEntryUuid === null ? -1 : entries.findIndex((entry) => entry.uuid === boundary.lastEntryUuid);
-  if (boundary.lastEntryUuid !== null && boundaryIndex < 0) return null;
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (entry.type === boundary.lastEntryType && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
   for (let index = entries.length - 1; index > boundaryIndex; index--) {
     const entry = entries[index];
     if (entry.type !== "assistant") continue;
