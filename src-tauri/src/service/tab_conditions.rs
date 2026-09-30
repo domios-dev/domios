@@ -5,7 +5,7 @@ use super::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, Outbound
 use super::messenger::MessageEnvelope;
 use super::ServiceContext;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{Tab, TabAudience};
+use crate::multiplexer::types::{PendingPrompt, Tab, TabAudience};
 use crate::notification::dedupe::{ConditionTransition, TabCondition};
 
 pub(crate) fn is_user_facing(tab: &Tab) -> bool {
@@ -87,9 +87,6 @@ impl ServiceContext {
                 mux.display_label_for_tab(tab_id),
             )
         };
-        if condition == TabCondition::PendingPrompt {
-            self.set_cron_owner_prompt_waiting(tab_id, true);
-        }
         let target = match owner {
             None => return ConditionRoute::TabGone,
             Some(ConditionOwner::User) => {
@@ -143,6 +140,76 @@ impl ServiceContext {
             ),
         });
         ConditionRoute::Reported { to: target }
+    }
+
+    pub(crate) fn route_pending_prompt(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+        kind: codeterm_types::pty::PromptKind,
+    ) -> Option<String> {
+        let prompt_is_current = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.pending_prompt.as_ref() == Some(prompt) && tab.pending_prompt_kind == Some(kind)
+        });
+        if !prompt_is_current {
+            return None;
+        }
+
+        crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
+        self.set_cron_owner_prompt_waiting(tab_id, true);
+
+        let (owner, label) = {
+            let mux = self.mux.read();
+            (
+                condition_owner(&mux, tab_id),
+                mux.display_label_for_tab(tab_id),
+            )
+        };
+        let Some(ConditionOwner::Reporter(target)) = owner else {
+            return None;
+        };
+        let transition = self
+            .notif
+            .lock()
+            .observe_tab_condition(tab_id, TabCondition::PendingPrompt);
+        if transition == ConditionTransition::AlreadyAnnounced {
+            return None;
+        }
+        let Some(target) = target else {
+            log::info!(
+                "[tab-condition] tab={tab_id} condition={} is not user-facing and has no report target; kept off the user's surfaces",
+                TabCondition::PendingPrompt.as_str()
+            );
+            return None;
+        };
+
+        let message = OutboundMessage {
+            target: target.clone(),
+            body: MessageBody::Text {
+                body: format!(
+                    "Agent needs your response: {}\nAnswer it with `codeterm tab respond <option> --tab {tab_id}`.",
+                    prompt.question
+                ),
+            },
+            envelope: Some(MessageEnvelope::report(label, tab_id)),
+            class: DeliveryClass::SystemNotice,
+            origin: MessageOrigin::System,
+            idempotency_key: None,
+        };
+        let service = self.clone();
+        let reporter = tab_id.to_string();
+        let condition = TabCondition::PendingPrompt;
+        std::thread::spawn(move || match service.gateway.submit(&service, message) {
+            Ok(_) => log::info!(
+                "[tab-condition] tab={reporter} condition={} reported to {target}",
+                condition.as_str()
+            ),
+            Err(error) => log::warn!(
+                "[tab-condition] tab={reporter} condition={} report failed: {error}",
+                condition.as_str()
+            ),
+        });
+        Some(target)
     }
 
     /// A fresh agent process reached readiness: the previous process's exit is

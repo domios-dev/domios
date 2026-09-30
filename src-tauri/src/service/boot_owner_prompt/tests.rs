@@ -45,17 +45,6 @@ fn stage(
         .and_then(|tab| tab.boot_stage)
 }
 
-fn prompt_notifications(fixture: &crate::service::test_fixture::ServiceFixture) -> usize {
-    fixture
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .iter()
-        .filter(|notification| notification.actions.is_some() || notification.resolved)
-        .count()
-}
-
 #[test]
 fn stage_rules_hold_only_ready_launches_that_owe_a_handshake() {
     assert_eq!(
@@ -77,7 +66,7 @@ fn stage_rules_hold_only_ready_launches_that_owe_a_handshake() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn boot_permission_prompt_is_awaiting_owner_not_ready() {
+fn boot_permission_prompt_holds_readiness_without_notification() {
     let (fixture, tab_id) = ready_tab(true);
     let prompt = screen_prompt();
     fixture
@@ -118,11 +107,7 @@ fn boot_permission_prompt_is_awaiting_owner_not_ready() {
         .get_tab(&tab_id)
         .and_then(|tab| tab.pending_prompt.clone());
     assert_eq!(pending, Some(prompt), "the surfaced rendering stays");
-    assert_eq!(
-        prompt_notifications(&fixture),
-        1,
-        "one prompt, one notification"
-    );
+    assert!(fixture.service.notif.lock().list(false).is_empty());
     assert_eq!(
         stage(&fixture, &tab_id),
         Some(BootStage::AwaitingOwnerPrompt)
