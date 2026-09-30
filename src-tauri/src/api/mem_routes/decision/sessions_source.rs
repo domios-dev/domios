@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use crate::agent::provider::SessionMetadata;
 use crate::agent::registry::{AgentRegistry, SessionSearchHit, SessionSearchOpts};
 use crate::mem::decision::rerank::RerankCandidate;
 
