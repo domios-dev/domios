@@ -102,7 +102,7 @@ impl ServiceContext {
         }
         let now = current_epoch_secs();
         send_due_plan_time_reminders_with(
-            &self.plan_store.list_full(),
+            &self.plan_store.list_full_reminder_candidates(),
             &self.plan_turn_counter,
             now,
             cfg.nudge_interval_secs,
@@ -115,7 +115,7 @@ impl ServiceContext {
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
     pub(crate) fn reconcile_time_reminder_eligibility(&self) {
-        let targets = timed_plan_reminder_targets(&self.plan_store.list_full());
+        let targets = timed_plan_reminder_targets(&self.plan_store.list_full_reminder_candidates());
         self.retain_time_reminder_eligibility(&targets);
     }
 
@@ -125,7 +125,9 @@ impl ServiceContext {
     }
 
     fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
-        for (tab_id, plan_id) in complete_wrapup_targets(&self.plan_store.list_full()) {
+        for (tab_id, plan_id) in
+            complete_wrapup_targets(&self.plan_store.list_full_reminder_candidates())
+        {
             if !self.plan_turn_counter.complete_wrapup_due(&plan_id) {
                 continue;
             }

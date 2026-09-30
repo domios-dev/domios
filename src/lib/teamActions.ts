@@ -45,7 +45,8 @@ export function buildTeamActions({
       });
     },
     async onCloseTeam(teamId) {
-      const result = await invoke("mux_close_team", { teamId });
+      // The Sidebar confirmation dialog is the human override for busy Workers.
+      const result = await invoke("mux_close_team", { teamId, forceBusy: true });
       if (typeof result !== "object" || result === null || !("inventory" in result)) {
         throw new Error("Team close response did not include its lane inventory");
       }

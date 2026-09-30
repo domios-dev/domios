@@ -692,3 +692,4 @@ fn graph_full_returns_nodes_and_edges() {
 }
 
 mod more;
+mod skills;

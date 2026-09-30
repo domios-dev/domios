@@ -2,6 +2,8 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
+const SESSION_JSONL_READ_LIMIT: u64 = 8 * 1024 * 1024;
+
 #[tauri::command]
 pub(crate) fn session_binding_state(
     svc: tauri::State<'_, ServiceState>,
@@ -200,14 +202,18 @@ fn read_session_jsonl_core(
         file.seek(SeekFrom::Start(skip))
             .map_err(|e| e.to_string())?;
         let mut buf = String::new();
-        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        file.take(SESSION_JSONL_READ_LIMIT)
+            .read_to_string(&mut buf)
+            .map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
         let start = file_len.saturating_sub(tail);
         file.seek(SeekFrom::Start(start))
             .map_err(|e| e.to_string())?;
         let mut buf = String::new();
-        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        file.take(tail.min(SESSION_JSONL_READ_LIMIT))
+            .read_to_string(&mut buf)
+            .map_err(|e| e.to_string())?;
         if start > 0 {
             if let Some(pos) = buf.find('\n') {
                 buf = buf[pos + 1..].to_string();
@@ -216,7 +222,9 @@ fn read_session_jsonl_core(
         Ok(format!("__offset:{}\n{}", file_len, buf))
     } else {
         let mut buf = String::new();
-        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        file.take(SESSION_JSONL_READ_LIMIT)
+            .read_to_string(&mut buf)
+            .map_err(|e| e.to_string())?;
         Ok(buf)
     }
 }

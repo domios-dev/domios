@@ -199,8 +199,9 @@ wait_for_dev_exit() {
 CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
+  local test_cap_secs="${TEST_CAP_SECS:-3600}"
   for package in codeterm codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
-    scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
+    TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
 
@@ -1640,7 +1641,7 @@ EOF
       app)
         enter_build_gateway "$CMD ${*:2}"
         if [ "$test_filter" = "build_identity_required" ]; then
-          node --test scripts/tests/build_identity_required.test.mjs
+          scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
           exit $?
         fi
         prepare_exceptional_worktree_target
@@ -1672,7 +1673,7 @@ EOF
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
-    scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    TEST_CAP_SECS="${TEST_CAP_SECS:-3600}" scripts/test-capped.sh --manifest-path cli/Cargo.toml
     node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
     bash scripts/check-empty-array-expansion.sh

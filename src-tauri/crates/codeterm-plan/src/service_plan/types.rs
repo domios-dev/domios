@@ -129,6 +129,7 @@ pub enum PlanError {
         slug: String,
     },
     InvalidPlanSkillSlug,
+    InvalidPlanText(String),
     InvalidExecutorName(String),
     InvalidExternalRef(String),
     WorkFacetViolation(codeterm_types::plan::work_facet::WorkFacetViolation),
@@ -402,6 +403,7 @@ impl fmt::Display for PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 write!(f, "plan skill slug is empty after normalization")
             }
+            PlanError::InvalidPlanText(message) => write!(f, "invalid plan text: {message}"),
             PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
                 f,
                 "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
@@ -425,7 +427,7 @@ impl PlanError {
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
-            PlanError::InvalidExecutorName(_) => -32602,
+            PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
@@ -635,6 +637,10 @@ impl PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 serde_json::json!({ "type": "invalid_plan_skill_slug" })
             }
+            PlanError::InvalidPlanText(message) => serde_json::json!({
+                "type": "invalid_plan_text",
+                "message": message,
+            }),
             PlanError::UnauthorizedGateClaim {
                 claimed,
                 authorized,
@@ -660,7 +666,6 @@ impl PlanError {
     }
 }
 
-#[derive(Default)]
 pub struct NewTask {
     pub name: String,
     pub kind: String,
@@ -687,6 +692,39 @@ pub struct NewTask {
     pub priority: Option<crate::plan::TaskPriority>,
     pub handle: Option<String>,
     pub tags: Vec<String>,
+}
+
+/// Defaults to the `task` kind the REST surface applies, since an empty kind is refused.
+impl Default for NewTask {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            kind: "task".into(),
+            section_ids: Vec::new(),
+            model: None,
+            model_rationale: None,
+            personality: None,
+            personality_provenance: None,
+            acceptance_criteria: Vec::new(),
+            test_plan: None,
+            qa_plan: None,
+            correctness: None,
+            body: String::new(),
+            role_guidance: None,
+            executor_role: None,
+            competition: None,
+            intent: None,
+            execution_intent: Default::default(),
+            parent_task_id: None,
+            depends_on: Vec::new(),
+            assigned_tab_id: None,
+            lane: Default::default(),
+            group: None,
+            priority: None,
+            handle: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 #[derive(Default, Clone)]
@@ -734,6 +772,8 @@ pub struct IndexEntry {
     pub element_count: usize,
     pub loop_count: usize,
     pub has_goal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

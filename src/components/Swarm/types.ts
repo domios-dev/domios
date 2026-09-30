@@ -2,7 +2,7 @@ export interface SwarmNode {
   id: string;          // tab_id
   title: string;
   role: 'Orchestrator' | 'Worker' | null;
-  status: 'Working' | 'Waiting' | 'Idle' | 'Dead';
+  status: 'Working' | 'Waiting' | 'Idle' | 'Error' | 'Dead';
   parentId: string | null;
   x: number;           // computed position
   y: number;

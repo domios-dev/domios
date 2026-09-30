@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.11.10",
-  "minCodeterm": "1.11.10",
+  "version": "1.11.11",
+  "minCodeterm": "1.11.11",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -10,7 +10,12 @@
   "entry": "plugin.js",
   "sessions": {
     "rootDir": "~/.codex",
-    "cwdEncoding": "none"
+    "cwdEncoding": "none",
+    "searchFiles": {
+      "rootSubdir": "sessions",
+      "directoryDepth": 3,
+      "fileStemRegex": "^rollout-.{19}-([A-Za-z0-9._-]{1,128})$"
+    }
   },
   "credentials": [
     {
@@ -25,6 +30,14 @@
     }
   ],
   "spawn": {
+    "sandboxedLinuxLaunch": {
+      "networkAccessArgs": [
+        "-c",
+        "sandbox_workspace_write.network_access=true"
+      ],
+      "networkAccessConfigPath": "~/.codex/config.toml",
+      "networkAccessSetting": "sandbox_workspace_write.network_access"
+    },
     "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
@@ -79,6 +92,11 @@
   },
   "models": [
     {
+      "id": "gpt-6.1-sol",
+      "displayName": "GPT-6.1-Sol",
+      "description": "Latest workhorse model for coding and everyday work."
+    },
+    {
       "id": "gpt-6-astra",
       "displayName": "GPT-6-Astra",
       "description": "Frontier intelligence for the most demanding work."
@@ -86,7 +104,7 @@
     {
       "id": "gpt-6-sol",
       "displayName": "GPT-6-Sol",
-      "description": "Workhorse model for coding and everyday work."
+      "description": "Previous generation workhorse model."
     },
     {
       "id": "gpt-6-luna",
@@ -114,7 +132,7 @@
       "description": "Legacy coding model."
     }
   ],
-  "defaultModel": "gpt-6-sol",
+  "defaultModel": "gpt-6.1-sol",
   "modelCatalogue": {
     "authority": "authoritative",
     "liveDiscoveryRequired": true
@@ -167,7 +185,6 @@
     "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
-    "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": [
       "--dangerously-bypass-approvals-and-sandbox",
       "--dangerously-bypass-hook-trust"

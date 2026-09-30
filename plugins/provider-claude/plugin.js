@@ -339,6 +339,100 @@ function claudeSessionFilePath(cwd, sessionId) {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
+function sessionModelTranscriptBoundary(cwd, sessionId) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true
+    };
+  }
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp ? {
+        lastEntryUuid: null,
+        lastEntryTimestamp: timestamp,
+        lastEntryType: entry.type,
+        boundaryFound: true
+      } : null;
+    }
+  }
+  return lines.some((line) => line.trim()) ? null : {
+    lastEntryUuid: null,
+    lastEntryTimestamp: null,
+    lastEntryType: null,
+    boundaryFound: true
+  };
+}
+function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
+  const entries = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
+    } catch (_) {
+      continue;
+    }
+  }
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (entry.type === boundary.lastEntryType && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
+}
 function encodeCwdDashed(cwd) {
   return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
 }
@@ -521,7 +615,7 @@ function mapAliasesToLive(aliases, live) {
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped = {
       id: alias.id,
-      displayName: match ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -530,7 +624,10 @@ function mapAliasesToLive(aliases, live) {
   return out;
 }
 function familyOf(alias) {
-  const hay = (alias.id + " " + alias.displayName).toLowerCase();
+  const id = alias.id.toLowerCase();
+  if (id === "best") return "fable";
+  if (id === "opusplan") return "opus";
+  const hay = (id.replace(/\[1m\]$/, "") + " " + alias.displayName).toLowerCase();
   for (let i = 0; i < FAMILIES.length; i++) {
     if (hay.indexOf(FAMILIES[i]) !== -1) return FAMILIES[i];
   }
@@ -1860,7 +1957,7 @@ var plugin = {
     const p = params || {};
     const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
     if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -1899,6 +1996,8 @@ var plugin = {
     }
     return null;
   },
+  sessionModelTranscriptBoundary,
+  detectSessionModelAfterBoundary,
   detectSessionReasoningEffort(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);
     if (!path || !host.fs.fileExists(path)) return null;
@@ -2507,6 +2606,9 @@ function commandOutcome(value) {
   const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
   if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
   return Object.keys(outcome).length > 0 ? outcome : void 0;
+}
+function quoteArg(arg) {
+  return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
 }
 function writeTaskTempFile(task) {
   const suffix = ".ct-task-" + randomShortHex(8);

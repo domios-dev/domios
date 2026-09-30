@@ -27,6 +27,7 @@ pub(super) fn dispatch(
     match method {
         "plan.mode.set" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let mode = get_string_param(params, "mode")?;
             let mode = serde_json::from_value::<PlanMode>(Value::String(mode))
                 .map_err(|_| plan_rpc_err(PlanError::BadMode))?;
@@ -63,6 +64,7 @@ pub(super) fn dispatch(
         }
         "plan.pause" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let reason = get_string_param(params, "reason")?;
             let from = params
                 .as_ref()
@@ -83,6 +85,7 @@ pub(super) fn dispatch(
         }
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            authorize_plan_mutation(svc, &id, params)?;
             let mode = svc
                 .resume_team_plan(&id, epoch_ms())
                 .map_err(super::team::team_plan_rpc_err)?;
@@ -142,6 +145,38 @@ fn caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
     }
 }
 
+pub(super) fn authorize_plan_mutation(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: &Option<Value>,
+) -> Result<(), JsonRpcError> {
+    let caller = caller(params);
+    let confirmed_human = has_human_confirmation(caller.tab_id.as_deref(), params);
+    if confirmed_human
+        || (caller.tab_id.is_some()
+            && matches!(
+                svc.classify_planning_caller(plan_id, &caller),
+                Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+            ))
+    {
+        return Ok(());
+    }
+    Err(JsonRpcError {
+        code: -32003,
+        message: "the caller is not the Plan Orchestrator or Planner".into(),
+        data: Some(json!({ "type": "plan_mutation_authorization_required" })),
+    })
+}
+
+fn has_human_confirmation(caller_tab_id: Option<&str>, params: &Option<Value>) -> bool {
+    caller_tab_id.is_none()
+        && params
+            .as_ref()
+            .and_then(|value| value.get("human_confirmation"))
+            .and_then(Value::as_bool)
+            == Some(true)
+}
+
 fn authority_error(message: String) -> JsonRpcError {
     JsonRpcError {
         code: super::error_codes::PLAN_ORCHESTRATOR_REQUIRED,
@@ -185,4 +220,21 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_human_confirmation;
+    use serde_json::json;
+
+    #[test]
+    fn plan_mutation_human_confirmation_requires_no_tab_identity() {
+        let confirmed = Some(json!({ "human_confirmation": true }));
+        assert!(has_human_confirmation(None, &confirmed));
+        assert!(!has_human_confirmation(Some("planner-tab"), &confirmed));
+        assert!(!has_human_confirmation(
+            None,
+            &Some(json!({ "human_confirmation": false }))
+        ));
+    }
 }

@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use parking_lot::Mutex as PlMutex;
 
+pub use super::child_exit::ChildExit;
 pub use super::spawn_gate::PtySpawnGate;
 pub use super::teardown::{PtyReaper, PtyTeardownSignal};
 use super::write_queue::{GuardedInputGate, GuardedInputPermit, WriteQueue};
@@ -56,6 +57,8 @@ pub struct PtySession {
     pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
     pub backend_reader_active: AtomicBool,
     pub teardown: PtyTeardownSignal,
+    /// Recorded once when the child process exits, with its exit code.
+    pub child_exit: Arc<ChildExit>,
 }
 
 impl Drop for PtySession {
@@ -71,6 +74,11 @@ impl Drop for PtySession {
 }
 
 impl PtySession {
+    /// The child's exit code once it has exited and one was observable.
+    pub fn child_exit_code(&self) -> Option<i32> {
+        self.child_exit.code()
+    }
+
     pub fn write_and_flush_guarded(
         &self,
         data: Vec<u8>,
@@ -569,7 +577,19 @@ pub fn build_session(
         backend_reader_rx: StdMutex::new(None),
         backend_reader_active: AtomicBool::new(false),
         teardown: PtyTeardownSignal::default(),
+        child_exit: Arc::default(),
     });
+    if let Ok(child) = session.child.lock() {
+        let label = format!("pid={:?}", child.process_id());
+        super::child_exit::watch(
+            &**child,
+            Arc::downgrade(&session),
+            session.child_exit.clone(),
+            label,
+        );
+    } else {
+        session.child_exit.mark_unobservable();
+    }
 
     Ok(BuiltSession {
         shell,

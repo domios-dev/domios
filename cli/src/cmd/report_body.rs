@@ -39,8 +39,7 @@ pub fn read_report_body(
 ) -> String {
     let pad_body = from_pad.map(|path| {
         crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         })
     });
     if pad_body.is_none() {
@@ -50,8 +49,7 @@ pub fn read_report_body(
     }
     let doc_body = doc.map(|path| {
         let body = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            eprintln!("Error: failed to read --doc {}: {}", path, e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to read --doc {}: {}", path, e));
         });
         (path, body)
     });

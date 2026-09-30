@@ -163,7 +163,7 @@
         },
         {
           "name": "model",
-          "about": "Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead",
+          "about": "Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`",
           "aliases": [],
           "args": [
             {
@@ -173,7 +173,7 @@
               "value_name": "NAME",
               "possible_values": [],
               "default": null,
-              "help": "Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list",
+              "help": "Model id. Run `agent models PROVIDER` to list",
               "aliases": []
             },
             {
@@ -535,7 +535,7 @@
               "value_name": "CWD",
               "possible_values": [],
               "default": null,
-              "help": "Working directory (required with --mesh; resolves on the peer)",
+              "help": "Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths",
               "aliases": []
             },
             {
@@ -598,7 +598,7 @@
               "value_name": "NON_USER_FACING",
               "possible_values": [],
               "default": null,
-              "help": "Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications",
+              "help": "Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead",
               "aliases": []
             },
             {
@@ -648,7 +648,7 @@
               "value_name": "PRESET",
               "possible_values": [],
               "default": null,
-              "help": "Select a chatBackend shell preset. Omit to use the plugin default preset",
+              "help": "Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents",
               "aliases": []
             },
             {
@@ -714,7 +714,7 @@
               "value_name": "SYSTEM_PROMPT",
               "possible_values": [],
               "default": null,
-              "help": "Override the shell system prompt when spawning a chatBackend shell",
+              "help": "Override the shell system prompt of a chatBackend shell; refused for PTY agents",
               "aliases": []
             },
             {
@@ -1330,6 +1330,16 @@
               "possible_values": [],
               "default": null,
               "help": "Summary of what happened",
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "required": false,
+              "value_name": "YES",
+              "possible_values": [],
+              "default": null,
+              "help": "Confirm a human completion when this caller has no tab identity",
               "aliases": []
             }
           ],
@@ -5043,7 +5053,7 @@
             },
             {
               "name": "new",
-              "about": "Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change",
+              "about": "Scaffold a new skill folder under <skills-dir>/<name>/ (skills/ in the active instance data dir), write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change",
               "aliases": [],
               "args": [
                 {
@@ -5886,7 +5896,7 @@
               "value_name": "TAB_ID",
               "possible_values": [],
               "default": null,
-              "help": "The tab whose chat holds the message this notification is about",
+              "help": "The open tab whose chat holds the message this notification is about",
               "aliases": []
             },
             {
@@ -5896,7 +5906,7 @@
               "value_name": "TITLE",
               "possible_values": [],
               "default": null,
-              "help": "Notification title",
+              "help": "Notification title: not blank, at most 200 characters",
               "aliases": []
             }
           ],
@@ -6484,6 +6494,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "yes",
+              "positional": false,
+              "required": false,
+              "value_name": "YES",
+              "possible_values": [],
+              "default": null,
+              "help": "Confirm archive when no Plan tab identity is available",
               "aliases": []
             }
           ],
@@ -12396,7 +12416,7 @@
               "value_name": "ID_OVERRIDE",
               "possible_values": [],
               "default": null,
-              "help": "Override the install id. Defaults to plugin.json#id or folder name",
+              "help": "Rename the installed runtime plugin id, including plugin.json#id",
               "aliases": []
             }
           ],
@@ -13939,6 +13959,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Close a Worker that still holds an in-progress task; its Orchestrator is notified with the recovery command",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "required": false,
@@ -14493,7 +14523,7 @@
         },
         {
           "name": "stop",
-          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stopKey (Esc for all bundled providers). Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
+          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop-key sequence. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
           "aliases": [],
           "args": [
             {
@@ -14773,9 +14803,19 @@
         },
         {
           "name": "close",
-          "about": "Close every member tab and remove the Team registry entry",
+          "about": "Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force",
           "aliases": [],
           "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged",
+              "aliases": []
+            },
             {
               "name": "team_id",
               "positional": true,

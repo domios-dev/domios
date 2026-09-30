@@ -48,7 +48,8 @@ pub(crate) fn build_cron_spawn_spec(
         workspace_id: inputs.workspace_id,
         report_target_tab_id: inputs.report_target_tab_id,
         title: Some(format!("cron:{}", inputs.job_name)),
-        audience: TabAudience::Automation,
+        audience: TabAudience::UserOwnedAutomation,
+        spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()
     };
     crate::service::move_chatbackend_task_to_system_prompt(
@@ -64,6 +65,7 @@ pub(crate) fn build_cron_spawn_spec(
     spec.visibility = TabVisibility::Hidden;
     if let Some(agent) = spec.agent_launch_mut() {
         agent.spawned_by = Some(format!("cron:{}", inputs.job_id));
+        agent.launch_purpose = crate::service::unattended_launch::LaunchPurpose::CronRun;
     }
     spec
 }

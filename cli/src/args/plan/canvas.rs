@@ -60,6 +60,7 @@ pub enum PlanQaAction {
         note: Option<String>,
     },
     /// Mark QA passed and close the task
+    #[command(allow_missing_positional = true)]
     Pass {
         plan_id: Option<String>,
         task_id: String,
@@ -67,6 +68,7 @@ pub enum PlanQaAction {
         note: String,
     },
     /// Mark QA failed, bounce to in_progress, and nudge the implementer
+    #[command(allow_missing_positional = true)]
     Fail {
         plan_id: Option<String>,
         task_id: String,
@@ -98,6 +100,7 @@ pub enum PlanReviewAction {
     /// Show batch-compatible QA waves (grouped by task group)
     Waves { plan_id: Option<String> },
     /// Record a P0 exception authorizing the next over-round-limit review entry
+    #[command(allow_missing_positional = true)]
     Override {
         plan_id: Option<String>,
         task_id: String,
@@ -115,6 +118,7 @@ pub enum PlanReviewAction {
         reason: String,
     },
     /// Grant daemon-owned review-capacity provenance to one task
+    #[command(allow_missing_positional = true)]
     AuthorizeCapacity {
         plan_id: Option<String>,
         task_id: String,
@@ -129,6 +133,7 @@ pub enum PlanReviewAction {
         class: String,
     },
     /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
+    #[command(allow_missing_positional = true)]
     Accept {
         plan_id: Option<String>,
         task_id: String,
@@ -143,6 +148,7 @@ pub enum PlanReviewAction {
         residual_risk: Option<String>,
     },
     /// BOUNCE: atomically exits in_review back to in_progress
+    #[command(allow_missing_positional = true)]
     Bounce {
         plan_id: Option<String>,
         task_id: String,
@@ -154,6 +160,7 @@ pub enum PlanReviewAction {
         distinct_oracle: bool,
     },
     /// HOLD: records a review hold without releasing the task assignment or lane
+    #[command(allow_missing_positional = true)]
     Hold {
         plan_id: Option<String>,
         task_id: String,

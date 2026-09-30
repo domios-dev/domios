@@ -241,6 +241,25 @@ impl OfferedChoice for NotificationAction {
     }
 }
 
+/// Longest title a caller may send. Channels shorten further at their own bound.
+pub const MAX_CALLER_TITLE_CHARS: usize = 200;
+
+/// A caller's title, trimmed. A blank title announces nothing and an unbounded
+/// one is a body in the wrong field, so both are refused on every transport.
+pub fn validate_title(title: &str) -> Result<&str, String> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return Err("Notification title must not be empty".to_string());
+    }
+    let chars = trimmed.chars().count();
+    if chars > MAX_CALLER_TITLE_CHARS {
+        return Err(format!(
+            "Notification title is {chars} characters; the limit is {MAX_CALLER_TITLE_CHARS} (put detail in the body)"
+        ));
+    }
+    Ok(trimmed)
+}
+
 /// A choice set no user could tell apart is refused: a blank label names
 /// nothing, and two equal labels name the same thing twice. Stated once for
 /// both action types, so the caller and daemon sides cannot drift apart.

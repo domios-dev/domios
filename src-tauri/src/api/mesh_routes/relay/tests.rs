@@ -115,7 +115,8 @@ fn authorized_workspace_managers_receive_typed_close_provenance() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::WorkspaceClose {
                 peer_id: "signed-peer",
@@ -140,7 +141,8 @@ fn readonly_and_agent_isolated_peers_are_rejected_before_close_dispatch() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::Rejected
         );
@@ -165,6 +167,7 @@ fn caller_fields_in_relay_body_cannot_forge_mesh_provenance() {
         &method,
         &command.path,
         &command.body,
+        |_| None,
     );
 
     assert_eq!(
@@ -185,7 +188,8 @@ fn relayed_mesh_rpc_keeps_the_verified_sender() {
             &crate::mesh::types::AccessLevel::Full,
             &Method::POST,
             "/api/mesh/rpc",
-            &serde_json::Value::Null
+            &serde_json::Value::Null,
+            |_| None
         ),
         PeerRelayAuthorization::MeshRpc {
             peer_id: "signed-peer"
@@ -199,10 +203,6 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     for (method, path) in [
         (Method::GET, "/api/workspaces/ws_remote/close"),
         (Method::POST, "/api/workspaces/ws_remote/close/extra"),
-        (
-            Method::POST,
-            "/api/workspaces/ws_remote/close?caller_tab_id=x",
-        ),
         (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
     ] {
         assert_eq!(
@@ -211,7 +211,8 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
                 &access,
                 &method,
                 path,
-                &serde_json::Value::Null
+                &serde_json::Value::Null,
+                |_| None
             ),
             PeerRelayAuthorization::Forward,
             "{method} {path}"
@@ -270,7 +271,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     );
 
     for _ in 0..50 {
-        let (_, name, _) =
+        let (_, _, name, _) =
             resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
         assert_eq!(name, "BLACKSTAR");
     }
@@ -278,7 +279,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
     // Id lookup returns the EXACT record for that id, bypassing the name
     // ambiguity — but not the protocol gate: the dead id is still protocol 0.
-    let (_, live_id_name, _) =
+    let (_, _, live_id_name, _) =
         resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
     assert_eq!(live_id_name, "BLACKSTAR");
     match resolve_relay_peer(&mesh, "a4db6f3d-dead") {

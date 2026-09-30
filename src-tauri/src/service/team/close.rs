@@ -376,6 +376,9 @@ where
             closed_roots.push(tab_id.clone());
         }
     }
+    transaction
+        .state_mut()
+        .set_team_lifecycle(team_id, codeterm_types::team::TeamLifecycle::Closing)?;
     let team = transaction
         .state_mut()
         .remove_team(team_id)
@@ -511,6 +514,12 @@ fn lane_hold_reason(lane: &TeamCloseLane) -> Option<String> {
 pub struct TeamCloseResult {
     pub team: Team,
     pub inventory: TeamCloseInventory,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub killed_workers: Vec<super::close_busy::TeamCloseBusyWorker>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unfinished_tasks: Vec<super::close_busy::TeamCloseBusyTask>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flagged_plans: Vec<super::close_busy::TeamCloseFlaggedPlan>,
 }
 
 #[derive(Debug, Serialize)]

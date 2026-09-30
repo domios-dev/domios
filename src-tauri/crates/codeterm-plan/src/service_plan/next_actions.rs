@@ -20,6 +20,7 @@ pub enum NextActionKind {
     Continue,
     ReviewWipBlocked,
     WaitingOnDependency,
+    AdoptPlan,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -70,6 +71,17 @@ fn loop_near_limit(l: &LoopSnapshot) -> bool {
         return false;
     }
     l.count + 1 >= l.budget || (l.count as f64) >= 0.8 * (l.budget as f64)
+}
+
+/// A flagged orphan plan has no owner to act; adoption precedes any dispatch.
+pub fn adopt_orphaned_plan_action(plan_id: &str, reason: &str) -> NextAction {
+    NextAction {
+        priority: 1,
+        kind: NextActionKind::AdoptPlan,
+        task_id: None,
+        loop_id: None,
+        message: format!("{reason}: codeterm team adopt-plan <team-id> {plan_id}"),
+    }
 }
 
 /// Deterministic, advisory next-action ranking over a plan state snapshot.

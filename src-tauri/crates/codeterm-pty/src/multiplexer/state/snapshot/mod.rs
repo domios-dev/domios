@@ -107,24 +107,13 @@ impl MultiplexerState {
         agent_tracker: &codeterm_types::pty::TabStatusTracker,
         resolve: impl Fn(&Tab, codeterm_types::pty::TabStatus) -> codeterm_types::pty::TabStatus,
     ) -> MultiplexerSnapshot {
-        use codeterm_types::pty::TabStatus;
-
         let mut snap = self.snapshot();
         snap.tab_statuses = self
             .tabs
             .iter()
             .filter_map(|(tab_id, tab)| {
-                let tracked = tab
-                    .pty_id
-                    .as_deref()
-                    .and_then(|pty_id| agent_tracker.get_status_if_tracked(pty_id));
-                let raw =
-                    if tab.pending_prompt.is_some() && !matches!(tracked, Some(TabStatus::Dead)) {
-                        Some(TabStatus::Waiting)
-                    } else {
-                        tracked
-                    }?;
-                Some((tab_id.clone(), resolve(tab, raw)))
+                super::resolved_tab_status(tab, agent_tracker, &resolve)
+                    .map(|status| (tab_id.clone(), status))
             })
             .collect();
         snap
@@ -578,6 +567,7 @@ fn install_leaf(
             agent_session_name: None,
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
+            pending_model_switch_observation: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),

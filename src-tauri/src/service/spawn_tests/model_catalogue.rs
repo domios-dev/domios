@@ -398,29 +398,23 @@ fn unknown_model_on_authoritative_catalogue_is_refused_before_spawn() {
         .rpc_data();
     assert_eq!(data["type"], "invalid_model");
     assert_eq!(data["provider"], "codex-like");
-    let closest = data["closest_model_ids"]
+    let valid = data["valid_model_ids"]
         .as_array()
-        .expect("closest ids")
+        .expect("valid ids")
         .iter()
         .filter_map(serde_json::Value::as_str)
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(
-        closest
-            .iter()
-            .all(|id| id == "gpt-6-astra" || id == "gpt-6-sol"),
-        "{closest:?}"
-    );
-    assert!(!closest.is_empty());
+    assert_eq!(valid, ["gpt-6-astra", "gpt-6-sol"]);
     let refused = validation.map_err(|error| error.to_string()).and_then(|_| {
-        let clearance = provider_launch_preflight(&registry, "codex-like")
+        let clearance = provider_launch_preflight(&registry, "codex-like", false)
             .map_err(|error| error.to_string())?;
         create_cleared_agent_tab(&mut mux, &workspace_id, &clearance)
             .map_err(|error| error.to_string())
     });
     let error = refused.expect_err("unknown authoritative ids must be refused");
     assert!(error.contains("gpt-9-bogus"), "{error}");
-    assert!(error.contains(&closest[0]), "{error}");
+    assert!(error.contains("gpt-6-astra"), "{error}");
     assert!(error.contains("gpt-6-sol"), "{error}");
     assert_eq!(mux.snapshot().tabs.len(), before);
 }
@@ -554,4 +548,25 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
     let registry = registry_with(ModelProvider::new("dynamic", &[]));
 
     assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
+}
+
+#[test]
+fn invalid_model_error_lists_every_valid_id_in_a_stable_order() {
+    let ids = ["model-a", "model-b", "model-c", "model-d", "model-e"];
+    let registry = registry_with(
+        ModelProvider::new("full-list-fixture", &ids).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+
+    let listed = |requested: &str| {
+        validate_agent_model(&registry, "full-list-fixture", Some(requested))
+            .expect_err("unknown ids are refused")
+            .valid_model_ids
+    };
+
+    let near = listed("model-z");
+    let far = listed("qqqqqqqqqqqqqqqq");
+    assert_eq!(near, ids);
+    assert_eq!(far, near);
 }

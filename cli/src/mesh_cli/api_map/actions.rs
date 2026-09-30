@@ -64,8 +64,7 @@ fn resolve_remote_text(value: &Option<String>, file: &Option<String>) -> Option<
         match res {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         }
     };
@@ -98,8 +97,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     ) {
         Ok(value) => value,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     let parsed_actions = actions
@@ -107,20 +105,17 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         .map(parse_actions_spec)
         .transpose()
         .unwrap_or_else(|e| {
-            eprintln!("Error: {}", e);
-            std::process::exit(2);
+            crate::cmd::print::fail(2, e.to_string());
         });
     if body_text.trim().is_empty() && parsed_actions.is_none() {
-        eprintln!("Error: send payload is empty (mesh path, source: {input_source})");
-        eprintln!("hint: --stdin via heredoc may have dropped under your shell wrapper;");
-        eprintln!("      try --from-file <path> with a real tempfile.");
-        eprintln!("      to send a bare Enter, pass --actions enter.");
-        std::process::exit(2);
-    }
-    if !body_text.trim().is_empty() {
-        println!(
-            "{}",
-            crate::cmd::resolved_text::resolved_text_echo(&body_text)
+        crate::cmd::print::fail_with_hints(
+            2,
+            format!("send payload is empty (mesh path, source: {input_source})"),
+            &[
+                "hint: --stdin via heredoc may have dropped under your shell wrapper;",
+                "      try --from-file <path> with a real tempfile.",
+                "      to send a bare Enter, pass --actions enter.",
+            ],
         );
     }
     let mut body = serde_json::json!({"source_tab": source});
@@ -163,13 +158,14 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     ) {
         Ok(value) => value,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     };
     if body_text.trim().is_empty() {
-        eprintln!("Error: delayed message payload is empty (mesh path, source: {input_source})");
-        std::process::exit(2);
+        crate::cmd::print::fail(
+            2,
+            format!("delayed message payload is empty (mesh path, source: {input_source})"),
+        );
     }
     let scheduled_at_ms = match crate::cmd::delayed::parse_start_schedule(
         delay.clone(),
@@ -179,16 +175,14 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     ) {
         Ok(ms) => ms,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(2);
+            crate::cmd::print::fail(2, e.to_string());
         }
     };
     let recurrence =
         match crate::cmd::delayed::parse_recurrence(every.clone(), until.clone(), *count) {
             Ok(recurrence) => recurrence,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(2);
+                crate::cmd::print::fail(2, e.to_string());
             }
         };
     let mut body = serde_json::json!({
@@ -227,16 +221,14 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Forget { area, yes } => {
             if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {
-                eprintln!("Error: {}", e);
-                std::process::exit(2);
+                crate::cmd::print::fail(2, e.to_string());
             }
             ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None)
         }
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Append { id, text, file, changed_by } => {
             let resolved = resolve_remote_text(text, file).unwrap_or_else(|| {
-                eprintln!("Error: no text provided (pass as arg, --file, or pipe to stdin)");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, "no text provided (pass as arg, --file, or pipe to stdin)");
             });
             let mut payload = json!({"text": resolved});
             if let Some(v) = changed_by { payload["changed_by"] = json!(v.trim()); }
@@ -270,8 +262,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(v) = changed_by {
                 let trimmed = v.trim();
                 if trimmed.is_empty() {
-                    eprintln!("Error: --changed-by requires a non-empty actor label");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, "--changed-by requires a non-empty actor label");
                 }
                 payload.insert("changed_by".into(), json!(trimmed));
             }
@@ -289,8 +280,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                 (Some(ws), _) => {
                     let ws = ws.trim();
                     if ws.is_empty() {
-                        eprintln!("Error: --workspace requires a non-empty id");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, "--workspace requires a non-empty id");
                     }
                     Some(format!("workspace:{ws}"))
                 }
@@ -315,8 +305,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                 (Some(ws), _) => {
                     let ws = ws.trim();
                     if ws.is_empty() {
-                        eprintln!("Error: --workspace requires a non-empty id");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, "--workspace requires a non-empty id");
                     }
                     Some(format!("workspace:{ws}"))
                 }

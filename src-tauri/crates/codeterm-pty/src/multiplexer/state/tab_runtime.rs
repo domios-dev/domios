@@ -32,6 +32,7 @@ impl MultiplexerState {
             agent_session_name: None,
             agent_session_model: None,
             agent_session_model_identity: None,
+            pending_model_switch_observation: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,
@@ -331,6 +332,7 @@ impl MultiplexerState {
             pty_ids.push(pty_id);
         }
 
+        let workspace_id = self.find_workspace_for_tab(tab_id);
         self.remove_tab_from_tree(tab_id)?;
 
         for child_id in self.get_children_ids(tab_id) {
@@ -345,8 +347,15 @@ impl MultiplexerState {
         self.tabs.remove(tab_id);
 
         if self.focused_tab_id.as_deref() == Some(tab_id) {
-            self.focused_tab_id = None;
-            self.fallback_focus_to_general();
+            self.focused_tab_id = workspace_id
+                .as_deref()
+                .and_then(|workspace_id| self.get_workspace(workspace_id))
+                .and_then(|workspace| workspace.active_tab_id.as_deref())
+                .filter(|active_tab_id| self.tabs.contains_key(*active_tab_id))
+                .map(str::to_string);
+            if self.focused_tab_id.is_none() {
+                self.fallback_focus_to_general();
+            }
         }
 
         Ok(pty_ids)
@@ -374,7 +383,10 @@ impl MultiplexerState {
                 let closed_tab_id = ws.tabs[idx].clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
-                    ws.active_tab_id = ws.tabs.last().cloned();
+                    ws.active_tab_id = ws.tabs.get(idx).cloned().or_else(|| {
+                        idx.checked_sub(1)
+                            .and_then(|previous| ws.tabs.get(previous).cloned())
+                    });
                 }
                 return Ok(());
             }

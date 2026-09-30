@@ -54,8 +54,7 @@ pub fn inline_refusal(source: &str, text: &str, remedy: &str) -> Option<String> 
 /// Refuse before any transport, for call sites that cannot return an error.
 pub fn refuse_inline(source: &str, text: &str, remedy: &str) {
     if let Some(refusal) = inline_refusal(source, text, remedy) {
-        eprintln!("Error: {refusal}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, refusal.to_string());
     }
 }
 

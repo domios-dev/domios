@@ -120,6 +120,7 @@ fn report_general_agent_frontend_deadline(service: &crate::service::ServiceConte
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
+    super::state_incidents::install_notifier(service_state);
     let frontend_readiness_generation = super::arm_frontend_readiness();
 
     // e2e suite can time-travel; release builds never do.

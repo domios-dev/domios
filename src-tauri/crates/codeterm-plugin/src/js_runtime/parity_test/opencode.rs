@@ -35,33 +35,6 @@ fn opencode_invocation(command: &str) -> &str {
     &invocation[..end]
 }
 
-fn staged_prompt_source(command: &str) -> &str {
-    let source = if let Some(copy) = command.split("Copy-Item -LiteralPath ").nth(1) {
-        copy.split(" -Destination ")
-            .next()
-            .expect("PowerShell staged source path")
-    } else {
-        command
-            .split("cp -- ")
-            .nth(1)
-            .and_then(|copy| copy.split(" &&").next())
-            .expect("POSIX staged source path")
-    };
-    let source = source.trim();
-    if let Some(quote @ ('\'' | '"')) = source.chars().next() {
-        let end = source[1..]
-            .find(quote)
-            .map(|index| index + 1)
-            .expect("quoted staged source path");
-        &source[1..end]
-    } else {
-        source
-            .split_whitespace()
-            .next()
-            .expect("staged source path")
-    }
-}
-
 #[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
@@ -97,7 +70,41 @@ fn build_resume_command_shape() {
 }
 
 #[test]
-fn restored_resume_command_preserves_exact_session_model_and_effort() {
+fn provider_turn_error_surfaces_status_event_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        opencode().detect_events(r#"{"type":"session.error","properties":{"sessionID":"ses_abc","error":{"name":"ProviderError"}}}"#),
+        vec![crate::detector::AgentEvent::TurnError]
+    );
+    assert_eq!(
+        opencode().detect_events(r#"{"type":"session.idle","properties":{"sessionID":"ses_abc"}}"#),
+        vec![crate::detector::AgentEvent::TaskComplete]
+    );
+    assert_eq!(
+        opencode().detect_events(
+            r#"{"type":"session.status","properties":{"sessionID":"ses_abc","status":{"type":"busy"}}}"#
+        ),
+        vec![crate::detector::AgentEvent::TurnStarted]
+    );
+}
+
+#[test]
+fn opencode_stop_keys_preserve_the_declared_sequence_and_output_gap() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = opencode();
+    assert_eq!(
+        provider.stop_keys(),
+        Some(vec!["\x1b".into(), "\x1b".into()])
+    );
+    assert!(provider.stop_key_wait_for_output());
+}
+
+#[test]
+fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     if require_plugins().is_none() {
         return;
     }
@@ -111,21 +118,21 @@ fn restored_resume_command_preserves_exact_session_model_and_effort() {
             args: vec![
                 "-m".into(),
                 "big-pickle".into(),
-                "--variant".into(),
-                "high".into(),
+                "--agent".into(),
+                "build".into(),
             ],
         })
         .expect("opencode restored resume command");
 
     assert_eq!(
         opencode_invocation(&command),
-        format!("opencode --session '{SES_ID}' -m 'big-pickle' --variant 'high'")
+        format!("opencode --session '{SES_ID}' -m 'big-pickle' --agent 'build'")
     );
 }
 
-/// OpenCode's `session_config` channel is a shell prologue that stages the
-/// prompt file and exports `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it
-/// declares re-application and rebuilds the same channel around the resume.
+/// OpenCode's `session_config` channel writes the prompt to an owned task file
+/// and names it in `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it declares
+/// re-application and rebuilds the same channel around the resume.
 #[test]
 fn resume_with_context_restages_the_session_config() {
     if require_plugins().is_none() {
@@ -133,39 +140,44 @@ fn resume_with_context_restages_the_session_config() {
     }
     let j = opencode();
     let prompt = "## Composed identity\nopencode-sentinel-6b40";
-    let command = j
-        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
-            session_id: SES_ID.into(),
-            skip_permissions: false,
-            agent_name: None,
-            system_prompt: Some(prompt.into()),
-            instance_id: None,
-            args: vec![
-                "-m".into(),
-                "big-pickle".into(),
-                "--variant".into(),
-                "high".into(),
-            ],
-        })
-        .expect("opencode resume command");
+    let task_root = tempfile::tempdir().unwrap();
+    let (command, staged) =
+        codeterm_util::task_files::capture_in(task_root.path(), "resume-tab", || {
+            j.build_resume_command_with_context(&crate::provider::AgentResumeParams {
+                session_id: SES_ID.into(),
+                skip_permissions: false,
+                agent_name: None,
+                system_prompt: Some(prompt.into()),
+                instance_id: None,
+                args: vec![
+                    "-m".into(),
+                    "big-pickle".into(),
+                    "--agent".into(),
+                    "build".into(),
+                ],
+            })
+        });
+    let command = command.expect("opencode resume command");
 
     assert_eq!(command.matches("--session").count(), 1, "{command}");
-    assert_eq!(
-        command.matches("cp -- ").count() + command.matches("Copy-Item -LiteralPath ").count(),
-        1,
-        "exactly one staged prompt file copy: {command}"
+    assert_eq!(staged.len(), 1, "exactly one staged prompt file: {command}");
+    let staged = &staged[0];
+    assert_eq!(staged.parent(), Some(task_root.path()));
+    let staged_json = serde_json::to_string(&staged.to_string_lossy()).unwrap();
+    assert!(
+        command.contains(staged_json.trim_matches('"')),
+        "session config names the staged file: {command}"
     );
     let invocation = opencode_invocation(&command);
     assert!(
         invocation.starts_with("opencode ")
-            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --variant 'high'"),
+            && invocation.contains("--session 'ses_abc' -m 'big-pickle' --agent 'build'"),
         "{command}"
     );
     assert!(
         !command.contains(prompt),
         "prompt travels in the staged file, not the command: {command}"
     );
-    let staged = staged_prompt_source(&command);
     let delivered = std::fs::read_to_string(staged).expect("staged prompt file");
     assert_eq!(delivered.matches(prompt).count(), 1);
 }

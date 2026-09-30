@@ -72,7 +72,7 @@ fn attempt_model_fields_round_trip() {
 }
 
 #[test]
-fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
+fn respawn_keeps_persona() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(
@@ -87,6 +87,7 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
             NewTask {
                 name: "retry lane".into(),
                 kind: "implement".into(),
+                personality: Some("Ranker".into()),
                 model: Some("codex/gpt-5.5".into()),
                 body: "Fix the task history respawn CLI.".into(),
                 role_guidance: Some("Act as planner; do not implement.".into()),
@@ -137,11 +138,17 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.planned_model.as_deref(), Some("codex/gpt-5.5"));
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
+    assert_eq!(draft.title.as_deref(), Some("Ranker"));
     assert_eq!(draft.cwd, "/tmp/worktree");
-    assert!(draft.task_prompt.starts_with(
-        "Act as planner; do not implement.\n\
-         Your assigned task is: retry lane"
-    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    let expected_identity =
+        crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Ranker"));
+    let (identity, _) =
+        crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
+    assert_eq!(identity, Some(expected_identity.as_str()));
+    let identity = identity.unwrap();
+    assert!(identity.contains("Ranker"));
+    assert!(identity.contains("Act as planner; do not implement."));
     assert!(draft
         .task_prompt
         .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));

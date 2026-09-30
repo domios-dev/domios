@@ -30,3 +30,26 @@ fn owner_rebound_invalidates_its_prior_reporter_grants() {
     assert_eq!(h.plan(), plan_before);
     assert!(!h.reports().contains(token));
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn team_root_orchestrator_report_persists_as_plan_stride_without_parent() {
+    let h = plan_evidence_harness();
+    let token = "root-report-stride-proof";
+
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.root,
+                token,
+                h.details(&h.root, "owner-session", "owner-nonce"),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap();
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.persisted_plan_evidence.is_some());
+    assert!(h.plan().strides.iter().any(|stride| stride.text == token));
+}

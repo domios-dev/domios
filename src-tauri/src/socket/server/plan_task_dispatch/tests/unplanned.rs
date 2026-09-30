@@ -364,6 +364,7 @@ fn team_close_cleans_up_unplanned_worker() {
     tauri::async_runtime::block_on(harness.fixture.service.close_team(
         &harness.team_id,
         TeamMutationCaller::AgentTab(harness.owner_tab.clone()),
+        true,
     ))
     .unwrap();
     assert!(harness
@@ -373,9 +374,9 @@ fn team_close_cleans_up_unplanned_worker() {
         .read()
         .get_tab(&tab_id)
         .is_none());
-    // Team close may retire the Plan with its tasks; a surviving task must be closed out.
+    // A forced close keeps unfinished work visible: back to pending, its attempt closed.
     if let Some(shown) = harness.fixture.service.plan_store.show_task(&task_id) {
-        assert_eq!(shown.task.status, TaskStatus::Cancelled);
+        assert_eq!(shown.task.status, TaskStatus::Pending);
         assert!(shown.task.execution_attempts[0].closed_at.is_some());
     }
 }

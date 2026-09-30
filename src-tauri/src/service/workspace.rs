@@ -7,6 +7,28 @@ use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::TeamMutationCaller;
+use tauri::Manager;
+
+pub(crate) const MAX_WORKSPACE_NAME_CHARS: usize = 64;
+
+pub(crate) fn validate_workspace_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("workspace name must not be empty".into());
+    }
+    if name.chars().count() > MAX_WORKSPACE_NAME_CHARS {
+        return Err(format!(
+            "workspace name must be {} characters or fewer",
+            MAX_WORKSPACE_NAME_CHARS
+        ));
+    }
+    if name
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Err("workspace name must be one line without control characters".into());
+    }
+    Ok(())
+}
 
 fn workspace_not_found_refusal_log(workspace_id: &str, known_ids: &[String]) -> String {
     format!("requested={workspace_id} known_ids={known_ids:?}")
@@ -87,7 +109,8 @@ impl ServiceContext {
         name: String,
         cwd: Option<String>,
         activate: bool,
-    ) -> WorkspaceInfo {
+    ) -> Result<WorkspaceInfo, String> {
+        validate_workspace_name(&name)?;
         if let Some(cwd_str) = cwd.as_deref() {
             let existing = self.mux.write().find_workspace_info_by_cwd(cwd_str);
             if let Some(ws) = existing {
@@ -101,10 +124,10 @@ impl ServiceContext {
                     ws.id,
                     cwd_str
                 );
-                return WorkspaceInfo {
+                return Ok(WorkspaceInfo {
                     existing: Some(true),
                     ..ws
-                };
+                });
             }
         }
 
@@ -114,7 +137,7 @@ impl ServiceContext {
         }
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
-        ws
+        Ok(ws)
     }
 
     pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
@@ -134,6 +157,7 @@ impl ServiceContext {
     }
 
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
+        validate_workspace_name(name)?;
         self.mux.write().rename_workspace(id, name)?;
         self.emit_state_changed();
         session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
@@ -297,7 +321,8 @@ impl ServiceContext {
             }
             WorkspaceCloseCaller::Human => false,
             WorkspaceCloseCaller::HumanConfirmedHeaderless => false,
-            WorkspaceCloseCaller::Unattributed => true,
+            // An empty workspace holds nothing a confirmation would protect.
+            WorkspaceCloseCaller::Unattributed => !self.workspace_is_empty(workspace_id),
         };
         if refuse {
             let error = if matches!(caller, WorkspaceCloseCaller::Unattributed) {
@@ -329,7 +354,7 @@ impl ServiceContext {
         let mut partial_team_teardown = false;
         for team_id in self.workspace_team_ids(workspace_id) {
             let team_existed = { self.mux.read().get_team(&team_id).is_some() };
-            if let Err(error) = self.close_team(&team_id, caller.team_caller()).await {
+            if let Err(error) = self.close_team(&team_id, caller.team_caller(), force).await {
                 team_close_refusals_only &=
                     error.starts_with(crate::service::TEAM_CLOSE_REFUSAL_PREFIX);
                 let team_remains = { self.mux.read().get_team(&team_id).is_some() };
@@ -359,6 +384,17 @@ impl ServiceContext {
         tokio::task::spawn_blocking(move || service.close_workspace(&workspace_id))
             .await
             .map_err(|error| format!("workspace close teardown task failed: {error}"))?
+    }
+
+    fn workspace_is_empty(&self, workspace_id: &str) -> bool {
+        let has_tabs = {
+            let mux = self.mux.read();
+            match mux.get_workspace(workspace_id) {
+                Some(workspace) => !workspace.tabs.is_empty(),
+                None => return false,
+            }
+        };
+        !has_tabs && self.workspace_team_ids(workspace_id).is_empty()
     }
 
     fn workspace_team_ids(&self, workspace_id: &str) -> Vec<String> {
@@ -443,6 +479,16 @@ impl ServiceContext {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
             }
         }
+        if let Some(cron) = self.app_handle.try_state::<crate::CronState>() {
+            let wake = self.app_handle.try_state::<crate::CronWake>();
+            if let Err(error) = self.cron_delete_workspace(
+                cron.inner(),
+                wake.as_ref().map(|state| state.inner()),
+                id,
+            ) {
+                cleanup_errors.push(format!("crons: {error}"));
+            }
+        }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
         self.reap_orphaned_startup_teams();
@@ -469,6 +515,9 @@ impl ServiceContext {
         from_workspace_id: &str,
         to_workspace_id: &str,
     ) -> Result<(), String> {
+        if self.mux.read().get_workspace(to_workspace_id).is_none() {
+            return Err(format!("Workspace not found: {to_workspace_id}"));
+        }
         self.mux
             .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;

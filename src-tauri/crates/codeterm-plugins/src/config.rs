@@ -4,13 +4,22 @@
 //! fields are never written into the YAML — they route to the secret store.
 
 use super::*;
+use codeterm_util::persisted_state::{write_atomic, Loaded, StateFile};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// `codeterm plugin get <id>` — the agent's discover handle.
 pub(super) fn get_command(id: &str) -> Result<Value, String> {
-    let dir = plugin_dir(id);
+    let id = PluginId::parse(id.to_string())?;
+    let dir = plugin_dir(&id);
     if !dir.exists() {
-        return Err(format!("plugin '{id}' is not installed"));
+        if is_reserved_system_id(id.as_str()) {
+            return Err(format!(
+                "plugin '{}' is bundled with this build and not extracted to the plugins directory, so it has no config to show",
+                id.as_str()
+            ));
+        }
+        return Err(format!("plugin '{}' is not installed", id.as_str()));
     }
     let manifest = read_plugin_manifest_value(&dir)?;
     let (schema, secret_keys) = load_schema(&dir, &manifest);
@@ -21,7 +30,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let configured = yaml_has_content(&raw_yaml);
 
     Ok(serde_json::json!({
-        "id": id,
+        "id": id.as_str(),
         "display_name": manifest.get("displayName").and_then(|v| v.as_str()),
         "description": manifest.get("description").and_then(|v| v.as_str()),
         "installed": true,
@@ -49,7 +58,8 @@ pub(super) fn config_command(
     grants: &[String],
     revokes: &[String],
 ) -> Result<Value, String> {
-    let dir = plugin_dir(id);
+    let parsed_id = PluginId::parse(id.to_string())?;
+    let dir = plugin_dir(&parsed_id);
     if !dir.exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }
@@ -95,7 +105,11 @@ pub(super) fn config_command(
     let granted = apply_grants(&dir, grants, revokes)?;
 
     let yaml_path = dir.join("config.yaml");
-    let mut text = fs::read_to_string(&yaml_path).unwrap_or_default();
+    let mut text = match fs::read_to_string(&yaml_path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("read {}: {e}", yaml_path.display())),
+    };
     let mut changed: Vec<String> = Vec::new();
     let mut secrets_pending: Vec<String> = Vec::new();
     for (k, v) in &updates {
@@ -108,7 +122,8 @@ pub(super) fn config_command(
         changed.push(k.clone());
     }
     if !updates.is_empty() {
-        fs::write(&yaml_path, &text).map_err(|e| format!("write {}: {e}", yaml_path.display()))?;
+        write_atomic(&yaml_path, text.as_bytes())
+            .map_err(|e| format!("write {}: {e}", yaml_path.display()))?;
     }
 
     Ok(serde_json::json!({
@@ -137,11 +152,17 @@ fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec
             ));
         }
     }
-    let path = dir.join("grants.yaml");
-    let mut map: std::collections::BTreeMap<String, bool> = fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_yaml::from_str(&t).ok())
-        .unwrap_or_default();
+    let file = grants_file(dir);
+    let mut map = match file.load(parse_grants) {
+        Loaded::Parsed(map) | Loaded::Recovered { value: map, .. } => map,
+        Loaded::Missing if file.held().is_none() => BTreeMap::new(),
+        Loaded::Missing | Loaded::Unrecoverable { .. } => {
+            return Err(file
+                .held()
+                .map(|hold| hold.refusal())
+                .unwrap_or_else(|| format!("{} failed to load", file.path().display())))
+        }
+    };
     let mut changed = Vec::new();
     for p in grants {
         map.insert(p.clone(), true);
@@ -152,8 +173,26 @@ fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec
         changed.push(p.clone());
     }
     let body = serde_yaml::to_string(&map).map_err(|e| format!("encode grants: {e}"))?;
-    fs::write(&path, body).map_err(|e| format!("write {}: {e}", path.display()))?;
+    file.save(&body)?;
     Ok(changed)
+}
+
+/// Same file and rules as the host reader: no rotating backups inside the bundle.
+fn grants_file(dir: &Path) -> StateFile {
+    StateFile::new(dir.join("grants.yaml"))
+        .without_backups()
+        .with_validator(validate_grants)
+}
+
+fn parse_grants(text: &str) -> Result<BTreeMap<String, bool>, String> {
+    if text.trim().is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    serde_yaml::from_str(text).map_err(|e| e.to_string())
+}
+
+fn validate_grants(text: &str) -> Result<(), String> {
+    parse_grants(text).map(|_| ())
 }
 
 fn read_plugin_manifest_value(dir: &Path) -> Result<Value, String> {
@@ -434,6 +473,22 @@ mod tests {
                 .unwrap();
         assert_eq!(map2.get("spawn_agents"), Some(&true));
         assert_eq!(map2.get("agent_commands"), Some(&true));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_grants_refuses_to_replace_an_unparseable_grants_file() {
+        let dir = temp_dir();
+        let broken = "manage_workspaces: false
+spawn_agents: [
+";
+        std::fs::write(dir.join("grants.yaml"), broken).unwrap();
+
+        assert!(apply_grants(&dir, &["agent_commands".to_string()], &[]).is_err());
+
+        assert!(!dir.join("grants.yaml").exists());
+        let copies = grants_file(&dir).corrupt_copies();
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), broken);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

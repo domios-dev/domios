@@ -432,6 +432,46 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
 }
 
 #[test]
+fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
+    #[cfg(target_os = "windows")]
+    let _guard = exclusive_conpty_test();
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    let mut manager = PtyManager::new();
+    let (pty_id, session) = manager
+        .spawn(None, None, 80, 24, HashMap::new())
+        .expect("spawn default shell");
+    let mut reader = session
+        .reader
+        .lock()
+        .unwrap()
+        .take()
+        .expect("fresh session owns its reader");
+    let (eof_tx, eof_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; 4096];
+        while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+        let _ = eof_tx.send(());
+    });
+
+    manager.write(&pty_id, b"exit 3\r").expect("type exit");
+
+    eof_rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the stream must end once the shell process exits");
+    // On Unix the stream can end before the watcher records the code; wait on its signal.
+    assert_eq!(
+        session
+            .child_exit
+            .wait_resolved(std::time::Duration::from_secs(30)),
+        Some(Some(3))
+    );
+    assert_eq!(session.child_exit_code(), Some(3));
+    let _ = manager.kill(&pty_id);
+}
+
+#[test]
 fn kill_returns_err_for_unknown_pty() {
     let mut manager = PtyManager::new();
     let result = manager.kill("nonexistent-pty-id");

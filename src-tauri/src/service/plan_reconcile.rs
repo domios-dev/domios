@@ -94,6 +94,15 @@ impl ServiceContext {
     }
 
     pub fn flag_bound_tasks_for_gone_tab(&self, tab_id: &str, now_ms: u64) {
+        let losses = self.worker_losses_for_tab(
+            tab_id,
+            crate::service::worker_loss::WorkerLossCause::TabGone,
+        );
+        self.flag_bound_tasks_without_report(tab_id, now_ms);
+        self.report_worker_losses(losses);
+    }
+
+    fn flag_bound_tasks_without_report(&self, tab_id: &str, now_ms: u64) {
         let bindings = self.plan_store.task_bindings_for_tab(tab_id);
         if bindings.is_empty() {
             return;

@@ -48,8 +48,7 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
             }
         }
         Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }
@@ -139,6 +138,24 @@ fn print_human(value: &serde_json::Value) {
             let name = c.get("name").and_then(|v| v.as_str()).unwrap_or("?");
             let url = c.get("url").and_then(|v| v.as_str()).unwrap_or("");
             println!("{name}\t{url}");
+        }
+        return;
+    }
+    if let Some(rows) = value.get("diff").and_then(|v| v.as_array()) {
+        if rows.is_empty() {
+            println!("No plugin channel differences.");
+            return;
+        }
+        for row in rows {
+            let field = |key: &str| row.get(key).and_then(|v| v.as_str()).unwrap_or("-");
+            println!(
+                "{}\t{}\t{}\t{} -> {}",
+                field("channel"),
+                field("id"),
+                field("drift"),
+                field("local_version"),
+                field("remote_version")
+            );
         }
         return;
     }

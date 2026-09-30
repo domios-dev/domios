@@ -57,6 +57,7 @@ mod tests {
                 2,
             )
             .unwrap();
+        store.start_task_for_test(&plan.id, &task_id, 2);
         store
             .close_task(&plan.id, &task_id, None, AgentRef::from_tab("o"), 3)
             .unwrap();
@@ -112,5 +113,40 @@ mod tests {
             !needs_complete_wrapup(&plan),
             "paused-only plans have no actionable work, but are not closeout-ready"
         );
+    }
+
+    #[test]
+    fn reminder_tick_uses_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut ids = Vec::new();
+        for title in ["with-task", "empty"] {
+            let plan = store
+                .create_plan(
+                    title.into(),
+                    dir.path().display().to_string(),
+                    OrchestratorRef::from_tab("o"),
+                    vec![],
+                    1,
+                )
+                .unwrap();
+            ids.push(plan.id);
+        }
+        store
+            .add_task(
+                &ids[0],
+                NewTask {
+                    name: "t".into(),
+                    kind: "impl".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+
+        let candidates = store.list_full_reminder_candidates();
+        let candidate_ids: Vec<_> = candidates.iter().map(|plan| plan.id.clone()).collect();
+        assert_eq!(candidate_ids, vec![ids[0].clone()]);
+        assert_eq!(store.list_full().len(), 2);
     }
 }

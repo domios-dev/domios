@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -5,6 +6,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
+
+const TRACKED_SOURCE_READ_LIMIT: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FileSyncResult {
@@ -208,8 +211,8 @@ fn sync_one(conn: &Connection, item: &TrackedItem) -> Result<(SyncAction, Option
         return Ok((SyncAction::Unchanged, None));
     }
 
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", item.source_path, e))?;
+    let content = read_tracked_source(path, meta.len())
+        .map_err(|e| format!("read {}: {}", item.source_path, e))?;
 
     conn.execute(
         "UPDATE mem_items SET body_inline = ?1, body_blob_path = NULL, \
@@ -237,6 +240,37 @@ fn sync_one(conn: &Connection, item: &TrackedItem) -> Result<(SyncAction, Option
     }
 
     Ok((SyncAction::ReIndexed, Some(content)))
+}
+
+fn read_tracked_source(path: &Path, size: u64) -> Result<String, String> {
+    if size > TRACKED_SOURCE_READ_LIMIT {
+        return Err(format!(
+            "tracked source exceeds {TRACKED_SOURCE_READ_LIMIT} byte limit"
+        ));
+    }
+    let mut content = String::with_capacity(size as usize);
+    std::fs::File::open(path)
+        .and_then(|file| {
+            file.take(TRACKED_SOURCE_READ_LIMIT)
+                .read_to_string(&mut content)
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_sync_bounded_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tracked.txt");
+        std::fs::write(&path, vec![b'x'; TRACKED_SOURCE_READ_LIMIT as usize + 1]).unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+        let error = read_tracked_source(&path, size).unwrap_err();
+        assert!(error.contains("4194304"));
+    }
 }
 
 fn add_tag(conn: &Connection, item_id: &str, tag: &str) -> Result<(), String> {

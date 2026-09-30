@@ -40,7 +40,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
   const runsMetaClass = "text-[var(--ct-muted-fg)] font-mono";
-  const running = service.last_run_status?.toLowerCase() === "running";
+  const running = ["running", "awaitingownerprompt"].includes(service.last_run_status?.toLowerCase() ?? "");
 
   useEffect(() => {
     setScheduleInput(service.schedule ?? "");
@@ -166,9 +166,9 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       </Section>
 
       <Section label="Run history">
-        {can("history") ? runs.length === 0 ? <div className="text-[10px] text-[var(--ct-muted)]">No runs yet</div> : <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">{runs.map((run) => { const inspectable = !!run.session_id; return <button key={run.run_id} type="button" disabled={!inspectable} onClick={() => inspectable && setOpenRun(run)} title={inspectable ? "View run transcript" : "No transcript for this run"} className={`flex items-center gap-2 border-0 bg-transparent p-0 text-left text-[10px] ${inspectable ? "cursor-pointer hover:brightness-125" : "cursor-default opacity-80"}`}><span className={runColor(run.status)}>{runIcon(run.status)}</span><span className="flex-1 text-[var(--ct-muted)]">{formatTime(run.started_at)}</span>{run.finished_at && <span className={runsMetaClass}>{Math.round((run.finished_at - run.started_at) / 1000)}s</span>}</button>; })}</div> : <Unavailable operation="history" reason={reason("history")} />}
+        {can("history") ? runs.length === 0 ? <div className="text-[10px] text-[var(--ct-muted)]">No runs yet</div> : <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">{runs.map((run) => { const inspectable = !!run.session_id; return <button key={run.run_id} type="button" disabled={!inspectable} onClick={() => inspectable && setOpenRun(run)} title={inspectable ? "View run transcript" : "No transcript for this run"} className={`flex items-center gap-2 border-0 bg-transparent p-0 text-left text-[10px] ${inspectable ? "cursor-pointer hover:brightness-125" : "cursor-default opacity-80"}`}><span className={runColor(run.status)}>{runIcon(run.status)}</span><span className="flex-1 text-[var(--ct-muted)]">{runStatusLabel(run.status)} · {formatTime(run.started_at)}</span>{run.finished_at && <span className={runsMetaClass}>{Math.round((run.finished_at - run.started_at) / 1000)}s</span>}</button>; })}</div> : <Unavailable operation="history" reason={reason("history")} />}
       </Section>
-      {openRun && openRun.session_id && <RunChatPopup title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={job?.agent ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running"} onClose={() => setOpenRun(null)} />}
+      {openRun && openRun.session_id && <RunChatPopup title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={job?.agent ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
     </div>
   );
 }
@@ -191,6 +191,7 @@ function MetaPill({ children }: { children: React.ReactNode }) {
 
 function runIcon(status: string): string {
   if (status === "Running") return "●";
+  if (status === "AwaitingOwnerPrompt") return "!";
   if (status === "Success") return "✓";
   if (status === "Cancelled") return "■";
   return "✗";
@@ -198,7 +199,13 @@ function runIcon(status: string): string {
 
 function runColor(status: string): string {
   if (status === "Running") return "text-[var(--ct-accent)] animate-pulse";
+  if (status === "AwaitingOwnerPrompt") return "text-[var(--ct-yellow)]";
   if (status === "Success") return "text-[var(--ct-green)]";
   if (status === "Cancelled") return "text-[var(--ct-muted-fg)]";
   return "text-[var(--ct-red)]";
+}
+
+function runStatusLabel(status: string): string {
+  if (status === "AwaitingOwnerPrompt") return "Awaiting owner";
+  return status;
 }

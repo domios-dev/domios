@@ -1,11 +1,14 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
 export const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
+// json_extract parses a row whole; only user rows carrying diffs outgrow these bounds.
+export const ASSISTANT_MESSAGE_MAX_BYTES = 1 << 20;
+export const MESSAGE_ROLE_MAX_BYTES = 16 << 20;
 export let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 // Types
@@ -323,7 +326,8 @@ export function discoverOpencodeGroupUsage(): ModelGroupUsage[] {
       "SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, " +
       "SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, " +
       "SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost " +
-      "FROM message WHERE json_extract(data,'$.role')='assistant' " +
+      "FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " " +
+      "AND json_extract(data,'$.role')='assistant' " +
       "AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
     []
   );
@@ -641,14 +645,14 @@ export function opencodeBindingPluginSource(): string {
     "const PROVIDER_ID = \"opencode\";",
     "let lastReported = null;",
     "",
-    "function endpoint() {",
+    "function endpoint(event = \"session_start\") {",
     "  const tab = process.env.CODETERM_TAB_ID;",
     "  const token = process.env.CODETERM_API_TOKEN;",
     "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
     "  if (!tab) return null;",
     "  if (!token || !nonce || !process.env.CODETERM_API_URL) return null;",
     "  const base = process.env.CODETERM_API_URL.replace(/\\/+$/, \"\");",
-    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/${event}`;",
     "}",
     "",
     "function normalizeSessionID(value) {",
@@ -665,10 +669,10 @@ export function opencodeBindingPluginSource(): string {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID || sessionID === lastReported) return;",
+    "  if (!sessionID) return false;",
+    "  if (sessionID === lastReported) return true;",
     "  const url = endpoint();",
-    "  if (!url) return;",
-    "  lastReported = sessionID;",
+    "  if (!url) return false;",
     "  const headers = {",
     "    \"content-type\": \"application/json\",",
     "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
@@ -685,7 +689,8 @@ export function opencodeBindingPluginSource(): string {
     "      cwd: directory || process.cwd(),",
     "    }),",
     "  }).then((response) => response.ok, () => false);",
-    "  if (!delivered && lastReported === sessionID) lastReported = null;",
+    "  if (delivered) lastReported = sessionID;",
+    "  return delivered;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -715,9 +720,44 @@ export function opencodeBindingPluginSource(): string {
     "  );",
     "}",
     "",
-    "export default async function CodeTermSessionBindingPlugin({ directory }) {",
+    "function resumedSessionID(argv) {",
+    "  for (let i = 0; i < argv.length; i++) {",
+    "    if (argv[i] === \"--session\") return normalizeSessionID(argv[i + 1]);",
+    "    if (typeof argv[i] === \"string\" && argv[i].startsWith(\"--session=\")) return normalizeSessionID(argv[i].slice(10));",
+    "  }",
+    "  return null;",
+    "}",
+    "",
+    "async function reportProviderEvent(event, directory) {",
+    "  const sessionID = eventSessionID(event);",
+    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    "  const url = endpoint(\"provider_event\");",
+    "  if (!url) return;",
+    "  await fetch(url, {",
+    "    method: \"POST\",",
+    "    headers: {",
+    "      \"content-type\": \"application/json\",",
+    "      \"x-codeterm-agent-provider\": PROVIDER_ID,",
+    "      \"x-codeterm-binding-nonce\": process.env.CODETERM_SESSION_BINDING_NONCE,",
+    "      authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
+    "    },",
+    "    body: JSON.stringify({ session_id: sessionID, event }),",
+    "  }).catch(() => null);",
+    "}",
+    "",
+    "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
+    "  const resumed = resumedSessionID(process.argv || []);",
+    "  if (resumed && client?.session?.get) {",
+    "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
+    "    const session = result?.data || result;",
+    "    if (session?.id === resumed) await report(resumed, \"session.get\", session.directory || directory);",
+    "  }",
     "  return {",
     "    async event({ event }) {",
+    "      if (event?.type === \"session.error\" || event?.type === \"session.idle\" || (event?.type === \"session.status\" && event?.properties?.status?.type === \"busy\")) {",
+    "        await reportProviderEvent(event, directory);",
+    "        return;",
+    "      }",
     "      if (",
     "        event?.type === \"session.created\" ||",
     "        event?.type === \"session.updated\" ||",
@@ -764,8 +804,9 @@ export function scanMessagesForQualifiedModel(db: string, sessionId: string): st
   try {
     const rows = host.fs.sqliteQuery<{ data?: string }>(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId],
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES],
     );
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;

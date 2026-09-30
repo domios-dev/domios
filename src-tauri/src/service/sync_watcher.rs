@@ -14,6 +14,10 @@ pub fn start(_codeterm_dir: PathBuf, agent_registry: Arc<AgentRegistry>) {
 /// Install the complete CodeTerm host rule on every registered provider.
 /// Idempotent — safe to call on startup and on every plugin activation.
 pub fn install_bridge_rules_for_all(registry: &AgentRegistry) {
+    if !codeterm_plugin::global_writes::machine_global_write_allowed() {
+        log::info!("[sync-watcher] skipped global rule install for non-owner instance");
+        return;
+    }
     let payload = format!(
         "{}\n\n{}",
         crate::prompts::CODETERM_RULE,

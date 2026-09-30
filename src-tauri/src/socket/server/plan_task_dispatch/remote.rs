@@ -113,6 +113,12 @@ pub(super) fn dispatch(
     }
     let attempt_id = crate::plan::ids::short_id("attempt");
     let (peer_id, peer_name, peer_client, peer_state) = select_peer(app, &peer_target)?;
+    if let Some(client) = peer_client
+        .as_ref()
+        .filter(|_| peer_state == PeerState::Online)
+    {
+        require_remote_dispatch_capability(client, &peer_name)?;
+    }
     svc.plan_store
         .begin_remote_dispatch_attempt(
             &plan_id,
@@ -572,6 +578,37 @@ fn peer_matches_id(instance_id: &str, target: &str) -> bool {
     instance_id == target
 }
 
+/// An unreachable identify is left to the offline path; only a peer that
+/// answers without the feature is refused up front, before any attempt exists.
+fn require_remote_dispatch_capability(
+    client: &crate::mesh::transport::PeerClient,
+    peer_name: &str,
+) -> Result<(), JsonRpcError> {
+    let Ok(identify) = tauri::async_runtime::block_on(client.auth_get_json("/api/identify")) else {
+        return Ok(());
+    };
+    if identify_advertises(
+        &identify,
+        crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE,
+    ) {
+        return Ok(());
+    }
+    let version = identify
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    Err(invalid_dispatch(&format!(
+        "peer '{peer_name}' (version {version}) does not advertise remote task dispatch; update the peer"
+    )))
+}
+
+fn identify_advertises(identify: &Value, feature: &str) -> bool {
+    identify
+        .get("features")
+        .and_then(Value::as_array)
+        .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
+}
+
 fn remote_error_state(error: &str) -> (RemoteDispatchState, &'static str) {
     if error.contains("peer_missing_repo") {
         (RemoteDispatchState::PeerMissingRepo, "peer_missing_repo")
@@ -579,6 +616,8 @@ fn remote_error_state(error: &str) -> (RemoteDispatchState, &'static str) {
         (RemoteDispatchState::PeerMissingBase, "peer_missing_base")
     } else if error.contains("Network error") || error.contains("unroutable") {
         (RemoteDispatchState::PeerOffline, "peer_offline")
+    } else if error.starts_with("HTTP error:") {
+        (RemoteDispatchState::PeerRefused, "peer_refused")
     } else {
         (RemoteDispatchState::RelayLost, "relay_lost")
     }
@@ -653,6 +692,33 @@ mod tests {
             remote_error_state("HTTP error: peer_missing_base: commit absent").0,
             RemoteDispatchState::PeerMissingBase,
         );
+    }
+
+    #[test]
+    fn mesh_remote_dispatch_peer_refusal_is_not_relay_lost() {
+        let refused = remote_error_state(
+            "HTTP error: peer_worker_spawn_failed: startup supervisor unavailable",
+        );
+        assert_eq!(refused.0, RemoteDispatchState::PeerRefused);
+        assert_ne!(refused.0, RemoteDispatchState::RelayLost);
+        assert_eq!(
+            remote_error_state("Bad response: expected value").0,
+            RemoteDispatchState::RelayLost,
+        );
+        assert_eq!(
+            remote_error_state("Network error: connection refused").0,
+            RemoteDispatchState::PeerOffline,
+        );
+    }
+
+    #[test]
+    fn mesh_remote_dispatch_capability_is_read_from_identify_features() {
+        let feature = crate::api::health_routes::REMOTE_TASK_DISPATCH_FEATURE;
+        let with = json!({"features": ["rest-api", feature]});
+        let without = json!({"features": ["rest-api"], "version": "1.11.9"});
+        assert!(identify_advertises(&with, feature));
+        assert!(!identify_advertises(&without, feature));
+        assert!(!identify_advertises(&json!({}), feature));
     }
 
     #[test]

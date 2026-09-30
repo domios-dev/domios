@@ -177,6 +177,8 @@ fn rem_completion_links_own_diary_without_cron() {
                 tab_id: None,
                 session_id: None,
                 cwd: None,
+                summary: None,
+                report_delivery: None,
             },
         )
         .unwrap();

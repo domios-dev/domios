@@ -160,6 +160,7 @@ fn plan_caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCalle
             .as_ref()
             .and_then(|value| value.get(key))
             .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
     crate::service::AuthenticatedPlanCaller {
@@ -299,6 +300,47 @@ pub(super) fn plan_owner_may_recover(
     caller_is_live_plan_owner(svc, plan_id, params)
 }
 
+// A never-dispatched task has no Worker owner to prove, so only the Plan
+// Orchestrator, its Planner, or a confirmed human may mutate it.
+fn require_plan_role_for_unowned_task(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    plan_id: &str,
+) -> Result<(), JsonRpcError> {
+    if !matches!(
+        method,
+        "plan.task.update"
+            | "plan.task.close"
+            | "plan.task.assign"
+            | "plan.task.dispatch"
+            | "plan.task.respawn"
+            | "plan.task.cancel"
+    ) {
+        return Ok(());
+    }
+    let caller = plan_caller(params);
+    let confirmed_human = params
+        .as_ref()
+        .and_then(|value| value.get("human_confirmation"))
+        .and_then(Value::as_bool)
+        == Some(true)
+        && caller.tab_id.is_none();
+    let plan_role = caller.tab_id.is_some()
+        && matches!(
+            svc.classify_planning_caller(plan_id, &caller),
+            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+        );
+    if confirmed_human || plan_role {
+        return Ok(());
+    }
+    Err(JsonRpcError {
+        code: -32003,
+        message: "the caller is not the Plan Orchestrator or Planner".into(),
+        data: Some(serde_json::json!({ "type": "plan_mutation_authorization_required" })),
+    })
+}
+
 pub(super) fn verify_owner_epoch_for_task_mutation(
     method: &str,
     params: &Option<Value>,
@@ -327,7 +369,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         return Ok(());
     }
     if detail.task.interruption.owner_epoch == 0 {
-        return Ok(());
+        return require_plan_role_for_unowned_task(method, params, svc, &detail.plan_id);
     }
     // Structure-only, so the live attempt is neither fenced nor retired: the
     // Planner edits the brief around a Worker that keeps its ownership.
@@ -399,9 +441,10 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     })
 }
 
+// A headerless caller classifies as the user; live ownership needs the owner's tab.
 fn caller_is_live_plan_owner(svc: &ServiceState, plan_id: &str, params: &Option<Value>) -> bool {
-    svc.authorize_plan_orchestrator(plan_id, &plan_caller(params))
-        .is_ok()
+    let caller = plan_caller(params);
+    caller.tab_id.is_some() && svc.authorize_plan_orchestrator(plan_id, &caller).is_ok()
 }
 
 /// Names the state that actually blocked the caller: a Plan owner held off a

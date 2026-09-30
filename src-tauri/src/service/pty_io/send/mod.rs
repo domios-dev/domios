@@ -41,6 +41,23 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("\x1b[200~ {}\x1b[201~", cmd).into_bytes())
 }
 
+#[cfg(unix)]
+pub(crate) fn build_launch_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    build_spawn_dispatch(cmd)
+}
+
+#[cfg(windows)]
+/// PowerShell can retain paste mode after a TUI is forced to exit.
+pub(crate) fn build_launch_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    if cmd.contains('\r') || cmd.contains('\n') {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "launch command must be a single line",
+        ));
+    }
+    Ok(format!(" {}\r", cmd).into_bytes())
+}
+
 /// Re-arms allowed after the armed signal is torn down by a generation rebind.
 /// Each one needs a real teardown event, so this only bounds a pathological loop.
 const SHELL_READY_REARM_LIMIT: u32 = 4;
@@ -365,10 +382,14 @@ impl ServiceContext {
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
         let require_provider_turn = verify_submit && track_exact_session_turn;
+        let typed_follow_up = verify_submit
+            .then(|| self.typed_follow_up_for_agent(Some(&delivery.provider_id), text))
+            .flatten();
         super::submit_transaction::submit_entry(entry, text, |text| {
             self.send_text_verified_guarded(
                 &delivery.pty_id,
                 text,
+                typed_follow_up.as_deref(),
                 true,
                 strategy,
                 delivery.permit.clone(),
@@ -429,11 +450,13 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
+        self.with_provider_action_preflight(tab_id, || {
+            self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail,
+                })
+        })?;
         let pty_id = match self.resolve_pty_id(tab_id) {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
@@ -441,7 +464,82 @@ impl ServiceContext {
         let claim = claim
             .filter(|claim| claim.pty_id() == pty_id)
             .unwrap_or_else(|| super::submit_transaction::claim_submit_cycle(&pty_id));
-        self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
+        self.with_provider_action_preflight(tab_id, || {
+            self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
+        })
+    }
+
+    pub(crate) fn with_provider_action_preflight<T>(
+        &self,
+        tab_id: &str,
+        deliver: impl FnOnce() -> Result<T, DeliveryError>,
+    ) -> Result<T, DeliveryError> {
+        if let Some(detail) = self.provider_action_refusal(tab_id) {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            });
+        }
+        deliver()
+    }
+
+    pub(crate) fn provider_action_refusal(&self, tab_id: &str) -> Option<String> {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                let pty_id = tab.pty_id.as_deref()?;
+                if mux.tab_id_for_pty(pty_id)? != tab_id {
+                    return None;
+                }
+                Some((
+                    pty_id.to_string(),
+                    tab.agent_type.clone()?,
+                    tab.agent_session_id.clone(),
+                    tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                ))
+            })
+        };
+        target.and_then(|(pty_id, agent_type, session_id, cwd)| {
+            let screen = self.screen_state.lock().get_screen_text(&pty_id)?;
+            self.agent_registry
+                .with_provider(&agent_type, |provider| {
+                    use codeterm_plugin::tab_state::TabState;
+
+                    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                        tab_id: tab_id.to_string(),
+                        agent_type: agent_type.clone(),
+                        session_id,
+                        cwd,
+                        screen_text: screen.clone(),
+                    };
+                    let classification = provider.classify_tab_state(&snapshot);
+                    let high_confidence = classification.as_ref().is_some_and(|value| {
+                        value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                    });
+                    let structured_choice = high_confidence
+                        && classification
+                            .as_ref()
+                            .is_some_and(|value| value.state == TabState::ClarifyingQuestion)
+                        && provider.parse_prompt(&screen).is_some();
+                    let update_dialog = high_confidence
+                        && classification
+                            .as_ref()
+                            .is_some_and(|value| value.state == TabState::UpdatePrompt);
+                    let hint = "answer it with `tab respond`, then resend";
+                    if provider.directory_trust_prompt_response(&screen).is_some() {
+                        Some(format!("provider trust dialog is visible; {hint}"))
+                    } else if update_dialog {
+                        Some(format!("provider update dialog is visible; {hint}"))
+                    } else if structured_choice {
+                        Some(format!(
+                            "provider structured-choice dialog is visible; {hint}"
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+        })
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -502,6 +600,9 @@ impl ServiceContext {
             .as_ref()
             .map(|_| sanitize_agent_prompt_input(text))
             .unwrap_or_else(|| text.to_string());
+        let typed_follow_up = submit
+            .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), &text))
+            .flatten();
         let strategy = agent_type
             .as_deref()
             .and_then(|agent_id| {
@@ -516,10 +617,11 @@ impl ServiceContext {
                 crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
             );
         let require_provider_turn = submit && track_exact_session_turn;
-        super::submit_transaction::submit_text_with_key_claimed(
+        super::submit_transaction::submit_text_with_key_claimed_and_follow_up(
             self,
             pty_id,
             &text,
+            typed_follow_up.as_deref(),
             submit,
             submit_key,
             strategy,
@@ -556,9 +658,25 @@ impl ServiceContext {
         }
     }
 
+    fn typed_follow_up_for_agent(&self, provider_id: Option<&str>, text: &str) -> Option<String> {
+        provider_id.and_then(|provider_id| {
+            self.agent_registry
+                .with_provider(provider_id, |provider| {
+                    provider.paste_capability().and_then(|capability| {
+                        capability.typed_follow_up_for(text).map(str::to_string)
+                    })
+                })
+                .flatten()
+        })
+    }
+
     /// Deliver the initial agent launch command to a bare shell — no verify path
     /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        #[cfg(windows)]
+        let payload = build_launch_dispatch(cmd).map_err(|error| error.to_string())?;
+        #[cfg(not(windows))]
+        let payload = format!("{}\r", cmd).into_bytes();
         #[cfg(windows)]
         {
             use std::time::Duration;
@@ -567,11 +685,15 @@ impl ServiceContext {
                 await_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4));
             }
         }
-        let payload: Vec<u8> = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
-        } else {
-            format!("{}\r", cmd).into_bytes()
-        };
+        self.pty.lock().write(pty_id, &payload)
+    }
+
+    pub fn send_launch_command_to_pty_after_ready(
+        &self,
+        pty_id: &str,
+        cmd: &str,
+    ) -> Result<(), String> {
+        let payload = build_launch_dispatch(cmd).map_err(|error| error.to_string())?;
         self.pty.lock().write(pty_id, &payload)
     }
 
@@ -660,6 +782,9 @@ impl ServiceContext {
             return Err(format!(
                 "Agent in Tab {tab_id} is still launching — input would be lost"
             ));
+        }
+        if let Some(detail) = self.provider_action_refusal(tab_id) {
+            return Err(detail);
         }
         // Owner exception: no definitive verdict arrived within the bounded wait.
         // Deliver anyway — a live PTY with an unconfirmed session isn't a dead one.

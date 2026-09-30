@@ -28,10 +28,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::provider::{
-    AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, StarterPrompt,
-    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
-    VerifySubmitStrategy,
+    AgentLaunchParams, AgentProvider, ModelInfo, PasteCapability, ReadinessStrategy,
+    ReasoningEffortInfo, SessionContentSource, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, StarterPrompt, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization,
+    UsageSnapshot, VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -83,6 +83,13 @@ impl AgentProvider for ClaudeProvider {
         "claude"
     }
 
+    fn paste_capability(&self) -> Option<PasteCapability> {
+        Some(PasteCapability {
+            untrusted_above_lines: 4,
+            typed_follow_up: " Handle the pasted message above as my request.".into(),
+        })
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         launch::build_launch_command(params)
     }
@@ -113,6 +120,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         sessions::parse_session_messages(file_path)
+    }
+
+    fn session_content_source(&self) -> SessionContentSource {
+        SessionContentSource::SessionFile
     }
 
     fn parse_interactive_events(
@@ -208,6 +219,25 @@ impl AgentProvider for ClaudeProvider {
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
         sessions::detect_session_model(cwd, session_id).map(|family| {
+            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
+        })
+    }
+
+    fn session_model_transcript_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        sessions::session_model_transcript_boundary(cwd, session_id)
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        sessions::detect_session_model_after_boundary(cwd, session_id, boundary).map(|family| {
             crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
         })
     }
@@ -351,6 +381,10 @@ impl AgentProvider for ClaudeProvider {
         vec!["--dangerously-skip-permissions".to_string()]
     }
 
+    fn launch_permission_capability(&self) -> Option<crate::provider::LaunchPermissionCapability> {
+        schemas::launch_permissions()
+    }
+
     fn compact_command(&self) -> Option<&str> {
         Some("/compact")
     }
@@ -359,8 +393,8 @@ impl AgentProvider for ClaudeProvider {
         Some("/new")
     }
 
-    fn model_switch_format(&self) -> Option<&str> {
-        Some("/model {model}")
+    fn model_switch(&self) -> crate::provider::ModelSwitchMode {
+        crate::provider::ModelSwitchMode::RestartResume
     }
 
     fn exit_command(&self) -> Option<&str> {
@@ -530,12 +564,13 @@ mod tests {
     }
 
     #[test]
-    fn claude_model_switch_command_formats_slash_model() {
+    fn claude_switches_model_by_resuming_with_launch_args() {
         let p = ClaudeProvider::new();
         assert_eq!(
-            p.model_switch_command("sonnet").as_deref(),
-            Some("/model sonnet")
+            p.model_switch(),
+            crate::provider::ModelSwitchMode::RestartResume
         );
+        assert_eq!(p.model_launch_args("sonnet"), vec!["--model", "sonnet"]);
     }
 
     #[test]

@@ -32,6 +32,21 @@ struct WireUsageSource {
     session_id: Option<String>,
 }
 
+impl JsProvider {
+    fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
+        self.try_call::<Option<String>>(method, args)
+            .flatten()
+            .map(|model| {
+                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
+                if resolved.fell_back {
+                    model
+                } else {
+                    resolved.id
+                }
+            })
+    }
+}
+
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
@@ -53,8 +68,22 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.paste_limit_bytes
     }
 
+    fn paste_capability(&self) -> Option<provider::PasteCapability> {
+        self.manifest.spawn.paste.clone()
+    }
+
     fn additional_writable_dir_flag(&self) -> Option<String> {
         self.manifest.commands.additional_writable_dir_flag.clone()
+    }
+
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<provider::SandboxedLinuxLaunchCapability> {
+        self.manifest.spawn.sandboxed_linux_launch.clone()
+    }
+
+    fn launch_permission_capability(&self) -> Option<provider::LaunchPermissionCapability> {
+        self.manifest.spawn.launch_permissions.clone()
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
@@ -219,6 +248,12 @@ impl AgentProvider for JsProvider {
         for n in names {
             if n == "permission_request" {
                 out.push(crate::detector::AgentEvent::PermissionRequest);
+            } else if n == "turn_error" {
+                out.push(crate::detector::AgentEvent::TurnError);
+            } else if n == "task_complete" {
+                out.push(crate::detector::AgentEvent::TaskComplete);
+            } else if n == "turn_started" {
+                out.push(crate::detector::AgentEvent::TurnStarted);
             }
         }
         if out.is_empty() && crate::detector::detect_interactive_prompt(text) {
@@ -428,16 +463,31 @@ impl AgentProvider for JsProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
-            .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
+        self.detect_session_model_wire("detectSessionModel", &[json!(cwd), json!(session_id)])
+    }
+
+    fn session_model_transcript_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        self.try_call::<Option<codeterm_types::agent::SessionModelTranscriptBoundary>>(
+            "sessionModelTranscriptBoundary",
+            &[json!(cwd), json!(session_id)],
+        )
+        .flatten()
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        self.detect_session_model_wire(
+            "detectSessionModelAfterBoundary",
+            &[json!(cwd), json!(session_id), json!(boundary)],
+        )
     }
 
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
@@ -542,6 +592,25 @@ impl AgentProvider for JsProvider {
         self.manifest_enumerate_sessions()
     }
 
+    fn enumerate_sessions_for_search(&self) -> Vec<SessionMetadata> {
+        if self.session_content_source() == provider::SessionContentSource::SessionFile
+            && self.manifest.sessions.is_some()
+            && (self
+                .manifest
+                .sessions
+                .as_ref()
+                .is_some_and(|sessions| sessions.search_files.is_some())
+                || !self.has_js("enumerateSessions"))
+        {
+            return self.manifest_enumerate_sessions_for_search();
+        }
+        self.enumerate_sessions()
+    }
+
+    fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
+        self.js_describe_session_for_search(session)
+    }
+
     fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
         if self.has_js("findSession") {
             return self
@@ -587,6 +656,18 @@ impl AgentProvider for JsProvider {
             self.extend_parsed_session_chunk(&mut out, &chunk);
         }
         out
+    }
+
+    fn session_content_source(&self) -> provider::SessionContentSource {
+        self.js_session_content_source()
+    }
+
+    fn read_session_content(
+        &self,
+        session_id: &str,
+        query: &provider::SessionContentQuery,
+    ) -> Option<provider::SessionContent> {
+        self.js_read_session_content(session_id, query)
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
@@ -653,68 +734,7 @@ impl AgentProvider for JsProvider {
         path: &std::path::Path,
         from_offset: u64,
     ) -> codeterm_types::agent::chat_types::SessionDelta {
-        use codeterm_types::agent::chat_types::SessionDelta;
-        // Seek-based and capped: session files reach hundreds of MB, and this runs on every tailer poll.
-        let read = crate::jsonl_window::read_records_from(
-            path,
-            from_offset,
-            crate::jsonl_window::DELTA_CHUNK_BYTES,
-        );
-        let window = match read {
-            Ok(w) => w,
-            Err(_) => {
-                return SessionDelta {
-                    new_offset: from_offset,
-                    messages: vec![],
-                }
-            }
-        };
-        // The reader holds back a partial trailing line, so the plugin never sees it and byte/code-unit mismatches in JS string indexing can't corrupt the offset.
-        if window.bytes.is_empty() {
-            return SessionDelta {
-                new_offset: window.new_offset,
-                messages: vec![],
-            };
-        }
-        let consumed_bytes = window.new_offset - from_offset;
-        // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
-        let chunk = String::from_utf8_lossy(&window.bytes).to_string();
-        let context = serde_json::json!({
-            "session_key": path.to_string_lossy(),
-            "from_offset": from_offset,
-        });
-        #[derive(serde::Deserialize)]
-        struct JsDelta {
-            messages: Vec<serde_json::Value>,
-        }
-        let parsed = self
-            .try_call::<JsDelta>("parseSessionDelta", &[serde_json::json!(chunk), context])
-            .and_then(|d| crate::jsonl_window::rows_from_plugin(d.messages));
-        match parsed {
-            Some((mut messages, record_indexes)) => {
-                crate::jsonl_window::anchor_rows(
-                    &mut messages,
-                    &record_indexes,
-                    &window.bytes,
-                    from_offset,
-                );
-                SessionDelta {
-                    new_offset: from_offset + consumed_bytes,
-                    messages,
-                }
-            }
-            None => {
-                // messages, but the tailer escapes the infinite-retry trap. The warning from try_call is enough audit trail.
-                log::warn!(
-                    "[parse_session_delta] plugin '{}' returned no delta for {} bytes at offset {} — skipping window",
-                    self.manifest.id, consumed_bytes, from_offset
-                );
-                SessionDelta {
-                    new_offset: from_offset + consumed_bytes,
-                    messages: vec![],
-                }
-            }
-        }
+        self.js_parse_session_delta(path, from_offset)
     }
 
     fn parse_interactive_events(
@@ -895,6 +915,18 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.stop_key.as_deref()
     }
 
+    fn stop_keys(&self) -> Option<Vec<String>> {
+        if let Some(keys) = self.manifest.commands.stop_keys.as_ref() {
+            return (!keys.is_empty() && keys.iter().all(|key| !key.is_empty()))
+                .then(|| keys.clone());
+        }
+        self.stop_keystroke().map(|key| vec![key.to_string()])
+    }
+
+    fn stop_key_wait_for_output(&self) -> bool {
+        self.manifest.commands.stop_key_wait_for_output
+    }
+
     fn trust(&self) -> ProviderTrust {
         self.trust
     }
@@ -944,8 +976,8 @@ impl AgentProvider for JsProvider {
         ))
     }
 
-    fn model_switch_format(&self) -> Option<&str> {
-        self.manifest.commands.model_switch_format.as_deref()
+    fn model_switch(&self) -> provider::ModelSwitchMode {
+        self.manifest.commands.model_switch
     }
 
     fn supports_lazy_skills(&self) -> bool {

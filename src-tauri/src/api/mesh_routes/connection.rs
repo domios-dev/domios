@@ -470,6 +470,40 @@ mod tests {
     const PEER_ID: &str = "31c7cff6-4bd2-43b0-a5cd-b5db9bfbb673";
     const PEER_NAME: &str = "peer";
 
+    #[test]
+    fn mesh_reject_http_route_returns_not_found_without_blocking_processed_ids() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.insert(
+            "accepted".into(),
+            crate::mesh::types::PairingRequest {
+                request_id: "accepted".into(),
+                from_instance_id: "paired-peer".into(),
+                from_instance_name: "paired-peer".into(),
+                from_address: "100.64.0.2".into(),
+                from_port: 7685,
+                from_addresses: vec![crate::mesh::types::PeerAddress::from_ip("100.64.0.2")],
+                public_key: "key".into(),
+                timestamp: 0,
+                status: crate::mesh::types::PairingStatus::Accepted,
+                introduced_by: None,
+            },
+        );
+
+        for request_id in ["never-existed", "accepted"] {
+            let error = reject_pending_request_http(&mut mesh, request_id)
+                .expect_err("only a pending request can be rejected");
+            assert_eq!(error.0, StatusCode::NOT_FOUND);
+        }
+
+        assert!(mesh.revocation_list.blocked.is_empty());
+        assert_eq!(
+            mesh.pending_requests["accepted"].status,
+            crate::mesh::types::PairingStatus::Accepted
+        );
+    }
+
     fn mesh_state() -> crate::MeshStateHandle {
         let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
         manager.ready_listeners = vec!["100.64.0.1:7685".parse().unwrap()];
@@ -957,18 +991,7 @@ pub async fn mesh_reject_peer(
         .to_string();
 
     let mut mesh = state.mesh.lock();
-    let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
-        req.status = crate::mesh::types::PairingStatus::Rejected;
-        Some(req.from_instance_id.clone())
-    } else {
-        None
-    };
-    if let Some(id) = block_id {
-        if !mesh.revocation_list.blocked.contains(&id) {
-            mesh.revocation_list.blocked.push(id);
-        }
-        let _ = mesh.save();
-    }
+    reject_pending_request_http(&mut mesh, &request_id)?;
     drop(mesh);
 
     crate::api::events::emit_everywhere(
@@ -977,6 +1000,14 @@ pub async fn mesh_reject_peer(
         serde_json::Value::Null,
     );
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+fn reject_pending_request_http(
+    mesh: &mut crate::mesh::MeshManager,
+    request_id: &str,
+) -> Result<(), (StatusCode, String)> {
+    crate::api::mesh_routes::pairing::reject_pending_request(mesh, request_id)
+        .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))
 }
 
 /// Disconnect (unpair) from a paired peer (same logic as Tauri mesh_disconnect).
@@ -991,8 +1022,7 @@ pub async fn mesh_disconnect_peer(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
-    // keeps the API forgiving without bloating the CLI.
-    let (instance_id, peer, signed_token, our_id) = {
+    let instance_id = {
         let m = state.mesh.lock();
         let peer = m.paired_peers.get(&arg).cloned().or_else(|| {
             m.paired_peers
@@ -1000,119 +1030,17 @@ pub async fn mesh_disconnect_peer(
                 .find(|p| p.instance_name == arg)
                 .cloned()
         });
-        let resolved_id = peer.as_ref().map(|p| p.instance_id.clone()).unwrap_or(arg);
-        let token = m.sign_request().ok();
-        let id = m.ident.identity.instance_id.clone();
-        (resolved_id, peer, token, id)
+        peer.map(|p| p.instance_id).unwrap_or(arg)
     };
 
-    if peer.is_none() {
+    if !state.mesh.lock().paired_peers.contains_key(&instance_id) {
         return Err((
             StatusCode::NOT_FOUND,
             format!("No paired peer matches '{}'", instance_id),
         ));
     }
 
-    if let (Some(peer), Some(token)) = (peer, signed_token.clone()) {
-        if !peer.addresses.is_empty() {
-            let http = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
-            let api_port = peer.api_port;
-            let our_id_for_call = our_id.clone();
-            let result = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
-                let url = format!(
-                    "http://{}:{}/api/mesh/peers/{}",
-                    addr.ip, api_port, our_id_for_call
-                );
-                let http = http.clone();
-                let token = token.clone();
-                async move {
-                    match http
-                        .delete(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => {
-                            crate::mesh::transport::TryNext::Success(())
-                        }
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let body = resp.text().await.unwrap_or_default();
-                            crate::mesh::transport::TryNext::Stop(format!(
-                                "HTTP {}: {}",
-                                status, body
-                            ))
-                        }
-                        Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-            match result {
-                Ok(()) => log::info!("[mesh/api] Notified {} about disconnect", instance_id),
-                Err(e) => log::warn!(
-                    "[mesh/api] Failed to notify {} about disconnect: {}",
-                    instance_id,
-                    e
-                ),
-            }
-        }
-    }
-
-    // Cascade to remaining peers — tell each one we just unpaired the target so their mirror of paired_peers stays consistent.
-    let (remaining_peers, broadcast_token) = {
-        let m = state.mesh.lock();
-        let peers: Vec<_> = m
-            .paired_peers
-            .values()
-            .filter(|p| p.instance_id != instance_id)
-            .cloned()
-            .collect();
-        let token = m.sign_request().ok();
-        (peers, token)
-    };
-
     state.mesh.lock().unpair(&instance_id);
-
-    if let Some(token) = broadcast_token {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_default();
-        for peer in &remaining_peers {
-            if peer.addresses.is_empty() {
-                continue;
-            }
-            let api_port = peer.api_port;
-            let target = instance_id.clone();
-            let _ = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
-                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, target);
-                let http = http.clone();
-                let token = token.clone();
-                async move {
-                    match http
-                        .delete(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => {
-                            crate::mesh::transport::TryNext::Success(())
-                        }
-                        Ok(resp) => {
-                            let status = resp.status();
-                            crate::mesh::transport::TryNext::Stop(format!("HTTP {}", status))
-                        }
-                        Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-        }
-    }
 
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,

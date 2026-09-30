@@ -21,10 +21,15 @@ pub struct MockProvider {
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     models: Vec<ModelInfo>,
+    model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
     directory_trust_response: Option<codeterm_plugin::provider::DirectoryTrustPromptResponse>,
+    directory_trust_frame_marker: Option<(
+        String,
+        codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    )>,
     directory_trusted_path: Option<String>,
     directory_trust_state: Option<codeterm_plugin::provider::DirectoryTrustState>,
     trusted_directory: Option<String>,
@@ -35,6 +40,7 @@ pub struct MockProvider {
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
+    session_model_boundary_available: bool,
     session_reasoning_efforts: std::collections::HashMap<String, String>,
     usage_source: Option<UsageSourceSpec>,
     empty_launch_command: bool,
@@ -49,6 +55,9 @@ pub struct MockProvider {
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
+    sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
+    launch_permissions: Option<codeterm_plugin::provider::LaunchPermissionCapability>,
+    model_switch: codeterm_plugin::provider::ModelSwitchMode,
 }
 
 impl MockProvider {
@@ -59,10 +68,12 @@ impl MockProvider {
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
             models: Vec::new(),
+            model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability::default(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
             directory_trust_response: None,
+            directory_trust_frame_marker: None,
             directory_trusted_path: None,
             directory_trust_state: None,
             trusted_directory: None,
@@ -73,6 +84,7 @@ impl MockProvider {
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
+            session_model_boundary_available: true,
             session_reasoning_efforts: Default::default(),
             usage_source: None,
             empty_launch_command: false,
@@ -87,7 +99,20 @@ impl MockProvider {
             resume_context_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
+            sandboxed_linux_launch: None,
+            launch_permissions: None,
+            model_switch: codeterm_plugin::provider::ModelSwitchMode::Unsupported,
         }
+    }
+
+    pub fn with_model_switch(mut self, mode: codeterm_plugin::provider::ModelSwitchMode) -> Self {
+        self.model_switch = mode;
+        self
+    }
+
+    pub fn with_missing_session_model_boundary(mut self) -> Self {
+        self.session_model_boundary_available = false;
+        self
     }
 
     pub fn with_launch_artifact_logs(
@@ -126,6 +151,22 @@ impl MockProvider {
         state: codeterm_plugin::provider::DirectoryTrustState,
     ) -> Self {
         self.directory_trust_state = Some(state);
+        self
+    }
+
+    pub fn with_sandboxed_linux_launch(
+        mut self,
+        capability: codeterm_plugin::provider::SandboxedLinuxLaunchCapability,
+    ) -> Self {
+        self.sandboxed_linux_launch = Some(capability);
+        self
+    }
+
+    pub fn with_launch_permissions(
+        mut self,
+        capability: codeterm_plugin::provider::LaunchPermissionCapability,
+    ) -> Self {
+        self.launch_permissions = Some(capability);
         self
     }
 
@@ -249,6 +290,11 @@ impl MockProvider {
         self
     }
 
+    pub fn with_authoritative_model_catalogue(mut self) -> Self {
+        self.model_catalogue = codeterm_plugin::provider::ModelCatalogueCapability::authoritative();
+        self
+    }
+
     pub fn with_update_command(id: &str, command: &str) -> Self {
         Self {
             update_command: Some(command.to_string()),
@@ -264,6 +310,15 @@ impl MockProvider {
             directory_trust_response: Some(response),
             ..Self::new(id)
         }
+    }
+
+    pub fn with_directory_trust_frame_marker(
+        mut self,
+        marker: &str,
+        response: codeterm_plugin::provider::DirectoryTrustPromptResponse,
+    ) -> Self {
+        self.directory_trust_frame_marker = Some((marker.to_string(), response));
+        self
     }
 
     pub fn with_directory_trusted_path(mut self, path: &str) -> Self {
@@ -340,6 +395,22 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn model_switch(&self) -> codeterm_plugin::provider::ModelSwitchMode {
+        self.model_switch
+    }
+
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability> {
+        self.sandboxed_linux_launch.clone()
+    }
+
+    fn launch_permission_capability(
+        &self,
+    ) -> Option<codeterm_plugin::provider::LaunchPermissionCapability> {
+        self.launch_permissions.clone()
+    }
+
     fn additional_writable_dir_flag(&self) -> Option<String> {
         self.additional_writable_dir_flag.clone()
     }
@@ -415,6 +486,9 @@ impl AgentProvider for MockProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         self.models.clone()
     }
+    fn model_catalogue_capability(&self) -> codeterm_plugin::provider::ModelCatalogueCapability {
+        self.model_catalogue
+    }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {
             return Vec::new();
@@ -463,6 +537,34 @@ impl AgentProvider for MockProvider {
     fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_models.get(session_id).cloned()
     }
+
+    fn session_model_transcript_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        self.session_model_boundary_available.then_some(
+            codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: None,
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
+            },
+        )
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
+        boundary
+            .boundary_found
+            .then(|| self.detect_session_model(cwd, session_id))
+            .flatten()
+    }
+
     fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_reasoning_efforts.get(session_id).cloned()
     }
@@ -492,9 +594,14 @@ impl AgentProvider for MockProvider {
     }
     fn directory_trust_prompt_response(
         &self,
-        _screen: &str,
+        screen: &str,
     ) -> Option<codeterm_plugin::provider::DirectoryTrustPromptResponse> {
-        self.directory_trust_response.clone()
+        self.directory_trust_response.clone().or_else(|| {
+            self.directory_trust_frame_marker
+                .as_ref()
+                .filter(|(marker, _)| screen.contains(marker))
+                .map(|(_, response)| response.clone())
+        })
     }
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
         Ok(self.directory_trusted_path.as_deref() == Some(path))

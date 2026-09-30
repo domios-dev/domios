@@ -300,7 +300,7 @@ fn render_tree_brackets_the_agent_identity_and_never_the_role() {
 
     assert!(out.contains("[opus]"), "orchestrator bracket:\n{out}");
     assert!(
-        out.contains("[sol!]"),
+        out.contains("[5.6-sol!]"),
         "a tab with no live agent is marked, not shown as running:\n{out}"
     );
     assert!(
@@ -555,6 +555,7 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
         TabAction::Close {
             id: bad(),
             tab: None,
+            force: false,
         },
         TabAction::Rename {
             tab: bad(),
@@ -648,10 +649,10 @@ fn invalid_remote_tab_selector_emits_the_envelope_with_no_rpc_code() {
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
-    assert_eq!(envelope["code"], serde_json::Value::Null);
-    assert!(envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
+    assert!(envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .starts_with(INVALID_REMOTE_TAB_ID));
 }
 
@@ -663,10 +664,10 @@ fn mixed_local_and_remote_inspection_emits_the_envelope_with_no_rpc_code() {
     let envelope = json_error_envelope(&crate::cmd::print::CliError::new(message));
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
-    assert_eq!(envelope["code"], serde_json::Value::Null);
-    assert!(!envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], serde_json::Value::Null);
+    assert!(!envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .contains("-32"));
 }
 
@@ -726,6 +727,18 @@ fn focus_failure_moves_the_rpc_code_out_of_the_message() {
 }
 
 #[test]
+fn close_params_carry_force_only_when_requested() {
+    assert_eq!(
+        close_tab_params("tab-a", false),
+        json!({ "tab_id": "tab-a" })
+    );
+    assert_eq!(
+        close_tab_params("tab-a", true),
+        json!({ "tab_id": "tab-a", "force": true })
+    );
+}
+
+#[test]
 fn close_failure_moves_the_rpc_code_out_of_the_message() {
     let mut stub = StubRpc::failing(-32603, "Tab not found");
     let params = json!({ "tab_id": "zzzzzzzz", "caller_tab_id": "caller01" });
@@ -774,10 +787,11 @@ fn a_converted_tab_failure_renders_as_the_envelope_on_stdout() {
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
-    assert_eq!(envelope["code"], -32603);
-    assert!(!envelope["error"]
+    assert_eq!(envelope["error"]["rpc_code"], -32603);
+    assert_eq!(envelope["error"]["code"], "not_found");
+    assert!(!envelope["error"]["message"]
         .as_str()
-        .expect("error is a string")
+        .expect("error message is a string")
         .contains("-32"));
 }
 

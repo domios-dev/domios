@@ -1,6 +1,61 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct PluginId(String);
+
+impl PluginId {
+    pub(super) fn parse(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        validate_identifier(&value, "plugin id")?;
+        Ok(Self(value))
+    }
+
+    pub(super) fn as_str(&self) -> &str {
+        &self.0
+    }
+    #[cfg(test)]
+    pub(super) fn validated(value: &str) -> Self {
+        Self::parse(value.to_string()).expect("plugin ids are validated at their boundary")
+    }
+}
+
+impl std::fmt::Display for PluginId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+fn validate_identifier(value: &str, domain: &str) -> Result<(), String> {
+    let bytes = value.as_bytes();
+    let valid_chars = bytes.first().is_some_and(u8::is_ascii_lowercase)
+        || bytes.first().is_some_and(u8::is_ascii_digit);
+    let valid_tail = bytes
+        .iter()
+        .skip(1)
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(*b, b'.' | b'_' | b'-'));
+    let device_base = value.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let reserved = matches!(device_base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            device_base
+                .strip_prefix(prefix)
+                .is_some_and(|n| matches!(n.as_bytes(), [b'1'..=b'9']))
+        });
+    if value.is_empty() {
+        return Err(format!("{domain} must not be empty"));
+    }
+    if bytes.len() > 64 {
+        return Err(format!("{domain} must be at most 64 ASCII characters"));
+    }
+    if !valid_chars || !valid_tail {
+        return Err(format!("{domain} must match [a-z0-9][a-z0-9._-]{{0,63}} with no path separators or dot-only segments"));
+    }
+    if reserved {
+        return Err(format!("{domain} must not be a Windows device name"));
+    }
+    Ok(())
+}
+
 pub(super) const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
 // master carries only released code; develop is unreleased, and installing from

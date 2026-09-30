@@ -13,15 +13,20 @@ use crate::api::{
     routes::{check_auth, resolve_tab, AppState},
 };
 
+mod provider_events;
 mod run_session;
 mod session_ack;
 mod session_claim;
+pub(crate) use provider_events::hook_provider_event;
 #[cfg(test)]
 use session_ack::acknowledge_authenticated_launch;
 use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
 #[cfg(test)]
 #[path = "hook_routes/review_regressions.rs"]
 mod review_regressions;
+#[cfg(test)]
+#[path = "hook_routes/surviving_shell_tests.rs"]
+mod surviving_shell_tests;
 
 #[cfg(test)]
 pub(crate) use session_claim::bind_validated_rebind_session;
@@ -32,8 +37,8 @@ pub(crate) use session_claim::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
     prev: Option<String>,
-    changed: bool,
-    nonce_verified: bool,
+    pub(crate) changed: bool,
+    pub(crate) nonce_verified: bool,
     nonce_already_acknowledged: bool,
     identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
@@ -911,6 +916,10 @@ pub(crate) async fn finish_session_binding(
         claim.nonce_verified,
         claim.changed,
     );
+    // A provider adopted from a surviving shell proves itself outside any launch.
+    if claim.nonce_verified && svc.mux.read().lifecycle_key(tab_id).is_none() {
+        svc.open_lifecycle_epoch(tab_id);
+    }
     let identity_committed = if let Some(origin) = identity_origin {
         if origin == crate::session::lifecycle::AgentTypeWriteOrigin::Hook {
             matches!(
@@ -980,6 +989,14 @@ pub(crate) async fn finish_session_binding(
     }
     // while it runs — not only after completion.
     run_session::propagate(svc, tab_id, sid);
+    if let (true, Some(model)) = (claim.nonce_verified, session_start_string(body, &["model"])) {
+        let (service, tab, provider) = (svc.clone(), tab_id.to_string(), provider_id.to_string());
+        let session = sid.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            service.record_launch_reported_model(&tab, &provider, &session, &model)
+        })
+        .await;
+    }
     if let Some(reported_transcript) = reported_transcript_path(body) {
         let evidence_sid = sid.to_string();
         let persisted = tokio::task::spawn_blocking(move || {

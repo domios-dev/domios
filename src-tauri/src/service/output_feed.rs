@@ -47,11 +47,15 @@ impl ServiceContext {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
+        crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();
         self.run_watcher.feed(self, pty_id, data);
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);
+        crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+            pty_id, statuses.0, statuses.1,
+        );
         let status_us = stage.elapsed().as_micros();
         if trace && data.len() > 16 {
             log::info!(
@@ -83,5 +87,52 @@ impl ServiceContext {
                 }),
             );
         }
+    }
+
+    pub(crate) fn mark_agent_turn_error(&self, tab_id: &str) -> bool {
+        if self.is_agent_stop_suppressed_for_tab(tab_id) {
+            log::info!("[tab-stop] suppressed_turn_error tab={}", tab_id);
+            return self.mark_agent_turn_complete(tab_id);
+        }
+        self.mark_agent_turn_status(tab_id, TabStatus::Error)
+    }
+
+    pub(crate) fn mark_agent_turn_complete(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Idle)
+    }
+
+    pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Working)
+    }
+
+    fn mark_agent_turn_status(&self, tab_id: &str, status: TabStatus) -> bool {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        let Some(pty_id) = pty_id else {
+            return false;
+        };
+        let (previous, current) = {
+            let mut tracker = self.agent_tracker.lock();
+            let previous = tracker.get_status(&pty_id);
+            match status {
+                TabStatus::Working => tracker.set_working(&pty_id),
+                TabStatus::Error => tracker.set_error(&pty_id),
+                TabStatus::Idle => tracker.set_idle(&pty_id),
+                _ => return false,
+            }
+            if status != TabStatus::Working {
+                tracker.notify_terminal_event(&pty_id);
+            }
+            (previous, tracker.get_status(&pty_id))
+        };
+        self.emit_tab_status_if_changed(&pty_id, previous, current);
+        crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+            &pty_id, previous, current,
+        );
+        self.emit_state_changed();
+        true
     }
 }

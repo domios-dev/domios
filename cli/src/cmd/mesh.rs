@@ -23,8 +23,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
     let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
     match action {
@@ -54,8 +53,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 }
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         },
         MeshAction::Peers => match client.call("mesh.peers", None) {
@@ -130,8 +128,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 }
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         },
         MeshAction::Tabs { target } => {
@@ -161,8 +158,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -187,8 +183,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -213,8 +208,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -239,8 +233,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -265,8 +258,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -283,8 +275,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     let val = match handle_resp(resp) {
                         Ok(value) => value,
                         Err(error) => {
-                            eprintln!("Error: {}", error);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(1, error.to_string());
                         }
                     };
                     if json {
@@ -312,8 +303,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -330,8 +320,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     let val = match handle_resp(resp) {
                         Ok(value) => value,
                         Err(error) => {
-                            eprintln!("Error: {}", error);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(1, error.to_string());
                         }
                     };
                     if json {
@@ -343,8 +332,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -361,8 +349,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     let val = match handle_resp(resp) {
                         Ok(value) => value,
                         Err(error) => {
-                            eprintln!("Error: {}", error);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(1, error.to_string());
                         }
                     };
                     if json {
@@ -372,8 +359,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -420,12 +406,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().unwrap_or_default();
-                eprintln!("Error ({}): {}", status, body);
-                std::process::exit(1);
+                crate::cmd::print::fail_http(1, status.as_u16(), &body);
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         },
         MeshAction::Announce { to } => {
@@ -471,12 +455,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 Ok(resp) => {
                     let status = resp.status();
                     let body = resp.text().unwrap_or_default();
-                    eprintln!("Error ({}): {}", status, body);
-                    std::process::exit(1);
+                    crate::cmd::print::fail_http(1, status.as_u16(), &body);
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -484,8 +466,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             MeshPeerAction::SetAddr { peer, addr } => {
                 let (ip, port) = mesh_cli::parse_ip_port(&addr);
                 if ip.is_empty() {
-                    eprintln!("Error: invalid address '{}'", addr);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("invalid address '{}'", addr));
                 }
                 let mut body = serde_json::json!({"ip": ip});
                 if let Some(p) = port {
@@ -526,12 +507,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     Ok(resp) => {
                         let status = resp.status();
                         let body = resp.text().unwrap_or_default();
-                        eprintln!("Error ({}): {}", status, body);
-                        std::process::exit(1);
+                        crate::cmd::print::fail_http(1, status.as_u16(), &body);
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, e.to_string());
                     }
                 }
             }
@@ -580,12 +559,10 @@ fn set_mesh_enabled(
         Ok(r) => {
             let status = r.status();
             let body = r.text().unwrap_or_default();
-            eprintln!("Error ({}): {}", status, body);
-            std::process::exit(1);
+            crate::cmd::print::fail_http(1, status.as_u16(), &body);
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }

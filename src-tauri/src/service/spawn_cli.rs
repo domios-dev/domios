@@ -110,11 +110,25 @@ pub(crate) struct LaunchClearance {
     pub(crate) warning: Option<String>,
 }
 
-/// The launch gate. Refuses only the observed negative: an unanswered probe is
-/// not a veto, so an `unknown` provider is cleared with a warning that says so.
+/// The launch gate checks provider registration and the launch binary.
 pub(crate) fn provider_launch_preflight(
     registry: &AgentRegistry,
     provider_id: &str,
+    permission_bypassed: bool,
+) -> Result<LaunchClearance, ProviderPreflightError> {
+    provider_launch_preflight_for_platform(
+        registry,
+        provider_id,
+        permission_bypassed,
+        crate::agent::provider::current_platform_tag(),
+    )
+}
+
+pub(crate) fn provider_launch_preflight_for_platform(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    _permission_bypassed: bool,
+    _platform: &str,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
     let Some((display_name, launch_binary, install_command)) =
         registry.with_provider(provider_id, |p| {

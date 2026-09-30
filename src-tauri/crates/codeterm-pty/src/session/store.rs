@@ -231,7 +231,6 @@ pub enum SplitNodeSnapshot {
     },
 }
 
-const MAX_BACKUPS: usize = 200;
 const MAX_REDUCED_QUARANTINE: usize = 20;
 
 /// Whether a snapshot that drops workspaces/tabs vs the persisted state may be
@@ -493,21 +492,21 @@ impl SessionStore {
     }
 
     fn evict_old_backups(&self, backup_dir: &std::path::Path) {
-        let mut entries: Vec<_> = fs::read_dir(backup_dir)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let timestamps: Vec<u64> = fs::read_dir(backup_dir)
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.strip_suffix(".json")?.parse().ok()
+            })
             .collect();
-
-        if entries.len() <= MAX_BACKUPS {
-            return;
-        }
-
-        entries.sort_by_key(|e| e.file_name());
-        let to_remove = entries.len() - MAX_BACKUPS;
-        for entry in entries.into_iter().take(to_remove) {
-            let _ = fs::remove_file(entry.path());
+        for ts in retention::timestamps_to_evict(&timestamps, now) {
+            let _ = fs::remove_file(backup_dir.join(format!("{ts}.json")));
         }
     }
 
@@ -873,6 +872,8 @@ fn parse_tab_record(
         }
     }
 }
+
+mod retention;
 
 #[cfg(test)]
 mod tests;

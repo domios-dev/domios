@@ -86,6 +86,16 @@ pub(super) fn dispatch(
             } else {
                 None
             };
+            let launch = svc
+                .await_spawn_launch_verdict(
+                    &result.tab_id,
+                    crate::service::spawn_launch_verdict::SPAWN_LAUNCH_VERDICT_DEADLINE,
+                )
+                .map_err(|failure| JsonRpcError {
+                    code: -32603,
+                    message: failure.message(),
+                    data: Some(failure.data()),
+                })?;
 
             let mut resp = serde_json::json!({
                 "tab_id": result.tab_id,
@@ -94,8 +104,10 @@ pub(super) fn dispatch(
                 "title": result.title,
                 "description": result.description,
                 "role": result.role,
+                "launch_state": launch.launch_state(),
             });
-            if let Some(ref warning) = result.warning {
+            if let Some(warning) = launch.merged_warning(&result.tab_id, result.warning.as_deref())
+            {
                 resp["warning"] = serde_json::json!(warning);
             }
             if let Some(warning) = ack_warning {

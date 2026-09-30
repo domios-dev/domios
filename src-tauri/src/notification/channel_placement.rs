@@ -5,14 +5,14 @@
 //! that same channel. Nothing here parses one: core keeps the pair and hands it
 //! back, so a channel this build has never met stores its address the same way.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::channel_ask::PushMessage;
 use super::push;
 use super::store::{Notification, NotificationProvenance};
 
 /// One channel's own address for a message it placed.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChannelPlacement {
     pub service: String,
     pub locator: String,

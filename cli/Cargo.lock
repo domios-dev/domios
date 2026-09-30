@@ -251,7 +251,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codeterm-cli"
-version = "1.11.10"
+version = "1.11.11"
 dependencies = [
  "base64",
  "chrono",
@@ -284,6 +284,7 @@ name = "codeterm-mem-store"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "codeterm-paths",
  "rusqlite",
  "serde",
  "serde_json",
@@ -336,6 +337,7 @@ name = "codeterm-plugins"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "codeterm-util",
  "dirs 5.0.1",
  "serde",
  "serde_json",
@@ -358,6 +360,7 @@ dependencies = [
 name = "codeterm-util"
 version = "1.6.2"
 dependencies = [
+ "codeterm-paths",
  "libc",
  "log",
  "parking_lot",

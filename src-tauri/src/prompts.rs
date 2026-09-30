@@ -382,7 +382,8 @@ pub fn cartographer_suffix() -> String {
 
 /// Upper bound for a composed role prompt. Not a style preference: every byte
 /// here is spent on every launch of that role, so growth needs a decision.
-pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32 * 1024;
+/// Re-measured at the General Agent's 32_895 LF bytes for v1.11.11.
+pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32_900;
 
 #[cfg(test)]
 mod tests;

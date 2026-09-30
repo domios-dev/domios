@@ -14,6 +14,7 @@ pub mod names;
 mod reorder;
 mod role;
 mod snapshot;
+mod status_view;
 mod tab;
 mod tab_runtime;
 mod task_keys;
@@ -24,6 +25,9 @@ pub use closed::{
     TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use snapshot::SnapshotMergeReport;
+pub use status_view::{
+    effective_tab_status, resolved_tab_status, snapshot_with_status_until, tab_status_label,
+};
 
 #[cfg(test)]
 mod tests;
@@ -260,6 +264,19 @@ impl MultiplexerState {
         Ok(team.clone())
     }
 
+    pub fn set_team_lifecycle(
+        &mut self,
+        id: &str,
+        lifecycle: codeterm_types::team::TeamLifecycle,
+    ) -> Result<Team, String> {
+        let team = self
+            .teams
+            .get_mut(id)
+            .ok_or_else(|| format!("Team {id} not found"))?;
+        team.lifecycle = lifecycle;
+        Ok(team.clone())
+    }
+
     /// Number of registered teams.
     pub fn team_count(&self) -> usize {
         self.teams.len()
@@ -295,6 +312,7 @@ impl MultiplexerState {
             agent_session_name: None,
             agent_session_model: None,
             agent_session_model_identity: None,
+            pending_model_switch_observation: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,

@@ -532,7 +532,7 @@ fn record_inferred_owned_consent(
     ) {
         return Ok(false);
     }
-    crate::config::save_config_pub(&updated)?;
+    crate::config::save_hook_reconciliation_config(&updated)?;
     *current = updated;
     Ok(true)
 }
@@ -547,7 +547,7 @@ fn record_precompact_choice(
     if !update_precompact_choice(&mut updated, provider_id, precompact_memory_export) {
         return Ok(());
     }
-    crate::config::save_config_pub(&updated)?;
+    crate::config::save_hook_reconciliation_config(&updated)?;
     *current = updated;
     Ok(())
 }

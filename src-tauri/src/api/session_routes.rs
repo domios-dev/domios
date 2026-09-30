@@ -92,10 +92,9 @@ pub(crate) struct SearchSessionsQuery {
     max_snippets: Option<usize>,
 }
 
-/// Cross-provider session search: walks every registered `AgentProvider`,
-/// collects past sessions from disk, and returns matches ranked by recency.
-/// Each hit carries its `provider` so callers can route a "resume in new Tab"
-/// action to the correct launcher.
+/// Cross-provider session search: returns matches ranked by recency plus a
+/// warning per provider store that could not be fully searched. Each hit
+/// carries its `provider` so callers can route a resume to the right launcher.
 ///
 /// The scan is disk-bound, so it runs on the blocking pool — on the async
 /// runtime it starves every other IPC caller for the length of the corpus walk.
@@ -110,9 +109,6 @@ pub async fn search_sessions_api(
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty())
             .collect();
-    if terms.is_empty() {
-        return Ok(Json(serde_json::json!({ "hits": [] })));
-    }
     let opts = crate::agent::registry::SessionSearchOpts {
         terms,
         provider: q.provider.filter(|p| p != "all" && !p.is_empty()),
@@ -122,10 +118,11 @@ pub async fn search_sessions_api(
         max_file_bytes: 0,
     };
     let registry = state.svc.agent_registry.clone();
-    let hits = tokio::task::spawn_blocking(move || registry.search_sessions(&opts))
+    let result = tokio::task::spawn_blocking(move || registry.search_sessions(&opts))
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
-    Ok(Json(serde_json::json!({ "hits": hits })))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
 /// Exact-id lookup still reads provider stores (files, sqlite, plugin VMs), so it

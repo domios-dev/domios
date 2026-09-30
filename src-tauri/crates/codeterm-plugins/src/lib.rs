@@ -147,12 +147,40 @@ pub enum PluginChannelAction {
 /// CLI would have printed with `--json`. On error, records the same
 /// command-failure audit event the CLI does, then propagates the error.
 pub fn run(ctx: PluginCtx, action: PluginAction) -> Result<serde_json::Value, String> {
+    validate_action_ids(&action)?;
     let _guard = enter_ctx(ctx);
     let result = dispatch(action.clone());
     if let Err(e) = &result {
         let _ = audit_command_failure(&action, e);
     }
     result
+}
+
+fn validate_action_ids(action: &PluginAction) -> Result<(), String> {
+    match action {
+        PluginAction::Install {
+            id, id_override, ..
+        } => {
+            if let Some(id) = id {
+                PluginId::parse(id.clone())?;
+            }
+            if let Some(id) = id_override {
+                PluginId::parse(id.clone())?;
+            }
+        }
+        PluginAction::Update { id } | PluginAction::UpdateSystem { id } => {
+            if let Some(id) = id {
+                PluginId::parse(id.clone())?;
+            }
+        }
+        PluginAction::Remove { id, .. }
+        | PluginAction::Get { id }
+        | PluginAction::Config { id, .. } => {
+            PluginId::parse(id.clone())?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn dispatch(action: PluginAction) -> Result<serde_json::Value, String> {

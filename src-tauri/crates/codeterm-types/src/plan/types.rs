@@ -726,6 +726,8 @@ pub struct Plan {
     // Authorized waivers of pending regression gates. Append-only audit trail.
     #[serde(default)]
     pub regression_gate_overrides: Vec<RegressionGateOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orphaned: Option<super::PlanOrphan>,
 }
 
 impl Plan {
@@ -771,6 +773,7 @@ impl Plan {
             planner_inbox: vec![],
             strides: vec![],
             regression_gate_overrides: vec![],
+            orphaned: None,
         }
     }
 

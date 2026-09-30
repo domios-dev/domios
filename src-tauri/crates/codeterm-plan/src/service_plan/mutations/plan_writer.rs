@@ -76,6 +76,7 @@ impl PlanStore {
         }
         super::super::store_index::record_lifecycle_events(&mut staged, Some(&previous), now_ms);
         super::super::tag_model::normalize_plan(&mut staged);
+        crate::service_plan::text_bounds::validate_plan(&staged)?;
         let path = self
             .persist_plan_and_spec(&staged)
             .map_err(|e| PlanError::Io(e.to_string()))?;

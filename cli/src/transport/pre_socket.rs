@@ -71,7 +71,7 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
 
         // `docs` reads embedded markdown — no daemon dependency.
         Commands::Docs { name } => {
-            cmd::docs::handle(name);
+            cmd::docs::handle(json, name);
             None
         }
 
@@ -94,8 +94,7 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
     let http = match build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
     let result = match action {
@@ -167,8 +166,7 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
             }
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }

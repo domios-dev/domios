@@ -248,23 +248,47 @@ fn generate_instructions_at(
         log::info!("[general-agent] AGENT.md updated");
     }
 
-    let claude_path = dir.join("CLAUDE.md");
-    let existing_claude = std::fs::read_to_string(&claude_path).unwrap_or_default();
-    if let Err(e) = std::fs::write(&claude_path, claude_import_file(&existing_claude)) {
-        log::error!("[general-agent] Failed to write CLAUDE.md: {}", e);
-    }
+    rewrite_user_file(&dir.join("CLAUDE.md"), claude_import_file);
+    rewrite_user_file(&dir.join("AGENTS.md"), |existing| {
+        generated_contract_file(existing, &agent_content)
+    });
+}
 
-    let agents_path = dir.join("AGENTS.md");
-    let existing_agents = std::fs::read_to_string(&agents_path).unwrap_or_default();
-    let agents_content = generated_contract_file(&existing_agents, &agent_content);
-    if let Err(e) = std::fs::write(agents_path, agents_content) {
-        log::error!("[general-agent] Failed to write AGENTS.md: {}", e);
+/// These files carry the user's notes, so one that exists but cannot be read
+/// is left untouched instead of being rebuilt from an empty base.
+fn rewrite_user_file(path: &std::path::Path, render: impl FnOnce(&str) -> String) {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            log::error!(
+                "[general-agent] {} is unreadable ({}); left untouched",
+                path.display(),
+                e
+            );
+            return;
+        }
+    };
+    if let Err(e) = std::fs::write(path, render(&existing)) {
+        log::error!("[general-agent] Failed to write {}: {}", path.display(), e);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unreadable_user_file_is_never_rebuilt_from_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("CLAUDE.md");
+        let unreadable = vec![b'#', 0xff, 0xfe, b'\n'];
+        std::fs::write(&path, &unreadable).unwrap();
+
+        rewrite_user_file(&path, |existing| format!("{existing}generated"));
+
+        assert_eq!(std::fs::read(&path).unwrap(), unreadable);
+    }
 
     #[test]
     fn test_agent_md_import_in_claude_md() {

@@ -325,6 +325,12 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             "✗ plan skill slug is empty after normalization.\nfix: choose a slug containing letters or digits."
                 .into(),
         ),
+        "invalid_plan_text" => Some(format!(
+            "✗ invalid plan text: {}\nfix: shorten the text or remove control characters, then retry.",
+            data.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("text exceeds the plan bounds")
+        )),
         "invalid_external_ref" => Some(format!(
             "✗ invalid external reference: {}",
             data.get("message")
@@ -713,7 +719,7 @@ mod tests {
                 "type": "invalid_model",
                 "provider": "codex",
                 "requested_model": "gpt-9-bogus",
-                "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+                "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
                 "message": "model id 'gpt-9-bogus' is not in provider 'codex' authoritative catalogue; closest catalogue ids: gpt-6-sol, gpt-6-astra",
             }),
             &json!({}),

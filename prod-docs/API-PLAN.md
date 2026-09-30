@@ -20,6 +20,11 @@ and `POST /api/tasks` return `key`.
 label (`plan groups set` relabels), so `plan groups close` accepts every group a
 heartbeat names.
 
+Task text is capped at 256 KiB per task (all fields together), every other plan
+text field at 256 KiB, and stored plan text at 16 MiB. Control bytes such as ESC
+and BEL are refused (bodies and narratives keep line breaks). Plan, section, and
+task names are required, one line, and at most 256 characters.
+
 ### Planner authority over task structure
 
 A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same
@@ -116,18 +121,15 @@ codeterm plan task assign <plan> <task> --tab <tab-id> [--mesh <peer>]
 
 This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and
 reads them back. An explicit remote peer has no local-liveness requirement and
-never inherits the identity of a same-named local tab. A local assignment requires
-the target's verified live session binding and a pending task before creating its
-attempt; missing binding or an active/review-held task refuses without mutation.
-Ordinary assignment never clears a review hold; use review continuation or the
-genuine respawn lifecycle. A fresh attempt
-still requires its own task ACK. `codeterm plan task show` renders them as an
-`executor: tab <id> on peer <peer> (role <role>)` line. Do **not** record an
-executor in a pause reason or any other free text — that is a record with no
-reader.
-
-`plan task update` deliberately has no assign flag: assignment is execution
-authority and lives on its own verb, outside what a Planner may write.
+never inherits the identity of a same-named local tab. A local assignment
+requires the target's verified live session binding and a pending task before
+creating its attempt; missing binding or an active/review-held task refuses
+without mutation. Ordinary assignment never clears a review hold; use review
+continuation or the genuine respawn lifecycle. A fresh attempt still requires
+its own task ACK. `codeterm plan task show` renders an
+`executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor
+in a pause reason or other free text; nothing reads it. `plan task update` has
+no assign flag: assignment is execution authority, outside Planner writes.
 
 ### Recovering a tab-gone task
 
@@ -235,4 +237,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 16 -->
+<!-- revision: 18 -->

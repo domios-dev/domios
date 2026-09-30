@@ -18,6 +18,7 @@ pub mod agent_restart;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 mod analytics_host;
+pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
@@ -49,11 +50,12 @@ pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 mod parked_user_delivery;
-mod process_tree;
+pub(crate) mod process_tree;
 mod prompt_resolution;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod startup_turn;
+pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::{
@@ -98,16 +100,20 @@ pub(crate) mod session_binding_deferral;
 mod session_binding_state;
 pub(crate) mod session_model;
 pub mod session_persist;
+pub(crate) mod shell_exec;
 mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
 pub(crate) mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
+pub(crate) mod spawn_cwd;
 mod spawn_factory;
+pub(crate) mod spawn_launch_verdict;
 mod spawn_params;
 mod spawn_plan_task;
 pub(crate) mod task_assignment;
+pub(crate) mod unattended_launch;
 pub(crate) use spawn_plan_task::planned_task_title;
 mod spawn_rollback;
 mod spawn_shell;
@@ -115,6 +121,7 @@ pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
+pub(crate) mod tab_stop;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
@@ -127,6 +134,7 @@ pub(crate) mod tab;
 pub(crate) mod tab_adopt;
 pub mod tab_budget;
 pub mod tab_chat;
+pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
@@ -161,6 +169,7 @@ pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
 pub(crate) mod worker_lane;
+pub(crate) mod worker_loss;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
@@ -173,8 +182,10 @@ mod workspace_provision;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
 pub(crate) const TEAM_CLOSE_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED]";
+pub(crate) const TEAM_CLOSE_BUSY_REFUSAL_PREFIX: &str = "[TEAM CLOSE REFUSED] busy";
 pub(crate) const WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX: &str = "[WORKSPACE CLOSE CLEANUP FAILED]";
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -238,6 +249,7 @@ pub(crate) use worker_persona::WorkerPersonaReservations;
 #[derive(Clone)]
 pub struct ServiceContext {
     pub(crate) agent_pad_data_dir: std::path::PathBuf,
+    pub(crate) launch_task_files: Arc<parking_lot::Mutex<HashMap<String, Vec<std::path::PathBuf>>>>,
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,

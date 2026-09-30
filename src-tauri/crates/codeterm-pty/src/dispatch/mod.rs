@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
-    /// Try to build the status-bearing snapshot without waiting on lifecycle
-    /// locks. `None` is an observable busy result, not a readiness guess.
-    fn try_mux_snapshot(&self) -> Option<crate::multiplexer::state::MultiplexerSnapshot> {
-        None
-    }
+    /// The status-bearing snapshot, waiting for the state locks no later than
+    /// `deadline`. `None` means a writer held them past the deadline.
+    fn mux_snapshot_until(
+        &self,
+        deadline: std::time::Instant,
+    ) -> Option<crate::multiplexer::state::MultiplexerSnapshot>;
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String>;
     fn read_tab_output(
         &self,
@@ -24,7 +25,13 @@ pub trait CommandPort: Send + Sync {
         full: bool,
     ) -> Result<serde_json::Value, String>;
     fn read_tab_screen(&self, tab_id: &str, formatted: bool) -> Result<serde_json::Value, String>;
-    fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String>;
+    /// Returns warnings the caller must surface (e.g. in-progress work lost).
+    fn close_tab_guarded(
+        &self,
+        caller: Option<&str>,
+        tab_id: &str,
+        force: bool,
+    ) -> Result<Vec<String>, String>;
     fn focus_tab(&self, tab_id: &str) -> Result<(), String>;
     fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String>;
     fn set_tab_description(&self, tab_id: &str, desc: &str) -> Result<(), String>;
@@ -33,7 +40,7 @@ pub trait CommandPort: Send + Sync {
         name: String,
         cwd: Option<String>,
         activate: bool,
-    ) -> crate::multiplexer::state::WorkspaceInfo;
+    ) -> Result<crate::multiplexer::state::WorkspaceInfo, String>;
     fn create_provisioned_workspace(
         &self,
         name: String,
@@ -113,10 +120,13 @@ pub enum Command {
 
     /// Close a tab and kill its PTY. `caller_tab_id` is the tab making the
     /// request (CODETERM_TAB_ID), used to refuse coordinator self-close.
+    /// `force` lets an agent caller close a Worker that holds in-progress work.
     TabClose {
         tab_id: String,
         #[serde(default)]
         caller_tab_id: Option<String>,
+        #[serde(default)]
+        force: bool,
     },
 
     /// Focus a tab (move keyboard focus).
@@ -211,16 +221,19 @@ pub async fn dispatch_blocking(
         .map_err(|e| e.to_string())?
 }
 
-/// Compact tab summaries are safe to project only after one consistent
-/// snapshot has been acquired. The API route uses this entry point so a GUI
-/// startup/lifecycle transition never occupies an async worker waiting for
-/// `mux` or `agent_tracker`.
+/// Returned only when a state writer held the snapshot locks past
+/// [`TAB_SUMMARY_LOCK_DEADLINE`]; other readers never cause it.
 pub const TAB_SUMMARY_BUSY_ERROR: &str =
     "tab summary unavailable while tab state is initializing or changing";
+
+/// Failure deadline for a read-only tab summary waiting on the state locks.
+pub const TAB_SUMMARY_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub const WORKSPACE_PROVISION_CWD_CONFLICT: &str =
     "provision creates its own directory and cannot be combined with cwd";
 
+/// Blocking: waits on the state locks, so async callers go through
+/// [`dispatch_tab_summary_blocking`].
 pub fn dispatch_tab_summary_if_ready(
     cmd: &Command,
     ctx: &dyn CommandPort,
@@ -236,7 +249,7 @@ pub fn dispatch_tab_summary_if_ready(
     };
 
     let snapshot = ctx
-        .try_mux_snapshot()
+        .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
     Ok(CommandResult::Json(serde_json::json!(
         build_tab_summary_json(
@@ -247,6 +260,16 @@ pub fn dispatch_tab_summary_if_ready(
             *agents_only,
         )
     )))
+}
+
+/// Runs the summary's bounded lock wait off the async runtime.
+pub async fn dispatch_tab_summary_blocking(
+    cmd: Command,
+    ctx: std::sync::Arc<dyn CommandPort>,
+) -> Result<CommandResult, String> {
+    tokio::task::spawn_blocking(move || dispatch_tab_summary_if_ready(&cmd, ctx.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
@@ -281,7 +304,8 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         Command::TabClose {
             tab_id,
             caller_tab_id,
-        } => cmd_tab_close(ctx, tab_id, caller_tab_id.as_deref()),
+            force,
+        } => cmd_tab_close(ctx, tab_id, caller_tab_id.as_deref(), *force),
         Command::TabFocus { tab_id } => cmd_tab_focus(ctx, tab_id),
         Command::TabRename { tab_id, title } => cmd_tab_rename(ctx, tab_id, title),
         Command::TabDescribe {
@@ -483,6 +507,7 @@ fn snapshot_agent_liveness(
         boot_stage: tab.boot_stage,
         boot_in_flight: tab.agent_booting,
         provider_exit_observed: tab.exit_suspected_at.is_some(),
+        pending_prompt: tab.pending_prompt.is_some(),
     })
 }
 
@@ -595,7 +620,10 @@ pub fn build_tab_summary_json(
                 "tab_type": tab.tab_type,
                 "cwd": tab.cwd,
                 "boot_stage": tab.boot_stage,
-                "status": tab.agent_state.as_ref().map(|state| state.state),
+                "status": crate::multiplexer::state::tab_status_label(
+                    tab,
+                    snapshot.tab_statuses.get(tab.id.as_str()).copied(),
+                ),
                 "task_binding": tab.task_binding,
                 "roleless_tracked": tab.roleless_tracked,
                 "role": tab.role,
@@ -651,9 +679,14 @@ fn cmd_tab_close(
     ctx: &dyn CommandPort,
     tab_id: &str,
     caller_tab_id: Option<&str>,
+    force: bool,
 ) -> Result<CommandResult, String> {
-    ctx.close_tab_guarded(caller_tab_id, tab_id)?;
-    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+    let warnings = ctx.close_tab_guarded(caller_tab_id, tab_id, force)?;
+    let mut result = serde_json::json!({"ok": true});
+    if !warnings.is_empty() {
+        result["warnings"] = serde_json::json!(warnings);
+    }
+    Ok(CommandResult::Json(result))
 }
 
 fn cmd_tab_focus(ctx: &dyn CommandPort, tab_id: &str) -> Result<CommandResult, String> {
@@ -692,7 +725,7 @@ fn cmd_workspace_create(
         }
         ctx.create_provisioned_workspace(name, activate)?
     } else {
-        ctx.create_workspace(name, cwd, activate)
+        ctx.create_workspace(name, cwd, activate)?
     };
     let json = serde_json::to_value(&ws).map_err(|e| format!("serialize WorkspaceInfo: {}", e))?;
     Ok(CommandResult::Json(json))

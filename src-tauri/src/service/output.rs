@@ -66,12 +66,27 @@ static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
 impl ServiceContext {
-    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+    pub(crate) fn arm_agent_stop_suppression(&self, pty_id: &str) {
         AGENT_STOP_SUPPRESS_UNTIL.lock().unwrap().insert(
             pty_id.to_string(),
             Instant::now() + Duration::from_millis(AGENT_STOP_SUPPRESS_MS),
         );
+    }
+
+    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+        self.arm_agent_stop_suppression(pty_id);
         self.force_agent_idle_for_pty(pty_id);
+    }
+
+    pub(crate) fn is_agent_stop_suppressed_for_tab(&self, tab_id: &str) -> bool {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone());
+        pty_id
+            .as_deref()
+            .is_some_and(Self::is_agent_stop_suppressed)
     }
 
     fn is_agent_stop_suppressed(pty_id: &str) -> bool {
@@ -932,6 +947,9 @@ impl ServiceContext {
                 {
                     return;
                 }
+                if self.is_second_prompt_rendering(tab_id, prompt, prompt_kind) {
+                    return;
+                }
                 let notify_prompt = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
@@ -954,6 +972,7 @@ impl ServiceContext {
                 };
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
+                self.hold_boot_for_owner_prompt(tab_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "prompt-state-changed",
@@ -1021,7 +1040,14 @@ impl ServiceContext {
 
         match event {
             AgentEvent::PermissionRequest => {}
+            AgentEvent::TurnError => {
+                self.mark_agent_turn_error(tab_id);
+            }
+            AgentEvent::TurnStarted => {
+                self.mark_agent_turn_started(tab_id);
+            }
             AgentEvent::TaskComplete => {
+                self.mark_agent_turn_complete(tab_id);
                 if prev_status == TabStatus::Working {
                     let title = self.mux.read().get_tab(tab_id).map(|p| p.title.clone());
                     if let Some(title) = title {
@@ -1131,50 +1157,8 @@ fn decide_agent_output_lifecycle(
 }
 
 #[cfg(test)]
-mod exit_detection_tests {
-    use super::{
-        decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
-        should_heuristically_detect_session, AgentOutputLifecycleDecision,
-    };
-
-    #[test]
-    fn shell_prompt_recognized_only_on_bare_prompt_lines() {
-        assert!(screen_ends_in_shell_prompt("user@host ~ %"));
-        assert!(screen_ends_in_shell_prompt("C:\\Users\\me>"));
-        assert!(screen_ends_in_shell_prompt("$"));
-        assert!(screen_ends_in_shell_prompt("output\n# "));
-        // A running agent TUI footer is not a shell prompt.
-        assert!(!screen_ends_in_shell_prompt(
-            "auto mode on (shift+tab to cycle)"
-        ));
-        assert!(!screen_ends_in_shell_prompt(""));
-    }
-
-    #[test]
-    fn shell_prompt_without_markers_is_diagnostic_only() {
-        assert_eq!(
-            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", false),
-            AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
-        );
-        assert_eq!(
-            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", true),
-            AgentOutputLifecycleDecision::PreserveIdentity
-        );
-    }
-
-    #[test]
-    fn session_detection_never_replaces_a_bound_session() {
-        assert!(should_detect_unbound_session(None));
-        assert!(!should_detect_unbound_session(Some("session-owned-by-tab")));
-    }
-
-    #[test]
-    fn structured_sessions_require_authoritative_provider_binding() {
-        assert!(!should_heuristically_detect_session(true, true, true));
-        assert!(!should_heuristically_detect_session(true, false, true));
-        assert!(should_heuristically_detect_session(true, false, false));
-    }
-}
+#[path = "output/exit_detection_tests.rs"]
+mod exit_detection_tests;
 
 #[cfg(test)]
 #[path = "output/agent_lifecycle_tests.rs"]

@@ -6,7 +6,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-use super::access_policy::check_access;
+use super::access_policy::peer_access_allowed;
 use super::routes::AppState;
 use crate::mesh::types::AccessLevel;
 
@@ -45,7 +45,7 @@ fn tab_hook_target<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a s
     if tab_id.is_empty() || tab_id.contains('/') {
         return None;
     }
-    matches!(event, "session_start" | "stop").then_some((tab_id, event))
+    matches!(event, "session_start" | "provider_event" | "stop").then_some((tab_id, event))
 }
 
 pub(crate) const PUBLIC_PATHS: &[&str] = &[
@@ -161,6 +161,64 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         }
         Err(_) => Err(()),
     }
+}
+
+pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match identify_caller(state, auth).ok()? {
+        CallerIdentity::Peer { instance_id, .. } => Some(instance_id),
+        _ => None,
+    }
+}
+
+pub(crate) fn isolated_caller_peer_id(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Option<String> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match identify_caller(state, auth).ok()? {
+        CallerIdentity::Peer {
+            instance_id,
+            access_level: AccessLevel::AgentIsolated,
+            ..
+        } => Some(instance_id),
+        _ => None,
+    }
+}
+
+pub(crate) fn peer_owns_tab(peer_id: &str, tab: &crate::multiplexer::types::Tab) -> bool {
+    tab.ownership
+        .as_ref()
+        .is_some_and(|ownership| ownership.peer_id == peer_id)
+}
+
+pub(crate) fn tab_owner_peer_id(state: &AppState, tab_id: &str) -> Option<String> {
+    let mux = state.svc.mux.read();
+    // Resolve exactly as the tab handlers do, so an alias cannot name a different tab.
+    let resolved = mux.resolve_tab_id(tab_id)?;
+    mux.get_tab(&resolved)
+        .and_then(|tab| tab.ownership.as_ref())
+        .map(|ownership| ownership.peer_id.clone())
+}
+
+/// Authorizes an authenticated peer request against live tab ownership; shared by
+/// the signed-request middleware and the inbound mesh relay.
+pub(crate) fn authorize_peer_request(
+    state: &AppState,
+    access: &AccessLevel,
+    peer_id: &str,
+    method: &Method,
+    path: &str,
+) -> bool {
+    peer_access_allowed(access, peer_id, method, path, |tab_id| {
+        tab_owner_peer_id(state, tab_id)
+    })
 }
 
 pub(crate) fn caller_access_level(
@@ -292,7 +350,7 @@ pub async fn auth_middleware(
                 )
                     .into_response();
             }
-            if check_access(access_level, &method, &path) {
+            if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
                 next.run(req).await
             } else {
                 log::warn!(
@@ -346,6 +404,7 @@ pub async fn auth_middleware(
 
 #[cfg(test)]
 mod tests {
+    use super::super::access_policy::check_access;
     use super::*;
 
     #[test]
@@ -353,6 +412,10 @@ mod tests {
         assert_eq!(
             tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/session_start"),
             Some(("tab-1", "session_start")),
+        );
+        assert_eq!(
+            tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/provider_event"),
+            Some(("tab-1", "provider_event")),
         );
         assert_eq!(
             tab_hook_target(&Method::POST, "/api/tabs/tab-1/hook/stop"),
@@ -490,11 +553,17 @@ mod tests {
     fn agent_isolated_allows_agent_ops() {
         let level = AccessLevel::AgentIsolated;
         assert!(check_access(&level, &Method::GET, "/api/tabs"));
-        assert!(check_access(&level, &Method::GET, "/api/config"));
+        assert!(check_access(&level, &Method::GET, "/api/tabs/abc/text"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/exec"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/respond"));
         assert!(check_access(&level, &Method::POST, "/api/agents/spawn"));
         assert!(check_access(&level, &Method::POST, "/api/tabs/abc/report"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/clear"));
+        assert!(!check_access(&level, &Method::GET, "/api/config"));
+        assert!(!check_access(&level, &Method::GET, "/api/mem/search"));
+        assert!(!check_access(&level, &Method::GET, "/api/notifications"));
+        assert!(!check_access(&level, &Method::GET, "/api/workspaces"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
         assert!(!check_access(
@@ -502,6 +571,43 @@ mod tests {
             &Method::POST,
             "/api/mesh/broadcast/start"
         ));
+    }
+
+    #[test]
+    fn agent_isolated_limited_to_spawned_tabs() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let tab_id = mux.snapshot().workspaces[0].tabs[0].clone();
+        mux.get_tab_mut(&tab_id).unwrap().ownership = Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "remote".into(),
+            controller_tab_id: None,
+            peer_id: "peer-a".into(),
+            peer_name: "Peer A".into(),
+            team: None,
+        });
+        let level = AccessLevel::AgentIsolated;
+        for (method, path) in [
+            (Method::GET, "/api/tabs/abc/text"),
+            (Method::POST, "/api/tabs/abc/send"),
+            (Method::POST, "/api/tabs/abc/exec"),
+            (Method::POST, "/api/tabs/abc/prompt/respond"),
+            (Method::POST, "/api/tabs/abc/report"),
+            (Method::POST, "/api/tabs/abc/prompt/clear"),
+            (Method::POST, "/api/tabs/abc/attachments"),
+        ] {
+            let owner_is = |owner: &'static str| {
+                peer_access_allowed(&level, "peer-a", &method, path, |_| Some(owner.into()))
+            };
+            assert!(owner_is("peer-a"));
+            assert!(!owner_is("peer-b"));
+        }
+        assert!(!peer_access_allowed(
+            &level,
+            "peer-a",
+            &Method::POST,
+            "/api/tabs/abc/send",
+            |_| None
+        ));
+        assert!(peer_owns_tab("peer-a", mux.get_tab(&tab_id).unwrap()));
     }
 
     #[test]

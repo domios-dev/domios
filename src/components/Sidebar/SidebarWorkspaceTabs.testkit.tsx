@@ -112,7 +112,7 @@ export async function renderSidebar({
   sortedTabs?: string[];
   plans?: Plan[];
   planIndex?: PlanIndexEntry[];
-  statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Dead">;
+  statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Error" | "Dead">;
   providers?: ProviderDescriptor[];
   activeTabId?: string | null;
   onActivateTab?: (tabId: string) => void;

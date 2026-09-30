@@ -12,12 +12,19 @@ mod adopt_search;
 pub(crate) mod caller_context;
 mod gate_cmd;
 mod mesh_dispatch;
+mod params;
 mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
 mod task_cmd;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 use self::caller_context::CallerContext;
+#[cfg(test)]
+use self::params::plan_mutation_params;
+use self::params::{
+    default_project_path, plan_archive_params, plan_delete_params, plan_transfer_params,
+};
+pub(crate) use self::params::{lane_params, validate_plan_delete_confirmation};
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_lanes::render_lane_removed;
@@ -141,98 +148,6 @@ fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value
     call_plan_rpc(client, method, params)
 }
 
-pub(crate) fn validate_plan_delete_confirmation(plan_id: &str, yes: bool) -> Result<(), String> {
-    if !yes {
-        return Err(format!(
-            "refusing to delete plan '{plan_id}' without --yes; pass --yes or --confirm to permanently delete it"
-        ));
-    }
-    Ok(())
-}
-
-fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
-    validate_plan_delete_confirmation(&plan_id, yes)?;
-    Ok(json!({ "plan_id": plan_id }))
-}
-
-fn plan_transfer_params(
-    plan_id: String,
-    to: String,
-    reason: Option<String>,
-    caller_tab_id: Option<&str>,
-) -> Result<Value, String> {
-    let caller_tab_id = caller_tab_id
-        .filter(|tab_id| !tab_id.trim().is_empty())
-        .ok_or_else(|| {
-            "plan transfer requires CODETERM_TAB_ID from the calling Team manager".to_string()
-        })?;
-    let mut params = json!({
-        "plan_id": plan_id,
-        "to": { "tab_id": to },
-        "caller_tab_id": caller_tab_id,
-    });
-    if let Some(reason) = reason {
-        params["reason"] = json!(reason);
-    }
-    Ok(params)
-}
-
-fn default_project_path(client: &dyn RpcClient) -> Option<String> {
-    if client.is_remote() {
-        return None;
-    }
-    std::env::current_dir()
-        .ok()
-        .map(|path| path.display().to_string())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn lane_params(
-    tab_id: Option<String>,
-    workspace_id: Option<String>,
-    workspace_name: Option<String>,
-    worktree_path: Option<String>,
-    branch: Option<String>,
-    base: Option<String>,
-    destination: Option<String>,
-    cleanup_status: Option<String>,
-    cleanup_hints: Vec<String>,
-) -> Option<Value> {
-    let mut lane = json!({});
-    if let Some(value) = tab_id {
-        lane["tab_id"] = json!(value);
-    }
-    if let Some(value) = workspace_id {
-        lane["workspace_id"] = json!(value);
-    }
-    if let Some(value) = workspace_name {
-        lane["workspace_name"] = json!(value);
-    }
-    if let Some(value) = worktree_path {
-        lane["worktree_path"] = json!(value);
-    }
-    if let Some(value) = branch {
-        lane["branch"] = json!(value);
-    }
-    if let Some(value) = base {
-        lane["base"] = json!(value);
-    }
-    if let Some(value) = destination {
-        lane["destination"] = json!(value);
-    }
-    if let Some(value) = cleanup_status {
-        lane["cleanup_status"] = json!(value);
-    }
-    if !cleanup_hints.is_empty() {
-        lane["cleanup_hints"] = json!(cleanup_hints);
-    }
-    if lane.as_object().is_some_and(|items| !items.is_empty()) {
-        Some(lane)
-    } else {
-        None
-    }
-}
-
 pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
     let action = match action {
         PlanAction::Task {
@@ -346,7 +261,8 @@ fn run_plan(
                 params["plan_id"] = json!(plan_id);
             }
             maybe_inject_caller_tab(&mut params);
-            let val = call(client, "plan.get", params)?;
+            let mut val = call(client, "plan.get", params)?;
+            strip_display_paths(&mut val);
             if json {
                 return Ok(Some(val));
             }
@@ -797,8 +713,10 @@ fn run_plan(
             call(client, "plan.resume", json!({ "plan_id": plan_id }))
         }
 
-        PlanAction::Archive { plan_id } => {
-            call(client, "plan.archive", json!({ "plan_id": plan_id }))
+        PlanAction::Archive { plan_id, yes } => {
+            let mut params = plan_archive_params(plan_id, yes, caller_tab_id().as_deref())?;
+            inject_trusted_session(&mut params);
+            call(client, "plan.archive", params)
         }
 
         PlanAction::Unarchive { plan_id } => {
@@ -806,7 +724,9 @@ fn run_plan(
         }
 
         PlanAction::Delete { plan_id, yes } => {
-            call(client, "plan.delete", plan_delete_params(plan_id, yes)?)
+            let mut params = plan_delete_params(plan_id, yes, caller_tab_id().as_deref())?;
+            inject_trusted_session(&mut params);
+            call(client, "plan.delete", params)
         }
 
         PlanAction::Transfer {
@@ -1173,6 +1093,14 @@ fn run_plan(
     };
 
     result.map(Some)
+}
+
+pub(crate) fn strip_display_paths(value: &mut Value) {
+    for key in ["project_path", "canonical_project_path"] {
+        if let Some(path) = value.get(key).and_then(Value::as_str) {
+            value[key] = json!(codeterm_paths::strip_verbatim_prefix(path));
+        }
+    }
 }
 
 #[cfg(test)]

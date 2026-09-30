@@ -157,12 +157,13 @@ impl ChatSendLedger {
     pub(crate) fn try_start_scoped_with_normalization(
         &self,
         tab_id: &str,
-        text: &str,
+        turn_evidence_text: &str,
         anchor: Option<SendEvidenceAnchor>,
         live_binding: Option<SendLiveBinding>,
         turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     ) -> Result<ChatSendStatus, String> {
-        let normalized_payload = normalize_turn_evidence_with(text, turn_normalization);
+        let normalized_payload =
+            normalize_turn_evidence_with(turn_evidence_text, turn_normalization);
         let mut state = self.state.lock();
         let in_flight = state
             .by_id
@@ -552,9 +553,10 @@ impl crate::service::ServiceContext {
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
         let evidence = self.chat_send_anchor(tab_id);
+        let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
         let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
             tab_id,
-            &text,
+            &turn_evidence_text,
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
             evidence.turn_normalization,
@@ -595,6 +597,31 @@ impl crate::service::ServiceContext {
             }
         });
         Ok(response)
+    }
+
+    fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
+        let provider_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
+                .then(|| tab.agent_type.clone())
+                .flatten()
+        });
+        let Some(provider_id) = provider_id else {
+            return text.to_string();
+        };
+        let sanitized = crate::service::pty_io::sanitize_agent_prompt_input(text);
+        let follow_up = self
+            .agent_registry
+            .with_provider(&provider_id, |provider| {
+                provider
+                    .paste_capability()?
+                    .typed_follow_up_for(&sanitized)
+                    .map(str::to_string)
+            })
+            .flatten();
+        follow_up.map_or_else(
+            || text.to_string(),
+            |follow_up| format!("{sanitized}{follow_up}"),
+        )
     }
 }
 
@@ -851,6 +878,31 @@ mod tests {
         assert_eq!(confirmed.state, ChatSendState::Sent);
         assert_eq!(confirmed.error, None);
         assert_eq!(ledger.reconcile("tab-1"), vec![confirmed]);
+    }
+
+    #[test]
+    fn typed_follow_up_is_part_of_exact_chat_turn_evidence() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger
+            .try_start_scoped_with_normalization(
+                "tab-1",
+                "opaque-body suffix-token",
+                None,
+                None,
+                Default::default(),
+            )
+            .unwrap();
+        ledger.finish(&pending.send_id, Ok(())).unwrap();
+
+        assert!(ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "opaque-body")
+            .is_none());
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "opaque-body suffix-token")
+            .expect("the exact typed follow-up is included in the user turn");
+
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
     }
 
     #[test]

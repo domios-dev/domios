@@ -1,4 +1,4 @@
-// /v1/models list mapped ONTO the curated aliases (opus/sonnet/haiku/fable):
+// /v1/models list mapped onto the aliases accepted by the installed CLI.
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 
@@ -128,7 +128,9 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped: ModelInfo = {
       id: alias.id,
-      displayName: match ? withVersion(alias.displayName, versionOf(match)) : alias.displayName,
+      displayName: match && !alias.id.endsWith("[1m]")
+        ? withVersion(alias.displayName, versionOf(match))
+        : alias.displayName,
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -138,7 +140,10 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
 }
 
 function familyOf(alias: ModelInfo): string | null {
-  const hay = (alias.id + " " + alias.displayName).toLowerCase();
+  const id = alias.id.toLowerCase();
+  if (id === "best") return "fable";
+  if (id === "opusplan") return "opus";
+  const hay = (id.replace(/\[1m\]$/, "") + " " + alias.displayName).toLowerCase();
   for (let i = 0; i < FAMILIES.length; i++) {
     if (hay.indexOf(FAMILIES[i]) !== -1) return FAMILIES[i];
   }

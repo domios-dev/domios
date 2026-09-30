@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod model_identity;
 mod restorable_launch;
+pub use model_identity::{
+    LaunchModelReport, ModelFallbackNotice, ModelIdentityMismatch, PendingModelSwitchObservation,
+    SessionModelIdentity,
+};
 pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
@@ -30,34 +35,6 @@ pub struct Workspace {
         skip_serializing_if = "codeterm_types::plan::task_key::WorkspaceTaskKeys::is_unissued"
     )]
     pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelIdentityMismatch {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planned_model: Option<String>,
-    pub requested_model: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_resolved_model: Option<String>,
-    pub actual_model: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelFallbackNotice {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub planned_model: Option<String>,
-    pub requested_model: String,
-    pub provider_resolved_model: String,
-    #[serde(default)]
-    pub actual_model: Option<String>,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionModelIdentity {
-    pub session_id: String,
-    pub session_binding_nonce: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,13 +429,14 @@ impl PendingDeliveryProvenance {
 }
 
 /// Who a tab's prompts are owed to; declared at spawn, never inferred from
-/// strings. `Automation` prompts have no human owner and must not notify.
+/// strings. `Automation` has no owner; user-owned automation does.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TabAudience {
     #[default]
     User,
     Automation,
+    UserOwnedAutomation,
 }
 
 /// Rename-proof identity for a spawned agent tab. Captures the assignment a
@@ -483,12 +461,18 @@ pub struct TaskBinding {
 pub struct PriorBindingNonce {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_target_session_id: Option<String>,
     pub nonce: String,
 }
 
-/// Session of the newest retired launch; `None` when that launch never bound one.
+/// Session bound by the newest retired launch, or its target if a resume did not bind.
 pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
-    lineage.last()?.session_id.as_deref()
+    let newest = lineage.last()?;
+    newest
+        .session_id
+        .as_deref()
+        .or(newest.resume_target_session_id.as_deref())
 }
 
 /// A tab represents one terminal, chat backend, or transient choice surface.
@@ -554,6 +538,8 @@ pub struct Tab {
     pub agent_session_model: Option<String>,
     #[serde(skip, default)]
     pub agent_session_model_identity: Option<SessionModelIdentity>,
+    #[serde(skip, default)]
+    pub pending_model_switch_observation: Option<PendingModelSwitchObservation>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
@@ -800,17 +786,45 @@ impl Tab {
 
     /// Retire the current nonce with its issuing session before either is cleared.
     pub fn remember_superseded_binding_nonce(&mut self) {
-        const MAX_LINEAGE: usize = 8;
         let Some(current) = self.session_binding_nonce.clone() else {
             return;
         };
         let session_id = self.agent_session_id.clone();
+        if let Some(existing) = self
+            .prior_session_binding_nonces
+            .iter_mut()
+            .find(|entry| entry.nonce == current)
+        {
+            if session_id.is_some() {
+                existing.session_id = session_id;
+                existing.resume_target_session_id = None;
+            }
+            return;
+        }
+        self.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id,
+            resume_target_session_id: None,
+            nonce: current,
+        });
+        self.trim_prior_session_binding_nonces();
+    }
+
+    pub fn remember_resume_binding_nonce(&mut self, session_id: &str) {
+        let Some(current) = self.session_binding_nonce.clone() else {
+            return;
+        };
         self.prior_session_binding_nonces
             .retain(|entry| entry.nonce != current);
         self.prior_session_binding_nonces.push(PriorBindingNonce {
-            session_id,
+            session_id: None,
+            resume_target_session_id: Some(session_id.to_string()),
             nonce: current,
         });
+        self.trim_prior_session_binding_nonces();
+    }
+
+    fn trim_prior_session_binding_nonces(&mut self) {
+        const MAX_LINEAGE: usize = 8;
         let overflow = self
             .prior_session_binding_nonces
             .len()
@@ -889,6 +903,7 @@ mod tests {
             agent_session_name: None,
             agent_session_model: None,
             agent_session_model_identity: None,
+            pending_model_switch_observation: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,

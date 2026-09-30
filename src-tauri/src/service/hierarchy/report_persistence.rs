@@ -158,11 +158,16 @@ pub(super) fn persist_plan_only_evidence(
     message: &str,
     now_ms: u64,
 ) -> Result<Option<(String, String)>, crate::service::ReportSubmissionError> {
-    let (Some(plan_id), Some(super::PlanOnlyReportAuthority::EvidenceReporter(_))) =
-        (plan_id, authority)
-    else {
+    let Some(plan_id) = plan_id else {
         return Ok(None);
     };
+    if !matches!(
+        authority,
+        Some(super::PlanOnlyReportAuthority::EvidenceReporter(_))
+            | Some(super::PlanOnlyReportAuthority::PlanOwner)
+    ) {
+        return Ok(None);
+    }
     let stride_id =
         persist_authorized_plan_evidence_report(svc, tab_id, plan_id, from, message, now_ms)?;
     Ok(Some((plan_id.to_string(), stride_id)))

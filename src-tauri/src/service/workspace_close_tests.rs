@@ -3,7 +3,62 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::plan::{OrchestratorRef, Plan};
 use crate::service::plan::NewTask;
+use crate::service::tab::{normalize_tab_description, validate_tab_title, MAX_TAB_TITLE_CHARS};
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::workspace::{validate_workspace_name, MAX_WORKSPACE_NAME_CHARS};
+
+#[test]
+fn names_and_titles_validated() {
+    assert!(validate_workspace_name("Project Alpha").is_ok());
+    for name in ["", "   ", "line\nbreak", "raw\u{1b}escape", "bell\u{7}"] {
+        assert!(validate_workspace_name(name).is_err());
+    }
+    assert!(validate_workspace_name(&"w".repeat(MAX_WORKSPACE_NAME_CHARS)).is_ok());
+    assert!(validate_workspace_name(&"w".repeat(MAX_WORKSPACE_NAME_CHARS + 1)).is_err());
+
+    assert!(validate_tab_title("Worker42").is_ok());
+    for title in ["", "two words", "raw\u{1b}escape", "bell\u{7}"] {
+        assert!(validate_tab_title(title).is_err());
+    }
+    assert!(validate_tab_title(&"w".repeat(MAX_TAB_TITLE_CHARS)).is_ok());
+    assert!(validate_tab_title(&"w".repeat(MAX_TAB_TITLE_CHARS + 1)).is_err());
+
+    assert!(normalize_tab_description("single line").is_ok());
+    assert!(normalize_tab_description("line one\nline two").is_err());
+    assert!(normalize_tab_description("raw\u{1b}escape").is_err());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn move_tab_missing_workspace_names_target() {
+    let (mux, tab_id) = MultiplexerState::new();
+    let from_workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let error = fixture
+        .service
+        .move_tab(&tab_id, &from_workspace_id, "missing-workspace")
+        .unwrap_err();
+    assert_eq!(error, "Workspace not found: missing-workspace");
+}
+
+#[test]
+fn close_tab_keeps_focus_in_workspace() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let middle_tab = mux.create_tab(&workspace_id).unwrap();
+    let adjacent_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.set_active_tab(&workspace_id, &middle_tab).unwrap();
+    mux.set_focused_tab(&middle_tab).unwrap();
+
+    mux.close_tab(&middle_tab).unwrap();
+
+    let focused_tab = mux.get_focused_tab_id().unwrap();
+    assert_eq!(focused_tab, adjacent_tab);
+    assert_eq!(
+        mux.find_workspace_for_tab(focused_tab).as_deref(),
+        Some(workspace_id.as_str())
+    );
+}
 
 #[test]
 fn workspace_not_found_refusal_is_logged_with_known_ids() {
@@ -164,6 +219,80 @@ async fn workspace_close_guard_human_can_close_empty_workspace() {
         .is_none());
 }
 
+#[tokio::test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+async fn workspace_close_handles_crons() {
+    use crate::cron::store::{CronCreateParams, CronStore};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Cron workspace".into(), None).id;
+    let retained_workspace_id = mux.create_workspace("Retained workspace".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+    let path = fixture.temp.path().join("crons.json");
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
+    let add_cron = |workspace_id: String, name: &str| CronCreateParams {
+        name: name.into(),
+        workspace_id,
+        team_id: None,
+        detach_from_team: false,
+        schedule: "* * * * *".into(),
+        task: "run the job".into(),
+        description: None,
+        agent: Some("fixture".into()),
+        model: None,
+        reasoning_effort: None,
+        cwd: None,
+        role: None,
+        skill: None,
+        creator_tab_id: None,
+        report_target_tab_id: None,
+        enabled: Some(true),
+        max_history: None,
+        oneshot: None,
+        jitter_max_ms: Some(0),
+        tz: None,
+        timeout_seconds: None,
+    };
+    let removed_job = cron
+        .lock()
+        .create(add_cron(workspace_id.clone(), "Removed cron"))
+        .unwrap();
+    let removed_log = cron
+        .lock()
+        .save_log(&removed_job.id, "run-1", "run output")
+        .unwrap();
+    cron.lock()
+        .create(add_cron(retained_workspace_id.clone(), "Retained cron"))
+        .unwrap();
+    fixture._app.manage(cron.clone());
+    fixture._app.manage(Arc::new(std::sync::Condvar::new()));
+
+    fixture
+        .service
+        .close_workspace_as_human(&workspace_id, false)
+        .await
+        .unwrap();
+
+    assert!(cron.lock().list_for_workspace(&workspace_id).is_empty());
+    assert!(!removed_log.exists());
+    assert_eq!(
+        cron.lock().list_for_workspace(&retained_workspace_id).len(),
+        1
+    );
+    let persisted = CronStore::new_with_path(path);
+    assert!(persisted.list_for_workspace(&workspace_id).is_empty());
+    assert_eq!(
+        persisted.list_for_workspace(&retained_workspace_id).len(),
+        1
+    );
+}
+
 #[test]
 #[cfg_attr(
     not(windows),
@@ -172,6 +301,7 @@ async fn workspace_close_guard_human_can_close_empty_workspace() {
 fn unattributed_close_cannot_close_an_unprotected_workspace() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.create_workspace("Unattributed".into(), None).id;
+    mux.create_tab(&workspace_id).unwrap();
     let fixture = ServiceFixture::new(mux);
 
     let error = fixture
@@ -186,6 +316,29 @@ fn unattributed_close_cannot_close_an_unprotected_workspace() {
         .read()
         .get_workspace(&workspace_id)
         .is_some());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn unattributed_caller_closes_an_empty_workspace() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Empty".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+
+    fixture
+        .service
+        .close_workspace_guarded(None, &workspace_id, false)
+        .expect("an empty workspace has nothing a confirmation protects");
+
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_none());
 }
 
 #[test]
@@ -357,7 +510,7 @@ async fn human_force_close_of_team_workspace_tears_down_team_via_close_team() {
             workspace_id: workspace_id.clone(),
             team_id: Some(team_id.clone()),
             detach_from_team: false,
-            schedule: "0 0 * * * *".into(),
+            schedule: "0 0 * * *".into(),
             task: "Check progress".into(),
             description: None,
             agent: Some("fixture".into()),
@@ -700,7 +853,7 @@ async fn close_team_via_service_persists_the_reduced_desk() {
     // The REAL service boundary, not the close_team_with_state_change helper.
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::Human)
+        .close_team(&team_id, TeamMutationCaller::Human, false)
         .await
         .unwrap();
 
@@ -742,7 +895,7 @@ async fn workspace_close_after_team_close_finds_existing_workspace() {
 
     fixture
         .service
-        .close_team(&team_id, TeamMutationCaller::Human)
+        .close_team(&team_id, TeamMutationCaller::Human, false)
         .await
         .unwrap();
     fixture

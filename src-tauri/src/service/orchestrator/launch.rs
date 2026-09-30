@@ -17,6 +17,8 @@ pub(crate) struct LaunchRegistry {
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 mod command;
+#[path = "launch/cwd_guard.rs"]
+mod cwd_guard;
 #[path = "launch/exit_recovery_shell.rs"]
 mod exit_recovery_shell;
 #[cfg(test)]
@@ -383,6 +385,7 @@ pub(crate) fn launch_agent_in_background(
         Default::default(),
         task_identity,
         ready_tx,
+        None,
     );
 }
 
@@ -413,6 +416,7 @@ pub(crate) fn launch_agent_in_background_with_task_turn(
         Default::default(),
         task_identity,
         ready_tx,
+        None,
     );
 }
 
@@ -430,7 +434,14 @@ pub(crate) fn launch_agent_in_background_with_env(
     launch_env: std::collections::HashMap<String, String>,
     task_identity: Option<crate::service::startup_lease::StartupTaskIdentity>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    resume_session_id: Option<String>,
 ) {
+    if let Some(reason) = cwd_guard::refuse_launch_without_cwd(&svc, &tab_id) {
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(Err(reason));
+        }
+        return;
+    }
     let registry = svc.agent_registry.clone();
     let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
     let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
@@ -663,9 +674,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        if let Err(error) =
-            launch.capture_binding_nonce(&svc, task_identity.as_ref(), public_send_key)
-        {
+        if let Err(error) = launch.capture_binding_nonce(
+            &svc,
+            task_identity.as_ref(),
+            public_send_key,
+            origin,
+            resume_session_id.as_deref(),
+        ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
             set_booting(false);
@@ -734,9 +749,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        let first_launch = match launch
-            .write_if_current(|| svc.send_shell_spawn_after_ready(&pty_id, &wrapped_launch_cmd))
-        {
+        let first_launch = match launch.write_if_current(|| {
+            svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+        }) {
             Some(result) => result,
             None => return,
         };
@@ -784,6 +799,8 @@ pub(crate) fn launch_agent_in_background_with_env(
                             &svc,
                             task_identity.as_ref(),
                             public_send_key,
+                            origin,
+                            resume_session_id.as_deref(),
                         ) {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);
@@ -823,7 +840,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                             return;
                         }
                         match launch.write_if_current(|| {
-                            svc.send_shell_spawn_after_ready(&pty_id, &wrapped_launch_cmd)
+                            svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
                         }) {
                             Some(result) => result,
                             None => return,
@@ -969,18 +986,11 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
-        let input_ready_stage =
-            startup_readiness::input_ready_stage_after_provider_ready(session_starts_on_first_turn);
         if session_starts_on_first_turn {
             set_booting(false);
-        }
-        let input_ready = if session_starts_on_first_turn {
-            launch.emit_first_turn_input_ready(&svc)
-        } else {
-            launch.emit(&svc, input_ready_stage)
-        };
-        if !input_ready {
-            return;
+            if !launch.emit_first_turn_input_ready(&svc) {
+                return;
+            }
         }
         delivery_gate.mark_provider_ready();
 
@@ -1104,6 +1114,16 @@ pub(crate) fn launch_agent_in_background_with_env(
                 let _ = tx.send(Err("launch readiness was superseded".into()));
             }
             return;
+        }
+        if !session_starts_on_first_turn {
+            let session_authenticated = launch.await_provider_ack(std::time::Duration::ZERO);
+            if let Some(stage) =
+                startup_readiness::provider_ready_stage(&readiness, session_authenticated)
+            {
+                if !launch.emit(&svc, stage) {
+                    return;
+                }
+            }
         }
         if let Err(error) = startup_readiness::emit_agent_ready(&mut launch, &svc, readiness) {
             if let Some(tx) = ready_tx {

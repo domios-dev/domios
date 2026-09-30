@@ -12,6 +12,7 @@ mod parse;
 mod relay;
 mod rpc;
 mod tab_list;
+mod tty_line_guard;
 mod update;
 mod workspace_topology;
 
@@ -29,6 +30,7 @@ fn remote_close_tab_id(command: &Commands) -> Option<&str> {
                 super::TabAction::Close {
                     id: Some(id),
                     tab: None,
+                    ..
                 },
         } => Some(id),
         _ => None,
@@ -135,8 +137,7 @@ pub(crate) fn run_plan_task_dispatch_origin(cli: super::Cli, peer: &str) {
     let (mut client, _) = match crate::client::SocketClient::connect_local() {
         Ok(connection) => connection,
         Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, error.to_string());
         }
     };
     crate::cmd::plan::handle_mesh_dispatch(&mut client, cli.json, task, peer);
@@ -150,8 +151,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
             Ok(client) => client,
             Err(error) => {
-                eprintln!("Error: {error}");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, error.to_string());
             }
         };
         match cli.command {
@@ -202,8 +202,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     let local = match super::build_local_api() {
         Ok(client) => client,
         Err(e) => {
-            eprintln!("Error: failed to connect to local API: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
         }
     };
 
@@ -260,21 +259,37 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     // envelope as the local path instead of the peer's bare REST array.
     if let Some(rendering) = tab_list::rendering_for(&cli) {
         let (_, path, _) = api_map::cli_command_to_api(&cli.command);
-        let tabs = relay::mesh_relay_invoke(target, "GET", &path, None, cli.json);
+        let answer = relay::mesh_relay_invoke_with_peer(target, "GET", &path, None, cli.json);
+        if !cli.json {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+        }
+        let tabs = answer.data;
         let requested_workspace = match &cli.command {
             Commands::Tab {
                 action: TabAction::List { workspace, .. },
             } => workspace.as_deref(),
             _ => None,
         };
-        tab_list::print(rendering, &tabs, requested_workspace);
+        tab_list::print(rendering, &tabs, requested_workspace, answer.peer.as_ref());
         return;
     }
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
-        eprintln!("Error: {}", path);
-        std::process::exit(2);
+        crate::cmd::print::fail(2, path.to_string());
+    }
+    if !cli.json
+        && matches!(
+            cli.command,
+            Commands::Mem {
+                action: super::MemAction::Search { .. }
+            }
+        )
+    {
+        let answer = relay::mesh_relay_invoke_with_peer(target, &method, &path, None, false);
+        relay::announce_answering_peer(target, answer.peer.as_ref());
+        print!("{}", crate::cmd::mem::render_search_hits(&answer.data));
+        return;
     }
     // sidebar ghosts it under its report target immediately (before any report).
     if matches!(
@@ -289,6 +304,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     if let Some(id) = remote_close_tab_id(&cli.command) {
         relay::mesh_close_tab_and_forget_remote_worker(&base, target, id, cli.json);
         return;
+    }
+    if matches!(cli.command, Commands::SendText { to_shell: true, .. }) {
+        tty_line_guard::enforce(target, body.as_deref(), cli.json);
     }
     let body = if matches!(cli.command, Commands::SendText { .. }) {
         body.map(|b| enrich_send_body_with_local_source(&local, &base, b))

@@ -36,8 +36,10 @@ fn link(
     }
     // are nonce-protected against replay, i.e. dead on first reuse).
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
-        eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
-        std::process::exit(1);
+        crate::cmd::print::fail(
+            1,
+            "no api.token in config — web access needs one (Settings → Network).",
+        );
     };
 
     let explicit_port = port_flag.is_some();
@@ -172,12 +174,13 @@ fn origin_host_port(origin: &str, default_port: u16) -> (String, u16) {
 /// resulting link works from an https-origin browser.
 fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
     let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
-        eprintln!("Error: no api.token in config — web access needs one (Settings → Network).");
-        std::process::exit(1);
+        crate::cmd::print::fail(
+            1,
+            "no api.token in config — web access needs one (Settings → Network).",
+        );
     };
     let Ok(http) = crate::build_local_api() else {
-        eprintln!("Error: failed to build HTTP client.");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, "failed to build HTTP client.");
     };
 
     let peers = http
@@ -187,8 +190,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         .ok()
         .and_then(|r| r.json::<serde_json::Value>().ok());
     let Some(peers) = peers else {
-        eprintln!("Error: could not reach the daemon to list mesh peers.");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, "could not reach the daemon to list mesh peers.");
     };
     // Match on instance name (case-insensitive) or an instance-id prefix.
     let id = peers
@@ -207,11 +209,13 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         .and_then(|p| p.get("instance_id").and_then(|v| v.as_str()))
         .map(str::to_string);
     let Some(id) = id else {
-        eprintln!(
-            "Error: no paired peer matching '{}'. Run `codeterm mesh peers` to list.",
-            peer_name
+        crate::cmd::print::fail(
+            1,
+            format!(
+                "no paired peer matching '{}'. Run `codeterm mesh peers` to list.",
+                peer_name
+            ),
         );
-        std::process::exit(1);
     };
 
     let resp = http
@@ -222,11 +226,13 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         .and_then(|r| r.json::<serde_json::Value>().ok())
         .filter(|r| r.get("ok").and_then(|v| v.as_bool()).unwrap_or(false));
     let Some(resp) = resp else {
-        eprintln!(
-            "Error: could not mint a web token for peer '{}' (peer offline or web access disabled).",
-            peer_name
+        crate::cmd::print::fail(
+            1,
+            format!(
+                "could not mint a web token for peer '{}' (peer offline or web access disabled).",
+                peer_name
+            ),
         );
-        std::process::exit(1);
     };
     let host = resp
         .get("host")
@@ -237,8 +243,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         .and_then(|v| v.as_str())
         .unwrap_or_default();
     if host.is_empty() || peer_token.is_empty() {
-        eprintln!("Error: peer returned an incomplete web link.");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, "peer returned an incomplete web link.");
     }
 
     // `host` already carries the scheme (https://fqdn or http://ip:port).

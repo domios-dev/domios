@@ -24,8 +24,20 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn paste_capability(&self) -> Option<PasteCapability> {
+        None
+    }
+
     /// CLI flag accepting one extra writable directory in sandboxed worktree launches.
     fn additional_writable_dir_flag(&self) -> Option<String> {
+        None
+    }
+
+    fn sandboxed_linux_launch_capability(&self) -> Option<SandboxedLinuxLaunchCapability> {
+        None
+    }
+
+    fn launch_permission_capability(&self) -> Option<LaunchPermissionCapability> {
         None
     }
 
@@ -229,6 +241,16 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Fast-path session metadata used by content search.
+    fn enumerate_sessions_for_search(&self) -> Vec<SessionMetadata> {
+        self.enumerate_sessions()
+    }
+
+    /// Resolve optional session fields after content search selects a candidate.
+    fn describe_session_for_search(&self, session: &SessionMetadata) -> SessionMetadata {
+        session.clone()
+    }
+
     /// This provider's own record for exactly `session_id`; `None` when it does
     /// not own the id. Never walks session history, never guesses by cwd or recency.
     fn find_session(&self, _session_id: &str) -> Option<SessionMetadata> {
@@ -242,6 +264,21 @@ pub trait AgentProvider: Send + Sync {
     fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
         let _ = file_path;
         Vec::new()
+    }
+
+    /// Where content search reads this provider's session text from.
+    fn session_content_source(&self) -> SessionContentSource {
+        SessionContentSource::None
+    }
+
+    /// One session's messages from a `SharedStore`, scanning at most
+    /// `query.max_bytes`. `None` means the store could not be read. Pure + I/O-only.
+    fn read_session_content(
+        &self,
+        _session_id: &str,
+        _query: &SessionContentQuery,
+    ) -> Option<SessionContent> {
+        None
     }
 
     /// Resolve the actual session JSONL file for `(cwd, session_id)`. The
@@ -390,6 +427,23 @@ pub trait AgentProvider: Send + Sync {
 
     /// Current model family on the live session — short label only.
     fn detect_session_model(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+
+    fn session_model_transcript_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+        None
+    }
+
+    fn detect_session_model_after_boundary(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+        _boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    ) -> Option<String> {
         None
     }
 
@@ -547,17 +601,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// In-agent command that switches the underlying model, if supported.
-    fn model_switch_command(&self, _model: &str) -> Option<String> {
-        self.model_switch_format()
-            .map(|fmt| fmt.replace("{model}", _model))
-    }
-
-    /// In-agent model switch command template. Frontend consumers use the
-    /// template to render provider-agnostic model pickers without hardcoding
-    /// provider slash commands.
-    fn model_switch_format(&self) -> Option<&str> {
-        None
+    /// How a live tab switches model. An in-agent command is never offered:
+    /// provider slash commands persist the choice as the machine-global default.
+    fn model_switch(&self) -> ModelSwitchMode {
+        ModelSwitchMode::Unsupported
     }
 
     /// In-agent command that exits the REPL cleanly, if supported.
@@ -565,13 +612,21 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Raw key bytes the host writes into the PTY to interrupt the
-    /// agent's current generation without exiting — the provider's
-    /// declared stopKey (Esc for all bundled providers).
+    /// Raw key bytes from a provider's single-key `stopKey` declaration.
     /// Returning `None` means the provider has no in-tab stop hook
     /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
         None
+    }
+
+    /// Ordered raw key values from a provider's stop declaration.
+    fn stop_keys(&self) -> Option<Vec<String>> {
+        self.stop_keystroke().map(|key| vec![key.to_string()])
+    }
+
+    /// Whether a later key waits for a PTY screen-change event.
+    fn stop_key_wait_for_output(&self) -> bool {
+        false
     }
 
     // ── Plugin skill delivery ────────────────────────────────────────
@@ -828,11 +883,11 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
             badge: self.badge().map(|s| s.to_string()),
             update_command: self.update_command(platform),
-            model_switch_format: self.model_switch_format().map(|s| s.to_string()),
+            model_switch: self.model_switch(),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
             integration_trust_grant: self.integration_trust_grant_capability(),
-            supports_stop: self.stop_keystroke().is_some(),
+            supports_stop: self.stop_keys().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
             supports_permission_auto_confirm: self.supports_permission_auto_confirm(),

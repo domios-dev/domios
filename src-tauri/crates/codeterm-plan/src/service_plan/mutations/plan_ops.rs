@@ -19,6 +19,9 @@ impl PlanStore {
         mode: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(title) = title {
+            crate::service_plan::text_bounds::validate_plan_label("plan title", title)?;
+        }
         let status_for_write = status.clone();
         let write = self.with_plan(plan_id, now_ms, |p| {
             if let Some(t) = title {
@@ -194,6 +197,17 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        crate::service_plan::text_bounds::validate_plan_label("section title", title)?;
+        crate::service_plan::text_bounds::validate_plan_text("section body", body)?;
+        for tag in tags {
+            crate::service_plan::text_bounds::validate_plan_label("section tag", tag)?;
+        }
+        if let Some(primary) = primary {
+            crate::service_plan::text_bounds::validate_plan_label("section primary tag", primary)?;
+        }
+        if let Some(handle) = handle {
+            crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
+        }
         let sid = self.mint_id("sec");
         let mut section_tags = tags.to_vec();
         super::tag_model::apply_tags(&mut section_tags, &[], primary);
@@ -232,6 +246,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<String, PlanError> {
         let mut new = new;
+        crate::service_plan::text_bounds::validate_new_task_text(&new)?;
         new.personality = new
             .personality
             .as_deref()
@@ -240,6 +255,7 @@ impl PlanStore {
             .map_err(PlanError::InvalidExecutorName)?;
         let external_refs =
             crate::service_plan::external_refs::canonicalize_external_refs(external_refs)?;
+        crate::service_plan::text_bounds::validate_external_refs(&external_refs)?;
         let tid = self.mint_id("task");
         let assigned_tab_id = new
             .assigned_tab_id
@@ -300,6 +316,7 @@ impl PlanStore {
             interruption: Default::default(),
             attachments: vec![],
         };
+        crate::service_plan::text_bounds::validate_task_text(&task)?;
         let verify_sections = !task.section_ids.is_empty();
         let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
@@ -354,9 +371,18 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(result) = result {
+            crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
+        }
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
+            if p.tasks[task_index].status == TaskStatus::Pending {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
             let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
             super::finalize_task_done(p, task_index, now_ms)?;
             if was_in_review {
@@ -404,6 +430,9 @@ impl PlanStore {
         authority: &crate::service_plan::interruption::TaskMutationAuthority,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(result) = result {
+            crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
+        }
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -412,6 +441,12 @@ impl PlanStore {
                 &plan.tasks[task_index],
                 authority,
             )?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
             let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
             super::finalize_task_done(plan, task_index, now_ms)?;
             if was_in_review {
@@ -457,6 +492,8 @@ impl PlanStore {
         add_kind: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
+        crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
         let mid = self.mint_id("ms");
         let write = self.with_plan(plan_id, now_ms, |p| {
             let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
@@ -509,6 +546,8 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        crate::service_plan::text_bounds::validate_plan_label("stride kind", kind)?;
+        crate::service_plan::text_bounds::validate_plan_text("stride text", text)?;
         let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
             p.strides.push(Milestone {
@@ -539,6 +578,7 @@ impl PlanStore {
         if text.is_empty() {
             return Err(PlanError::GateRequiresQuestion);
         }
+        crate::service_plan::text_bounds::validate_plan_text("retrospective", text)?;
         let mid = self.mint_id("ms");
         let supersede_id = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
@@ -727,6 +767,21 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        if let Some(title) = title {
+            crate::service_plan::text_bounds::validate_plan_label("section title", title)?;
+        }
+        if let Some(body) = body {
+            crate::service_plan::text_bounds::validate_plan_text("section body", body)?;
+        }
+        for tag in tags {
+            crate::service_plan::text_bounds::validate_plan_label("section tag", tag)?;
+        }
+        if let Some(primary) = primary {
+            crate::service_plan::text_bounds::validate_plan_label("section primary tag", primary)?;
+        }
+        if let Some(handle) = handle {
+            crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
+        }
         self.with_plan(plan_id, now_ms, |p| {
             if update_section_fields(&mut p.sections, section_id, title, body) {
                 update_section_tags(&mut p.sections, section_id, tags, primary, handle);

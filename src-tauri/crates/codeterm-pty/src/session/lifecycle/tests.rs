@@ -9,6 +9,8 @@ use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 
+mod compaction_replay;
+mod journal_repair;
 mod permission_auto_confirm;
 
 fn new_journal() -> (TabLifecycleJournal, TempDir) {
@@ -656,6 +658,22 @@ fn non_monotonic_sequence_refuses_the_rest_of_the_file() {
     let (journal, dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     let path = dir.path().join(JOURNAL_FILE_NAME);
+    let body = fs::read_to_string(&path).unwrap();
+    let mut lines = body.lines();
+    let first = lines.next().unwrap().to_string();
+    let second = lines.next().unwrap().to_string();
+    fs::write(&path, format!("{second}\n{first}\n{second}\n")).unwrap();
+
+    let load = journal.load();
+    assert_eq!(load.records.len(), 1);
+    assert!(matches!(load.tail, TailStatus::Refused { line: 2, .. }));
+}
+
+#[test]
+fn repeated_sequence_keeps_the_last_record_instead_of_refusing() {
+    let (journal, dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
+    let path = dir.path().join(JOURNAL_FILE_NAME);
     let first = fs::read_to_string(&path)
         .unwrap()
         .lines()
@@ -666,7 +684,8 @@ fn non_monotonic_sequence_refuses_the_rest_of_the_file() {
 
     let load = journal.load();
     assert_eq!(load.records.len(), 1);
-    assert!(matches!(load.tail, TailStatus::Refused { line: 2, .. }));
+    assert_eq!(load.duplicate_seqs, 1);
+    assert!(load.tail.is_intact());
 }
 
 #[test]

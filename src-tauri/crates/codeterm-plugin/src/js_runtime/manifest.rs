@@ -28,8 +28,8 @@ pub use config::{
     PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeHookEventBinding, SerdeModelInfo,
     SerdeProviderReadinessStrategy, SerdeReadinessStrategy, SerdeReasoningEffortInfo,
     SerdeSessionIdInjection, SerdeSystemPromptDelivery, SerdeTaskDelivery, SerdeVerifySubmit,
-    SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission, TrustGrantConfig, UsageConfig,
-    LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+    SessionFileSearchConfig, SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission,
+    TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use methods::manifest_settings_sections;
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};

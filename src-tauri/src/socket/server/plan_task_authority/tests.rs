@@ -62,6 +62,41 @@ fn startup_recovery_guard_only_applies_to_lane_metadata_updates() {
     }
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn plan_mutation_requires_plan_role() {
+    let harness = authority_fixture();
+    let foreign = live_tab(&harness.fixture, "foreign-session", "foreign-nonce");
+    for (tab_id, session, nonce) in [
+        (foreign.as_str(), "foreign-session", "foreign-nonce"),
+        ("", "", ""),
+    ] {
+        for method in ["plan.task.close", "plan.task.update"] {
+            let params = Some(json!({
+                "plan_id": harness.plan_id,
+                "task_id": harness.task_id,
+                "caller_tab_id": tab_id,
+                "session_id": session,
+                "session_binding_nonce": nonce,
+                "owner_epoch": 0,
+                "status": "pending"
+            }));
+            assert!(
+                verify_owner_epoch_for_task_mutation(
+                    method,
+                    &params,
+                    &std::sync::Arc::new(harness.fixture.service.clone()),
+                )
+                .is_err(),
+                "{method} accepted an unauthorized caller"
+            );
+        }
+    }
+}
+
 struct AuthorityFixture {
     fixture: ServiceFixture,
     plan_id: String,

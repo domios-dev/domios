@@ -91,13 +91,13 @@ mod tests {
             (
                 json!({"agent_type": "codex", "agent_session_model": "gpt-5.6-sol",
                        "agent_liveness": "live", "role": "Worker"}),
-                Some("sol"),
+                Some("5.6-sol"),
                 "worker",
             ),
             (
                 json!({"agent_type": "codex", "agent_session_model": "gpt-5.3-codex-spark",
                        "agent_liveness": "unobserved", "role": "Worker"}),
-                Some("spark?"),
+                Some("5.3-spark?"),
                 "worker",
             ),
             (

@@ -50,6 +50,9 @@ fn names_command_invocation(test_plan: &str) -> bool {
                 .unwrap_or(segment)
         })
         .any(|segment| {
+            if segment.starts_with("bash -c ") || segment.starts_with("bash -lc ") {
+                return true;
+            }
             TEST_PLAN_COMMAND_RUNNERS.iter().any(|runner| {
                 segment
                     .strip_prefix(runner)
@@ -87,6 +90,16 @@ resulting output and confirming that everything looks correct across all the rel
     fn good_plan_with_backticked_command_is_not_vague() {
         assert!(GOOD_PLAN.chars().count() >= TEST_PLAN_MIN_CHARS);
         assert!(!test_plan_is_vague(GOOD_PLAN));
+    }
+
+    #[test]
+    fn bash_c_test_plan_is_a_runnable_command() {
+        let prefix =
+            "The test plan has enough detail to identify the suite and observable result. ";
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}`bash -c 'python -m unittest tests.test_cli'`"
+        ))
+        .is_none());
     }
 
     #[test]

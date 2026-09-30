@@ -79,9 +79,10 @@ fn concurrent_restore_single_winner_cas() {
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
+    use crate::service::pty_io::test_support::{join, DeadlineBarrier};
     use codeterm_util::lock_hold::TimedRwLock;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier};
+    use std::sync::Arc;
 
     let (mut state, parent_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
@@ -100,7 +101,7 @@ fn concurrent_restore_single_winner_cas() {
     tab.cwd = Some("fixture-cwd".into());
     tab.restored_from_snapshot = true;
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
-    let barrier = Arc::new(Barrier::new(3));
+    let barrier = Arc::new(DeadlineBarrier::new(3));
     let schedules = Arc::new(AtomicUsize::new(0));
     let results = (0..2)
         .map(|_| {
@@ -109,7 +110,7 @@ fn concurrent_restore_single_winner_cas() {
             let barrier = barrier.clone();
             let schedules = schedules.clone();
             std::thread::spawn(move || {
-                barrier.wait();
+                barrier.wait("concurrent restore worker");
                 restore_and_schedule_launch(
                     &mux,
                     &tab_id,
@@ -127,11 +128,11 @@ fn concurrent_restore_single_winner_cas() {
             })
         })
         .collect::<Vec<_>>();
-    barrier.wait();
+    barrier.wait("concurrent restore caller");
     assert_eq!(
         results
             .into_iter()
-            .map(|handle| handle.join().unwrap())
+            .map(|handle| join(handle, "concurrent restore attempt").unwrap())
             .filter(|won| *won)
             .count(),
         1
@@ -459,6 +460,40 @@ fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
     let after_opener = &s["\x1b[200~".len()..];
     assert!(after_opener.starts_with(' '));
     assert!(after_opener[1..].starts_with("Remove-Item"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_launch_dispatch_preserves_fresh_and_resume_commands() {
+    let commands = [
+        "claude --model 'sonnet 4'",
+        "$env:CODETERM_SESSION_BINDING_NONCE='nonce'; claude --resume 'session id'",
+    ];
+
+    for command in commands {
+        let bytes = send::build_launch_dispatch(command).unwrap();
+        assert_eq!(bytes, format!(" {command}\r").into_bytes());
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_launch_dispatch_refuses_line_breaks() {
+    for command in ["claude\n--resume session", "claude\r--resume session"] {
+        let error = send::build_launch_dispatch(command).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_launch_dispatch_keeps_script_execution() {
+    let bytes = send::build_launch_dispatch("echo hello; exec zsh").unwrap();
+    let dispatch = String::from_utf8(bytes).unwrap();
+
+    assert!(dispatch.starts_with("/bin/bash /tmp/codeterm-spawn-"));
+    assert!(dispatch.ends_with('\r'));
 }
 
 #[test]

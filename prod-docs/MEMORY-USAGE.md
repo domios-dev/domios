@@ -66,13 +66,15 @@ codeterm mem sync                    # trigger re-index of source-tracked items
 codeterm mem dream                   # SQL phases + spawn REM worker
 ```
 
+Save identity is the exact kind and title. Saving an unchanged body after whitespace normalization reports `unchanged`, increments `recurrence_count`, and does not start extraction. A different body reports `updated`, preserves the item's id, uid, and creation time, and records the previous body and changed fields in history. A first save reports `created`. `--replace` uses the same in-place update and history behavior.
+
 ## REST API
 
 `/api/mem/*` — parallel to CLI:
 - `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
 - `GET /pinned?limit=N` — list pinned items (default 100, max 500)
 - `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
-- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted)
+- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted; other scope values are refused)
 - `POST /dream`
 - `PATCH /items/{id}` (`{pinned: true|false}` toggles `is_pinned_wakeup`, audited)
 - `DELETE /items/{id}`, `/forget/{area}`
@@ -111,4 +113,4 @@ Memory Tabl UI reads this directly.
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryTabl/` — UI
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

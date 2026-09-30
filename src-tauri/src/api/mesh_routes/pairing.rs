@@ -6,43 +6,47 @@ use axum::{
 
 use crate::api::routes::AppState;
 
+fn record_incoming_pairing_request(
+    mesh: &mut crate::mesh::MeshManager,
+    request: crate::mesh::types::PairingRequest,
+) -> Result<(String, String, String), String> {
+    let request_id = request.request_id.clone();
+    let peer_name = request.from_instance_name.clone();
+    mesh.receive_pairing_request(request)?;
+    Ok((
+        request_id,
+        peer_name,
+        mesh.ident.identity.instance_id.clone(),
+    ))
+}
+
 pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
     Json(request): Json<crate::mesh::types::PairingRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (request_id, from_id, is_vouched, our_id) = {
+    let (request_id, peer_name, our_id) = {
         let mut mesh = state.mesh.lock();
-        let request_id = request.request_id.clone();
-        let from_id = request.from_instance_id.clone();
-        mesh.receive_pairing_request(request)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let is_vouched = mesh
-            .discovered_peers
-            .get(&from_id)
-            .map(|p| !p.vouched_by.is_empty())
-            .unwrap_or(false);
-        let our_id = mesh.ident.identity.instance_id.clone();
-        (request_id, from_id, is_vouched, our_id)
+        record_incoming_pairing_request(&mut mesh, request)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?
     };
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "mesh-state-changed",
         serde_json::Value::Null,
     );
-    if is_vouched {
-        log::info!(
-            "[mesh] Auto-approving pair request from vouched peer {}",
-            from_id
-        );
-        let mesh = state.mesh.clone();
-        let app_handle = state.svc.app_handle.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            if let Err(e) = do_approve(mesh, app_handle, request_id).await {
-                log::warn!("[mesh] Auto-approve failed for {}: {}", from_id, e);
-            }
-        });
-    }
+    state.svc.create_notification_ext(
+        "Mesh pairing request".into(),
+        Some(format!("{} is waiting for owner approval.", peer_name)),
+        Some("info"),
+        None,
+        Some(true),
+        crate::service::notification::NotificationOrigin::default(),
+        crate::service::notification::PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some(format!("mesh-pairing-{request_id}")),
+        },
+        None,
+    );
     Ok(Json(serde_json::json!({"ok": true, "instance_id": our_id})))
 }
 
@@ -74,8 +78,7 @@ impl std::fmt::Display for ApproveError {
     }
 }
 
-/// Shared approve logic — the single implementation behind auto-approve, the
-/// Tauri command, and the HTTP endpoint. Walks every callback address from
+/// Shared approve logic behind the Tauri command and HTTP endpoint. Walks every callback address from
 /// the request (Tailscale → LAN → legacy from_address) and stores the full
 /// list on the new PairedPeer — a single dead LAN ip no longer kills the
 /// handshake with a 502 (#126).
@@ -107,6 +110,25 @@ pub async fn do_approve(
         let name = m.ident.instance_name.clone();
         (req, pk, id, name)
     };
+
+    if request.introduced_by.is_some() {
+        crate::api::mesh_routes::connection::connect_peer(
+            mesh.clone(),
+            request.from_instance_id.clone(),
+        )
+        .await
+        .map_err(|error| ApproveError::Rejected(error.to_string()))?;
+        let mut manager = mesh.lock();
+        manager.pending_requests.remove(&request_id);
+        let _ = manager.save();
+        drop(manager);
+        crate::api::events::emit_everywhere(
+            &app_handle,
+            "mesh-state-changed",
+            serde_json::Value::Null,
+        );
+        return Ok(());
+    }
 
     let accept = crate::mesh::types::PairingAccept {
         request_id: request_id.clone(),
@@ -179,7 +201,7 @@ pub async fn do_approve(
 
     crate::api::events::emit_everywhere(&app_handle, "mesh-state-changed", serde_json::Value::Null);
     log::info!(
-        "[mesh] Pairing complete (approver/auto) with {}",
+        "[mesh] Pairing complete (owner-approved) with {}",
         request.from_instance_id
     );
 
@@ -187,11 +209,10 @@ pub async fn do_approve(
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
-    // on the new peer's side replaces any stub (issue #9 from 1.1.9 SMOKE).
+    // On the new peer's side this replaces any discovered stub.
     let mesh_arc = mesh.clone();
     let new_peer_id = request.from_instance_id.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let _ = crate::mesh::broadcast_announce(&mesh_arc, Some(&new_peer_id)).await;
         crate::mesh::broadcast_sync(&mesh_arc).await;
     });
@@ -282,7 +303,6 @@ pub async fn mesh_pair_accept(
         let mesh_state = state.mesh.clone();
         let new_peer_id = accept.from_instance_id.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let _ = crate::mesh::broadcast_announce(&mesh_state, Some(&new_peer_id)).await;
             crate::mesh::broadcast_sync(&mesh_state).await;
         });
@@ -294,7 +314,6 @@ pub async fn mesh_pair_accept(
         .prepare_introductions(&accept.from_instance_id);
     if let Some((new_peer, existing, our_id, token)) = intro_data {
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
         });
     }
@@ -309,6 +328,32 @@ pub async fn mesh_pair_confirm(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// Reject and block the requester; only a request still awaiting a decision
+/// qualifies, so an unknown or already-processed id changes nothing and fails.
+pub(crate) fn reject_pending_request(
+    mesh: &mut crate::mesh::MeshManager,
+    request_id: &str,
+) -> Result<(), ApproveError> {
+    let request = mesh
+        .pending_requests
+        .get_mut(request_id)
+        .filter(|req| {
+            matches!(
+                req.status,
+                crate::mesh::types::PairingStatus::Pending
+                    | crate::mesh::types::PairingStatus::Expired
+            )
+        })
+        .ok_or(ApproveError::NotFound)?;
+    request.status = crate::mesh::types::PairingStatus::Rejected;
+    let blocked_id = request.from_instance_id.clone();
+    if !mesh.revocation_list.blocked.contains(&blocked_id) {
+        mesh.revocation_list.blocked.push(blocked_id);
+    }
+    let _ = mesh.save();
+    Ok(())
+}
+
 pub async fn mesh_pair_reject(
     AxumState(state): AxumState<AppState>,
     Json(body): Json<serde_json::Value>,
@@ -319,18 +364,8 @@ pub async fn mesh_pair_reject(
         .to_string();
 
     let mut mesh = state.mesh.lock();
-    let block_id = if let Some(req) = mesh.pending_requests.get_mut(&request_id) {
-        req.status = crate::mesh::types::PairingStatus::Rejected;
-        Some(req.from_instance_id.clone())
-    } else {
-        None
-    };
-    if let Some(id) = block_id {
-        if !mesh.revocation_list.blocked.contains(&id) {
-            mesh.revocation_list.blocked.push(id);
-        }
-        let _ = mesh.save();
-    }
+    reject_pending_request(&mut mesh, &request_id)
+        .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
     drop(mesh);
 
     crate::api::events::emit_everywhere(
@@ -356,7 +391,6 @@ pub async fn mesh_unpair(
     if let Some(ref pk) = mesh.ident.identity.public_key {
         known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
     }
-    let our_id = mesh.ident.identity.instance_id.clone();
     drop(mesh);
 
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
@@ -374,88 +408,18 @@ pub async fn mesh_unpair(
         sender_id,
         instance_id
     );
-    if sender_id != our_id && sender_id != instance_id {
-        let mesh_guard = state.mesh.lock();
-        let is_paired = mesh_guard.paired_peers.contains_key(&sender_id);
-        drop(mesh_guard);
-        if !is_paired {
-            return Err((
-                StatusCode::FORBIDDEN,
-                format!("Unknown peer {} cannot remove {}", sender_id, instance_id),
-            ));
-        }
-        log::info!(
-            "[mesh] Peer {} requested removal of {} from our mesh",
-            sender_id,
-            instance_id
-        );
+    if sender_id != instance_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("Peer {} cannot remove pairing {}", sender_id, instance_id),
+        ));
     }
-
-    let target_peer = state.mesh.lock().paired_peers.get(&instance_id).cloned();
-    let signed_token = state.mesh.lock().sign_request().ok();
 
     let mut mesh = state.mesh.lock();
     if mesh.unpair(&instance_id).is_some() {
         log::info!("[mesh] Unpaired from {}", instance_id);
     }
-    let our_id = mesh.ident.identity.instance_id.clone();
     drop(mesh);
-
-    // Cascade: notify removed peer to also remove us. Walks every cached address so a stale Tailscale entry doesn't drop the cascade.
-    if sender_id != instance_id {
-        if let (Some(peer), Some(token)) = (target_peer, signed_token) {
-            if !peer.addresses.is_empty() {
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(3))
-                    .build()
-                    .unwrap_or_default();
-                let api_port = peer.api_port;
-                let addresses = peer.addresses.clone();
-                let target = instance_id.clone();
-                let our_id_for_call = our_id.clone();
-                tokio::spawn(async move {
-                    let result = crate::mesh::transport::try_peer(&addresses, |addr| {
-                        let url = format!(
-                            "http://{}:{}/api/mesh/peers/{}",
-                            addr.ip, api_port, our_id_for_call
-                        );
-                        let client = client.clone();
-                        let token = token.clone();
-                        async move {
-                            match client
-                                .delete(&url)
-                                .header("Authorization", format!("Bearer {}", token))
-                                .send()
-                                .await
-                            {
-                                Ok(resp) if resp.status().is_success() => {
-                                    crate::mesh::transport::TryNext::Success(())
-                                }
-                                Ok(resp) => crate::mesh::transport::TryNext::Stop(format!(
-                                    "HTTP {}",
-                                    resp.status()
-                                )),
-                                Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
-                            }
-                        }
-                    })
-                    .await;
-                    match result {
-                        Ok(()) => log::info!(
-                            "[mesh/cascade] Notified {} to remove us ({})",
-                            target,
-                            our_id_for_call
-                        ),
-                        Err(e) => log::debug!(
-                            "[mesh/cascade] Could not notify {} about removal: {}",
-                            target,
-                            e
-                        ),
-                    }
-                });
-            }
-        }
-    }
 
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -514,6 +478,113 @@ fn mesh_owner_authorized(headers: &HeaderMap, local_token: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::mesh::types::{
+        DiscoveredPeer, DiscoveryMethod, PairingRequest, PairingStatus, PeerAddress,
+    };
+
+    #[test]
+    fn mesh_pair_request_from_vouched_peer_stays_pending() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.discovered_peers.insert(
+            "introduced".into(),
+            DiscoveredPeer {
+                instance_id: "introduced".into(),
+                instance_name: "Introduced".into(),
+                addresses: vec![PeerAddress::from_ip("100.64.0.2")],
+                api_port: 7685,
+                discovery_method: DiscoveryMethod::Gossip,
+                last_seen: 0,
+                dev: false,
+                mesh_id: None,
+                vouched_by: vec!["voucher".into()],
+            },
+        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let request = PairingRequest {
+            request_id: "pending-request".into(),
+            from_instance_id: "introduced".into(),
+            from_instance_name: "Introduced".into(),
+            from_address: "100.64.0.2".into(),
+            from_port: 7685,
+            from_addresses: vec![PeerAddress::from_ip("100.64.0.2")],
+            public_key: "introduced-key".into(),
+            timestamp: now,
+            status: PairingStatus::Pending,
+            introduced_by: Some("voucher".into()),
+        };
+
+        let (request_id, _, _) =
+            super::record_incoming_pairing_request(&mut mesh, request).unwrap();
+
+        assert_eq!(
+            mesh.pending_requests[&request_id].status,
+            PairingStatus::Pending
+        );
+        assert!(!mesh.paired_peers.contains_key("introduced"));
+    }
+
+    fn pending_request(id: &str, from: &str, status: PairingStatus) -> PairingRequest {
+        PairingRequest {
+            request_id: id.into(),
+            from_instance_id: from.into(),
+            from_instance_name: from.into(),
+            from_address: "100.64.0.2".into(),
+            from_port: 7685,
+            from_addresses: vec![PeerAddress::from_ip("100.64.0.2")],
+            public_key: "key".into(),
+            timestamp: 0,
+            status,
+            introduced_by: None,
+        }
+    }
+
+    #[test]
+    fn mesh_reject_unknown_or_processed_request_fails_and_blocks_nobody() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.clear();
+        mesh.pending_requests.insert(
+            "accepted".into(),
+            pending_request("accepted", "paired-peer", PairingStatus::Accepted),
+        );
+        for id in ["never-existed", "accepted"] {
+            let error = super::reject_pending_request(&mut mesh, id)
+                .expect_err("nothing awaits a decision under this id");
+            assert!(matches!(error, super::ApproveError::NotFound), "{id}");
+        }
+        assert!(mesh.revocation_list.blocked.is_empty());
+        assert_eq!(
+            mesh.pending_requests["accepted"].status,
+            PairingStatus::Accepted
+        );
+    }
+
+    #[test]
+    fn mesh_reject_pending_request_blocks_the_requester_once() {
+        let mut mesh = crate::mesh::MeshManager::new("receiver".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.revocation_list.blocked.clear();
+        mesh.pending_requests.clear();
+        mesh.pending_requests.insert(
+            "open".into(),
+            pending_request("open", "stranger", PairingStatus::Pending),
+        );
+        super::reject_pending_request(&mut mesh, "open").expect("pending request rejects");
+        assert_eq!(
+            mesh.pending_requests["open"].status,
+            PairingStatus::Rejected
+        );
+        assert_eq!(mesh.revocation_list.blocked, vec!["stranger".to_string()]);
+        super::reject_pending_request(&mut mesh, "open")
+            .expect_err("a second reject is a processed request");
+        assert_eq!(mesh.revocation_list.blocked.len(), 1);
+    }
+
     #[test]
     fn pair_accept_identity_mismatch_is_detected() {
         // Verify that b_instance_id != accept.from_instance_id is detectable at the logic level.

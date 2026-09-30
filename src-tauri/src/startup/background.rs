@@ -8,54 +8,6 @@ use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
-fn auto_pair_callback_address(
-    addresses: &[crate::mesh::types::PeerAddress],
-) -> Option<&crate::mesh::types::PeerAddress> {
-    addresses
-        .iter()
-        .find(|address| address.is_tailscale)
-        .or_else(|| addresses.first())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::auto_pair_callback_address;
-    use crate::mesh::types::PeerAddress;
-
-    #[test]
-    fn mesh_reachability_autopair_prefers_tailscale_callback_address() {
-        let addresses = vec![
-            PeerAddress::from_ip("192.168.1.2"),
-            PeerAddress {
-                ip: "100.64.0.1".to_string(),
-                is_tailscale: true,
-            },
-        ];
-
-        assert_eq!(
-            auto_pair_callback_address(&addresses).map(|address| address.ip.as_str()),
-            Some("100.64.0.1")
-        );
-    }
-
-    #[test]
-    fn mesh_reachability_autopair_falls_back_to_first_callback_address() {
-        let addresses = vec![PeerAddress::from_ip("192.168.1.2")];
-
-        assert_eq!(
-            auto_pair_callback_address(&addresses).map(|address| address.ip.as_str()),
-            Some("192.168.1.2")
-        );
-    }
-
-    #[test]
-    fn mesh_reachability_autopair_skips_request_when_no_callback_address_is_live() {
-        let addresses: Vec<PeerAddress> = Vec::new();
-
-        assert!(auto_pair_callback_address(&addresses).is_none());
-    }
-}
-
 /// Start background threads: auto-save, update check, agent idle monitoring.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
     keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
@@ -93,10 +45,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             rt.block_on(async {
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
-                // Track last auto-pair per peer; retry after AUTO_PAIR_RETRY_SECS.
-                let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
-                    std::collections::HashMap::new();
-                const AUTO_PAIR_RETRY_SECS: u64 = 60;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     if !cfg.lock().mesh.enabled {
@@ -181,6 +129,12 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             last_sync_secs.get(&peer.instance_id).copied(),
                             mesh::discovery::PROACTIVE_SYNC_INTERVAL_SECS,
                         );
+                        if online
+                            && !was_online
+                            && mesh.lock().has_unacked_announce(&peer.instance_id)
+                        {
+                            let _ = mesh::broadcast_announce(&mesh, Some(&peer.instance_id)).await;
+                        }
                         if should_sync {
                             let reason = if !was_online {
                                 "reconnected"
@@ -212,137 +166,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             "mesh-state-changed",
                             serde_json::Value::Null,
                         );
-                    }
-
-                    // Auto-pair vouched peers; retry every AUTO_PAIR_RETRY_SECS.
-                    let attempt_now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    let auto_pair_candidates: Vec<_> = {
-                        let m = mesh.lock();
-                        m.discovered_peers
-                            .values()
-                            .filter(|p| {
-                                !p.vouched_by.is_empty()
-                                    && !m.paired_peers.contains_key(&p.instance_id)
-                                    && auto_pair_attempted
-                                        .get(&p.instance_id)
-                                        .map(|&last| {
-                                            attempt_now.saturating_sub(last) >= AUTO_PAIR_RETRY_SECS
-                                        })
-                                        .unwrap_or(true)
-                                    && !m
-                                        .pending_requests
-                                        .values()
-                                        .any(|r| r.from_instance_id == p.instance_id)
-                            })
-                            .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
-                            .collect()
-                    };
-                    for (target_id, addresses, target_port) in auto_pair_candidates {
-                        auto_pair_attempted.insert(target_id.clone(), attempt_now);
-                        let mesh2 = mesh.clone();
-                        let app_h2 = app_h.clone();
-                        tokio::spawn(async move {
-                            let (request, target_addr) = {
-                                let mut m = mesh2.lock();
-                                if m.pairing_targets.len() >= crate::mesh::MAX_PAIRING_DELIVERIES {
-                                    return;
-                                }
-                                let addr = addresses
-                                    .iter()
-                                    .find(|a| a.is_tailscale)
-                                    .or_else(|| addresses.first())
-                                    .map(|a| a.ip.clone());
-                                let Some(addr) = addr else { return };
-                                let from_addresses = m.local_announce_addresses();
-                                let Some(local_addr) = auto_pair_callback_address(&from_addresses)
-                                else {
-                                    return;
-                                };
-                                let Some(pk) = m.ident.identity.public_key.clone() else {
-                                    return;
-                                };
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs();
-                                let req = crate::mesh::types::PairingRequest {
-                                    request_id: uuid::Uuid::new_v4().to_string(),
-                                    from_instance_id: m.ident.identity.instance_id.clone(),
-                                    from_instance_name: m.ident.instance_name.clone(),
-                                    from_address: local_addr.ip.clone(),
-                                    from_port: m.api_port,
-                                    from_addresses,
-                                    public_key: pk,
-                                    timestamp: now,
-                                    status: crate::mesh::types::PairingStatus::Pending,
-                                    introduced_by: None,
-                                };
-                                // Store request for callback target resolution.
-                                m.pairing_targets.insert(
-                                    req.request_id.clone(),
-                                    (addr.clone(), target_port, target_id.clone()),
-                                );
-                                m.pending_requests
-                                    .insert(req.request_id.clone(), req.clone());
-                                (req, addr)
-                            };
-                            let client = reqwest::Client::builder()
-                                .timeout(std::time::Duration::from_secs(5))
-                                .build()
-                                .unwrap_or_default();
-                            let url = format!(
-                                "http://{}:{}/api/mesh/pair/request",
-                                target_addr, target_port
-                            );
-                            log::info!("[mesh] Auto-pairing vouched peer {}", target_id);
-                            match client.post(&url).json(&request).send().await {
-                                Ok(r) if r.status().is_success() => {
-                                    log::info!("[mesh] Auto-pair request sent to {}", target_id);
-                                    crate::api::events::emit_everywhere(
-                                        &app_h2,
-                                        "mesh-state-changed",
-                                        serde_json::Value::Null,
-                                    );
-                                }
-                                Ok(r) => {
-                                    log::warn!(
-                                        "[mesh] Auto-pair {} rejected with HTTP {}",
-                                        target_id,
-                                        r.status()
-                                    );
-                                    let mut m = mesh2.lock();
-                                    m.pending_requests.remove(&request.request_id);
-                                    m.pairing_targets.remove(&request.request_id);
-                                }
-                                Err(e) => {
-                                    let evidence =
-                                        crate::mesh::transport::TransportError::pairing_send_error(
-                                            &e,
-                                        );
-                                    if evidence.kind()
-                                        == crate::mesh::transport::TransportErrorKind::NothingSent
-                                    {
-                                        log::warn!(
-                                            "[mesh] Auto-pair {} failed before send: {}",
-                                            target_id,
-                                            evidence
-                                        );
-                                        let mut m = mesh2.lock();
-                                        m.pending_requests.remove(&request.request_id);
-                                        m.pairing_targets.remove(&request.request_id);
-                                    } else {
-                                        log::warn!(
-                                            "[mesh] Auto-pair {} delivery uncertain: {}",
-                                            target_id,
-                                            evidence
-                                        );
-                                    }
-                                }
-                            }
-                        });
                     }
                 }
             });
@@ -485,6 +308,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 }; // tracker lock released here
 
                 for (pty_id, raw_prev, raw_now) in changed {
+                    crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                        &pty_id, raw_prev, raw_now,
+                    );
                     let tab_id = mux.write().tab_id_for_pty(&pty_id);
                     if let Some(pid) = tab_id {
                         log::info!(

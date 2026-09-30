@@ -426,6 +426,7 @@ fn orchestrator_can_close_and_assign_after_worker_epoch_adoption() {
             5,
         )
         .unwrap();
+    store.start_task_for_test(&plan.id, &close_task, 5);
     store
         .close_task_authorized(
             &plan.id,

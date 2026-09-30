@@ -24,7 +24,7 @@ Two stores, two purposes — don't confuse them:
 | Surface | Stored where | Asks | Used for |
 |---|---|---|---|
 | **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
-| **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
+| **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts / OpenCode's sqlite store | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
 Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `codeterm docs API-STATE` for the session API; the binding model lives in the [core essence](../essences/core.md#agents-and-providers).
 
@@ -35,7 +35,7 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 **`mem_items`** — every memorable thing
 - `id` — slug-derived (`fact_pgbouncer_config`, `skill_deploy_staging`)
 - `kind` — `fact` | `learning` | `note` | `conversation` | `skill` | `rule` | `preference` | `peer` | `daily` | `summary`
-- `scope` — `global` | `workspace:<id>`
+- `scope` — `global` | `workspace:<id>`; any other value is refused
 - `area` — project/topic tag (`auth`, `billing`, `deploy`, `home`, `_dreams`)
 - `tags_json` — free-form tags
 - `body_inline` (<2KB) / `body_blob_path` (larger → disk blob)
@@ -44,7 +44,9 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 - `is_pinned_wakeup` — `0`/`1` flag; pinned items always load in L1 wake-up (subject to budget)
 - `access_count` — incremented on every `get()` call; used by dreaming promotion
 - `accessed_at` / `created_at` / `updated_at`
-- `recurrence_count` — set by dreaming when a topic recurs
+- `recurrence_count` — incremented when `mem save` finds an unchanged normalized body for the same kind and title
+
+`mem save` uses kind plus title as its identity. An unchanged normalized body increments `recurrence_count` and schedules no extraction. A changed body updates the existing row in place and adds the prior body to history. `--replace` also updates in place and preserves the row's uid and creation time.
 - `graph_x` / `graph_y` — persistent graph layout position
 - `seed_fingerprint` — `NULL` unless the item came from a bundled seed (`codeterm-mem/src/seed.rs`). A SHA-256 over every field the seeder manages (kind, scope, title, summary, area, tags, body, importance, source_path, pinned — `source` itself is excluded, it's just the provenance label). `seed_bundled` overwrites the item ONLY when this still matches a freshly computed fingerprint of the stored payload — proof nothing has touched it since the seeder last wrote it. `store::update` clears it to `NULL` atomically, in the same write, whenever any managed field actually changes, so a real edit permanently opts the item out of future bundled refreshes. Never inferred from `mem_item_history`/`changed_by` — those are audit telemetry, not overwrite authority.
 
@@ -169,10 +171,12 @@ The mem flush API (`POST /api/mem/flush`) is the entry point providers call from
 | `PreCompact` (opt-in) | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
 | `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
+A flush obeys the same 1 MB body cap as `mem save`: scrollback beyond it keeps its most recent tail, and the item gets the `truncated` tag with the kept and original sizes in its summary. Vector indexing embeds at most 128 chunks per item, spread across the whole body, and serves items round-robin, so a large flush never delays a small item's vectors. Deleting or replacing an item cancels its pending chunks, and a chunk still in flight is refused once its row is gone.
+
 Hooks are installed through the provider integration action into `~/.claude/settings.json`. The action shows the target and proposed changes, records consent, makes a recoverable backup, and preserves foreign hooks.
 
 ## Related documents
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 18 -->
+<!-- revision: 21 -->

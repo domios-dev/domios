@@ -237,9 +237,9 @@ fn test_close_tab_returns_pty_id() {
 
 #[test]
 fn test_close_tab_clears_focus_when_no_general() {
-    // No general alias -> focus becomes None after closing the tab.
-    // Preserves behavior for callers that still rely on this fallback.
-    let (mut state, _initial_tab_id) = MultiplexerState::new();
+    // Focus stays in the workspace while it has a tab; with none left and no
+    // general alias it becomes None.
+    let (mut state, initial_tab_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let new_tab_id = state.create_tab(&ws_id).unwrap();
 
@@ -247,6 +247,9 @@ fn test_close_tab_clears_focus_when_no_general() {
     assert_eq!(state.get_focused_tab_id(), Some(new_tab_id.as_str()));
 
     state.close_tab(&new_tab_id).unwrap();
+    assert_eq!(state.get_focused_tab_id(), Some(initial_tab_id.as_str()));
+
+    state.close_tab(&initial_tab_id).unwrap();
     assert_eq!(state.get_focused_tab_id(), None);
 }
 

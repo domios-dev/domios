@@ -12,6 +12,7 @@ import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
   ownsOpencodeBindingPluginSource,
+  ASSISTANT_MESSAGE_MAX_BYTES,
 } from "../src/helpers";
 
 let passed = 0;
@@ -60,8 +61,8 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 const bindingPluginSource = opencodeBindingPluginSource();
 assert(isCurrentOpencodeBindingPluginSource(bindingPluginSource), "generated binding plugin is current");
 const previousBindingPluginSource = bindingPluginSource.replace(
+  "codeterm-opencode-session-binding-v4",
   "codeterm-opencode-session-binding-v3",
-  "codeterm-opencode-session-binding-v2",
 );
 assert(ownsOpencodeBindingPluginSource(previousBindingPluginSource), "older CodeTerm binding versions remain owned");
 assert(!isCurrentOpencodeBindingPluginSource(previousBindingPluginSource), "older binding version is stale");
@@ -140,7 +141,9 @@ console.log("\n--- session binding deduplicates by active session ---\n");
 
 {
   const resumed = await loadGeneratedBindingHooks();
-  await resumed.hooks.event({ event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } } });
+  await resumed.hooks.event({
+    event: { type: "message.part.updated", properties: { sessionID: "ses_resumed" } },
+  });
   eq(
     resumed.requests.map(({ session_id }) => session_id),
     ["ses_resumed"],
@@ -255,7 +258,7 @@ console.log("\n--- exclusive structured cursor ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), msg: JSON.stringify({ role: "user" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "before boundary" }), role: "user" },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -268,7 +271,7 @@ console.log("\n--- exclusive structured cursor ---\n");
   }));
   const first = p.readStructuredChat("/work/proj", "ses_owned", null) as { messages: unknown[]; cursor: string };
   eq(first.cursor, '[1000,["p1"]]', "cursor includes timestamp and seen peer ids");
-  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), msg: JSON.stringify({ role: "user" }) });
+  rows.push({ id: "p0", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "same timestamp peer" }), role: "user" });
   const peer = p.readStructuredChat("/work/proj", "ses_owned", first.cursor) as { messages: Array<{ content: string }>; cursor: string };
   eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
   const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
@@ -279,7 +282,7 @@ console.log("\n--- streamed part growth is re-delivered (same id, newer update) 
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
   const rows: Array<Record<string, unknown>> = [
-    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), msg: JSON.stringify({ role: "assistant" }) },
+    { id: "p1", ts_created: 1000, ts_updated: 1000, part: JSON.stringify({ type: "text", text: "Hel" }), role: "assistant" },
   ];
   const p = loadOpencodeWithHost(ocHost({
     fs: {
@@ -309,7 +312,7 @@ console.log("\n--- malformed structured cursor fails closed ---\n");
       fileExists: () => true,
       sqliteQuery: () => {
         queryCalls++;
-        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), msg: JSON.stringify({ role: "user" }) }];
+        return [{ id: "history", ts: 1, part: JSON.stringify({ type: "text", text: "history" }), role: "user" }];
       },
     },
   }));
@@ -371,8 +374,8 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   eq(parsedFresh.permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX fresh config grants only the tab pad and asks for all other paths");
   eq(posixConfig(restored).permission.external_directory, { "*": "ask", "/runtime/pads/tab-1/*": "allow" }, "POSIX restore config grants only the tab pad and asks for all other paths");
   const parsedResume = posixConfig(resumed);
-  eq(parsedResume.instructions, [".codeterm/context.md"], "POSIX resume config retains its instruction path");
-  assert(resumed.includes("cp -- '/tmp/context.md' '.codeterm/context.md' && opencode --session 'ses_resume'"), "POSIX resume executes opencode after staging instructions");
+  eq(parsedResume.instructions, ["/tmp/context.md"], "POSIX resume config references the host task file directly");
+  assert(resumed.includes("opencode --session 'ses_resume'") && !resumed.includes("cp --"), "POSIX resume launches without staging instructions into the project");
   assert(!fresh.includes("exit $ct_status") && !restored.includes("exit $ct_status"), "plain launch and restore keep the tab shell open after OpenCode exits");
   const windows = loadOpencodeWithHost(ocHost({ platform: () => "windows", shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` }, fs: { writeTempFile: () => "C:\\Temp\\context.md", fileExists: () => false } }));
   const windowsFresh = windows.buildLaunchCommand({});
@@ -397,8 +400,8 @@ console.log("\n--- per-launch pad-only external directory permission ---\n");
   }
   const windowsConfigText = windowsResume.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
   const parsedWindows = JSON.parse(windowsConfigText || "{}") as { instructions?: string[] };
-  eq(parsedWindows.instructions, [".codeterm/context.md"], "Windows resume config retains its instruction path");
-  assert(windowsResume.includes("Copy-Item -LiteralPath 'C:\\Temp\\context.md' -Destination '.codeterm/context.md' -Force; opencode"), "Windows resume executes opencode after staging instructions");
+  eq(parsedWindows.instructions, ["C:\\Temp\\context.md"], "Windows resume config references the host task file directly");
+  assert(windowsResume.includes("opencode --session 'ses_resume'") && !windowsResume.includes("Copy-Item"), "Windows resume launches without staging instructions into the project");
   for (const [name, command] of [["fresh", windowsFresh], ["restore", windowsRestore]] as const) {
     const embedded = command.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1];
     assert(!!embedded, `Windows ${name} embeds a quoted config`);
@@ -439,11 +442,11 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
   }));
   const plainResume = p.buildResumeCommandWithContext({
       sessionId: savedSession,
-      args: ["-m", "big-pickle", "--variant", "high"],
+      args: ["-m", "big-pickle", "--agent", "build"],
     });
   eq(
     plainResume.match(/try \{ (opencode .+?) \} finally/)?.[1],
-    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --variant Q(windows:high) -m Q(windows:opencode/big-pickle)",
+    "opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved) --agent Q(windows:build) -m Q(windows:opencode/big-pickle)",
     "resume selects the saved project and exact session in the full TUI inside the config wrapper",
   );
   eq(
@@ -454,8 +457,8 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
         params: [savedSession],
       },
       {
-        sql: "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-        params: [savedSession],
+        sql: "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+        params: [savedSession, ASSISTANT_MESSAGE_MAX_BYTES],
       },
     ],
     "resume project and model lookups are scoped to the tab's saved session id",
@@ -465,14 +468,16 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
     systemPrompt: "opaque-context-fragment",
   });
   assert(
-    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item"),
-    "resume stops if it cannot enter the saved project directory before staging configuration",
+    configured.includes("Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop;") && !configured.includes("New-Item"),
+    "resume stops if it cannot enter the saved project directory and does not stage task files",
   );
   assert(
-    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; New-Item") &&
-      configured.includes("Copy-Item -LiteralPath Q(windows:C:\\Temp\\restored-context.md) -Destination Q(windows:.codeterm/restored-context.md) -Force; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)"),
+    configured.includes("try { Set-Location -LiteralPath Q(windows:D:/Developer/codeterm-livetest) -ErrorAction Stop; opencode Q(windows:D:/Developer/codeterm-livetest) --session Q(windows:ses_saved)") &&
+      !configured.includes("Copy-Item"),
     "session-config wrapper preserves the explicit full-TUI resume argv",
   );
+  const configuredConfig = JSON.parse(configured.match(/\$ct_config = Q\(windows:(.*?)\) \| ConvertFrom-Json/)?.[1] || "{}") as { instructions?: string[] };
+  eq(configuredConfig.instructions, ["C:\\Temp\\restored-context.md"], "resume config references the host context file directly");
   assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
 }
 
@@ -496,16 +501,17 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const launch = p.buildLaunchCommand({ task: hostileTask });
   assert(launch.includes("$env:OPENCODE_CONFIG_CONTENT ="), "OpenCode passes task instructions through isolated config");
-  assert(launch.includes("Copy-Item -LiteralPath 'C:\\Temp\\opencode task.md'"), "OpenCode copies the host task into its workspace");
-  assert(launch.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode config references only the workspace-local task file");
-  assert(launch.includes("finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '.codeterm/opencode-task.md'"), "OpenCode removes its inline config and workspace-local task file on exit");
-  assert(launch.includes("--prompt 'Execute the assigned task."), "OpenCode starts the assigned turn inline");
-  assert(!launch.includes("<location>") && !launch.includes("whoami") && !launch.includes("юникод"), "OpenCode task body is absent from the launch command");
+  const launchConfig = JSON.parse(launch.match(/\$ct_config = '([^']*)' \| ConvertFrom-Json/)?.[1] || "{}") as { instructions?: string[] };
+  eq(launchConfig.instructions, ["C:\\Temp\\opencode task.md"], "OpenCode config references the host task file");
+  assert(!launch.includes("Copy-Item") && !launch.includes("mkdir -p .codeterm") && !launch.includes("New-Item -ItemType Directory -Force -Path '.codeterm'"), "OpenCode does not create task files in the project");
+  assert(launch.includes("--prompt "), "OpenCode submits the host-selected starter turn");
+  assert(!launch.includes(hostileTask), "OpenCode task body is absent from the launch command");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
-  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "OpenCode uses the non-actionable idle wake-up starter");
-  assert(!idle.includes("Execute the assigned task."), "OpenCode idle launch never uses the task starter");
+  const idleStarter = p.starterPromptText("idle_wakeup");
+  const taskStarter = p.starterPromptText("assigned_task");
+  assert(!!idleStarter && idle.includes(`--prompt '${idleStarter}'`), "OpenCode idle launch submits the idle wake-up starter");
+  assert(!!taskStarter && !idle.includes(taskStarter), "OpenCode idle launch never uses the task starter");
   const silent = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "no_starter" });
-  assert(silent.includes('instructions\":[\".codeterm/opencode-task.md\"]'), "OpenCode silent launch keeps configured instructions");
   assert(!silent.includes("--prompt"), "OpenCode silent launch has no starter turn");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
@@ -791,7 +797,7 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   assert(foreignFile.checkIntegration().plugin_file_owned === false, "foreign plugin files are not refreshable as ours");
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v3\n" +
+      "// codeterm-opencode-session-binding-v4\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
@@ -1006,9 +1012,9 @@ console.log("\n--- canonical tool fields ---\n");
       sqliteQuery: (_db: string, sql: string) => {
         if (sql.indexOf("FROM part") !== -1) {
           return [
-            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), msg: JSON.stringify({ role: "assistant" }) },
-            { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), msg: JSON.stringify({ role: "assistant" }) },
-            { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), msg: JSON.stringify({ role: "assistant" }) },
+            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), role: "assistant" },
+            { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), role: "assistant" },
+            { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), role: "assistant" },
           ];
         }
         return [];

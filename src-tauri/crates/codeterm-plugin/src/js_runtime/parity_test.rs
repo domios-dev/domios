@@ -562,6 +562,19 @@ struct NativeCodexReadiness;
 
 #[async_trait::async_trait]
 impl AgentProvider for NativeCodexReadiness {
+    fn sandboxed_linux_launch_capability(
+        &self,
+    ) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
+        Some(crate::provider::SandboxedLinuxLaunchCapability {
+            network_access_args: vec![
+                "-c".into(),
+                "sandbox_workspace_write.network_access=true".into(),
+            ],
+            network_access_config_path: "~/.codex/config.toml".into(),
+            network_access_setting: "sandbox_workspace_write.network_access".into(),
+        })
+    }
+
     fn id(&self) -> &str {
         "codex-readiness-fixture"
     }
@@ -640,12 +653,24 @@ fn codex_composer_fingerprint_native_js_parity() {
         native.composer_cursor_position()
     );
     assert_eq!(js.status_bar_rows(), native.status_bar_rows());
-
     let cursor = load_js("cursor");
     assert!(cursor.provider_readiness_strategy().requires_composer());
     assert_eq!(
         cursor.composer_cursor_position(),
         crate::provider::ComposerCursorPosition::BottomRegion
+    );
+}
+
+#[test]
+fn codex_linux_sandbox_codeterm_reach_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let native = NativeCodexReadiness;
+    let js = load_js("codex");
+    assert_eq!(
+        js.sandboxed_linux_launch_capability(),
+        native.sandboxed_linux_launch_capability()
     );
 }
 
@@ -874,6 +899,32 @@ fn paste_limit_capability_native_js_parity() {
 }
 
 #[test]
+fn typed_follow_up_capability_native_js_parity_and_threshold() {
+    let Some(_) = require_plugins() else {
+        return;
+    };
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let claude = load_js("claude");
+    let capability = native
+        .paste_capability()
+        .expect("native provider declares paste handling");
+
+    assert_eq!(claude.paste_capability(), Some(capability.clone()));
+    assert_eq!(
+        capability.typed_follow_up_for("a\nb\nc"),
+        None,
+        "three-line messages remain unchanged"
+    );
+    assert_eq!(
+        capability.typed_follow_up_for("a\nb\nc\nd"),
+        None,
+        "messages at the declared threshold remain unchanged"
+    );
+    assert!(capability.typed_follow_up_for("a\nb\nc\nd\ne").is_some());
+    assert_eq!(load_js("codex").paste_capability(), None);
+}
+
+#[test]
 fn launch_adapter_matrix_uses_each_installed_descriptor() {
     let Some(root) = require_plugins() else {
         return;
@@ -1044,82 +1095,13 @@ fn model_launch_args_match_each_cli_flag_format() {
     }
 }
 
-/// DN-2 read-preference parity: a stored transcript path whose filename
-/// differs from the session id must be what BOTH the native and JS readers
-/// resolve — neither may consult id-based reconstruction. The JS fixture's own
-/// resolver is a reconstruction decoy: if the evidence preference were skipped
-/// on the JS path, the decoy path would come back instead of the stored file.
-#[test]
-fn transcript_path_evidence_native_js_read_parity() {
-    let tmp = tempfile::tempdir().unwrap();
-    let evidence_dir = tmp.path().join("evidence");
-    let _env = EnvGuard::new(&[(
-        crate::session_evidence::EVIDENCE_DIR_ENV,
-        evidence_dir.to_str().unwrap(),
-    )]);
-
-    let sid = "parity-evidence-sid-4aaa-8aaa-aaaaaaaaaaaa";
-    let stored = tmp.path().join("vendor-named-differently.jsonl");
-    std::fs::write(&stored, "{\"cwd\":\"x\"}\n").unwrap();
-    assert!(crate::session_evidence::record(
-        sid,
-        stored.to_str().unwrap()
-    ));
-
-    let cwd = tmp.path().to_string_lossy().to_string();
-
-    let native = crate::agent_claude::provider::ClaudeProvider::new();
-    let native_path = native
-        .session_file_path(&cwd, sid)
-        .expect("native reader resolves the stored path");
-    assert_eq!(native_path, stored, "native reader prefers the stored file");
-
-    let js = load_inline_js(
-        "transcript-evidence-fixture",
-        r#"module.exports.default = {
-            sessionFilePath(cwd, sessionId) { return cwd + "/" + sessionId + ".jsonl"; }
-        };"#,
-    );
-    let js_path = js
-        .session_file_path(&cwd, sid)
-        .expect("js reader resolves the stored path");
-    assert_eq!(
-        js_path, native_path,
-        "native and JS readers agree on the stored file"
-    );
-    assert_ne!(
-        js_path,
-        PathBuf::from(format!("{cwd}/{sid}.jsonl")),
-        "the JS reconstruction decoy was not consulted"
-    );
-    assert_eq!(
-        js.session_jsonl_path(&cwd, sid).as_deref(),
-        Some(native_path.as_path()),
-        "the chat-tail resolver honors the same stored path"
-    );
-    assert!(
-        std::fs::read_to_string(&js_path).is_ok(),
-        "both readers read the stored file itself"
-    );
-
-    // Absence control: no evidence ⇒ the JS resolver's own answer comes back.
-    let plain_sid = "parity-no-evidence-sid";
-    assert_eq!(
-        js.session_file_path(&cwd, plain_sid),
-        Some(PathBuf::from(format!("{cwd}/{plain_sid}.jsonl"))),
-        "absence of evidence keeps today's resolution byte-for-byte"
-    );
-}
-
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
-/// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
+/// must stay in lockstep with `stop_keys().is_some()` for every bundled
 /// provider — they are two reads of the same capability and a split would show
 /// a Stop button that sends nothing (or hide one that works). This is the
 /// drift class that hid the R1 native-Claude bug; here it guards the JS path.
-/// NOTE: all four bundled manifests declare Esc as the stop key; the byte is a
-/// manifest choice, so this test asserts the invariant rather than the raw byte.
 #[test]
-fn supports_stop_matches_stop_keystroke() {
+fn supports_stop_matches_stop_sequence() {
     if require_plugins().is_none() {
         return;
     }
@@ -1127,8 +1109,8 @@ fn supports_stop_matches_stop_keystroke() {
         let p = load_js(id);
         assert_eq!(
             p.describe().supports_stop,
-            p.stop_keystroke().is_some(),
-            "{id}: descriptor supports_stop must equal stop_keystroke().is_some()"
+            p.stop_keys().is_some(),
+            "{id}: descriptor supports_stop must equal stop_keys().is_some()"
         );
     }
 }
@@ -1151,6 +1133,7 @@ fn permission_bypass_descriptor_matches_provider_capability() {
 // Hook event roster parity + fail-closed registration (DN-3 stage 1).
 
 mod hook_event_roster;
+mod host_file_reads;
 mod integration_kind;
 mod launch_artifacts;
 
@@ -1171,8 +1154,10 @@ mod find_session;
 mod manifest_launch_template;
 mod model_groups;
 mod opencode;
+mod opencode_usage_bounds;
 mod reasoning_efforts;
 mod record_identity;
 mod resume_first_turn;
+mod session_content;
 mod trust_grant;
 mod usage_sources;

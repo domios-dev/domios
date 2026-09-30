@@ -17,6 +17,14 @@ fn optional_string_field_preserves_missing_vs_null() {
 }
 
 #[test]
+fn archived_plan_next_response_never_advises_dispatch() {
+    let response = archived_next_response("pl_archived", PlanStatus::Archived).unwrap();
+    assert_eq!(response["plan_id"], "pl_archived");
+    assert_eq!(response["next_actions"], json!([]));
+    assert!(archived_next_response("pl_active", PlanStatus::Active).is_none());
+}
+
+#[test]
 fn transfer_caller_requires_agent_param() {
     assert_eq!(
         transfer_caller(&Some(json!({ "caller_tab_id": "source-manager" }))).unwrap(),

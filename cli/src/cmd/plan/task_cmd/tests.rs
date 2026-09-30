@@ -71,7 +71,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
         "type": "invalid_model",
         "provider": "codex",
         "requested_model": "gpt-9-bogus",
-        "closest_model_ids": ["gpt-6-sol", "gpt-6-astra"],
+        "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
         "refresh_command": "codeterm agent models codex",
         "message": "unknown model"
     });
@@ -116,12 +116,13 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
     assert_eq!(output["data"]["type"], "invalid_model");
     assert_eq!(output["data"]["provider"], "codex");
     assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
-    assert_eq!(output["data"]["closest_model_ids"][0], "gpt-6-sol");
+    assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
     assert_eq!(
         output["data"]["refresh_command"],
         "codeterm agent models codex"
     );
-    assert_eq!(output["code"], -32602);
+    assert_eq!(output["error"]["rpc_code"], -32602);
+    assert_eq!(output["error"]["code"], "invalid_argument");
 }
 
 fn list_action(status: Option<&str>) -> PlanTaskAction {

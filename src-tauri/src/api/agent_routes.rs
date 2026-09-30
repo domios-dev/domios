@@ -15,48 +15,14 @@ use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 mod model_error;
 mod pair_headers;
+pub(crate) mod spawn_ownership;
+mod spawn_rejection;
 
 pub(super) use pair_headers::create_orchestration_pair;
+use spawn_ownership::ownership_for_spawning_peer;
+pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
-
-/// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
-/// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
-pub(crate) struct SpawnRejection {
-    status: StatusCode,
-    body: serde_json::Value,
-}
-
-impl IntoResponse for SpawnRejection {
-    fn into_response(self) -> Response {
-        (self.status, Json(self.body)).into_response()
-    }
-}
-
-impl SpawnRejection {
-    pub(crate) fn new(status: StatusCode, code: &str, message: String) -> Self {
-        Self {
-            status,
-            body: serde_json::json!({"ok": false, "error": {"code": code, "message": message}}),
-        }
-    }
-}
-
-impl From<String> for SpawnRejection {
-    fn from(message: String) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            body: serde_json::json!({
-                "ok": false,
-                "error": {
-                    "code": "spawn_failed",
-                    "message": message,
-                    "retry_hint": "transient — retry once; if it persists, fix the spawn request (--role/--plan-task/--cwd) or check the target's health with `codeterm mesh peers`",
-                },
-            }),
-        }
-    }
-}
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -271,6 +237,24 @@ pub async fn spawn_agent(
         })?;
     }
     let require_delivery_ack = body.require_delivery_ack;
+    let spawning_peer = crate::api::auth::caller_peer_id(&state, &headers).map(|peer_id| {
+        let peer_name = state
+            .mesh
+            .lock()
+            .paired_peers
+            .get(&peer_id)
+            .map(|peer| peer.instance_name.clone())
+            .unwrap_or_default();
+        (peer_id, peer_name)
+    });
+    let ownership = match spawning_peer {
+        Some((peer_id, peer_name)) => Some(ownership_for_spawning_peer(
+            body.ownership,
+            &peer_id,
+            &peer_name,
+        )),
+        None => body.ownership,
+    };
     let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
         |(s, m)| SpawnRejection {
             status: s,
@@ -312,7 +296,7 @@ pub async fn spawn_agent(
         spawned_by_tab_id: body.spawned_by_tab_id,
         team_id: body.team_id,
         creator_tab_id: body.creator_tab_id,
-        ownership: body.ownership,
+        ownership,
         model: body.model,
         planned_model: None,
         planned_reasoning_effort: None,
@@ -349,9 +333,13 @@ pub async fn spawn_agent(
         .spawn_agent(params, ready_tx)
         .await
         .map_err(SpawnRejection::from)?;
-    if let Some(ready_rx) = ready_rx {
-        verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
-    }
+    let launch = match ready_rx {
+        Some(ready_rx) => {
+            verify_spawn_delivery(&state, &result.tab_id, ready_rx).await?;
+            None
+        }
+        None => Some(spawn_rejection::await_spawn_launch(&state.svc, &result.tab_id).await?),
+    };
     let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
         match state.svc.arm_bound_worker_ack_deadline_for_tab(
             &result.tab_id,
@@ -391,7 +379,14 @@ pub async fn spawn_agent(
     if require_delivery_ack {
         resp["delivery_state"] = serde_json::json!("confirmed");
     }
-    if let Some(ref warning) = result.warning {
+    let warning = match launch.as_ref() {
+        Some(launch) => {
+            resp["launch_state"] = serde_json::json!(launch.launch_state());
+            launch.merged_warning(&result.tab_id, result.warning.as_deref())
+        }
+        None => result.warning.clone(),
+    };
+    if let Some(warning) = warning {
         resp["warning"] = serde_json::json!(warning);
     }
     if let Some(warning) = ack_warning {
@@ -797,7 +792,7 @@ fn default_grace_secs() -> u64 {
     crate::service::agent_restart::DEFAULT_GRACE_SECS
 }
 
-fn agent_restart_response(
+pub(crate) fn agent_restart_response(
     outcome: &crate::service::agent_restart::RestartOutcome,
 ) -> serde_json::Value {
     serde_json::json!({

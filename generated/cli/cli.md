@@ -86,9 +86,9 @@ Link a tab as worker under a parent
 
 #### `codeterm agent model`
 
-Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
+Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
-- `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
+- `<name>` — Model id. Run `agent models PROVIDER` to list
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent models`
@@ -148,24 +148,24 @@ Spawn a new agent; roleless unless --role is provided.
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
-- `--cwd` — Working directory (required with --mesh; resolves on the peer)
+- `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
 - `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
-- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications
+- `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
-- `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--preset` — Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents
 - `--provider-reserve-pct`
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
-- `--system` — Override the shell system prompt when spawning a chatBackend shell
+- `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
@@ -308,6 +308,7 @@ Mark a cron run as complete (called by agent at end of task)
 
 - `--run-id` — Run ID
 - `--summary` — Summary of what happened
+- `--yes` — Confirm a human completion when this caller has no tab identity
 
 #### `codeterm cron create`
 
@@ -1102,7 +1103,7 @@ List all registered skills
 
 #### `codeterm mem skill new`
 
-Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
+Scaffold a new skill folder under <skills-dir>/<name>/ (skills/ in the active instance data dir), write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
 
 - `--area` — Optional area tag to put in the frontmatter
 - `<name>` — Skill slug (also folder name). Use kebab-case
@@ -1324,8 +1325,8 @@ Send a notification. The body is read only from the calling tab's AgentPad. Repo
 - `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
 - `--offer-accept` — Which of this notification's own choices accepts the offer
 - `--severity` — Record identity axis: info, warning, error. Tone comes from --level
-- `--target-tab` — The tab whose chat holds the message this notification is about
-- `<title>` — Notification title
+- `--target-tab` — The open tab whose chat holds the message this notification is about
+- `<title>` — Notification title: not blank, at most 200 characters
 
 #### `codeterm orchestrator`
 
@@ -1475,6 +1476,7 @@ Mark the plan approved for task generation
 Archive a plan
 
 - `<plan_id>`
+- `--yes` — Confirm archive when no Plan tab identity is available
 
 #### `codeterm plan claim`
 
@@ -2625,7 +2627,7 @@ Install a plugin by id from channels, or directly from a local folder
 - `--channel` — Disambiguate channel installs when more than one channel offers the id
 - `--from-dir` — Install from a local plugin directory
 - `<id>` — Plugin id to install from registered channels
-- `--id-override` — Override the install id. Defaults to plugin.json#id or folder name
+- `--id-override` — Rename the installed runtime plugin id, including plugin.json#id
 
 #### `codeterm plugin list`
 
@@ -2964,6 +2966,7 @@ Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 Close a tab by ID
 
+- `--force` — Close a Worker that still holds an in-progress task; its Orchestrator is notified with the recovery command
 - `<id>` — Temporary positional alias for the tab id. Prefer --tab
 - `--tab` — Tab ID to close
 
@@ -3085,7 +3088,7 @@ Show agent status for a tab (type, provider session, prompt)
 
 #### `codeterm tab stop`
 
-Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stopKey (Esc for all bundled providers). Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
+Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop-key sequence. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
@@ -3153,8 +3156,9 @@ Attach the one optional Cartographer Manager to a Team
 
 #### `codeterm team close`
 
-Close every member tab and remove the Team registry entry
+Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force
 
+- `--force` — Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged
 - `<team_id>` — Team ID
 
 #### `codeterm team list`

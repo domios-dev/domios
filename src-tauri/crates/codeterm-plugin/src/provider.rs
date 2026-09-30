@@ -153,18 +153,22 @@ pub enum PathOpenKind {
 mod agent_provider;
 mod availability;
 mod capabilities;
+mod launch_permissions;
 mod launch_session;
 mod model_group;
 mod model_info;
+mod session_content;
 mod settings;
 mod spawn_strategy;
 mod usage_snapshot;
 pub use agent_provider::*;
 pub use availability::*;
 pub use capabilities::*;
+pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;
 pub use model_info::*;
+pub use session_content::*;
 pub use settings::*;
 pub use spawn_strategy::*;
 pub use usage_snapshot::*;
@@ -232,12 +236,10 @@ pub struct ProviderDescriptor {
     /// Shell command for updating the CLI on the current platform.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_command: Option<String>,
-    /// Provider-declared in-agent model switch command template. `{model}` is
-    /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
-    /// the provider may publish models for launch/config surfaces but does not
-    /// support an arg-based live session switch.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_switch_format: Option<String>,
+    /// How a live tab of this provider switches model; `unsupported` means the
+    /// model is chosen only at spawn.
+    #[serde(default)]
+    pub model_switch: ModelSwitchMode,
     /// Provider-declared command that starts a fresh context in the same tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fresh_context_command: Option<String>,
@@ -250,7 +252,7 @@ pub struct ProviderDescriptor {
     /// install needs no provider-owned trust grant step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_trust_grant: Option<IntegrationTrustGrantCapability>,
-    /// `true` when this provider declares a stop_keystroke — UI shows
+    /// `true` when this provider declares a stop sequence — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
     pub supports_stop: bool,

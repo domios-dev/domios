@@ -40,6 +40,58 @@ impl CronStore {
         None
     }
 
+    pub fn set_tab_awaiting_owner_prompt(
+        &mut self,
+        tab_id: &str,
+        awaiting: bool,
+    ) -> Result<bool, String> {
+        let Some((job_id, run_id)) = self.tab_owners.get(tab_id).cloned() else {
+            return Ok(false);
+        };
+        let next = if awaiting {
+            super::CronRunStatus::AwaitingOwnerPrompt
+        } else {
+            super::CronRunStatus::Running
+        };
+        let mut changed = false;
+        if let Some(run) = self
+            .file
+            .history
+            .get_mut(&job_id)
+            .and_then(|history| history.iter_mut().find(|run| run.run_id == run_id))
+        {
+            if matches!(
+                run.status,
+                super::CronRunStatus::Running | super::CronRunStatus::AwaitingOwnerPrompt
+            ) && run.status != next
+            {
+                run.status = next.clone();
+                changed = true;
+            }
+        }
+        if let Some(run) = self
+            .file
+            .jobs
+            .iter_mut()
+            .find(|job| job.id == job_id)
+            .and_then(|job| job.last_run.as_mut())
+            .filter(|run| run.run_id == run_id)
+        {
+            if matches!(
+                run.status,
+                super::CronRunStatus::Running | super::CronRunStatus::AwaitingOwnerPrompt
+            ) && run.status != next
+            {
+                run.status = next;
+                changed = true;
+            }
+        }
+        if changed {
+            self.save()?;
+        }
+        Ok(changed)
+    }
+
     pub fn logs_dir(&self) -> PathBuf {
         let dir = self
             .file_path

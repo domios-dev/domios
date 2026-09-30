@@ -9,7 +9,9 @@ const multiplexer = readFileSync(resolve(process.cwd(), "src/store/multiplexer/i
 describe("confirmed close UI contracts", () => {
   it("posts force and the exact target confirmation for web workspace and Team closes", () => {
     expect(bridge).toMatch(/mux_close_workspace:[\s\S]*?force: a\.force === true,[\s\S]*?confirm: s\(a, "workspaceId"\)/);
-    expect(bridge).toMatch(/mux_close_team:[\s\S]*?\{ force: true, confirm: s\(a, "teamId"\) \}/);
+    expect(bridge).toMatch(
+      /mux_close_team:[\s\S]*?\{ force: true, confirm: s\(a, "teamId"\), force_busy: a\.forceBusy === true \}/,
+    );
   });
 
   it("awaits Team close and turns rejection into a failure toast", () => {

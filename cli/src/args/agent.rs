@@ -198,9 +198,9 @@ pub enum AgentAction {
         #[arg(long, default_value = "10")]
         grace_secs: u64,
     },
-    /// Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead.
+    /// Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`.
     Model {
-        /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
+        /// Model id. Run `agent models PROVIDER` to list.
         name: String,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -240,7 +240,9 @@ pub enum AgentAction {
         /// Short tab description (max 200 chars)
         #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
-        /// Working directory (required with --mesh; resolves on the peer)
+        /// Working directory: an existing directory, refused otherwise. A relative
+        /// path resolves against your current directory. With --mesh it must be
+        /// absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths.
         #[arg(long)]
         cwd: Option<String>,
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
@@ -290,10 +292,10 @@ pub enum AgentAction {
         /// values are rejected, never silently downgraded.
         #[arg(long = "reasoning-effort")]
         reasoning_effort: Option<String>,
-        /// Override the shell system prompt when spawning a chatBackend shell.
+        /// Override the shell system prompt of a chatBackend shell; refused for PTY agents.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
-        /// Select a chatBackend shell preset. Omit to use the plugin default preset.
+        /// Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents.
         #[arg(long)]
         preset: Option<String>,
         /// Watcher charter text.
@@ -346,8 +348,8 @@ pub enum AgentAction {
         authorized_gates: Vec<String>,
         #[arg(long = "provider-reserve-pct", default_value_t = 0.0)]
         provider_reserve_pct: f32,
-        /// Declare the tab non-user-facing (bench/probe): its interactive
-        /// prompts never raise user-visible Input-needed notifications.
+        /// Declare the tab non-user-facing (bench/probe): its prompts and exits
+        /// never notify the user; they are reported to its parent instead.
         #[arg(long = "non-user-facing")]
         non_user_facing: bool,
     },

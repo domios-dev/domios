@@ -20,8 +20,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
             match result {
                 Ok(value) => print!("{}", render_search_hits(&value)),
                 Err(error) => {
-                    eprintln!("Error: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, error.to_string());
                 }
             }
             return;
@@ -62,8 +61,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
                 match result {
                     Ok(value) => print!("{}", render_mem_skill_list(&value)),
                     Err(error) => {
-                        eprintln!("Error: {error}");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, error.to_string());
                     }
                 }
             } else {
@@ -93,7 +91,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
 
 const SEARCH_PREVIEW_CHARS: usize = 120;
 
-fn render_search_hits(value: &serde_json::Value) -> String {
+pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
     let Some(hits) = value
         .get("hits")
         .and_then(serde_json::Value::as_array)
@@ -175,9 +173,24 @@ fn render_mem_skill_list(value: &serde_json::Value) -> String {
 /// Print direct-injection text without the generic object wrapper.
 fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) {
     if let Ok(ref val) = result {
-        if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
-            println!("{}", text);
-            return;
+        if !json_mode {
+            if let (Some(outcome), Some(id)) = (
+                val.get("outcome").and_then(|v| v.as_str()),
+                val.get("id").and_then(|v| v.as_str()),
+            ) {
+                println!("{outcome}: {id}");
+                return;
+            }
+            if let Some(id) = val.get("unchanged").and_then(|v| v.as_str()) {
+                println!("unchanged: {id}");
+                return;
+            }
+        }
+        if !json_mode {
+            if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
+                println!("{}", text);
+                return;
+            }
         }
     }
     handle_result(json_mode, result);

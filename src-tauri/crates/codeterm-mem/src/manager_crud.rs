@@ -4,6 +4,13 @@
 use super::reindex::compose_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
+use rusqlite::OptionalExtension;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveOutcome {
+    pub id: String,
+    pub outcome: String,
+}
 
 /// What a batch forget actually did — deleted rows and the extraction
 /// generations that lost authority with them, reported separately because they
@@ -16,7 +23,7 @@ pub struct AreaForgetOutcome {
 
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, false)
+        self.save_inner(item, false).map(|outcome| outcome.id)
     }
 
     /// Raw insert that skips dedup, auto-extraction of child items, and
@@ -29,7 +36,15 @@ impl MemManager {
     }
 
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, true)
+        self.save_inner(item, true).map(|outcome| outcome.id)
+    }
+
+    pub fn save_with_outcome(
+        &self,
+        item: NewMemItem,
+        replace: bool,
+    ) -> Result<SaveOutcome, String> {
+        self.save_inner(item, replace)
     }
 
     /// Create a bundled item with its fingerprint in the same insert —
@@ -65,34 +80,63 @@ impl MemManager {
         Ok(id)
     }
 
-    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
+    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<SaveOutcome, String> {
         self.guard_commit()?;
         let conn = self.conn.lock();
 
-        if !replace && !item.title.is_empty() {
-            let existing: Option<String> = conn
+        if !item.title.is_empty() {
+            let existing: Option<(String, Option<String>)> = conn
                 .query_row(
-                    "SELECT id FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
+                    "SELECT id, body_inline FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
                     rusqlite::params![item.kind.as_str(), &item.title],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
-                .ok();
-            if let Some(dup_id) = existing {
-                log::info!(
-                    "[mem] dedup: bumping recurrence on existing {} (same kind+title)",
-                    dup_id
-                );
-                let _ = conn.execute(
-                    "UPDATE mem_items SET recurrence_count = recurrence_count + 1,
-                                         accessed_at = ?1
-                     WHERE id = ?2",
-                    rusqlite::params![chrono::Utc::now().to_rfc3339(), &dup_id],
-                );
-                return Ok(dup_id);
+                .optional()
+                .map_err(|error| format!("find existing mem item: {error}"))?;
+            if let Some((existing_id, current_body)) = existing {
+                let current_body = current_body
+                    .or_else(|| {
+                        store::get(&conn, &existing_id, &self.blobs_dir)
+                            .ok()
+                            .flatten()
+                            .map(|item| item.body)
+                    })
+                    .unwrap_or_default();
+                let normalize = |body: &str| body.split_whitespace().collect::<Vec<_>>().join(" ");
+                if normalize(&current_body) == normalize(&item.body) {
+                    let _ = conn.execute(
+                        "UPDATE mem_items SET recurrence_count = recurrence_count + 1, accessed_at = ?1 WHERE id = ?2",
+                        rusqlite::params![chrono::Utc::now().to_rfc3339(), &existing_id],
+                    );
+                    return Ok(SaveOutcome {
+                        id: existing_id,
+                        outcome: "unchanged".into(),
+                    });
+                }
+                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
+                drop(conn);
+                self.revoke_extraction(&existing_id);
+                self.enqueue_embedding(&existing_id, &item);
+                return Ok(SaveOutcome {
+                    id: existing_id,
+                    outcome: "updated".into(),
+                });
             }
         }
 
         let id = if replace {
+            if let Some(existing_id) =
+                store::find_by_kind_title(&conn, item.kind.as_str(), &item.title)?
+            {
+                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
+                drop(conn);
+                self.revoke_extraction(&existing_id);
+                self.enqueue_embedding(&existing_id, &item);
+                return Ok(SaveOutcome {
+                    id: existing_id,
+                    outcome: "updated".into(),
+                });
+            }
             store::upsert(&conn, &item, &self.blobs_dir)?
         } else {
             store::insert(&conn, &item, &self.blobs_dir)?
@@ -102,6 +146,7 @@ impl MemManager {
         // Replace destroys the row the in-flight generation copied its text from, so that generation is superseded exactly like a delete.
         if replace {
             self.revoke_extraction(&id);
+            self.embed_queue.cancel(&id);
         }
 
         #[cfg(feature = "embeddings")]
@@ -127,7 +172,27 @@ impl MemManager {
                 self.embed_queue.enqueue(id.clone(), embed_text);
             }
         }
-        Ok(id)
+        Ok(SaveOutcome {
+            id,
+            outcome: "created".into(),
+        })
+    }
+
+    fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
+        self.embed_queue.cancel(id);
+        #[cfg(feature = "embeddings")]
+        if super::body_is_embeddable(&item.body) {
+            let embed_text = compose_embed_text(
+                &format!("{:?}", item.kind).to_lowercase(),
+                &item.title,
+                item.area.as_deref(),
+                &item.tags,
+                &item.body,
+            );
+            self.embed_queue.enqueue(id.to_string(), embed_text);
+        }
+        #[cfg(not(feature = "embeddings"))]
+        let _ = (id, item);
     }
 
     pub fn get(&self, id: &str) -> Result<Option<MemItem>, String> {
@@ -150,14 +215,43 @@ impl MemManager {
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
-        let removed = {
+        let (matching_ids, skill_source) = {
             let conn = self.conn.lock();
-            store::delete(&conn, id)?
+            let skill_source =
+                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
+                    .map_err(|e| format!("read folder skill source: {e}"))?;
+            let matching_ids = match skill_source.as_deref() {
+                Some(source) => {
+                    codeterm_mem_store::skill_folders::skill_ids_for_source(&conn, source)
+                        .map_err(|e| format!("list folder skill registrations: {e}"))?
+                }
+                None => vec![id.to_string()],
+            };
+            (matching_ids, skill_source)
         };
-        if removed {
-            self.revoke_extraction(id);
+
+        for matching_id in &matching_ids {
+            self.embed_queue.cancel(matching_id);
         }
-        Ok(removed)
+
+        let removed_ids = {
+            let conn = self.conn.lock();
+            let mut removed = Vec::new();
+            for matching_id in matching_ids {
+                if store::delete(&conn, &matching_id)? {
+                    removed.push(matching_id);
+                }
+            }
+            removed
+        };
+
+        if removed_ids.iter().any(|removed_id| removed_id == id) {
+            remove_folder_skill(skill_source.as_deref(), &self.skill_dir, id);
+        }
+        for removed_id in &removed_ids {
+            self.revoke_extraction(removed_id);
+        }
+        Ok(removed_ids.iter().any(|removed_id| removed_id == id))
     }
 
     pub fn delete_by_area(&self, area: &str) -> Result<AreaForgetOutcome, String> {
@@ -175,12 +269,21 @@ impl MemManager {
             out
         };
         let mut deleted = Vec::new();
+        let mut skill_sources = Vec::new();
         for id in &ids {
+            self.embed_queue.cancel(id);
+            let skill_source =
+                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
+                    .map_err(|e| format!("read folder skill source: {e}"))?;
             if store::delete(&conn, id)? {
                 deleted.push(id.clone());
+                skill_sources.push((id.clone(), skill_source));
             }
         }
         drop(conn);
+        for (id, source) in skill_sources {
+            remove_folder_skill(source.as_deref(), &self.skill_dir, &id);
+        }
 
         // Batch forget shares the single-delete lifecycle: each deleted source
         // revokes its own generations, so unrelated extractions are untouched.
@@ -244,6 +347,7 @@ impl MemManager {
             store::update(&conn, id, &patch, &self.blobs_dir)?
         };
         if updated && body_changed {
+            self.embed_queue.cancel(id);
             #[cfg(feature = "embeddings")]
             {
                 let conn = self.conn.lock();
@@ -264,5 +368,21 @@ impl MemManager {
             }
         }
         Ok(updated)
+    }
+}
+
+fn remove_folder_skill(source: Option<&str>, skills_root: &std::path::Path, id: &str) {
+    let Some(folder) = source.and_then(|source| {
+        codeterm_mem_store::skill_folders::folder_skill_folder_to_remove(source, skills_root)
+    }) else {
+        return;
+    };
+    if let Err(error) = std::fs::remove_dir_all(&folder) {
+        log::warn!(
+            "[mem] could not remove skill folder for {} at {}: {}",
+            id,
+            folder.display(),
+            error
+        );
     }
 }

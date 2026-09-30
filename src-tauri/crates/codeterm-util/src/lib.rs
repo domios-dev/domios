@@ -1,8 +1,10 @@
 pub mod atomic_write;
 pub mod child_slot;
 pub mod lock_hold;
+pub mod persisted_state;
 pub mod process_util;
 pub mod shell;
+pub mod task_files;
 pub mod terminal;
 pub mod test_env;
 pub mod windows_env;

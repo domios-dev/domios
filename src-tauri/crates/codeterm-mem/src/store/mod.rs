@@ -87,6 +87,8 @@ pub struct HistoryEntry {
     pub changed_at: String,
     pub changed_by: String,
     pub change_type: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed_fields: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub old_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -183,6 +185,12 @@ pub fn get_item_history(conn: &Connection, item_id: &str) -> Result<Vec<HistoryE
                 new_importance: r.get(10)?,
                 old_kind: r.get(11)?,
                 new_kind: r.get(12)?,
+                changed_fields: r
+                    .get::<_, Option<String>>(13)?
+                    .as_deref()
+                    .and_then(|reason| reason.strip_prefix("fields="))
+                    .map(|fields| fields.split(',').map(str::to_string).collect())
+                    .unwrap_or_default(),
                 reason: r.get(13)?,
             })
         })
@@ -281,12 +289,16 @@ impl MemScope {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
-        if let Some(rest) = s.strip_prefix("workspace:") {
-            Self::Workspace(rest.to_string())
-        } else {
-            Self::Global
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        if s == "global" {
+            return Ok(Self::Global);
         }
+        if let Some(rest) = s.strip_prefix("workspace:") {
+            if !rest.trim().is_empty() && !rest.chars().any(char::is_control) {
+                return Ok(Self::Workspace(rest.to_string()));
+            }
+        }
+        Err("scope must be global or workspace:<id>".into())
     }
 }
 

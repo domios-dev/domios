@@ -40,8 +40,7 @@ fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> ! {
             std::process::exit(0);
         }
         Err(e) => {
-            println!("{}", serde_json::json!({"ok": false, "error": e}));
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e);
         }
     }
 }

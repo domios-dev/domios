@@ -13,8 +13,8 @@ mod tests;
 
 pub use inspect::inspect_tab_lifecycle;
 pub use journal::{
-    checkpoint_history, checkpoints, next_epoch_for, JournalLoad, TabLifecycleJournal, TailStatus,
-    COMPACT_AT_RECORDS, JOURNAL_FILE_NAME,
+    checkpoint_history, checkpoints, next_epoch_for, refused_tail_path, JournalLoad,
+    TabLifecycleJournal, TailStatus, COMPACT_AT_RECORDS, JOURNAL_FILE_NAME,
 };
 pub use record::{
     AgentTypeWriteAudit, AgentTypeWriteOrigin, BindingSource, CommittedAuthority, JournalRecord,
