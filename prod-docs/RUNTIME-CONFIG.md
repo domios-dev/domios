@@ -174,7 +174,7 @@ An optional second stage over `mem search`: recall fetches a candidate pool, a r
 | `memory.decision_rerank.max_concurrency` | `usize` | `8` | Parallel adapter calls (`1..=32`). |
 | `memory.decision_rerank.deadline_ms` | `u64` | `1500` | Failure deadline for the whole stage (`100..=30000`). |
 | `memory.decision_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
-| `memory.decision_rerank.max_body_chars` | `usize` | `8000` | Characters of each candidate sent to the adapter (`256..=100000`). |
+| `memory.decision_rerank.max_body_chars` | `usize` | `2000` | Maximum body characters sent to the adapter (`256..=100000`); titles are included without truncation. |
 | `memory.decision_rerank.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
 | `memory.decision_rerank.model` | `string?` | adapter default | Adapter model override. Read at daemon start. |
 
@@ -225,4 +225,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

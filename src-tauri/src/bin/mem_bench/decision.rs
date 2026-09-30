@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use codeterm_lib::mem::decision::{
-    rerank::{run_stage, RerankCandidate, StageConfig, StageOutcome},
+    rerank::{
+        run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE,
+    },
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
@@ -179,16 +181,27 @@ impl DecisionModel for StubModel {
         req: &DecisionRequest,
         _deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
-        if req.question != DecisionQuestion::Noul {
+        if !matches!(&req.question, DecisionQuestion::Noul { .. }) {
             return Err(DecisionError::Unsupported);
         }
-        let (query, candidate) = req
+        let Some((prefix, suffix)) = NOUL_INSTRUCTIONS_TEMPLATE
+            .split_once("{query}")
+        else {
+            return Err(DecisionError::Parse("invalid_bench_template".into()));
+        };
+        let query = req
+            .instructions
+            .strip_prefix(prefix)
+            .and_then(|s| s.strip_suffix(suffix))
+            .ok_or_else(|| DecisionError::Parse("invalid_bench_instructions".into()))?;
+        let memory = req
             .state
-            .strip_prefix("Query:\n")
-            .and_then(|s| s.split_once("\n\nCandidate:\n"))
+            .as_str()
+            .and_then(|state| state.strip_prefix("MEMORY:\n"))
+            .and_then(|state| state.split_once('\n'))
             .ok_or_else(|| DecisionError::Parse("invalid_bench_request".into()))?;
         let query_words = words(query);
-        let candidate_words = words(candidate);
+        let candidate_words = words(&format!("{}\n{}", memory.0, memory.1));
         let overlap = query_words.intersection(&candidate_words).count();
         let p = if query_words.is_empty() {
             0.0
@@ -236,12 +249,9 @@ pub(super) fn prepare_model(
 fn candidate(hit: &SearchHit) -> RerankCandidate {
     RerankCandidate {
         key: hit.item.id.clone(),
-        text: format!(
-            "{}\n{}\n{}",
-            hit.item.title,
-            hit.item.summary.as_deref().unwrap_or(""),
-            hit.item.body
-        ),
+        title: hit.item.title.clone(),
+        kind: hit.item.kind.clone(),
+        body: hit.item.body.clone(),
     }
 }
 
@@ -479,6 +489,26 @@ pub(super) fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decision_stub_reads_memory_string_and_rejects_object_state() {
+        let query = "orchard valve";
+        let request = DecisionRequest {
+            state: serde_json::Value::String("MEMORY:\nOrchard\nValve handbook".into()),
+            instructions: NOUL_INSTRUCTIONS_TEMPLATE.replace("{query}", query),
+            question: DecisionQuestion::Noul { criteria: None },
+        };
+        let answer = StubModel.decide(&request, Instant::now()).unwrap();
+        assert_eq!(answer, DecisionAnswer::Noul { p: 1.0 });
+
+        let mut object_state = request;
+        object_state.state = serde_json::json!({"query": query});
+        assert!(matches!(
+            StubModel.decide(&object_state, Instant::now()),
+            Err(DecisionError::Parse(_))
+        ));
+    }
+
     #[test]
     fn decision_metrics_mrr_and_recall_math() {
         let metrics = ranking_metrics(&[Some(1), Some(3), None, Some(2)], 2);

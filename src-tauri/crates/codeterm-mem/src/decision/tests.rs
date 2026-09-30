@@ -68,15 +68,18 @@ fn candidates(n: usize) -> Vec<RerankCandidate> {
     (0..n)
         .map(|i| RerankCandidate {
             key: format!("k{i}"),
-            text: format!("<<cand-{i}>>"),
+            title: format!("candidate {i}"),
+            kind: "fact".into(),
+            body: format!("<<cand-{i}>>"),
         })
         .collect()
 }
 
 fn cand_index(req: &DecisionRequest) -> usize {
-    let start = req.state.find("<<cand-").expect("candidate marker") + "<<cand-".len();
-    let end = start + req.state[start..].find(">>").expect("marker end");
-    req.state[start..end].parse().expect("marker index")
+    let state = req.state.as_str().expect("string request state");
+    let start = state.find("<<cand-").expect("candidate marker") + "<<cand-".len();
+    let end = start + state[start..].find(">>").expect("marker end");
+    state[start..end].parse().expect("marker index")
 }
 
 fn noul_by_index(ps: Vec<f64>) -> Arc<StubModel> {
@@ -156,12 +159,12 @@ fn decision_stage_score_primitive_normalized() {
         .iter()
         .map(|d| (0..4).map(|i| d[i] * i as f64 / 3.0).sum())
         .collect();
-    let recorded_levels = Arc::new(Mutex::new(Vec::new()));
+    let recorded_levels = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
     let seen = recorded_levels.clone();
     let scripted = dists.clone();
     let model = stub(SCORE, move |req| {
         if let DecisionQuestion::Score { levels } = &req.question {
-            seen.lock().push(levels.len());
+            seen.lock().push(levels.clone());
         }
         let probabilities: BTreeMap<String, f64> = scripted[cand_index(req)]
             .iter()
@@ -177,7 +180,11 @@ fn decision_stage_score_primitive_normalized() {
 
     let (order, relevance, _, max) = applied(run_stage(model, "q", &candidates(3), &cfg()));
     assert_eq!(SCORE_LEVELS.len(), 4);
-    assert_eq!(*recorded_levels.lock(), vec![4, 4, 4]);
+    let expected_levels: Vec<String> = SCORE_LEVELS
+        .iter()
+        .map(|level| (*level).to_string())
+        .collect();
+    assert_eq!(*recorded_levels.lock(), vec![expected_levels; 3]);
     assert_eq!(order, vec![1, 2, 0]);
     for (rank, &index) in order.iter().enumerate() {
         assert!((relevance[rank] - expected[index]).abs() < 1e-12);
@@ -202,7 +209,7 @@ fn decision_stage_prefers_noul_when_both_declared() {
     assert!(questions
         .lock()
         .iter()
-        .all(|q| *q == DecisionQuestion::Noul));
+        .all(|q| matches!(q, DecisionQuestion::Noul { .. })));
 }
 
 #[test]
@@ -359,20 +366,74 @@ fn decision_stage_body_capped_on_char_boundary() {
         max_body_chars: cap,
         ..cfg()
     };
+    let title = "An untruncated title";
     let candidate = RerankCandidate {
         key: "k".into(),
-        text: body.clone(),
+        title: title.into(),
+        kind: "fact".into(),
+        body: body.clone(),
     };
 
     applied(run_stage(model, "q", &[candidate], &config));
 
     let capped: String = body.chars().take(cap).collect();
-    let overflow: String = body.chars().take(cap + 1).collect();
     let recorded = states.lock();
     assert_eq!(recorded.len(), 1);
-    assert!(recorded[0].contains(&capped));
-    assert!(!recorded[0].contains(&overflow));
+    let state = recorded[0].as_str().expect("string request state");
+    assert_eq!(state, format!("MEMORY:\n{title}\n{capped}"));
+    assert_eq!(capped.chars().count(), cap);
     assert_eq!(truncate_chars(&body, cap).chars().count(), cap);
     assert_eq!(truncate_chars("abc", cap), "abc");
     assert_eq!(truncate_chars(&body, 0), "");
+}
+
+#[test]
+fn decision_stage_request_uses_supplied_query_and_memory_fields() {
+    let query = "where is the migration runbook";
+    let title = "Migration Runbook";
+    let body = "The operations manual contains the answer.";
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let seen = requests.clone();
+    let model = stub(NOUL, move |req| {
+        seen.lock().push(req.clone());
+        Ok(DecisionAnswer::Noul { p: 0.5 })
+    });
+    let candidate = RerankCandidate {
+        key: "runbook".into(),
+        title: title.into(),
+        kind: "fact".into(),
+        body: body.into(),
+    };
+
+    applied(run_stage(model, query, &[candidate], &cfg()));
+
+    let recorded = requests.lock();
+    assert_eq!(recorded.len(), 1);
+    assert!(recorded[0].instructions.contains(query));
+    let expected_state = format!("MEMORY:\n{title}\n{body}");
+    assert_eq!(recorded[0].state.as_str(), Some(expected_state.as_str()));
+    assert!(matches!(
+        &recorded[0].question,
+        DecisionQuestion::Noul { criteria: None }
+    ));
+}
+
+#[test]
+fn decision_stage_score_instruction_uses_supplied_query() {
+    let query = "what is the fallback path";
+    let instructions = Arc::new(Mutex::new(Vec::new()));
+    let seen = instructions.clone();
+    let model = stub(SCORE, move |req| {
+        seen.lock().push(req.instructions.clone());
+        Ok(DecisionAnswer::Score {
+            score: 0.0,
+            probabilities: BTreeMap::from([("0".into(), 1.0)]),
+            confidence: None,
+        })
+    });
+
+    applied(run_stage(model, query, &candidates(1), &cfg()));
+
+    assert_eq!(instructions.lock().len(), 1);
+    assert!(instructions.lock()[0].contains(query));
 }
