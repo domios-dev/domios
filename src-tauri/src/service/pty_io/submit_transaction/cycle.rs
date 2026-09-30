@@ -63,7 +63,7 @@ impl<'a> super::PtySubmitTransport<'a> {
             .submit_cycle
             .wait_for_wake_until(self.submit_generation, deadline, &self.wake_rx)
         {
-            CycleWait::Event(_) => {
+            CycleWait::Event => {
                 self.observe_deferred_readiness();
                 true
             }
@@ -96,8 +96,8 @@ impl<'a> super::PtySubmitTransport<'a> {
             .submit_cycle
             .wait_for_wake_until(self.submit_generation, deadline, &self.wake_rx)
         {
-            CycleWait::Event(_) if self.observe_deferred_readiness() => DeferredSubmitWait::Ready,
-            CycleWait::Event(_) => DeferredSubmitWait::Woken,
+            CycleWait::Event if self.observe_deferred_readiness() => DeferredSubmitWait::Ready,
+            CycleWait::Event => DeferredSubmitWait::Woken,
             CycleWait::Deadline => DeferredSubmitWait::Deadline,
             CycleWait::Inactive => DeferredSubmitWait::Inactive,
         }
@@ -113,7 +113,7 @@ pub(super) enum SubmitCycleSignal {
 }
 
 pub(super) enum CycleWait {
-    Event(SubmitCycleSignal),
+    Event,
     Deadline,
     Inactive,
 }
@@ -221,7 +221,7 @@ impl SubmitCycle {
         };
         match receiver.recv_timeout(remaining) {
             Ok(signal) if signal != SubmitCycleSignal::Closed && self.is_current(generation) => {
-                CycleWait::Event(signal)
+                CycleWait::Event
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.is_current(generation) => {
                 CycleWait::Deadline
