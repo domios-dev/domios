@@ -22,8 +22,8 @@ impl Default for DecisionRerankConfig {
             enabled: false,
             adapter: "typesafe-jev".into(),
             sources: DecisionSources::default(),
-            max_concurrency: 8,
-            deadline_ms: 1500,
+            max_concurrency: 16,
+            deadline_ms: 3000,
             low_confidence_threshold: 0.15,
             max_body_chars: 2000,
             endpoint: None,
@@ -43,8 +43,8 @@ pub struct DecisionSources {
 impl Default for DecisionSources {
     fn default() -> Self {
         Self {
-            recall: 10,
-            graph: 0,
+            recall: 30,
+            graph: 3,
         }
     }
 }

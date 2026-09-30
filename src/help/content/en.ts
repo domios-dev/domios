@@ -181,7 +181,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "tip",
-          text: "Decision re-rank is off by default. Without a TypeSafe API token, or if the decision model times out after 1.5 seconds or returns an error, CodeTerm uses the normal search results.",
+          text: "Decision re-rank is off by default. Without a TypeSafe API token, or if the decision model times out after 3 seconds or returns an error, CodeTerm uses the normal search results.",
         },
         {
           type: "paragraph",
@@ -190,7 +190,7 @@ export const enHelpContent: HelpLocaleContent = {
         {
           type: "list",
           items: [
-            "Graph — adds related memories linked through the knowledge graph. Configure it with memory.decision_rerank.sources.graph; its default is 0 (off).",
+            "Graph — adds related memories linked through the knowledge graph. Configure it with memory.decision_rerank.sources.graph; it adds up to 3 candidates by default, and 0 turns it off.",
           ],
         },
         {
