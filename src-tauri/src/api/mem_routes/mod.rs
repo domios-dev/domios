@@ -8,6 +8,7 @@ pub(super) const WORKER_INTENT_HEADER: &str = "x-codeterm-worker-intent";
 pub(super) const ACTOR_HEADER: &str = "x-codeterm-actor";
 
 pub mod calibration;
+pub mod decision;
 pub mod dream;
 pub mod graph;
 pub mod items;

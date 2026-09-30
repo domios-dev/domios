@@ -308,6 +308,8 @@ pub struct ServiceContext {
     /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
+    /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
+    pub decision_models: Arc<crate::api::mem_routes::decision::DecisionRegistry>,
     /// Registry of glance-view providers (plugins with `glanceView`). Plugin
     /// bubbles render their popovers from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,
