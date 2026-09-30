@@ -130,7 +130,7 @@ Restart a live agent, or resume an exited provider's verified session in its she
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+- `--tab` — Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
 
 #### `codeterm agent set-orchestrator`
 

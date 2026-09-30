@@ -439,7 +439,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "help": "Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)",
               "aliases": []
             }
           ],
