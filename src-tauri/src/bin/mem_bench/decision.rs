@@ -67,6 +67,8 @@ pub(super) struct DecisionQuery {
     pub reranked_rank: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub graph: Option<GraphQuery>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub docs: Option<DocsQuery>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,12 +90,30 @@ pub(super) struct GraphArm {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct DocsQuery {
+    pub rank: Option<usize>,
+    pub added: usize,
+    pub top1_from_docs: bool,
+    pub stage_latency_ms: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct DocsArm {
+    pub sources_docs: usize,
+    pub metrics: RankingMetrics,
+    pub added: usize,
+    pub docs_top1: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct DecisionReport {
     pub mode: String,
     pub baseline: RankingMetrics,
     pub reranked: RankingMetrics,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub graph: Option<GraphArm>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub docs: Option<DocsArm>,
     pub fallbacks: BTreeMap<String, usize>,
     pub negatives: NegativeMetrics,
     pub per_query: Vec<DecisionQuery>,
@@ -251,6 +271,15 @@ fn candidate(hit: &SearchHit) -> RerankCandidate {
     }
 }
 
+fn doc_candidate(doc: &codeterm_lib::mem::docs_source::DocCandidate) -> RerankCandidate {
+    RerankCandidate {
+        key: format!("doc:{}#{}", doc.doc_name, doc.anchor),
+        title: format!("{} § {}", doc.doc_name, doc.section_title),
+        kind: "doc".into(),
+        body: doc.text.clone(),
+    }
+}
+
 fn stage_order(outcome: StageOutcome, n: usize) -> Vec<usize> {
     match outcome {
         StageOutcome::Applied { order, .. } => order,
@@ -328,6 +357,7 @@ pub(super) fn evaluate(
     id_map: &HashMap<String, String>,
     top_k: usize,
     graph: usize,
+    docs: usize,
 ) -> Result<DecisionReport, String> {
     let negatives_path = fixture_path
         .parent()
@@ -356,6 +386,9 @@ pub(super) fn evaluate(
     let mut graph_added = 0;
     let mut graph_only_top1 = 0;
     let mut graph_only_winners = 0;
+    let mut docs_ranks = Vec::new();
+    let mut docs_added = 0;
+    let mut docs_top1 = 0;
     let cases = fixture
         .test_cases
         .iter()
@@ -443,6 +476,43 @@ pub(super) fn evaluate(
         } else {
             None
         };
+        let docs_query = if docs > 0 {
+            let additions = codeterm_lib::mem::docs_source::search(query, docs);
+            let pool_len = hits.len() + additions.len();
+            let candidates = hits
+                .iter()
+                .map(candidate)
+                .chain(additions.iter().map(doc_candidate))
+                .collect::<Vec<_>>();
+            let started = Instant::now();
+            let order = stage_order(run_stage(model.clone(), query, &candidates, &cfg), pool_len);
+            let docs_stage_latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let ids = order
+                .iter()
+                .filter_map(|&index| {
+                    hits.get(index)
+                        .and_then(|hit| id_map.get(&hit.item.id).cloned())
+                })
+                .take(top_k)
+                .collect::<Vec<_>>();
+            let docs_rank = rank(&ids, &expected);
+            let top1_from_docs = order.first().is_some_and(|&index| index >= hits.len());
+            docs_added += additions.len();
+            if top1_from_docs {
+                docs_top1 += 1;
+            }
+            if positive.is_some() {
+                docs_ranks.push(docs_rank);
+            }
+            Some(DocsQuery {
+                rank: docs_rank,
+                added: additions.len(),
+                top1_from_docs,
+                stage_latency_ms: docs_stage_latency_ms,
+            })
+        } else {
+            None
+        };
         if positive.is_some() {
             baseline_ranks.push(baseline_rank);
             reranked_ranks.push(reranked_rank);
@@ -458,6 +528,7 @@ pub(super) fn evaluate(
             baseline_rank,
             reranked_rank,
             graph: graph_query,
+            docs: docs_query,
         });
     }
     Ok(DecisionReport {
@@ -475,6 +546,12 @@ pub(super) fn evaluate(
             added: graph_added,
             graph_only_top1,
             graph_only_winners,
+        }),
+        docs: (docs > 0).then(|| DocsArm {
+            sources_docs: docs,
+            metrics: ranking_metrics(&docs_ranks, top_k),
+            added: docs_added,
+            docs_top1,
         }),
         fallbacks,
         negatives: negative_metrics(&negative_flags, &positive_flags),
@@ -522,8 +599,43 @@ mod tests {
             baseline_rank: None,
             reranked_rank: None,
             graph: None,
+            docs: None,
         };
-        assert!(serde_json::to_value(query).unwrap().get("graph").is_none());
+        assert!(serde_json::to_value(&query).unwrap().get("graph").is_none());
+        assert!(serde_json::to_value(&query).unwrap().get("docs").is_none());
+    }
+
+    #[test]
+    fn decision_doc_candidate_can_win_under_the_stub() {
+        let section = codeterm_lib::mem::docs_source::DocCandidate {
+            doc_name: "SECRETS",
+            section_title: "Vault unlock".into(),
+            anchor: "vault-unlock".into(),
+            text: "Unlock the vault with the stored secret.".into(),
+            relevance: 1.0,
+        };
+        let candidate = doc_candidate(&section);
+        let unrelated = RerankCandidate {
+            key: "memory-1".into(),
+            title: "Terminal colors".into(),
+            kind: "fact".into(),
+            body: "The terminal background is blue.".into(),
+        };
+
+        let outcome = run_stage(
+            Arc::new(StubModel),
+            "unlock vault secret",
+            &[unrelated, candidate.clone()],
+            &StageConfig {
+                max_concurrency: 1,
+                deadline: Duration::from_secs(1),
+                low_confidence_threshold: 0.15,
+                max_body_chars: 2000,
+            },
+        );
+
+        assert_eq!(candidate.kind, "doc");
+        assert!(matches!(outcome, StageOutcome::Applied { order, .. } if order == vec![1, 0]));
     }
     #[test]
     fn decision_graph_additions_skip_pooled_and_cap() {

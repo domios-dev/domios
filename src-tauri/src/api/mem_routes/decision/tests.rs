@@ -620,4 +620,5 @@ fn decision_token_dir_is_outside_repo() {
     assert!(token_store().path(STUB_ID).starts_with(&dir));
 }
 
+mod docs;
 mod graph;

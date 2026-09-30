@@ -17,6 +17,7 @@ BASELINE_PATH="$SCRIPT_DIR/baseline.json"
 DECISION_MODE=off
 DECISION_DATA_DIR=""
 DECISION_GRAPH=0
+DECISION_DOCS=0
 
 # Regression policy (derived from observed run-to-run variance on this machine).
 CHECK_MODE=0
@@ -29,7 +30,7 @@ TOTAL_TOL=2.0
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M]
+  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M] [--decision-docs M]
 
 Options:
   --check           Compare latest mem-bench run against baseline.json.
@@ -37,6 +38,7 @@ Options:
   --decision-rerank MODE  Optional A/B mode: off, stub, or live.
   --decision-data-dir PATH  Data directory containing decision-models token.
   --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (needs stub or live).
+  --decision-docs M  Add a re-rank+docs arm with up to M embedded sections (needs stub or live; max 10).
   -h, --help       Show this help.
 
 Defaults:
@@ -71,6 +73,11 @@ while [[ $# -gt 0 ]]; do
       DECISION_GRAPH="${1:?--decision-graph needs count}"
       shift
       ;;
+    --decision-docs)
+      shift
+      DECISION_DOCS="${1:?--decision-docs needs count}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -88,6 +95,11 @@ if [[ "$CHECK_MODE" -eq 1 && "$DECISION_MODE" != off ]]; then
   exit 1
 fi
 
+if [[ "$DECISION_DOCS" != 0 && "$DECISION_MODE" == off ]]; then
+  echo "ERROR: --decision-docs requires --decision-rerank stub or live"
+  exit 1
+fi
+
 run() {
   local decision_args=(--decision-rerank "$DECISION_MODE")
   if [[ -n "$DECISION_DATA_DIR" ]]; then
@@ -95,6 +107,9 @@ run() {
   fi
   if [[ "$DECISION_GRAPH" != 0 ]]; then
     decision_args+=(--decision-graph "$DECISION_GRAPH")
+  fi
+  if [[ "$DECISION_DOCS" != 0 ]]; then
+    decision_args+=(--decision-docs "$DECISION_DOCS")
   fi
   (
     cd "$ROOT_DIR/src-tauri"
