@@ -109,7 +109,10 @@ fn decision_rerank_bounds_reject_out_of_range() {
     let mut config = AppConfig::default();
     config.memory.decision_rerank.sources.graph = 21;
     let error = validate_app_config(&config).unwrap_err();
-    assert!(error.contains("memory.decision_rerank.sources.graph"), "{error}");
+    assert!(
+        error.contains("memory.decision_rerank.sources.graph"),
+        "{error}"
+    );
 
     let mut edges = AppConfig::default();
     edges.memory.decision_rerank.sources.recall = 50;
@@ -120,8 +123,7 @@ fn decision_rerank_bounds_reject_out_of_range() {
     edges.memory.decision_rerank.max_body_chars = 256;
     validate_app_config(&edges).unwrap();
 
-    let error =
-        validate_config_text("[memory.decision_rerank.sources]\nrecall = 0\n").unwrap_err();
+    let error = validate_config_text("[memory.decision_rerank.sources]\nrecall = 0\n").unwrap_err();
     assert!(error.contains("memory.decision_rerank.sources.recall"));
     validate_config_text("[memory.decision_rerank.sources]\ngraph = 0\n").unwrap();
 }
