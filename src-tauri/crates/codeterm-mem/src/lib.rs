@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod auto_extract;
+pub mod decision;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod chunking;
 pub mod dream_status;
