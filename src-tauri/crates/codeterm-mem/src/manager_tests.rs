@@ -38,6 +38,85 @@ fn deleting_scaffold_skill_removes_its_instance_folder() {
 }
 
 #[test]
+fn deleting_folder_skill_removes_every_normalized_source_registration() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skills_root = data_dir.path().join("skills");
+    let skill_dir = skills_root.join("qa-curator");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    let skill_md = skill_dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# QA Curator").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let explicit_id = mem
+        .save(folder_skill_item(
+            &skill_md,
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+    let twin_source = format!(
+        "file:{}",
+        skills_root
+            .join("qa-curator")
+            .join("..")
+            .join("qa-curator")
+            .join("SKILL.md")
+            .display()
+    );
+    let twin_id = mem
+        .save(NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "QA Curator Twin".into(),
+            summary: None,
+            area: None,
+            tags: vec!["folder-skill".into(), "auto-registered".into()],
+            body: "# QA Curator Twin".into(),
+            source: Some(twin_source.clone()),
+            importance: 4.0,
+            source_path: Some(twin_source),
+            pinned: false,
+        })
+        .unwrap();
+    let legacy_twin_source = format!(
+        "file:{}",
+        skills_root
+            .join("qa-curator")
+            .join("..")
+            .join("qa-curator")
+            .join("SKILL.md")
+            .display()
+    );
+    let legacy_conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    legacy_conn
+        .execute(
+            "UPDATE mem_items SET source = ?1, source_path = ?1 WHERE id = ?2",
+            rusqlite::params![legacy_twin_source, twin_id],
+        )
+        .unwrap();
+    drop(legacy_conn);
+
+    assert!(mem.delete(&explicit_id).unwrap());
+    assert!(mem.get(&explicit_id).unwrap().is_none());
+    assert!(mem.get(&twin_id).unwrap().is_none());
+    assert!(!skill_dir.exists());
+    drop(mem);
+
+    let conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    store::init_schema(&conn).unwrap();
+    let report = codeterm_mem_store::skill_folders::sync_skill_folders(&conn, &skills_root);
+    let remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_items WHERE kind = 'skill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert!(report.registered.is_empty());
+    assert_eq!(remaining, 0);
+}
+
+#[test]
 fn deleted_external_source_skill_stays_absent_after_restart_scan() {
     let data_dir = tempfile::tempdir().unwrap();
     let skills_root = data_dir.path().join("skills");
