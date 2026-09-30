@@ -11,7 +11,7 @@ const KEYS_URL = "https://console.typesafe.ai/keys";
 
 interface AdapterTokenStatus {
   present: boolean;
-  mode_ok: boolean;
+  mode_ok: boolean | null;
 }
 
 interface DecisionStatus {
@@ -147,7 +147,7 @@ export function DecisionRerankCard({ mem, onUpdate, apiBase, apiHeaders }: Props
           </p>
         )}
         {statusFailed && <p data-testid="decision-rerank-status-failed">Token status is unavailable.</p>}
-        {token && !token.mode_ok && (
+        {token?.present && token.mode_ok === false && (
           <p data-testid="decision-rerank-mode-warning">Warning: the token file permissions are not owner-only.</p>
         )}
         {status && !status.adapter_registered && (
