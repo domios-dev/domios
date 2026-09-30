@@ -42,6 +42,7 @@ fn expected_pty_spec() -> SpawnTabSpec {
             role: None,
             report_target_tab_id: Some("tab-report".into()),
             spawned_by: Some("cron:job-7".into()),
+            spawned_by_tab_id: Some("tab-creator".into()),
             ..Default::default()
         }),
     }

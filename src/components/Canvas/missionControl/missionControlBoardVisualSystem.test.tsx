@@ -241,7 +241,7 @@ describe("mission control board visual system", () => {
       const { models, unmount } = await renderAt(width);
 
       const rows = modelRows(models);
-      expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual([UNASSIGNED_MODEL_LABEL, "haiku", "luna"]);
+      expect(rows.map((row) => row.querySelector("th")?.textContent)).toEqual([UNASSIGNED_MODEL_LABEL, "haiku", "5.6-luna"]);
       expect(rows.map((row) => row.getAttribute("data-unassigned"))).toEqual(["true", "false", "false"]);
       expect(rows.map((row) => row.children[2]?.textContent)).toEqual(["62%", "36%", "1.7%"]);
       for (const row of rows) {

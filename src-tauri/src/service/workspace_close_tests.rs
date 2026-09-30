@@ -29,6 +29,7 @@ fn names_and_titles_validated() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn move_tab_missing_workspace_names_target() {
     let (mux, tab_id) = MultiplexerState::new();
     let from_workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
