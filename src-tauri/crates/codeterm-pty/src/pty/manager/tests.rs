@@ -460,6 +460,13 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
     eof_rx
         .recv_timeout(std::time::Duration::from_secs(30))
         .expect("the stream must end once the shell process exits");
+    // On Unix the stream can end before the watcher records the code; wait on its signal.
+    assert_eq!(
+        session
+            .child_exit
+            .wait_resolved(std::time::Duration::from_secs(30)),
+        Some(Some(3))
+    );
     assert_eq!(session.child_exit_code(), Some(3));
     let _ = manager.kill(&pty_id);
 }
