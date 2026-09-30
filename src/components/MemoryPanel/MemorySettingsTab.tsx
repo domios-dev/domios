@@ -4,6 +4,7 @@ import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
+import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
 
 type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
@@ -418,6 +419,8 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           </Label>
         </div>
       </SettingsCard>
+
+      <DecisionRerankCard mem={mem} onUpdate={onUpdate} apiBase={apiBase} apiHeaders={apiHeaders} />
     </SettingsPage>
   );
 }
