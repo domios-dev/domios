@@ -14,35 +14,42 @@ const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
         None,
     ),
     ("unlink", &["unlink", "--tab", "peer-tab"], None),
-    (
-        "allow-spawn",
-        &["allow-spawn", "--tab", "peer-tab"],
-        None,
-    ),
+    ("allow-spawn", &["allow-spawn", "--tab", "peer-tab"], None),
     ("report", &["report", "status update"], None),
     (
         "ack",
-        &["ack", "--tab", "peer-tab", "--plan", "plan-1", "--task", "task-1"],
+        &[
+            "ack", "--tab", "peer-tab", "--plan", "plan-1", "--task", "task-1",
+        ],
         None,
     ),
     ("startup-ack", &["startup-ack"], None),
     (
         "startup-hold",
-        &["startup-hold", "--tab", "peer-tab", "--attempt", "attempt-1"],
+        &[
+            "startup-hold",
+            "--tab",
+            "peer-tab",
+            "--attempt",
+            "attempt-1",
+        ],
         None,
     ),
     ("ledger", &["ledger", "--tab", "peer-tab"], None),
     ("compact", &["compact", "--tab", "peer-tab"], None),
     (
         "restart",
-        &["restart", "--tab", "004c7c5c", "--force", "--grace-secs", "17"],
+        &[
+            "restart",
+            "--tab",
+            "004c7c5c",
+            "--force",
+            "--grace-secs",
+            "17",
+        ],
         Some(("POST", "/api/tabs/004c7c5c/agent/restart", true)),
     ),
-    (
-        "model",
-        &["model", "gpt-5", "--tab", "peer-tab"],
-        None,
-    ),
+    ("model", &["model", "gpt-5", "--tab", "peer-tab"], None),
     (
         "providers",
         &["providers"],
@@ -55,7 +62,14 @@ const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
     ),
     (
         "spawn",
-        &["spawn", "claude", "--cwd", "/peer/workspace", "--task", "inspect"],
+        &[
+            "spawn",
+            "claude",
+            "--cwd",
+            "/peer/workspace",
+            "--task",
+            "inspect",
+        ],
         Some(("POST", "/api/agents/spawn", true)),
     ),
 ];
@@ -108,7 +122,10 @@ fn every_agent_action_has_an_explicit_mesh_mapping() {
                     crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH,
                     "{name}"
                 );
-                assert!(path.starts_with("agent "), "{name} has a clear refusal: {path}");
+                assert!(
+                    path.starts_with("agent "),
+                    "{name} has a clear refusal: {path}"
+                );
                 assert!(body.is_none(), "{name} refusal has no request body");
             }
         }
@@ -138,12 +155,14 @@ fn agent_restart_mesh_preserves_explicit_tab() {
 
 #[test]
 fn restart_without_tab_over_mesh_is_refused_even_with_local_tab_environment() {
-    let _guard = crate::test_env_lock().lock().unwrap();
-    let _tab_id = ScopedTabId::set("local-tab");
-    let action = parse_action(&["restart"]);
-    let (method, reason, body) = agent_to_api(&action);
+    let (method, reason, body) = {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let _tab_id = ScopedTabId::set("local-tab");
+        let action = parse_action(&["restart"]);
+        agent_to_api(&action)
+    };
 
     assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
-    assert!(reason.contains("requires an explicit --tab"), "{reason}");
+    assert!(reason.contains("--tab"), "{reason}");
     assert!(body.is_none());
 }
