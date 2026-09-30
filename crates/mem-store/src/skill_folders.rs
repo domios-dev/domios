@@ -34,26 +34,58 @@ pub(crate) fn create_tombstone_table(conn: &Connection) -> MemStoreResult<()> {
     Ok(())
 }
 
-/// Path identity for a `file:` source: separators unified, `.`/`..` resolved,
-/// case folded on Windows. Two spellings of one file share one key.
+/// Normalize a file source before storing it so writes and librarian scans
+/// persist the same path identity.
+pub fn normalize_file_source(source: &str) -> String {
+    let Some(raw) = source.strip_prefix("file:") else {
+        return source.to_string();
+    };
+    format!("file:{}", normalize_path(raw))
+}
+
+/// Path identity for a `file:` source: verbatim prefixes removed, separators
+/// unified, `.`/`..` resolved, and Windows paths case folded on every host.
 pub fn source_key(source: &str) -> String {
-    let raw = source
-        .strip_prefix("file:")
-        .unwrap_or(source)
-        .replace('\\', "/");
+    let raw = source.strip_prefix("file:").unwrap_or(source);
+    normalize_path(raw)
+}
+
+fn normalize_path(raw: &str) -> String {
+    let stripped = codeterm_paths::strip_verbatim_prefix(raw);
+    let raw = stripped.replace('\\', "/");
+    let bytes = raw.as_bytes();
+    let drive_path = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    let unc_path = raw.starts_with("//");
+    let windows_path = drive_path || unc_path;
+    let (prefix, rest) = if drive_path {
+        if raw.as_bytes().get(2) == Some(&b'/') {
+            (&raw[..3], &raw[3..])
+        } else {
+            (&raw[..2], &raw[2..])
+        }
+    } else if unc_path {
+        ("//", raw.trim_start_matches('/'))
+    } else if raw.starts_with('/') {
+        ("/", raw.trim_start_matches('/'))
+    } else {
+        ("", raw.as_str())
+    };
     let mut parts: Vec<&str> = Vec::new();
-    for segment in raw.split('/') {
+    for segment in rest.split('/') {
         match segment {
             "" | "." => {}
             ".." => {
-                parts.pop();
+                if parts.last().is_some_and(|part| *part != "..") {
+                    parts.pop();
+                } else if prefix.is_empty() {
+                    parts.push("..");
+                }
             }
             other => parts.push(other),
         }
     }
-    let lead = if raw.starts_with('/') { "/" } else { "" };
-    let key = format!("{lead}{}", parts.join("/"));
-    if cfg!(windows) {
+    let key = format!("{prefix}{}", parts.join("/"));
+    if windows_path {
         key.to_lowercase()
     } else {
         key
@@ -106,14 +138,31 @@ pub fn folder_skill_source_path(conn: &Connection, id: &str) -> MemStoreResult<O
     Ok(Some(source_path))
 }
 
+pub fn skill_ids_for_source(conn: &Connection, source_path: &str) -> MemStoreResult<Vec<String>> {
+    let key = source_key(source_path);
+    let rows = conn
+        .prepare(
+            "SELECT id, source_path FROM mem_items \
+             WHERE kind = 'skill' AND source_path IS NOT NULL",
+        )?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .filter_map(Result::ok)
+        .filter_map(|(id, source)| (source_key(&source) == key).then_some(id))
+        .collect();
+    Ok(rows)
+}
+
 pub fn folder_skill_folder_to_remove(
     source_path: &str,
     skills_root: &Path,
 ) -> Option<std::path::PathBuf> {
-    let Some(raw_path) = source_path.strip_prefix("file:") else {
+    if !source_path.starts_with("file:") {
         return None;
-    };
-    let skill_md = Path::new(raw_path);
+    }
+    let normalized_path = source_key(source_path);
+    let skill_md = Path::new(&normalized_path);
     if skill_md.file_name() != Some(std::ffi::OsStr::new("SKILL.md")) {
         return None;
     }
@@ -138,7 +187,10 @@ pub fn folder_skill_folder_to_remove(
     let Ok(canonical_folder) = folder.canonicalize() else {
         return None;
     };
-    if canonical_folder.parent() != Some(root.as_path()) {
+    let Some(parent) = canonical_folder.parent() else {
+        return None;
+    };
+    if source_key(&parent.to_string_lossy()) != source_key(&root.to_string_lossy()) {
         return None;
     }
     let Ok(skill_type) = std::fs::symlink_metadata(&canonical_folder.join("SKILL.md")) else {
@@ -153,6 +205,7 @@ pub fn folder_skill_folder_to_remove(
 struct RegisteredSkill {
     id: String,
     source_path: String,
+    source: Option<String>,
     tags_json: String,
     created_at: String,
 }
@@ -160,20 +213,35 @@ struct RegisteredSkill {
 fn registered_skills(conn: &Connection) -> MemStoreResult<Vec<RegisteredSkill>> {
     let rows = conn
         .prepare(
-            "SELECT id, source_path, tags_json, created_at FROM mem_items \
+            "SELECT id, source_path, source, tags_json, created_at FROM mem_items \
              WHERE kind = 'skill' AND source_path LIKE 'file:%' ORDER BY created_at, id",
         )?
         .query_map([], |r| {
             Ok(RegisteredSkill {
                 id: r.get(0)?,
                 source_path: r.get(1)?,
-                tags_json: r.get(2)?,
-                created_at: r.get(3)?,
+                source: r.get(2)?,
+                tags_json: r.get(3)?,
+                created_at: r.get(4)?,
             })
         })?
         .filter_map(Result::ok)
         .collect();
     Ok(rows)
+}
+
+fn normalize_registered_sources(conn: &Connection) -> MemStoreResult<()> {
+    for skill in registered_skills(conn)? {
+        let source_path = normalize_file_source(&skill.source_path);
+        let source = skill.source.as_deref().map(normalize_file_source);
+        if source_path != skill.source_path || source != skill.source {
+            conn.execute(
+                "UPDATE mem_items SET source = ?1, source_path = ?2 WHERE id = ?3",
+                params![source, source_path, skill.id],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn is_auto_registered(skill: &RegisteredSkill) -> bool {
@@ -308,7 +376,7 @@ fn register_folder(conn: &Connection, folder: &Path, skill_md: &Path) -> MemStor
         let suffix = skill_id_for_title(&folder_name);
         id = format!("{id}_{}", suffix.trim_start_matches("skill_"));
     }
-    let source = format!("file:{}", skill_md.display());
+    let source = normalize_file_source(&format!("file:{}", skill_md.display()));
     let now = chrono::Utc::now().to_rfc3339();
     let uid = format!(
         "folder-{id}-{}",
@@ -347,6 +415,9 @@ fn register_folder(conn: &Connection, folder: &Path, skill_md: &Path) -> MemStor
 /// tombstone, after collapsing existing double registrations.
 pub fn sync_skill_folders(conn: &Connection, skills_root: &Path) -> SkillFolderReport {
     let mut report = SkillFolderReport::default();
+    if let Err(e) = normalize_registered_sources(conn) {
+        report.errors.push(format!("normalize sources: {e}"));
+    }
     if let Err(e) = merge_duplicate_registrations(conn, &mut report) {
         report.errors.push(format!("merge duplicates: {e}"));
     }
