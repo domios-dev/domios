@@ -83,9 +83,20 @@ fn host_read_file_refuses_past_cap() {
     .unwrap();
     let small = small_path.to_string_lossy().into_owned();
     let native = super::super::host_api::read_plugin_file(&small).unwrap();
-    let javascript: String =
+    let javascript: Option<String> =
         super::super::vm::call_json(&vm, "read", &[serde_json::json!(small)]).unwrap();
+    assert!(native.is_some());
     assert_eq!(javascript, native);
+
+    let missing = dir
+        .path()
+        .join("missing.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(super::super::host_api::read_plugin_file(&missing), Ok(None));
+    let javascript_missing: Option<String> =
+        super::super::vm::call_json(&vm, "read", &[serde_json::json!(missing)]).unwrap();
+    assert_eq!(javascript_missing, None);
 
     let large = large_path.to_string_lossy().into_owned();
     let native_error = super::super::host_api::read_plugin_file(&large).unwrap_err();

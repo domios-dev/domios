@@ -35,33 +35,6 @@ fn opencode_invocation(command: &str) -> &str {
     &invocation[..end]
 }
 
-fn staged_prompt_source(command: &str) -> &str {
-    let source = if let Some(copy) = command.split("Copy-Item -LiteralPath ").nth(1) {
-        copy.split(" -Destination ")
-            .next()
-            .expect("PowerShell staged source path")
-    } else {
-        command
-            .split("cp -- ")
-            .nth(1)
-            .and_then(|copy| copy.split(" &&").next())
-            .expect("POSIX staged source path")
-    };
-    let source = source.trim();
-    if let Some(quote @ ('\'' | '"')) = source.chars().next() {
-        let end = source[1..]
-            .find(quote)
-            .map(|index| index + 1)
-            .expect("quoted staged source path");
-        &source[1..end]
-    } else {
-        source
-            .split_whitespace()
-            .next()
-            .expect("staged source path")
-    }
-}
-
 #[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
@@ -157,9 +130,9 @@ fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     );
 }
 
-/// OpenCode's `session_config` channel is a shell prologue that stages the
-/// prompt file and exports `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it
-/// declares re-application and rebuilds the same channel around the resume.
+/// OpenCode's `session_config` channel writes the prompt to an owned task file
+/// and names it in `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it declares
+/// re-application and rebuilds the same channel around the resume.
 #[test]
 fn resume_with_context_restages_the_session_config() {
     if require_plugins().is_none() {
@@ -167,27 +140,33 @@ fn resume_with_context_restages_the_session_config() {
     }
     let j = opencode();
     let prompt = "## Composed identity\nopencode-sentinel-6b40";
-    let command = j
-        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
-            session_id: SES_ID.into(),
-            skip_permissions: false,
-            agent_name: None,
-            system_prompt: Some(prompt.into()),
-            instance_id: None,
-            args: vec![
-                "-m".into(),
-                "big-pickle".into(),
-                "--agent".into(),
-                "build".into(),
-            ],
-        })
-        .expect("opencode resume command");
+    let task_root = tempfile::tempdir().unwrap();
+    let (command, staged) =
+        codeterm_util::task_files::capture_in(task_root.path(), "resume-tab", || {
+            j.build_resume_command_with_context(&crate::provider::AgentResumeParams {
+                session_id: SES_ID.into(),
+                skip_permissions: false,
+                agent_name: None,
+                system_prompt: Some(prompt.into()),
+                instance_id: None,
+                args: vec![
+                    "-m".into(),
+                    "big-pickle".into(),
+                    "--agent".into(),
+                    "build".into(),
+                ],
+            })
+        });
+    let command = command.expect("opencode resume command");
 
     assert_eq!(command.matches("--session").count(), 1, "{command}");
-    assert_eq!(
-        command.matches("cp -- ").count() + command.matches("Copy-Item -LiteralPath ").count(),
-        1,
-        "exactly one staged prompt file copy: {command}"
+    assert_eq!(staged.len(), 1, "exactly one staged prompt file: {command}");
+    let staged = &staged[0];
+    assert_eq!(staged.parent(), Some(task_root.path()));
+    let staged_json = serde_json::to_string(&staged.to_string_lossy()).unwrap();
+    assert!(
+        command.contains(staged_json.trim_matches('"')),
+        "session config names the staged file: {command}"
     );
     let invocation = opencode_invocation(&command);
     assert!(
@@ -199,7 +178,6 @@ fn resume_with_context_restages_the_session_config() {
         !command.contains(prompt),
         "prompt travels in the staged file, not the command: {command}"
     );
-    let staged = staged_prompt_source(&command);
     let delivered = std::fs::read_to_string(staged).expect("staged prompt file");
     assert_eq!(delivered.matches(prompt).count(), 1);
 }

@@ -325,6 +325,7 @@ mod model_refresh_tests {
         };
         {
             let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.pty_id = Some("pty-switch".into());
             tab.session_binding_nonce = Some("binding-switch".into());
             tab.reported_session_binding_nonce = Some("binding-switch".into());
             tab.agent_requested_model = Some("sonnet".into());
