@@ -58,15 +58,17 @@ impl<'a> super::PtySubmitTransport<'a> {
             .unwrap_or(false)
     }
 
-    pub(super) fn wait_for_cycle_event(&self) -> bool {
-        let Some(_) = self
+    pub(super) fn wait_for_cycle_event(&self, deadline: Instant) -> bool {
+        match self
             .submit_cycle
-            .wait_for_wake_event(self.submit_generation, &self.wake_rx)
-        else {
-            return false;
-        };
-        self.observe_deferred_readiness();
-        true
+            .wait_for_wake_until(self.submit_generation, deadline, &self.wake_rx)
+        {
+            CycleWait::Event(_) => {
+                self.observe_deferred_readiness();
+                true
+            }
+            CycleWait::Deadline | CycleWait::Inactive => false,
+        }
     }
 
     pub(super) fn observe_deferred_readiness(&self) -> bool {
@@ -82,7 +84,7 @@ impl<'a> super::PtySubmitTransport<'a> {
         ready
     }
 
-    pub(super) fn wait_for_deferred_submit_event(&self) -> DeferredSubmitWait {
+    pub(super) fn wait_for_deferred_submit_event(&self, deadline: Instant) -> DeferredSubmitWait {
         if !self.retry_active() {
             return DeferredSubmitWait::Inactive;
         }
@@ -90,16 +92,14 @@ impl<'a> super::PtySubmitTransport<'a> {
             self.deferred_ready_seen.set(true);
             return DeferredSubmitWait::Ready;
         }
-        let Some(_) = self
+        match self
             .submit_cycle
-            .wait_for_wake_event(self.submit_generation, &self.wake_rx)
-        else {
-            return DeferredSubmitWait::Inactive;
-        };
-        if self.observe_deferred_readiness() {
-            DeferredSubmitWait::Ready
-        } else {
-            DeferredSubmitWait::Woken
+            .wait_for_wake_until(self.submit_generation, deadline, &self.wake_rx)
+        {
+            CycleWait::Event(_) if self.observe_deferred_readiness() => DeferredSubmitWait::Ready,
+            CycleWait::Event(_) => DeferredSubmitWait::Woken,
+            CycleWait::Deadline => DeferredSubmitWait::Deadline,
+            CycleWait::Inactive => DeferredSubmitWait::Inactive,
         }
     }
 }
@@ -169,12 +169,15 @@ impl SubmitCycle {
         state.current_generation.is_none() && state.waiting_generations.is_empty()
     }
 
-    fn wait_until_active(&self, generation: u64) -> bool {
+    fn wait_until_active(&self, generation: u64, deadline: Instant) -> bool {
         let mut state = self.state.lock();
         while state.current_generation != Some(generation)
             && state.waiting_generations.contains(&generation)
         {
-            self.changed.wait(&mut state);
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            self.changed.wait_for(&mut state, remaining);
         }
         state.current_generation == Some(generation)
     }
@@ -227,21 +230,6 @@ impl SubmitCycle {
         }
     }
 
-    fn wait_for_wake_event(
-        &self,
-        generation: u64,
-        receiver: &Receiver<SubmitCycleSignal>,
-    ) -> Option<SubmitCycleSignal> {
-        while self.is_current(generation) {
-            let signal = receiver.recv().ok()?;
-            if signal == SubmitCycleSignal::Closed || !self.is_current(generation) {
-                return None;
-            }
-            return Some(signal);
-        }
-        None
-    }
-
     pub(super) fn clear_waiter(&self, generation: u64) {
         let mut state = self.state.lock();
         if state
@@ -264,11 +252,7 @@ impl SubmitCycle {
             .as_ref()
             .map(|(_, sender)| sender.clone());
         if let Some(sender) = sender {
-            if signal == SubmitCycleSignal::SessionEvidence {
-                let _ = sender.send(signal);
-            } else {
-                let _ = sender.try_send(signal);
-            }
+            let _ = sender.try_send(signal);
         }
     }
 }
@@ -304,8 +288,8 @@ impl SubmitCycleClaim {
         &self.pty_id
     }
 
-    pub(super) fn wait_until_active(&self) -> bool {
-        self.cycle.wait_until_active(self.generation)
+    pub(super) fn wait_until_active(&self, deadline: Instant) -> bool {
+        self.cycle.wait_until_active(self.generation, deadline)
     }
 
     #[cfg(test)]
@@ -376,6 +360,17 @@ mod tests {
         wake_submit_cycle(pty_id);
 
         assert_eq!(receiver.try_recv(), Ok(SubmitCycleSignal::SessionEvidence));
+    }
+
+    #[test]
+    fn queued_submit_claim_expires_before_the_prior_cycle_releases() {
+        let pty_id = "queued-claim-deadline";
+        let first = claim_submit_cycle(pty_id);
+        let second = claim_submit_cycle(pty_id);
+
+        assert!(!second.wait_until_active(Instant::now() + std::time::Duration::from_millis(10)));
+        drop(first);
+        drop(second);
     }
 }
 
