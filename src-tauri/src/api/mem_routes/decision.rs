@@ -22,6 +22,12 @@ use crate::mem::decision::rerank::{
 use crate::mem::decision::token_store::{TokenStatus, TokenStore};
 use crate::mem::decision::typesafe::TypeSafeAdapter;
 use crate::mem::decision::DecisionModel;
+use crate::mem::rerank::RerankConfig;
+use crate::mem::search::{SearchConfig, SearchQuery};
+use crate::mem::SearchHit;
+use crate::service::plan::ports::PlanIndexQuery;
+use crate::service::plan::search_index::PlanSearchHit;
+use crate::service::ServiceContext;
 
 pub type DecisionRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
 
@@ -48,18 +54,105 @@ pub(crate) fn default_registry() -> Arc<DecisionRegistry> {
     Arc::new(registry)
 }
 
-pub(crate) fn insert_envelope(output: &mut Value, envelope: Value) {
+/// Recall for the decision path: pool reads record no access; only returned mem hits do, once.
+pub(crate) trait DecisionBackend: RecallBackend {
+    fn recall_untouched(
+        &self,
+        q: &SearchQuery,
+        cfg: &SearchConfig,
+    ) -> Result<Vec<SearchHit>, String>;
+    fn legacy_rerank_untouched(
+        &self,
+        q: &SearchQuery,
+        cfg: &RerankConfig,
+    ) -> Result<Vec<SearchHit>, String>;
+    fn record_access(&self, ids: &[String]) -> Result<(), String>;
+}
+
+impl DecisionBackend for ServiceContext {
+    fn recall_untouched(
+        &self,
+        q: &SearchQuery,
+        cfg: &SearchConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        self.mem.recall_with_config_untouched(q, cfg)
+    }
+
+    fn legacy_rerank_untouched(
+        &self,
+        q: &SearchQuery,
+        cfg: &RerankConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        self.mem.search_with_rerank_untouched(q, cfg)
+    }
+
+    fn record_access(&self, ids: &[String]) -> Result<(), String> {
+        self.mem.record_access(ids)
+    }
+}
+
+/// Runs the unchanged baseline over access-free reads.
+struct Untouched<'a, B: ?Sized>(&'a B);
+
+impl<B: DecisionBackend + ?Sized> RecallBackend for Untouched<'_, B> {
+    fn recall(&self, q: &SearchQuery, cfg: &SearchConfig) -> Result<Vec<SearchHit>, String> {
+        self.0.recall_untouched(q, cfg)
+    }
+
+    fn legacy_rerank(&self, q: &SearchQuery, cfg: &RerankConfig) -> Result<Vec<SearchHit>, String> {
+        self.0.legacy_rerank_untouched(q, cfg)
+    }
+
+    fn plan_hits(&self, project: &str, q: &PlanIndexQuery) -> Result<Vec<PlanSearchHit>, String> {
+        self.0.plan_hits(project, q)
+    }
+}
+
+/// The baseline response for `p`, recording access exactly for the mem hits it returns.
+fn served_baseline<B: DecisionBackend + ?Sized>(
+    backend: &B,
+    p: &SearchParams,
+) -> Result<Value, SearchError> {
+    let output = baseline_search(&Untouched(backend), p)?;
+    record_returned(backend, &output);
+    Ok(output)
+}
+
+/// Like hydration's own touch, a failed access record never fails the search.
+fn record_returned<B: DecisionBackend + ?Sized>(backend: &B, output: &Value) {
+    let ids: Vec<String> = output["hits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|hit| hit.get("source").and_then(Value::as_str) == Some("mem"))
+        .filter_map(|hit| hit.pointer("/item/id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    if let Err(error) = backend.record_access(&ids) {
+        log::warn!("[mem.decision] access record failed: {error}");
+    }
+}
+
+fn insert_envelope(output: &mut Value, envelope: Value) {
     if let Some(object) = output.as_object_mut() {
         object.insert(ENVELOPE_KEY.into(), envelope);
     }
 }
 
-pub(crate) fn skipped_legacy() -> Value {
-    json!({ "status": "skipped", "reason": "legacy_rerank" })
+pub(crate) fn skipped_search<B: DecisionBackend + ?Sized>(
+    backend: &B,
+    p: &SearchParams,
+) -> Result<Value, SearchError> {
+    let mut output = served_baseline(backend, p)?;
+    insert_envelope(
+        &mut output,
+        json!({ "status": "skipped", "reason": "legacy_rerank" }),
+    );
+    Ok(output)
 }
 
 /// Every mem lock is released when `baseline_search` returns, so stage 2 runs lock-free.
-pub(crate) fn decision_search<B: RecallBackend + ?Sized>(
+pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     backend: &B,
     models: &DecisionRegistry,
     cfg: &DecisionRerankConfig,
@@ -73,7 +166,7 @@ pub(crate) fn decision_search<B: RecallBackend + ?Sized>(
         limit: Some(limit.max(cfg.candidates).min(MAX_POOL)),
         ..p.clone()
     };
-    let mut output = baseline_search(backend, &pooled)?;
+    let mut output = baseline_search(&Untouched(backend), &pooled)?;
     let hits = match output.get_mut("hits").and_then(Value::as_array_mut) {
         Some(hits) => std::mem::take(hits),
         None => Vec::new(),
@@ -104,6 +197,7 @@ pub(crate) fn decision_search<B: RecallBackend + ?Sized>(
                 .take(limit)
                 .collect();
             output["hits"] = Value::Array(ranked);
+            record_returned(backend, &output);
             insert_envelope(
                 &mut output,
                 json!({
@@ -120,13 +214,13 @@ pub(crate) fn decision_search<B: RecallBackend + ?Sized>(
 }
 
 /// Pool-size recall is not prefix-identical to limit-size recall, so fallback re-runs the user's query.
-fn fallback<B: RecallBackend + ?Sized>(
+fn fallback<B: DecisionBackend + ?Sized>(
     backend: &B,
     p: &SearchParams,
     reason: FallbackReason,
 ) -> Result<Value, SearchError> {
     log::info!("[mem.decision] rerank fallback reason={}", reason.as_str());
-    let mut output = baseline_search(backend, p)?;
+    let mut output = served_baseline(backend, p)?;
     insert_envelope(
         &mut output,
         json!({ "status": "fallback", "reason": reason.as_str() }),
