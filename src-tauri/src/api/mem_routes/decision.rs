@@ -144,6 +144,9 @@ fn record_returned<B: DecisionBackend + ?Sized>(backend: &B, output: &Value) {
         .filter_map(|hit| hit.pointer("/item/id").and_then(Value::as_str))
         .map(str::to_owned)
         .collect();
+    if ids.is_empty() {
+        return;
+    }
     if let Err(error) = backend.record_access(&ids) {
         log::warn!("[mem.decision] access record failed: {error}");
     }
@@ -188,17 +191,28 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         None => Vec::new(),
     };
     let graph_on = cfg.sources.graph > 0;
+    let docs_on = cfg.sources.docs > 0;
     let recall_count = hits.len();
     if graph_on {
         let additions = graph_additions(backend, p, &hits, cfg.sources.graph);
         hits.extend(additions);
     }
     let graph_count = hits.len() - recall_count;
-    let candidates: Vec<RerankCandidate> = hits
+    let mut candidates: Vec<RerankCandidate> = hits
         .iter()
         .enumerate()
         .map(|(index, hit)| candidate(index, hit))
         .collect();
+    let docs = if docs_on {
+        crate::mem::docs_source::search(&p.q, cfg.sources.docs)
+    } else {
+        Vec::new()
+    };
+    let docs_count = docs.len();
+    for doc in docs {
+        hits.push(doc_hit_value(&doc));
+        candidates.push(doc_candidate(&doc));
+    }
     match run_stage(model, &p.q, &candidates, &stage_config(cfg)) {
         StageOutcome::Applied {
             order,
@@ -214,11 +228,13 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     let mut hit = slots.get_mut(index)?.take()?;
                     if let Some(object) = hit.as_object_mut() {
                         object.insert("relevance".into(), json!(score));
-                        if graph_on {
+                        if graph_on || docs_on {
                             let via = if index < recall_count {
                                 "recall"
-                            } else {
+                            } else if index < recall_count + graph_count {
                                 "graph"
+                            } else {
+                                "docs"
                             };
                             object.insert("via".into(), json!(via));
                         }
@@ -235,7 +251,13 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                 "low_confidence": low_confidence,
                 "max_relevance": max_relevance,
             });
-            if graph_on {
+            if docs_on {
+                envelope["sources"] = json!({
+                    "recall": recall_count,
+                    "graph": graph_count,
+                    "docs": docs_count,
+                });
+            } else if graph_on {
                 envelope["sources"] = json!({ "recall": recall_count, "graph": graph_count });
             }
             insert_envelope(&mut output, envelope);
@@ -313,6 +335,25 @@ fn candidate(index: usize, hit: &Value) -> RerankCandidate {
         title: text_of("title").to_string(),
         kind: text_of("kind").to_string(),
         body: text_of("body").to_string(),
+    }
+}
+
+fn doc_hit_value(doc: &crate::mem::docs_source::DocCandidate) -> Value {
+    json!({
+        "source": "doc",
+        "doc": doc.doc_name,
+        "section": doc.section_title,
+        "anchor": doc.anchor,
+        "pointer": format!("codeterm docs {}", doc.doc_name),
+    })
+}
+
+fn doc_candidate(doc: &crate::mem::docs_source::DocCandidate) -> RerankCandidate {
+    RerankCandidate {
+        key: format!("doc:{}#{}", doc.doc_name, doc.anchor),
+        title: format!("{} § {}", doc.doc_name, doc.section_title),
+        kind: "doc".into(),
+        body: doc.text.clone(),
     }
 }
 

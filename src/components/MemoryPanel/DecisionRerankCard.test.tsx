@@ -95,7 +95,7 @@ describe("DecisionRerankCard", () => {
   it("toggle_writes_only_enabled", async () => {
     const updates: unknown[][] = [];
     const decision = {
-      enabled: false, adapter: "custom", sources: { recall: 7, graph: 2 }, max_concurrency: 2, deadline_ms: 900,
+      enabled: false, adapter: "custom", sources: { recall: 7, graph: 2, docs: 0 }, max_concurrency: 2, deadline_ms: 900,
       low_confidence_threshold: 0.3, max_body_chars: 100, endpoint: "https://e", model: "m1",
     };
     await render(mem({ decision_rerank: decision }), (...a) => updates.push(a));

@@ -109,6 +109,27 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
     }
     let mut out = String::new();
     for hit in hits {
+        if hit.get("source").and_then(serde_json::Value::as_str) == Some("doc") {
+            let doc = hit
+                .get("doc")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let section = hit
+                .get("section")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let pointer = hit
+                .get("pointer")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("codeterm docs");
+            match decision_render::relevance_column(hit) {
+                Some(relevance) => {
+                    out.push_str(&format!("{doc} § {section} | {pointer} | {relevance}\n"))
+                }
+                None => out.push_str(&format!("{doc} § {section} | {pointer}\n")),
+            }
+            continue;
+        }
         let item = hit.get("item").unwrap_or(hit);
         let text = item
             .get("summary")
