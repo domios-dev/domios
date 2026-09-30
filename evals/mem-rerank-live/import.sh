@@ -143,7 +143,13 @@ with tempfile.TemporaryDirectory(prefix="mem-rerank-import-", dir=local_root) as
         if import_kind != original_kind:
             tags.append(f"orig-kind-{original_kind}")
         body_path = Path(temp_dir) / f"body-{line_number}.txt"
-        body_path.write_text(str(record.get("body") or ""), encoding="utf-8")
+        body = str(record.get("body") or "")
+        # mem save refuses bodies over 1 MB; re-rank reads only the first max_body_chars.
+        encoded = body.encode("utf-8")
+        if len(encoded) > 900_000:
+            body = encoded[:900_000].decode("utf-8", errors="ignore")
+            tags.append("eval-body-truncated")
+        body_path.write_text(body, encoding="utf-8")
         args = [
             "mem", "save", "--json", "--kind", import_kind,
             "--title", import_title,
