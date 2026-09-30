@@ -40,17 +40,23 @@ pub fn normalize_file_source(source: &str) -> String {
     let Some(raw) = source.strip_prefix("file:") else {
         return source.to_string();
     };
-    format!("file:{}", normalize_path(raw))
+    format!("file:{}", source_key(raw))
 }
 
 /// Path identity for a `file:` source: verbatim prefixes removed, separators
 /// unified, `.`/`..` resolved, and Windows paths case folded on every host.
 pub fn source_key(source: &str) -> String {
     let raw = source.strip_prefix("file:").unwrap_or(source);
-    normalize_path(raw)
+    let (key, windows_path) = lexical_path(raw);
+    if windows_path {
+        key.to_lowercase()
+    } else {
+        key
+    }
 }
 
-fn normalize_path(raw: &str) -> String {
+/// Resolves `.`/`..` segments and separators without the key's case folding.
+fn lexical_path(raw: &str) -> (String, bool) {
     let stripped = codeterm_paths::strip_verbatim_prefix(raw);
     let raw = stripped.replace('\\', "/");
     let bytes = raw.as_bytes();
@@ -84,12 +90,7 @@ fn normalize_path(raw: &str) -> String {
             other => parts.push(other),
         }
     }
-    let key = format!("{prefix}{}", parts.join("/"));
-    if windows_path {
-        key.to_lowercase()
-    } else {
-        key
-    }
+    (format!("{prefix}{}", parts.join("/")), windows_path)
 }
 
 pub fn record_tombstone(conn: &Connection, source_path: &str) -> MemStoreResult<()> {
@@ -161,9 +162,16 @@ pub fn folder_skill_folder_to_remove(
     if !source_path.starts_with("file:") {
         return None;
     }
-    let normalized_path = source_key(source_path);
+    let (normalized_path, windows_path) = lexical_path(source_path.trim_start_matches("file:"));
     let skill_md = Path::new(&normalized_path);
-    if skill_md.file_name() != Some(std::ffi::OsStr::new("SKILL.md")) {
+    // Stored Windows sources are case folded, so their file name reads `skill.md`.
+    let is_skill_md = skill_md
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name == "SKILL.md" || (windows_path && name.eq_ignore_ascii_case("SKILL.md"))
+        });
+    if !is_skill_md {
         return None;
     }
     let Some(folder) = skill_md.parent() else {

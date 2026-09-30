@@ -284,6 +284,7 @@ name = "codeterm-mem-store"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "codeterm-paths",
  "rusqlite",
  "serde",
  "serde_json",

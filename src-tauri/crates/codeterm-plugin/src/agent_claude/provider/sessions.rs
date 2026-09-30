@@ -335,7 +335,11 @@ fn transcript_model_boundary(contents: &str) -> Option<SessionModelTranscriptBou
             boundary_found: true,
         });
     }
-    for line in contents.lines().rev().filter(|line| !line.trim().is_empty()) {
+    for line in contents
+        .lines()
+        .rev()
+        .filter(|line| !line.trim().is_empty())
+    {
         let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
