@@ -479,19 +479,14 @@ pub(super) fn evaluate(
                 tc.session_candidates.as_slice(),
             )
         })
-        .chain(
-            negatives
-                .test_cases
-                .iter()
-                .map(|tc| {
-                    (
-                        tc.id.as_str(),
-                        tc.query.as_str(),
-                        None,
-                        tc.session_candidates.as_slice(),
-                    )
-                }),
-        );
+        .chain(negatives.test_cases.iter().map(|tc| {
+            (
+                tc.id.as_str(),
+                tc.query.as_str(),
+                None,
+                tc.session_candidates.as_slice(),
+            )
+        }));
     for (id, query, positive, session_fixture) in cases {
         let hits = mem
             .recall(&SearchQuery {

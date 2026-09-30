@@ -67,17 +67,15 @@ fn cli_command_candidate_points_to_its_help_command() {
     let title = format!("{} § {}", section.doc_name, section.section_title);
     let registry = relevance_registry(&[(&title, 0.99)]);
 
-    let output = resolve_search(
-        &backend,
-        &registry,
-        &docs_cfg(1),
-        applied_query(query, 1),
-    )
-    .unwrap();
+    let output =
+        resolve_search(&backend, &registry, &docs_cfg(1), applied_query(query, 1)).unwrap();
 
     assert_eq!(output["hits"][0]["source"], "doc");
     assert_eq!(output["hits"][0]["doc"], "CLI");
-    assert_eq!(output["hits"][0]["pointer"], "codeterm sessions search --help");
+    assert_eq!(
+        output["hits"][0]["pointer"],
+        "codeterm sessions search --help"
+    );
     assert_eq!(output["hits"][0]["via"], "docs");
 }
 

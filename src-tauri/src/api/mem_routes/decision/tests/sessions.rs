@@ -98,13 +98,8 @@ fn sessions_zero_preserves_the_previous_applied_output() {
     let query = request("release command", 2);
     let registry = relevance_registry(&[("Release command", 0.99), (TITLES[0], 0.2)]);
 
-    let actual = resolve_search(
-        &with_candidate,
-        &registry,
-        &sessions_cfg(0),
-        query.clone(),
-    )
-    .unwrap();
+    let actual =
+        resolve_search(&with_candidate, &registry, &sessions_cfg(0), query.clone()).unwrap();
     let expected = resolve_search(&without_candidate, &registry, &enabled_cfg(), query).unwrap();
 
     assert_eq!(normalized(actual.clone()), normalized(expected));
