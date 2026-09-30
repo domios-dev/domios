@@ -10,9 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use codeterm_lib::mem::decision::{
-    rerank::{
-        run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE,
-    },
+    rerank::{run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE},
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
@@ -184,9 +182,7 @@ impl DecisionModel for StubModel {
         if !matches!(&req.question, DecisionQuestion::Noul { .. }) {
             return Err(DecisionError::Unsupported);
         }
-        let Some((prefix, suffix)) = NOUL_INSTRUCTIONS_TEMPLATE
-            .split_once("{query}")
-        else {
+        let Some((prefix, suffix)) = NOUL_INSTRUCTIONS_TEMPLATE.split_once("{query}") else {
             return Err(DecisionError::Parse("invalid_bench_template".into()));
         };
         let query = req
