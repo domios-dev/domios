@@ -307,11 +307,16 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     let linked_c = super::inspect::canonicalize_path(&linked)
         .display()
         .to_string();
-    assert!(findings.iter().any(|f| {
-        f["kind"] == "stray_sidecar_copy"
-            && f["detail"].as_str().unwrap().contains(&main_c)
-            && f["path"].as_str().unwrap().contains(&linked_c)
-    }));
+    // Finding paths may use either separator on Windows; compare them normalized.
+    let slashes = |text: &str| text.replace('\\', "/");
+    assert!(
+        findings.iter().any(|f| {
+            f["kind"] == "stray_sidecar_copy"
+                && slashes(f["detail"].as_str().unwrap()).contains(&slashes(&main_c))
+                && slashes(f["path"].as_str().unwrap()).contains(&slashes(&linked_c))
+        }),
+        "main={main_c} linked={linked_c} findings={findings:#?}"
+    );
 }
 
 #[test]
