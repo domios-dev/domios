@@ -746,6 +746,16 @@ pub fn create_router(state: AppState) -> Router {
             post(mesh_routes::mesh_set_access),
         )
         .route("/api/mem/search", get(mem_routes::mem_search))
+        .route(
+            "/api/mem/decision/token",
+            get(mem_routes::decision::decision_token_status)
+                .post(mem_routes::decision::decision_token_set)
+                .delete(mem_routes::decision::decision_token_clear),
+        )
+        .route(
+            "/api/mem/decision/status",
+            get(mem_routes::decision::decision_status),
+        )
         .route("/api/mem/items", post(mem_routes::mem_save))
         .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))
         .route(

@@ -6,7 +6,11 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
-| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5 + vector RRF fusion). `vector_first_rerank` uses vector recall plus keyword/temporal reranking; `weight` is `0.0..=1.0` (default `0.30`). `rerank=true` adds an LLM second pass. |
+| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true&decision_rerank=true\|false` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5 + vector RRF fusion). `vector_first_rerank` uses vector recall plus keyword/temporal reranking; `weight` is `0.0..=1.0` (default `0.30`). `rerank=true` adds an LLM second pass. `decision_rerank` overrides `[memory.decision_rerank] enabled`: when applied, each hit carries `relevance` and the response adds `decision_rerank: {status: "applied", adapter, low_confidence, max_relevance}`; on failure the hits are the plain recall hits and the envelope is `{status: "fallback", reason}` (`no_adapter`, `unsupported`, `unavailable`, `deadline`, `adapter_error`). `rerank=true` with `decision_rerank=true` is a 400; `rerank=true` with the stage enabled only by config returns the legacy result with `{status: "skipped", reason: "legacy_rerank"}`. With the stage off the response has no `decision_rerank` key. |
+| POST | `/api/mem/decision/token` | `{adapter, token}` | Store a decision-adapter token under `<data dir>/decision-models/` (owner-only file). The response carries `adapter`, `present`, `path`, and `mode_ok`, never the token. Unregistered adapter: 404. Bearer HTTP only: the socket refuses `mem.decision.token.*` and mesh peers are denied. |
+| GET | `/api/mem/decision/token` | `?adapter=<id>` | Token status: `adapter`, `present`, `path`, `mode_ok`. |
+| DELETE | `/api/mem/decision/token` | `?adapter=<id>` | Remove the stored token; returns `{adapter, removed}`. |
+| GET | `/api/mem/decision/status` | — | Decision re-rank config (no token), whether the configured adapter is registered, and each registered adapter with its primitives and token status. |
 | POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save an item. `scope` is `global` or `workspace:<id>`; other values are refused. `pinned: true` sets the wake-up pin atomically. `skip_extract: true` suppresses automatic extraction. |
 | GET | `/api/mem/items/{id}` | — | Get one item with its full body. Real reads bump `evidence_count` for skills, lessons, rules, facts, and preferences; worker reads do not. |
 | PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partially update an item. Pin changes are audited. A nonblank `changed_by` overrides the actor header after sanitization. |
@@ -97,4 +101,4 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
