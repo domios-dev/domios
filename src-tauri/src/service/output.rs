@@ -962,7 +962,8 @@ impl ServiceContext {
                         None
                     }
                 };
-                let Some((pending_prompt_changed, previous_identity)) = pending_prompt_changed else {
+                let Some((pending_prompt_changed, previous_identity)) = pending_prompt_changed
+                else {
                     return;
                 };
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
