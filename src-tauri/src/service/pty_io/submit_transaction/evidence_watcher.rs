@@ -1,14 +1,15 @@
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
+use super::cycle::SubmitCycleSignal;
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor};
 
 pub(super) fn watch_session_evidence(
     registry: &AgentRegistry,
     anchor: Option<&SendEvidenceAnchor>,
-    wake_sender: Sender<()>,
+    wake_sender: SyncSender<SubmitCycleSignal>,
 ) -> Option<RecommendedWatcher> {
     let anchor = anchor?;
     if !matches!(&anchor.window, EvidenceWindow::Jsonl { .. }) {
@@ -28,7 +29,7 @@ pub(super) fn watch_session_evidence(
             changed.parent() == Some(watched_parent.as_path())
                 && changed.file_name() == Some(watched_name.as_os_str())
         }) {
-            let _ = wake_sender.send(());
+            let _ = wake_sender.send(SubmitCycleSignal::SessionEvidence);
         }
     })
     .ok()?;
