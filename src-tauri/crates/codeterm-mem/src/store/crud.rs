@@ -9,6 +9,21 @@ use super::{
 };
 use crate::ids;
 
+fn normalized_sources(item: &NewMemItem) -> (Option<String>, Option<String>) {
+    if item.kind.as_str() == "skill" {
+        (
+            item.source
+                .as_deref()
+                .map(codeterm_mem_store::skill_folders::normalize_file_source),
+            item.source_path
+                .as_deref()
+                .map(codeterm_mem_store::skill_folders::normalize_file_source),
+        )
+    } else {
+        (item.source.clone(), item.source_path.clone())
+    }
+}
+
 /// >2KB bodies go to content-addressed blob.
 pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
     insert_with_options(conn, item, blobs_dir, false, None)
@@ -46,6 +61,16 @@ pub fn replace_existing(
     let Some(previous) = get(conn, id, blobs_dir)? else {
         return Err(format!("mem item {id} not found"));
     };
+    let (source, source_path) = normalized_sources(item);
+    let previous_source_path: Option<String> = conn
+        .query_row(
+            "SELECT source_path FROM mem_items WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("read source path: {e}"))?
+        .flatten();
     let mut changed = Vec::new();
     if previous.title != item.title {
         changed.push("title");
@@ -65,8 +90,11 @@ pub fn replace_existing(
     if previous.scope != item.scope.as_str() {
         changed.push("scope");
     }
-    if previous.source != item.source {
+    if previous.source != source {
         changed.push("source");
+    }
+    if previous_source_path != source_path {
+        changed.push("source_path");
     }
     let previous_pinned: bool = conn
         .query_row(
@@ -93,7 +121,7 @@ pub fn replace_existing(
     let tags = serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {e}"))?;
     conn.execute(
         "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL WHERE id=?13",
-        params![item.title, item.summary, item.area, tags, inline, blob, item.source, item.importance, now, item.source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id],
+        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id],
     ).map_err(|e| format!("replace mem item: {e}"))?;
     conn.execute("DELETE FROM mem_fts WHERE mem_id=?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -150,6 +178,7 @@ fn insert_with_options(
     fingerprint: Option<&str>,
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
+    let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
 
@@ -205,8 +234,7 @@ fn insert_with_options(
         };
 
     // call — both here and in mem/file_sync.rs::sync_one.
-    let (source_size, source_mtime) = item
-        .source_path
+    let (source_size, source_mtime) = source_path
         .as_ref()
         .map(|p| p.strip_prefix("file:").unwrap_or(p))
         .and_then(|p| std::fs::metadata(p).ok())
@@ -220,7 +248,7 @@ fn insert_with_options(
         })
         .unwrap_or((None, None));
 
-    if let Some(path) = item.source_path.as_deref() {
+    if let Some(path) = source_path.as_deref() {
         codeterm_mem_store::skill_folders::clear_tombstone(conn, path)
             .map_err(|e| format!("clear source tombstone: {}", e))?;
     }
@@ -244,11 +272,11 @@ fn insert_with_options(
             &tags_json,
             &body_inline,
             &body_blob_path,
-            &item.source,
+            &source,
             item.importance,
             &now,
             &now,
-            &item.source_path,
+            &source_path,
             source_size,
             &source_mtime,
             pinned_int,

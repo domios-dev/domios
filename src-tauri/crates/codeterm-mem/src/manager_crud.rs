@@ -215,19 +215,43 @@ impl MemManager {
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
-        self.embed_queue.cancel(id);
-        let (removed, skill_source) = {
+        let (matching_ids, skill_source) = {
             let conn = self.conn.lock();
             let skill_source =
                 codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
                     .map_err(|e| format!("read folder skill source: {e}"))?;
-            (store::delete(&conn, id)?, skill_source)
+            let matching_ids = match skill_source.as_deref() {
+                Some(source) => {
+                    codeterm_mem_store::skill_folders::skill_ids_for_source(&conn, source)
+                        .map_err(|e| format!("list folder skill registrations: {e}"))?
+                }
+                None => vec![id.to_string()],
+            };
+            (matching_ids, skill_source)
         };
-        if removed {
-            remove_folder_skill(skill_source.as_deref(), &self.skill_dir, id);
-            self.revoke_extraction(id);
+
+        for matching_id in &matching_ids {
+            self.embed_queue.cancel(matching_id);
         }
-        Ok(removed)
+
+        let removed_ids = {
+            let conn = self.conn.lock();
+            let mut removed = Vec::new();
+            for matching_id in matching_ids {
+                if store::delete(&conn, &matching_id)? {
+                    removed.push(matching_id);
+                }
+            }
+            removed
+        };
+
+        if removed_ids.iter().any(|removed_id| removed_id == id) {
+            remove_folder_skill(skill_source.as_deref(), &self.skill_dir, id);
+        }
+        for removed_id in &removed_ids {
+            self.revoke_extraction(removed_id);
+        }
+        Ok(removed_ids.iter().any(|removed_id| removed_id == id))
     }
 
     pub fn delete_by_area(&self, area: &str) -> Result<AreaForgetOutcome, String> {
