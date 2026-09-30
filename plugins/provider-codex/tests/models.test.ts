@@ -126,8 +126,8 @@ console.log("\n--- discoverModels ---\n");
       ["gpt-6.1-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
       ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],
       ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
-      ["gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
       ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+      ["gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
     ],
     "new cache entries are discovered in cache priority order with per-model reasoning",
   );

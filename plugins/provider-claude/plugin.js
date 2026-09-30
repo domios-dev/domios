@@ -615,7 +615,7 @@ function mapAliasesToLive(aliases, live) {
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped = {
       id: alias.id,
-      displayName: match ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -624,7 +624,10 @@ function mapAliasesToLive(aliases, live) {
   return out;
 }
 function familyOf(alias) {
-  const hay = (alias.id + " " + alias.displayName).toLowerCase();
+  const id = alias.id.toLowerCase();
+  if (id === "best") return "fable";
+  if (id === "opusplan") return "opus";
+  const hay = (id.replace(/\[1m\]$/, "") + " " + alias.displayName).toLowerCase();
   for (let i = 0; i < FAMILIES.length; i++) {
     if (hay.indexOf(FAMILIES[i]) !== -1) return FAMILIES[i];
   }

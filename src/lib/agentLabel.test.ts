@@ -290,7 +290,7 @@ describe("shortModelName", () => {
     expect(shortModelName("gpt-6.1-sol")).toBe("6.1-sol");
     expect(shortModelName("gpt-5.6-terra")).toBe("5.6-terra");
     expect(shortModelName("gpt-6-astra")).toBe("astra");
-    expect(shortModelName("gpt-5.4-mini")).toBe("mini");
+    expect(shortModelName("gpt-5.4-mini")).toBe("5.4-mini");
     expect(shortModelName("Opus")).toBe("opus");
     expect(shortModelName("claude-fable-5-1")).toBe("fable");
     expect(shortModelName("openai/gpt-5.5")).toBe("gpt 5.5");
