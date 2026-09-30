@@ -48,7 +48,7 @@
       "slug": "gpt-5.5",
       "display_name": "GPT-5.5",
       "visibility": "list",
-      "priority": 3,
+      "priority": 4,
       "supported_reasoning_levels": [
         { "effort": "low" },
         { "effort": "medium" },
@@ -60,7 +60,7 @@
       "slug": "gpt-5.6-sol",
       "display_name": "GPT-5.6 Sol",
       "visibility": "list",
-      "priority": 4,
+      "priority": 5,
       "default_reasoning_level": "low",
       "supported_reasoning_levels": [
         { "effort": "low" },
