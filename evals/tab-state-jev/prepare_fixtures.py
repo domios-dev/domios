@@ -82,7 +82,7 @@ def add_fixture(
         raise ValueError(f"unsupported label for {source}: {label}")
     path = ROOT / source
     screen = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    screen = "\n".join(screen.splitlines()[-40:])
+    screen = "\n".join(screen.rstrip().splitlines()[-40:])
     screen = regex_scrub(screen)
     baselines: dict[str, Any] = {}
     if tab_state:
@@ -148,7 +148,7 @@ def add_inline(
             "boot_stage": None,
             "label": label,
             "source": source,
-            "screen": regex_scrub("\n".join(screen.splitlines()[-40:])),
+            "screen": regex_scrub("\n".join(screen.rstrip().splitlines()[-40:])),
             "baselines": baselines,
             "boot_stage_source": None,
         }
@@ -190,7 +190,7 @@ def read_live_captures() -> list[dict[str, Any]]:
                 "boot_stage_source": source_row.get("boot_stage_source"),
                 "label": source_row["label"],
                 "source": source_row["source"],
-                "screen": "\n".join(screen.splitlines()[-40:]),
+                "screen": "\n".join(screen.rstrip().splitlines()[-40:]),
                 "baselines": source_row.get("baselines", {}),
             }
         )
