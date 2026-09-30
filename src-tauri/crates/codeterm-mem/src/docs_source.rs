@@ -203,7 +203,16 @@ fn chunks_for_document(doc_name: &'static str, body: &str) -> Vec<DocSection> {
 }
 
 fn chunks_for_cli_reference(body: &str) -> Vec<DocSection> {
-    chunks_for_headings("CLI", body, 4, 4, false, true)
+    let mut sections = chunks_for_headings("CLI", body, 4, 4, false, true);
+    let mut parent_titles = BTreeSet::new();
+    for section in &sections {
+        let words: Vec<_> = section.section_title.split_whitespace().collect();
+        for count in 2..words.len() {
+            parent_titles.insert(words[..count].join(" "));
+        }
+    }
+    sections.retain(|section| !parent_titles.contains(&section.section_title));
+    sections
 }
 
 fn chunks_for_headings(
@@ -344,6 +353,8 @@ fn term_frequencies(terms: &[String]) -> HashMap<String, usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{
         chunks_for_cli_reference, chunks_for_document, terms, DocSection, Index, CLI_REFERENCE,
         DOCS,
@@ -421,6 +432,14 @@ mod tests {
         assert!(sections
             .iter()
             .all(|section| section.section_title.starts_with("codeterm")));
+        let titles: BTreeSet<_> = sections
+            .iter()
+            .map(|section| section.section_title.clone())
+            .collect();
+        assert!(sections.iter().all(|section| {
+            let prefix = format!("{} ", section.section_title);
+            !titles.iter().any(|title| title.starts_with(&prefix))
+        }));
 
         let result = Index::from_sections(sections).search("codeterm sessions search", 1);
 

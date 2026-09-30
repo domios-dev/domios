@@ -7,10 +7,10 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
+use super::sessions_source::SessionCandidate;
 use super::{
     candidate, decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched,
 };
-use super::sessions_source::SessionCandidate;
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
