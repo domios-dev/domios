@@ -461,6 +461,40 @@ fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
     assert!(after_opener[1..].starts_with("Remove-Item"));
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_launch_dispatch_preserves_fresh_and_resume_commands() {
+    let commands = [
+        "claude --model 'sonnet 4'",
+        "$env:CODETERM_SESSION_BINDING_NONCE='nonce'; claude --resume 'session id'",
+    ];
+
+    for command in commands {
+        let bytes = send::build_launch_dispatch(command).unwrap();
+        assert_eq!(bytes, format!(" {command}\r").into_bytes());
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_launch_dispatch_refuses_line_breaks() {
+    for command in ["claude\n--resume session", "claude\r--resume session"] {
+        let error = send::build_launch_dispatch(command).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_launch_dispatch_keeps_script_execution() {
+    let bytes = send::build_launch_dispatch("echo hello; exec zsh").unwrap();
+    let dispatch = String::from_utf8(bytes).unwrap();
+
+    assert!(dispatch.starts_with("/bin/bash /tmp/codeterm-spawn-"));
+    assert!(dispatch.ends_with('\r'));
+}
+
 #[test]
 fn batch_item_defaults_to_immediate_submit() {
     let json = r#"{"text": "hello"}"#;
