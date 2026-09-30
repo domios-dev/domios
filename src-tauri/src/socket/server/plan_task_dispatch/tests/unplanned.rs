@@ -234,7 +234,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
     let harness = fixture();
-    let provider_id = "opencode";
+    let provider_id = "live-dispatch-fixture";
     harness
         .fixture
         .service
