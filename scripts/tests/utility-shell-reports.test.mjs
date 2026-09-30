@@ -135,8 +135,8 @@ test("qa_report_pass_sends_one_summary", () => {
     assert.deepEqual(sent[0].args, ["send", "--tab", "agent-tab", "--from-file", sent[0].bodyFile]);
     assert.match(sent[0].body, /test result: ok\. 3 passed; 0 failed/);
     assert.match(sent[0].body, /QA smoke: PASS \(2\/2 ok\)/);
-    assert.equal(sent[0].env.CODETERM_INSTANCE, "parent");
-    assert.equal(sent[0].env.CODETERM_API_PORT, "7685");
+    assert.equal(sent[0].env.CODETERM_INSTANCE, null);
+    assert.equal(sent[0].env.CODETERM_API_PORT, null);
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
@@ -203,16 +203,21 @@ test("qa_report_parent_env_survives_instance_exports", () => {
       ":\"$PATH\"; export CODETERM_INSTANCE=devinst CODETERM_API_PORT=7690; true";
     const result = runQa(h, "parent-env", [command], {
       QA_NOTIFY_TAB: "parent-agent",
-      CODETERM_INSTANCE: "parent",
-      CODETERM_API_PORT: "7685",
+      CODETERM_INSTANCE: "memrerank",
+      CODETERM_API_PORT: "7695",
+      CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
+      CODETERM_SOCKET_PATH: "parent.sock",
       CODETERM_TAB_ID: "parent-tab",
     });
     assert.equal(result.status, 0, result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.equal(sent[0].env.CODETERM_INSTANCE, "parent");
-    assert.equal(sent[0].env.CODETERM_API_PORT, "7685");
+    assert.equal(sent[0].env.CODETERM_INSTANCE, null);
+    assert.equal(sent[0].env.CODETERM_API_PORT, null);
+    assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
+    assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
+    assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-tab");
     assert.equal(records(h.devRecord).length, 0);
   } finally {
@@ -275,8 +280,12 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     ].join("\n");
     const result = runBash(["-c", script], {
       ...h.env,
-      CODETERM_INSTANCE: "parent",
-      CODETERM_API_PORT: "7685",
+      CODETERM_INSTANCE: "memrerank",
+      CODETERM_API_PORT: "7695",
+      CODETERM_API_URL: "http://127.0.0.1:7685",
+      CODETERM_API_TOKEN: "parent-token",
+      CODETERM_SOCKET_PATH: "parent.sock",
+      CODETERM_DATA_DIR: "/parent/data",
       CODETERM_TAB_ID: "parent-tab",
       CODETERM_SESSION_ID: "parent-session",
       CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
@@ -286,12 +295,12 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].executable, h.parentCli);
-    assert.equal(sent[0].env.CODETERM_INSTANCE, "parent");
-    assert.equal(sent[0].env.CODETERM_API_PORT, "7685");
-    assert.equal(sent[0].env.CODETERM_API_URL, null);
-    assert.equal(sent[0].env.CODETERM_API_TOKEN, null);
-    assert.equal(sent[0].env.CODETERM_SOCKET_PATH, null);
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, null);
+    assert.equal(sent[0].env.CODETERM_INSTANCE, null);
+    assert.equal(sent[0].env.CODETERM_API_PORT, null);
+    assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
+    assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
+    assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-tab");
     assert.equal(sent[0].env.CODETERM_SESSION_ID, "parent-session");
     assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
@@ -367,8 +376,20 @@ test("dev_notify_stream_waiter_deadline", () => {
   try {
     const log = path.join(h.dir, "quiet.log");
     const marker = path.join(h.dir, "deadline-sent");
+    const tailBin = path.join(h.dir, "tail-bin");
+    const tailArgs = path.join(h.dir, "tail-args");
+    const tailPidFile = path.join(h.dir, "tail.pid");
+    const fakeTail = path.join(tailBin, "tail");
+    mkdirSync(tailBin, { recursive: true });
     writeFileSync(log, "");
     const logWriter = openSync(log, "a");
+    writeFileSync(fakeTail,
+      "#!/usr/bin/env bash\n" +
+      "if [ \"$1\" = \"-F\" ]; then printf '%s\\n' \"$@\" > \"$TAIL_ARGS_FILE\"; fi\n" +
+      "exec /usr/bin/tail \"$@\"\n",
+      { mode: 0o755 },
+    );
+    chmodSync(fakeTail, 0o755);
     const script = [
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
@@ -380,20 +401,28 @@ test("dev_notify_stream_waiter_deadline", () => {
     ].join("\n");
     let result;
     try {
-      result = runBash(["-c", script], h.env);
+      result = runBash(["-c", script], {
+        ...h.env,
+        PATH: tailBin + path.delimiter + h.env.PATH,
+        TAIL_ARGS_FILE: tailArgs,
+        DEV_NOTIFY_TAIL_PID_FILE: tailPidFile,
+      });
     } finally {
       closeSync(logWriter);
     }
     assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(tailArgs, "utf8").trim().split("\n"), ["-F", "-n", "+1", log]);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.match(sent[0].body, /^FAILED stage=deadline instance=quiet-instance api_port=7690\n/);
+    const tailPid = Number(readFileSync(tailPidFile, "utf8").trim());
+    assert.throws(() => process.kill(tailPid, 0), { code: "ESRCH" });
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
 
-test("dev_notify_stream_waiter_eof_reports_stream_failure", () => {
+test("dev_notify_stream_waiter_tail_exit_reports_stream_failure", () => {
   const h = makeHarness();
   try {
     const log = path.join(h.dir, "stream.log");
@@ -403,7 +432,12 @@ test("dev_notify_stream_waiter_eof_reports_stream_failure", () => {
     const fakeTail = path.join(tailBin, "tail");
     mkdirSync(tailBin, { recursive: true });
     writeFileSync(log, "");
-    writeFileSync(fakeTail, "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$TAIL_ARGS_FILE\"\nexit 17\n", { mode: 0o755 });
+    writeFileSync(fakeTail,
+      "#!/usr/bin/env bash\n" +
+      "if [ \"$1\" = \"-F\" ]; then printf '%s\\n' \"$@\" > \"$TAIL_ARGS_FILE\"; exit 17; fi\n" +
+      "exec /usr/bin/tail \"$@\"\n",
+      { mode: 0o755 },
+    );
     chmodSync(fakeTail, 0o755);
     const script = [
       "source " + shellQuote(helperPath),
@@ -449,6 +483,42 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     const empty = runBash([buildPath, "dev", "--notify-tab="], env);
     assert.equal(empty.status, 2);
     assert.match(empty.stderr, /non-empty tab id/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
+  const h = makeHarness();
+  try {
+    const env = {
+      ...h.env,
+      HOME: path.join(h.dir, "home"),
+      CODETERM_INSTANCE: "memrerank",
+      CODETERM_API_PORT: "7695",
+      CODETERM_API_URL: "http://127.0.0.1:7685",
+      CODETERM_API_TOKEN: "parent-token",
+      CODETERM_SOCKET_PATH: "parent.sock",
+      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_TAB_ID: "parent-caller",
+      CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
+      CODETERM_TEST_SEND_PARENT_REPORT: "1",
+    };
+    mkdirSync(env.HOME, { recursive: true });
+    const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes("parent_cli=" + h.parentCli));
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].executable, h.parentCli);
+    assert.equal(sent[0].env.CODETERM_INSTANCE, null);
+    assert.equal(sent[0].env.CODETERM_API_PORT, null);
+    assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
+    assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
+    assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
+    assert.equal(records(h.devRecord).length, 0);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
