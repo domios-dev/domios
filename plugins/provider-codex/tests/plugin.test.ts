@@ -10,13 +10,10 @@ import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import "./prompt.test";
 import "./restore-resume.test";
+import "./manifest-capabilities.test";
 
 let passed = 0;
 let failed = 0;
-
-const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
-eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
-eq(manifest.commands.additionalWritableDirFlag, "--add-dir", "sandbox metadata roots use the declared CLI flag");
 
 function assert(condition: boolean, name: string, detail?: string) {
   if (condition) { passed++; console.log(`  ✓ ${name}`); }

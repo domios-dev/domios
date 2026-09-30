@@ -6,11 +6,13 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
+fn newer_ingress_claim_waits_for_the_prior_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");
     let second = claim_submit_cycle("rapid-ingress-claim");
 
-    assert!(!first.is_current());
+    assert!(first.is_current());
+    assert!(!second.is_current());
+    drop(first);
     assert!(second.is_current());
 }
 
@@ -547,6 +549,9 @@ struct IndistinguishableTrace {
     generation: Cell<u64>,
     draft_visible: Cell<bool>,
     payload_writes: Cell<usize>,
+    payload: RefCell<Option<String>>,
+    typed_follow_up_writes: Cell<usize>,
+    fail_typed_follow_up: Cell<bool>,
     submit_key_writes: Cell<usize>,
     observations: RefCell<Vec<String>>,
 }
@@ -566,6 +571,9 @@ impl IndistinguishableTrace {
             generation: Cell::new(0),
             draft_visible: Cell::new(false),
             payload_writes: Cell::new(0),
+            payload: RefCell::new(None),
+            typed_follow_up_writes: Cell::new(0),
+            fail_typed_follow_up: Cell::new(false),
             submit_key_writes: Cell::new(0),
             observations: RefCell::new(Vec::new()),
         }
@@ -606,10 +614,24 @@ impl SubmitTransport for IndistinguishableTrace {
 
     fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
         self.payload_writes.set(self.payload_writes.get() + 1);
+        *self.payload.borrow_mut() = Some(text.to_string());
         self.draft_visible.set(true);
         self.generation.set(self.generation.get() + 1);
         self.record("write_paste".into());
         Ok(text.len())
+    }
+
+    fn write_typed_follow_up(&self, text: &str, _deadline: Instant) -> Result<(), InjectionError> {
+        self.typed_follow_up_writes
+            .set(self.typed_follow_up_writes.get() + 1);
+        self.record(format!("write_typed_follow_up:{text}"));
+        if self.fail_typed_follow_up.get() {
+            Err(InjectionError::PtyClosed {
+                pty_id: "follow-up-pty".into(),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
@@ -745,6 +767,62 @@ fn tui_composer_redraw_without_turn_is_not_submission() {
             .count(),
         1
     );
+}
+
+#[test]
+fn typed_follow_up_is_written_once_between_the_paste_and_submit_key() {
+    let trace = IndistinguishableTrace::swallowed();
+    let body = "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta";
+    let follow_up = " ::marker::";
+
+    run_with_submit_key_and_follow_up(
+        &trace,
+        body,
+        true,
+        b"\r",
+        Some(follow_up),
+        VerifySubmitStrategy::None,
+        opts(),
+        |_, _| Ok(()),
+    )
+    .unwrap();
+
+    assert_eq!(trace.payload_writes.get(), 1);
+    assert_eq!(trace.payload.borrow().as_deref(), Some(body));
+    assert_eq!(trace.typed_follow_up_writes.get(), 1);
+    assert_eq!(trace.submit_key_writes.get(), 1);
+    let writes = trace.observations.borrow();
+    let paste = writes
+        .iter()
+        .position(|write| write == "write_paste")
+        .unwrap();
+    let typed = writes
+        .iter()
+        .position(|write| write == &format!("write_typed_follow_up:{follow_up}"))
+        .unwrap();
+    let key = writes
+        .iter()
+        .position(|write| write == "write_submit_key")
+        .unwrap();
+    assert!(paste < typed && typed < key);
+
+    let failed = IndistinguishableTrace::swallowed();
+    failed.fail_typed_follow_up.set(true);
+    let error = run_with_submit_key_and_follow_up(
+        &failed,
+        body,
+        true,
+        b"\r",
+        Some(follow_up),
+        VerifySubmitStrategy::None,
+        opts(),
+        |_, _| Ok(()),
+    )
+    .unwrap_err();
+    assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. }));
+    assert_eq!(failed.payload_writes.get(), 1);
+    assert_eq!(failed.typed_follow_up_writes.get(), 1);
+    assert_eq!(failed.submit_key_writes.get(), 0);
 }
 
 #[test]
@@ -918,72 +996,73 @@ fn paste_accepted_then_enter_swallowed_recovers_without_duplicate_payload() {
     ignore = "the ServiceContext harness requires an interactive desktop runtime"
 )]
 fn provider_update_and_trust_frames_refuse_initial_submit() {
-    use crate::agent::test_provider::MockProvider;
-    use crate::service::test_fixture::ServiceFixture;
-    use codeterm_plugin::tab_state::{TabState, TabStateClassification};
-
-    const PROVIDER_ID: &str = "fixture-provider";
-    let update = TabStateClassification {
-        state: TabState::UpdatePrompt,
-        confidence: 1.0,
-        data: None,
-        action: None,
-    };
-    let cases = [
-        (
-            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt"),
-            MockProvider::new(PROVIDER_ID).with_tab_state(update.clone()),
-        ),
-        (
-            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available-after-skip.txt"),
-            MockProvider::new(PROVIDER_ID).with_tab_state(update),
-        ),
-        (
-            include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
-            MockProvider::with_directory_trust_response(
-                PROVIDER_ID,
-                codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+    crate::service::pty_io::test_support::watchdog_10s(
+        "provider_update_and_trust_frames_refuse_initial_submit",
+        || {
+            use crate::agent::test_provider::MockProvider;
+            use crate::service::test_fixture::ServiceFixture;
+            use codeterm_plugin::tab_state::{TabState, TabStateClassification};
+            const PROVIDER_ID: &str = "fixture-provider";
+            let update = TabStateClassification {
+                state: TabState::UpdatePrompt,
+                confidence: 1.0,
+                data: None,
+                action: None,
+            };
+            let cases = [
+            (
+                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt"),
+                MockProvider::new(PROVIDER_ID).with_tab_state(update.clone()),
             ),
-        ),
-    ];
-
-    for (index, (frame, provider)) in cases.into_iter().enumerate() {
-        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let pty_id = format!("modal-submit-{index}");
-        mux.link_pty(&tab_id, pty_id.clone());
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some(PROVIDER_ID.into());
-        tab.session_binding_nonce = Some("launch-nonce".into());
-        let fixture = ServiceFixture::new(mux);
-        fixture
-            .service
-            .agent_registry
-            .register_provider(Box::new(provider));
-        fixture
-            .service
-            .screen_state
-            .lock()
-            .process(&pty_id, frame.as_bytes());
-
-        let error = submit_text_with_key_claimed(
-            &fixture.service,
-            &pty_id,
-            "payload",
-            true,
-            b"\r",
-            VerifySubmitStrategy::None,
-            opts(),
-            None,
-            false,
-            claim_submit_cycle(&pty_id),
-        )
-        .unwrap_err();
-        let delivery =
-            crate::service::delivery_error::DeliveryError::from_injection(&tab_id, error);
-
-        assert_eq!(delivery.code(), "tab_busy_refused");
-        assert!(!delivery.bytes_written());
-    }
+            (
+                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available-after-skip.txt"),
+                MockProvider::new(PROVIDER_ID).with_tab_state(update),
+            ),
+            (
+                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
+                MockProvider::with_directory_trust_response(
+                    PROVIDER_ID,
+                    codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
+                ),
+            ),
+        ];
+            for (index, (frame, provider)) in cases.into_iter().enumerate() {
+                let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+                let pty_id = format!("modal-submit-{index}");
+                mux.link_pty(&tab_id, pty_id.clone());
+                let tab = mux.get_tab_mut(&tab_id).unwrap();
+                tab.agent_type = Some(PROVIDER_ID.into());
+                tab.session_binding_nonce = Some("launch-nonce".into());
+                let fixture = ServiceFixture::new(mux);
+                fixture
+                    .service
+                    .agent_registry
+                    .register_provider(Box::new(provider));
+                fixture
+                    .service
+                    .screen_state
+                    .lock()
+                    .process(&pty_id, frame.as_bytes());
+                let error = submit_text_with_key_claimed(
+                    &fixture.service,
+                    &pty_id,
+                    "payload",
+                    true,
+                    b"\r",
+                    VerifySubmitStrategy::None,
+                    opts(),
+                    None,
+                    false,
+                    claim_submit_cycle(&pty_id),
+                )
+                .unwrap_err();
+                let delivery =
+                    crate::service::delivery_error::DeliveryError::from_injection(&tab_id, error);
+                assert_eq!(delivery.code(), "tab_busy_refused");
+                assert!(!delivery.bytes_written());
+            }
+        },
+    );
 }
 
 #[test]

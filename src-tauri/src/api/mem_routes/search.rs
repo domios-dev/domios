@@ -39,6 +39,12 @@ pub async fn mem_search(
     Query(p): Query<SearchParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if p.q.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "search query must not be empty".into(),
+        ));
+    }
     execute_search(&state.svc, p)
         .map(Json)
         .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))
@@ -48,6 +54,7 @@ pub(crate) fn execute_search(
     svc: &ServiceState,
     p: SearchParams,
 ) -> Result<serde_json::Value, String> {
+    validate_search_query(&p.q)?;
     let q = SearchQuery {
         query: p.q,
         kind: p.kind,
@@ -97,6 +104,27 @@ pub(crate) fn execute_search(
         append_plan_hits(svc, &mut tagged_hits, &project, &q)?;
     }
     Ok(serde_json::json!({ "hits": tagged_hits }))
+}
+
+fn validate_search_query(query: &str) -> Result<(), String> {
+    if query.trim().is_empty() {
+        Err("search query must not be empty".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::validate_search_query;
+
+    #[test]
+    fn empty_search_query_is_rejected() {
+        assert_eq!(
+            validate_search_query(" ").unwrap_err(),
+            "search query must not be empty"
+        );
+    }
 }
 
 const PLAN_INDEX_LIMIT_CAP: usize = 50;

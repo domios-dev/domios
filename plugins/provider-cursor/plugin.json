@@ -95,7 +95,6 @@
   },
   "commands": {
     "stopKey": "\u001b",
-    "modelSwitchFormat": "/model {model}",
     "autoApproveFlags": [
       "--force"
     ],

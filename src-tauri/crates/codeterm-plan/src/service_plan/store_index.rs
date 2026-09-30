@@ -73,6 +73,7 @@ impl PlanStore {
             element_count: plan.elements.len(),
             loop_count: plan.loops.len(),
             has_goal: plan.goal.is_some(),
+            orphaned: plan.orphaned.as_ref().map(|orphan| orphan.reason.clone()),
         }
     }
 
@@ -338,6 +339,9 @@ impl PlanStore {
         }
         plan.updated_at = now_ms;
         tag_model::normalize_plan(plan);
+        super::text_bounds::validate_plan(plan).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+        })?;
         let id = plan.id.clone();
         let existing = { self.plans.read().get(&id).cloned() };
         let arc = if let Some(arc) = existing.clone() {
@@ -382,6 +386,9 @@ impl PlanStore {
         }
         spec.updated_at = now_ms;
         tag_model::normalize_sections_for_spec(&mut spec.sections);
+        super::text_bounds::validate_spec(spec).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+        })?;
         let id = spec.id.clone();
         let existing = { self.specs.read().get(&id).cloned() };
         let arc = if let Some(arc) = existing {

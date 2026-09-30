@@ -33,6 +33,7 @@ mod native_resize;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
+pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
 pub mod process_util;
@@ -206,6 +207,7 @@ pub fn run() {
             commands::restart_general_agent,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
+            commands::switch_agent_model,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -806,6 +808,7 @@ pub fn run() {
 
             let svc_ctx = ServiceContext {
                 agent_pad_data_dir: crate::paths::data_dir(),
+                launch_task_files: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
@@ -1021,7 +1024,7 @@ pub fn run() {
             let startup_step = startup::StartupStep::logged("platform and server initialization");
             startup::setup_conpty_host(app);
             startup::install_bundled_cli(app);
-            startup::restore_complete(&service_state);
+            drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,

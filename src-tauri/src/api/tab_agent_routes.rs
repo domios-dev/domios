@@ -101,6 +101,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(agent_routes::agent_restart_handler),
         )
         .route(
+            "/api/tabs/{id}/agent/model",
+            post(super::agent_model_routes::agent_model_handler),
+        )
+        .route(
             "/api/tabs/{id}/agent-type",
             post(agent_routes::set_agent_type),
         )
@@ -127,6 +131,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(hook_routes::hook_session_start),
         )
         .route(
+            "/api/tabs/{id}/hook/provider_event",
+            post(hook_routes::hook_provider_event),
+        )
+        .route(
             "/api/tabs/{id}/launch-artifacts/release",
             post(hook_routes::release_launch_artifacts_api),
         )
@@ -149,6 +157,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/agents/providers",
             get(agent_routes::list_agent_providers),
+        )
+        .route(
+            "/api/agents/providers/refresh",
+            post(super::agent_model_catalog_routes::refresh_agent_provider_models),
         )
         .route(
             "/api/remote-workers",

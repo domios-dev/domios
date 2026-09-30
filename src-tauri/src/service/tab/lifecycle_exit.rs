@@ -32,6 +32,11 @@ fn clear_agent_identity_after_prompt_clear(
     if !has_identity {
         return false;
     }
+    let pending_model_switch_observation = tab
+        .pending_model_switch_observation
+        .as_ref()
+        .filter(|pending| tab.agent_session_id.as_deref() == Some(pending.session_id.as_str()))
+        .cloned();
     tab.agent_type = None;
     tab.agent_type_locked = false;
     tab.agent_set_at = None;
@@ -48,6 +53,7 @@ fn clear_agent_identity_after_prompt_clear(
     // Provider and model are one identity; clearing only the provider leaves a
     // stale model label attached to the tab.
     clear_runtime_model_evidence(tab);
+    tab.pending_model_switch_observation = pending_model_switch_observation;
     crate::service::boot_stage::apply_boot_stage(
         tab,
         codeterm_types::pty::BootStage::ShellReady,
@@ -413,6 +419,16 @@ impl ServiceContext {
     ) -> bool {
         if !cleared {
             return false;
+        }
+        if source != "explicit-clear" {
+            let pty_id = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
+            if let Some(pty_id) = pty_id {
+                self.screen_state.lock().reset_input_modes(&pty_id);
+            }
         }
         if let Some(identity) = prompt_identity {
             self.resolve_prompt_notifications(tab_id, &identity);

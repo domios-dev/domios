@@ -1,6 +1,39 @@
 use crate::client::SocketClient;
 use crate::CronAction;
 
+fn print_cron_ack(json: bool, state: &str, id: &str) {
+    if json {
+        crate::cmd::print::print_json(&serde_json::json!({ "ok": true, "state": state, "id": id }));
+    } else {
+        let mut label = state.to_string();
+        label[..1].make_ascii_uppercase();
+        println!("{label}: {id}");
+    }
+}
+
+fn cron_completion_params(
+    run_id: &str,
+    summary: Option<&str>,
+    caller_tab_id: Option<&str>,
+    binding_nonce: Option<&str>,
+    human_confirmed: bool,
+) -> serde_json::Value {
+    let mut params = serde_json::json!({
+        "run_id": run_id,
+        "human_confirmed": human_confirmed,
+    });
+    if let Some(summary) = summary {
+        params["summary"] = serde_json::json!(summary);
+    }
+    if let Some(caller_tab_id) = caller_tab_id {
+        params["caller_tab_id"] = serde_json::json!(caller_tab_id);
+        if let Some(binding_nonce) = binding_nonce {
+            params["session_binding_nonce"] = serde_json::json!(binding_nonce);
+        }
+    }
+    params
+}
+
 pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
     match action {
         CronAction::List { workspace } => {
@@ -46,8 +79,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -104,8 +136,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -173,41 +204,31 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Delete { id } => {
             match client.call("cron.delete", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Deleted: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "deleted", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Enable { id } => {
             match client.call("cron.enable", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Enabled: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "enabled", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         CronAction::Disable { id } => {
             match client.call("cron.disable", Some(serde_json::json!({"id": id}))) {
-                Ok(_) => {
-                    println!("Disabled: {}", id);
-                }
+                Ok(_) => print_cron_ack(json, "disabled", &id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -224,8 +245,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -244,8 +264,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -270,23 +289,28 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
-        CronAction::Complete { run_id, summary } => {
-            let mut params = serde_json::json!({"run_id": run_id});
-            if let Some(s) = summary {
-                params["summary"] = serde_json::json!(s);
-            }
+        CronAction::Complete {
+            run_id,
+            summary,
+            yes,
+        } => {
+            let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
+            let binding_nonce = crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE");
+            let params = cron_completion_params(
+                &run_id,
+                summary.as_deref(),
+                caller_tab_id.as_deref(),
+                binding_nonce.as_deref(),
+                yes,
+            );
             match client.call("cron.complete", Some(params)) {
-                Ok(_) => {
-                    println!("Completed: {}", run_id);
-                }
+                Ok(_) => print_cron_ack(json, "completed", &run_id),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -313,4 +337,45 @@ fn caller_workspace_id(client: &mut SocketClient) -> String {
     )
     .map(|resolved| resolved.id.to_string())
     .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cron_completion_params;
+
+    #[test]
+    fn cron_complete_carries_the_current_tab_binding() {
+        assert_eq!(
+            cron_completion_params(
+                "run-token",
+                Some("summary-token"),
+                Some("tab-token"),
+                Some("nonce-token"),
+                false,
+            ),
+            serde_json::json!({
+                "run_id": "run-token",
+                "summary": "summary-token",
+                "caller_tab_id": "tab-token",
+                "session_binding_nonce": "nonce-token",
+                "human_confirmed": false,
+            })
+        );
+    }
+
+    #[test]
+    fn cron_complete_without_tab_identity_is_unconfirmed_by_default() {
+        assert_eq!(
+            cron_completion_params("run-token", None, None, Some("unused"), false),
+            serde_json::json!({ "run_id": "run-token", "human_confirmed": false })
+        );
+    }
+
+    #[test]
+    fn cron_complete_carries_explicit_human_confirmation() {
+        assert_eq!(
+            cron_completion_params("run-token", None, None, None, true),
+            serde_json::json!({ "run_id": "run-token", "human_confirmed": true })
+        );
+    }
 }

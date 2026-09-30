@@ -203,7 +203,10 @@ pub(crate) fn init_states() -> AppStates {
     scrub_inherited_api_env(&config_state);
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
-    let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::new(500)));
+    let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::open_persisted(
+        crate::paths::data_dir().join(crate::notification::persist::FILE_NAME),
+        500,
+    )));
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState =
         Arc::new(TimedMutex::new("output_buf", OutputBuffer::new(65536)));
@@ -309,6 +312,15 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
+    let retired = notif_state
+        .lock()
+        .retire_tabless_conditions(|tab_id| mux_state_inner.get_tab(tab_id).is_some());
+    if !retired.is_empty() {
+        log::info!(
+            "[notify-persist] resolved {} restored notice(s) whose Tab did not come back",
+            retired.len()
+        );
+    }
     let restored_agent_tabs = mux_state_inner
         .snapshot()
         .tabs

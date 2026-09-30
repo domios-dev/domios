@@ -14,7 +14,7 @@ fn unattributed_close_of_coordinator_reports_missing_attribution() {
 
     let error = fixture
         .service
-        .close_tab_guarded(None, &coordinator)
+        .close_tab_guarded(None, &coordinator, false)
         .expect_err("an unattributed close of a coordinator must be refused");
 
     assert!(error.starts_with(UNATTRIBUTED_CLOSE_REFUSAL_PREFIX));

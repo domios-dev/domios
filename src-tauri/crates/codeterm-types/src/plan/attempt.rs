@@ -198,6 +198,7 @@ pub enum RemoteDispatchState {
     PeerMissingRepo,
     PeerMissingBase,
     PeerOffline,
+    PeerRefused,
     RelayLost,
     AwaitingWorkerAck,
     RemoteAckTimeout,

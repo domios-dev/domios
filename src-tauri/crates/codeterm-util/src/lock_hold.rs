@@ -66,17 +66,26 @@ mod imp {
             }
         }
         pub fn lock(&self) -> TimedGuard<MutexGuard<'_, T>> {
+            let inner = self.inner.lock();
             TimedGuard {
                 name: self.name,
                 kind: "lock",
                 start: Instant::now(),
-                inner: self.inner.lock(),
+                inner,
             }
         }
         pub fn try_lock(&self) -> Option<TimedGuard<MutexGuard<'_, T>>> {
             self.inner.try_lock().map(|inner| TimedGuard {
                 name: self.name,
                 kind: "try_lock",
+                start: Instant::now(),
+                inner,
+            })
+        }
+        pub fn try_lock_until(&self, deadline: Instant) -> Option<TimedGuard<MutexGuard<'_, T>>> {
+            self.inner.try_lock_until(deadline).map(|inner| TimedGuard {
+                name: self.name,
+                kind: "try_lock_until",
                 start: Instant::now(),
                 inner,
             })
@@ -96,11 +105,12 @@ mod imp {
             }
         }
         pub fn read(&self) -> TimedGuard<RwLockReadGuard<'_, T>> {
+            let inner = self.inner.read();
             TimedGuard {
                 name: self.name,
                 kind: "read",
                 start: Instant::now(),
-                inner: self.inner.read(),
+                inner,
             }
         }
         pub fn try_read(&self) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
@@ -111,12 +121,24 @@ mod imp {
                 inner,
             })
         }
+        pub fn try_read_until(
+            &self,
+            deadline: Instant,
+        ) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
+            self.inner.try_read_until(deadline).map(|inner| TimedGuard {
+                name: self.name,
+                kind: "try_read_until",
+                start: Instant::now(),
+                inner,
+            })
+        }
         pub fn write(&self) -> TimedGuard<RwLockWriteGuard<'_, T>> {
+            let inner = self.inner.write();
             TimedGuard {
                 name: self.name,
                 kind: "write",
                 start: Instant::now(),
-                inner: self.inner.write(),
+                inner,
             }
         }
         pub fn try_write(&self) -> Option<TimedGuard<RwLockWriteGuard<'_, T>>> {
@@ -133,6 +155,7 @@ mod imp {
 #[cfg(not(debug_assertions))]
 mod imp {
     use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+    use std::time::Instant;
 
     #[repr(transparent)]
     pub struct TimedMutex<T>(Mutex<T>);
@@ -148,6 +171,10 @@ mod imp {
         #[inline(always)]
         pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
             self.0.try_lock()
+        }
+        #[inline(always)]
+        pub fn try_lock_until(&self, deadline: Instant) -> Option<MutexGuard<'_, T>> {
+            self.0.try_lock_until(deadline)
         }
     }
 
@@ -165,6 +192,10 @@ mod imp {
         #[inline(always)]
         pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
             self.0.try_read()
+        }
+        #[inline(always)]
+        pub fn try_read_until(&self, deadline: Instant) -> Option<RwLockReadGuard<'_, T>> {
+            self.0.try_read_until(deadline)
         }
         #[inline(always)]
         pub fn write(&self) -> RwLockWriteGuard<'_, T> {

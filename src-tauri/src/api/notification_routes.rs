@@ -5,9 +5,12 @@ use axum::{
 };
 use codeterm_types::notification::{validate_answer_labels, CallerAction};
 use serde::Deserialize;
+use std::io::Read;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::notification::reach::Unseen;
+
+const NOTIFICATION_FILE_READ_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub(crate) struct ListNotifQuery {
@@ -116,6 +119,26 @@ pub(crate) fn parse_push_intent(
     Ok(crate::service::notification::PushIntent { level, event_key })
 }
 
+/// A caller's title, trimmed and bounded by the one rule every transport shares.
+pub(crate) fn vet_title(title: &str) -> Result<String, String> {
+    codeterm_types::notification::validate_title(title).map(str::to_string)
+}
+
+/// A jump target must be a tab on this daemon, or the record would open nothing.
+pub(crate) fn vet_target_tab(
+    target_tab_id: Option<&str>,
+    tab_exists: impl FnOnce(&str) -> bool,
+) -> Result<(), String> {
+    let Some(target) = target_tab_id else {
+        return Ok(());
+    };
+    let target = target.trim();
+    if target.is_empty() || !tab_exists(target) {
+        return Err(format!("Target tab '{target}' does not exist"));
+    }
+    Ok(())
+}
+
 /// Vet a caller-supplied action set. Parsing already closed the kind - and the
 /// type it parsed into has no invoke variant at all; this closes the choice
 /// set, which only makes sense as a whole.
@@ -134,6 +157,14 @@ pub async fn create_notification(
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+    let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
+    if body.source_peer.is_none() {
+        vet_target_tab(body.target_tab_id.as_deref(), |tab| {
+            state.svc.mux.read().resolve_tab_id(tab).is_some()
+        })
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    }
     let origin = crate::service::notification::NotificationOrigin {
         caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
         claimed_tab_id: body.tab_id,
@@ -156,7 +187,7 @@ pub async fn create_notification(
     )
     .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let (id, unseen) = state.svc.create_notification_ext_reported(
-        body.title,
+        title,
         body.body,
         body.severity.as_deref(),
         actions,
@@ -285,7 +316,19 @@ pub async fn serve_file(
         return Err((StatusCode::NOT_FOUND, "File not found"));
     }
 
-    let bytes = std::fs::read(&requested)
+    let file = std::fs::File::open(&requested)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file"))?;
+    if file
+        .metadata()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to inspect file"))?
+        .len()
+        > NOTIFICATION_FILE_READ_LIMIT
+    {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "File exceeds 16 MiB limit"));
+    }
+    let mut bytes = Vec::new();
+    file.take(NOTIFICATION_FILE_READ_LIMIT)
+        .read_to_end(&mut bytes)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file"))?;
 
     let content_type = match requested.extension().and_then(|e| e.to_str()) {
@@ -326,6 +369,21 @@ mod tests {
         let allowed = crate::paths::data_dir();
         let inside = allowed.join("config.toml");
         assert!(inside.starts_with(&allowed));
+    }
+
+    #[test]
+    fn notify_send_refuses_blank_long_titles_and_missing_target_tabs() {
+        let limit = codeterm_types::notification::MAX_CALLER_TITLE_CHARS;
+        assert!(super::vet_title("   ").is_err());
+        assert!(super::vet_title(&"t".repeat(limit + 1)).is_err());
+        assert_eq!(super::vet_title("  opaque  ").unwrap(), "opaque");
+        assert!(super::vet_title(&"t".repeat(limit)).is_ok());
+
+        let live = |tab: &str| tab == "live-tab";
+        assert!(super::vet_target_tab(None, live).is_ok());
+        assert!(super::vet_target_tab(Some("live-tab"), live).is_ok());
+        assert!(super::vet_target_tab(Some("missing-tab"), live).is_err());
+        assert!(super::vet_target_tab(Some("  "), live).is_err());
     }
 
     /// `notify_unseen` — the result seam every transport answers through: the

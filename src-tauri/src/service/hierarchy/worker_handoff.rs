@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::service::message_gateway::MessageGateway;
 use crate::service::ServiceContext;
@@ -17,6 +20,21 @@ impl WorkerTurnSignal {
     }
 }
 
+/// Tabs already logged for their current pending report requirement.
+static IDLE_WITHOUT_REPORT_LOGGED: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// True only for the first idle transition while one report requirement is
+/// pending, so a flapping turn state logs once instead of on every flip.
+fn first_idle_without_report(logged: &mut HashSet<String>, tab_id: &str, pending: bool) -> bool {
+    if pending {
+        logged.insert(tab_id.to_string())
+    } else {
+        logged.remove(tab_id);
+        false
+    }
+}
+
 fn take_report_requirement_for_signal(
     gateway: &MessageGateway,
     tab_id: &str,
@@ -25,10 +43,20 @@ fn take_report_requirement_for_signal(
     match signal {
         WorkerTurnSignal::ProviderStop => gateway.take_worker_report_requirement(tab_id),
         WorkerTurnSignal::IdleTransition => {
-            log::debug!(
-                "[worker-report-fallback] tab={} idle without an explicit completion",
-                tab_id
+            let pending = gateway.worker_report_required(tab_id);
+            let first = first_idle_without_report(
+                &mut IDLE_WITHOUT_REPORT_LOGGED
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                tab_id,
+                pending,
             );
+            if first {
+                log::debug!(
+                    "[worker-report-fallback] tab={} idle without an explicit completion",
+                    tab_id
+                );
+            }
             false
         }
     }
@@ -174,6 +202,19 @@ mod tests {
              GATES REQUESTED: none\n\
              FOLLOWUP: automatic provider-stop handoff; task remains in progress"
         );
+    }
+
+    #[test]
+    fn idle_flapping_logs_once_per_pending_report() {
+        let mut logged = HashSet::new();
+        let worker = "flapping-worker";
+        assert!(first_idle_without_report(&mut logged, worker, true));
+        assert!(!first_idle_without_report(&mut logged, worker, true));
+        assert!(!first_idle_without_report(&mut logged, worker, true));
+        assert!(!first_idle_without_report(&mut logged, "plain-tab", false));
+
+        assert!(!first_idle_without_report(&mut logged, worker, false));
+        assert!(first_idle_without_report(&mut logged, worker, true));
     }
 
     #[test]

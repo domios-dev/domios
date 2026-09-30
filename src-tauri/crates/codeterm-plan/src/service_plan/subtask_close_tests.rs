@@ -49,6 +49,7 @@ fn close_task_with_open_subtask_errors() {
     let (store, plan_id, parent_id) = store_with_task();
     let child_id = add_child(&store, &plan_id, &parent_id);
 
+    store.start_task_for_test(&plan_id, &parent_id, 29);
     let err = store
         .close_task(&plan_id, &parent_id, None, AgentRef::from_tab("w"), 30)
         .unwrap_err();
@@ -69,7 +70,24 @@ fn close_task_with_open_subtask_errors() {
         .into_iter()
         .find(|task| task.id == parent_id)
         .unwrap();
-    assert_eq!(parent.status, TaskStatus::Pending);
+    assert_eq!(parent.status, TaskStatus::InProgress);
+}
+
+#[test]
+fn close_unstarted_task_refused_or_cancelled() {
+    let (store, plan_id, task_id) = store_with_task();
+    let error = store
+        .close_task(&plan_id, &task_id, None, AgentRef::from_tab("owner"), 30)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::TransitionDenied {
+            from: TaskStatus::Pending,
+            to: TaskStatus::Done
+        }
+    ));
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.status, TaskStatus::Pending);
 }
 
 #[test]
@@ -138,10 +156,12 @@ fn add_task_rejects_terminal_and_child_parents() {
 fn close_task_after_subtasks_done_succeeds() {
     let (store, plan_id, parent_id) = store_with_task();
     let child_id = add_child(&store, &plan_id, &parent_id);
+    store.start_task_for_test(&plan_id, &child_id, 19);
     store
         .close_task(&plan_id, &child_id, None, AgentRef::from_tab("w"), 20)
         .unwrap();
 
+    store.start_task_for_test(&plan_id, &parent_id, 29);
     store
         .close_task(
             &plan_id,

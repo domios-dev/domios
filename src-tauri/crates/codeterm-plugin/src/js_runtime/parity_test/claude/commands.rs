@@ -47,7 +47,7 @@ fn parse_prompt_negative_parity() {
 }
 
 #[test]
-fn stop_keystroke_native_js_parity() {
+fn stop_sequence_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
@@ -62,6 +62,8 @@ fn stop_keystroke_native_js_parity() {
         Some("\u{1b}"),
         "Claude interrupts on Esc"
     );
+    assert_eq!(n.stop_keys(), j.stop_keys());
+    assert_eq!(n.stop_key_wait_for_output(), j.stop_key_wait_for_output());
 }
 
 #[test]
@@ -103,14 +105,17 @@ fn in_tab_command_surface_native_js_parity() {
         "fresh_context_command must agree"
     );
     assert_eq!(
-        n.model_switch_format(),
-        j.model_switch_format(),
-        "model_switch_format must agree"
+        n.model_switch(),
+        j.model_switch(),
+        "model_switch must agree"
     );
     assert_eq!(n.compact_command(), Some("/compact"));
     assert_eq!(n.fresh_context_command(), Some("/new"));
     assert_eq!(n.exit_command(), Some("/exit"));
-    assert_eq!(n.model_switch_format(), Some("/model {model}"));
+    assert_eq!(
+        n.model_switch(),
+        crate::provider::ModelSwitchMode::RestartResume
+    );
 }
 
 #[test]

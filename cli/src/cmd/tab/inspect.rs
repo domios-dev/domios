@@ -13,12 +13,10 @@ pub(super) fn handle_tab_inspect(
 ) {
     tabs.extend(tab);
     if tabs.is_empty() {
-        eprintln!("Error: tab inspect requires --tab <ID>");
-        std::process::exit(2);
+        crate::cmd::print::fail(2, "tab inspect requires --tab <ID>");
     }
     if lifecycle && tabs.len() != 1 {
-        eprintln!("Error: --lifecycle requires exactly one tab");
-        std::process::exit(2);
+        crate::cmd::print::fail(2, "--lifecycle requires exactly one tab");
     }
     match remote_inspect_target(&tabs) {
         Ok(Some((peer, remote_tabs))) => {

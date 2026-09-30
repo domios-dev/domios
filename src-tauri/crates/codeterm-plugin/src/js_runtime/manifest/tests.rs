@@ -176,7 +176,7 @@ fn parse_full_manifest() {
             "commands": {
                 "compact": "/compact",
                 "exit": "/exit",
-                "modelSwitchFormat": "/model {model}",
+                "modelSwitch": "restart_resume",
                 "autoApproveFlags": ["--dangerously-skip-permissions"],
                 "modelLaunchArgsFormat": ["--model", "{model}"]
             },

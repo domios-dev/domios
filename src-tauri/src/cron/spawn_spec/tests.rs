@@ -21,9 +21,7 @@ fn inputs(agent: &str) -> CronSpawnInputs {
     }
 }
 
-/// The spec both cron fire sites built before the routing seam existed. The PTY
-/// arm must stay byte-identical to it.
-fn legacy_pty_spec() -> SpawnTabSpec {
+fn expected_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
         workspace_id: Some("ws-1".into()),
         parent_tab_id: None,
@@ -34,7 +32,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
         title: Some("cron:nightly".into()),
         description: None,
         visibility: TabVisibility::Hidden,
-        audience: TabAudience::Automation,
+        audience: TabAudience::UserOwnedAutomation,
         eager: false,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "pty-agent".into(),
@@ -44,6 +42,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
             role: None,
             report_target_tab_id: Some("tab-report".into()),
             spawned_by: Some("cron:job-7".into()),
+            spawned_by_tab_id: Some("tab-creator".into()),
             ..Default::default()
         }),
     }
@@ -78,13 +77,13 @@ fn spawn_routing_cron_chat_backend_reaches_the_chat_runtime_with_the_job_brief()
 /// Negative control: with no chat backend registered under that id, the spec is
 /// byte-identical to the one the fire sites hand-built before this change.
 #[test]
-fn spawn_routing_cron_pty_provider_spec_is_byte_identical() {
+fn spawn_routing_cron_pty_provider_spec_matches_the_expected_contract() {
     let chatbackends = registry_with_spawnable("gamma-shell");
     let spec = build_cron_spawn_spec(&chatbackends, inputs("pty-agent"));
 
     assert_eq!(
         serde_json::to_value(&spec).unwrap(),
-        serde_json::to_value(legacy_pty_spec()).unwrap()
+        serde_json::to_value(expected_pty_spec()).unwrap()
     );
 }
 
@@ -94,6 +93,20 @@ fn spawn_routing_cron_pty_provider_keeps_the_task_out_of_a_system_prompt() {
     let spec = build_cron_spawn_spec(&chatbackends, inputs("pty-agent"));
     match spec.command {
         TabCommand::Agent(agent) => assert_eq!(agent.task.as_deref(), Some(TASK)),
+        other => panic!("expected the PTY agent runtime, got {other:?}"),
+    }
+}
+
+#[test]
+fn spawn_routing_records_the_creator_as_the_run_owner() {
+    let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
+    let spec = build_cron_spawn_spec(&chatbackends, inputs("pty-agent"));
+
+    assert_eq!(spec.audience, TabAudience::UserOwnedAutomation);
+    match spec.command {
+        TabCommand::Agent(agent) => {
+            assert_eq!(agent.spawned_by_tab_id.as_deref(), Some("tab-creator"));
+        }
         other => panic!("expected the PTY agent runtime, got {other:?}"),
     }
 }

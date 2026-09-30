@@ -1,144 +1,4 @@
-mod model_identity_tests {
-    use crate::service::session_model::*;
-
-    #[test]
-    fn runtime_model_mismatch_records_actual_and_structured_reason() {
-        let update = model_identity_update(
-            None,
-            Some("planned-codex"),
-            Some("gpt-5.6-luna"),
-            Some("gpt-5.6-luna"),
-            None,
-            "gpt-5.6-terra",
-            false,
-        );
-
-        assert!(update.model_changed);
-        let mismatch = update.mismatch.expect("mismatch must be structured");
-        assert_eq!(mismatch.requested_model, "gpt-5.6-luna");
-        assert_eq!(mismatch.planned_model.as_deref(), Some("planned-codex"));
-        assert_eq!(
-            mismatch.provider_resolved_model.as_deref(),
-            Some("gpt-5.6-luna")
-        );
-        assert_eq!(mismatch.actual_model, "gpt-5.6-terra");
-        assert_eq!(mismatch.reason, "runtime_session_model_mismatch");
-        let fallback = update.fallback.expect("fallback must be surfaced");
-        assert_eq!(fallback.actual_model.as_deref(), Some("gpt-5.6-terra"));
-    }
-
-    #[test]
-    fn repeated_runtime_mismatch_keeps_actual_without_second_model_change() {
-        let update = model_identity_update(
-            Some("gpt-5.6-terra"),
-            None,
-            Some("gpt-5.6-luna"),
-            Some("gpt-5.6-luna"),
-            None,
-            "gpt-5.6-terra",
-            false,
-        );
-
-        assert!(!update.model_changed);
-        assert_eq!(
-            update.mismatch,
-            Some(crate::multiplexer::types::ModelIdentityMismatch {
-                planned_model: None,
-                requested_model: "gpt-5.6-luna".into(),
-                provider_resolved_model: Some("gpt-5.6-luna".into()),
-                actual_model: "gpt-5.6-terra".into(),
-                reason: "runtime_session_model_mismatch".into(),
-            })
-        );
-    }
-
-    #[test]
-    fn matching_runtime_model_clears_mismatch_shape() {
-        let update = model_identity_update(
-            Some("gpt-5.6-luna"),
-            None,
-            Some("gpt-5.6-luna"),
-            Some("gpt-5.6-luna"),
-            None,
-            "GPT-5.6-LUNA",
-            true,
-        );
-
-        assert!(!update.model_changed);
-        assert!(update.mismatch.is_none());
-        assert!(update.fallback.is_none());
-    }
-
-    #[test]
-    fn fallback_without_provider_resolution_uses_observed_model() {
-        let update = model_identity_update(None, None, Some("sonnet"), None, None, "opus", false);
-
-        assert_eq!(
-            update.mismatch.as_ref().unwrap().provider_resolved_model,
-            None
-        );
-        assert_eq!(
-            update.fallback.unwrap().provider_resolved_model,
-            "opus",
-            "a fallback must not label the request as the provider-resolved model"
-        );
-    }
-
-    #[test]
-    fn session_change_clears_stale_actual_but_keeps_launch_provenance() {
-        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_planned_model = Some("codex/gpt-planned".into());
-        tab.agent_requested_model = Some("gpt-requested".into());
-        tab.agent_provider_resolved_model = Some("gpt-resolved".into());
-        tab.agent_session_model = Some("gpt-actual-old".into());
-        tab.model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
-            planned_model: Some("codex/gpt-planned".into()),
-            requested_model: "gpt-requested".into(),
-            provider_resolved_model: Some("gpt-resolved".into()),
-            actual_model: "gpt-actual-old".into(),
-            reason: "runtime_session_model_mismatch".into(),
-        });
-
-        clear_runtime_model_evidence(tab);
-
-        assert_eq!(
-            tab.agent_planned_model.as_deref(),
-            Some("codex/gpt-planned")
-        );
-        assert_eq!(tab.agent_requested_model.as_deref(), Some("gpt-requested"));
-        assert_eq!(
-            tab.agent_provider_resolved_model.as_deref(),
-            Some("gpt-resolved")
-        );
-        assert!(tab.agent_session_model.is_none());
-        assert!(tab.model_identity_mismatch.is_none());
-    }
-
-    #[test]
-    fn delayed_runtime_model_result_cannot_cross_session_boundary() {
-        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("provider-a".into());
-        tab.agent_session_id = Some("session-new".into());
-
-        assert!(!runtime_model_update_matches_session(
-            tab,
-            "provider-a",
-            "session-old"
-        ));
-        assert!(!runtime_model_update_matches_session(
-            tab,
-            "provider-b",
-            "session-new"
-        ));
-        assert!(runtime_model_update_matches_session(
-            tab,
-            "provider-a",
-            "session-new"
-        ));
-    }
-}
+mod model_identity_tests;
 
 mod startup_model_refresh_tests {
     use crate::service::session_model::spawn_startup_model_refresh;
@@ -151,11 +11,15 @@ mod startup_model_refresh_tests {
         let (release_tx, release_rx) = mpsc::channel();
         let worker = spawn_startup_model_refresh(move || {
             started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
+            release_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("startup refresh release must arrive before its test deadline");
         })
         .unwrap();
 
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        started_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("startup refresh must start before its test deadline");
         release_tx.send(()).unwrap();
         worker.join().unwrap();
     }
@@ -183,6 +47,7 @@ mod model_refresh_tests {
     struct SessionModelProvider {
         provider_id: String,
         models: Arc<std::sync::Mutex<HashMap<String, String>>>,
+        post_boundary_models: Arc<std::sync::Mutex<HashMap<String, String>>>,
         sessions: HashSet<String>,
         during_detect: Option<Box<dyn Fn() + Send + Sync>>,
         session_detection_calls: Option<Arc<AtomicUsize>>,
@@ -198,6 +63,7 @@ mod model_refresh_tests {
                         .map(|(sid, model)| ((*sid).to_string(), (*model).to_string()))
                         .collect(),
                 )),
+                post_boundary_models: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sessions: models.iter().map(|(sid, _)| (*sid).to_string()).collect(),
                 during_detect: None,
                 session_detection_calls: None,
@@ -219,6 +85,7 @@ mod model_refresh_tests {
             let provider = Self {
                 provider_id: provider_id.into(),
                 models: models.clone(),
+                post_boundary_models: Arc::new(std::sync::Mutex::new(HashMap::new())),
                 sessions: session_ids.iter().map(|sid| (*sid).into()).collect(),
                 during_detect: None,
                 session_detection_calls: None,
@@ -281,6 +148,34 @@ mod model_refresh_tests {
                 during_detect();
             }
             self.models.lock().unwrap().get(session_id).cloned()
+        }
+        fn session_model_transcript_boundary(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
+            Some(codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: Some("before-relaunch".into()),
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
+            })
+        }
+        fn detect_session_model_after_boundary(
+            &self,
+            _: &str,
+            session_id: &str,
+            boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+        ) -> Option<String> {
+            (boundary.last_entry_uuid.as_deref() == Some("before-relaunch"))
+                .then(|| {
+                    self.post_boundary_models
+                        .lock()
+                        .unwrap()
+                        .get(session_id)
+                        .cloned()
+                })
+                .flatten()
         }
         fn detect_session_reasoning_effort(&self, _: &str, _: &str) -> Option<String> {
             self.record_session_detection();
@@ -346,8 +241,189 @@ mod model_refresh_tests {
             Some(crate::multiplexer::types::SessionModelIdentity {
                 session_id: "session-live".into(),
                 session_binding_nonce: "binding-live".into(),
+                launch_report: None,
+                model_switch_turn_confirmed: false,
             })
         );
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn model_switch_uses_the_first_post_launch_turn_after_a_stale_transcript_tail() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("binding-live".into());
+        tab.reported_session_binding_nonce = Some("binding-live".into());
+        tab.agent_requested_model = Some("sonnet".into());
+        tab.agent_provider_resolved_model = Some("sonnet".into());
+        tab.pending_model_switch_observation =
+            Some(crate::multiplexer::types::PendingModelSwitchObservation {
+                session_id: "session-live".into(),
+                launched_model: "sonnet".into(),
+                transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                    last_entry_uuid: Some("before-relaunch".into()),
+                    last_entry_timestamp: None,
+                    last_entry_type: None,
+                    boundary_found: true,
+                },
+            });
+        let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);
+        models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "haiku".into());
+        let post_boundary_models = provider.post_boundary_models.clone();
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+
+        fixture
+            .service
+            .record_launch_reported_model(&tab_id, AGENT, "session-live", "haiku");
+
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+
+        post_boundary_models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "claude-sonnet-5-5".into());
+        assert!(fixture.service.observe_post_launch_turn_after_stop(&tab_id));
+        let reached_new_model = crate::service::boot_wait::wait_until(
+            std::time::Instant::now() + Duration::from_secs(2),
+            || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("sonnet"),
+        );
+
+        assert!(reached_new_model);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_model.as_deref(), Some("sonnet"));
+        assert!(tab.model_identity_mismatch.is_none());
+        assert!(tab.model_fallback.is_none());
+        assert!(tab.pending_model_switch_observation.is_none());
+        drop(mux);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+    }
+
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    #[test]
+    fn model_switch_observation_survives_same_session_exit_and_claim() {
+        let (mut mux, tab_id) = seeded_tab(Some("session-live"));
+        let observation = crate::multiplexer::types::PendingModelSwitchObservation {
+            session_id: "session-live".into(),
+            launched_model: "sonnet".into(),
+            transcript_boundary: codeterm_types::agent::SessionModelTranscriptBoundary {
+                last_entry_uuid: Some("before-relaunch".into()),
+                last_entry_timestamp: None,
+                last_entry_type: None,
+                boundary_found: true,
+            },
+        };
+        {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.pty_id = Some("pty-switch".into());
+            tab.session_binding_nonce = Some("binding-switch".into());
+            tab.reported_session_binding_nonce = Some("binding-switch".into());
+            tab.agent_requested_model = Some("sonnet".into());
+            tab.agent_provider_resolved_model = Some("sonnet".into());
+            tab.pending_model_switch_observation = Some(observation.clone());
+        }
+        let (provider, models) = SessionModelProvider::with_provider(AGENT, &["session-live"]);
+        models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "haiku".into());
+        let post_boundary_models = provider.post_boundary_models.clone();
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(provider));
+
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab));
+            assert_eq!(
+                tab.pending_model_switch_observation.as_ref(),
+                Some(&observation)
+            );
+        }
+        fixture
+            .service
+            .notify_surviving_shell_restart_required(&tab_id, "pty-switch");
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+
+        let claim = crate::api::hook_routes::bind_reported_session(
+            &fixture.service.mux,
+            fixture.service.agent_registry.as_ref(),
+            &tab_id,
+            AGENT,
+            "session-live",
+            Some("binding-switch"),
+        )
+        .expect("the resumed provider reclaims its existing session");
+        assert!(claim.changed);
+        assert!(claim.nonce_verified);
+        assert!(matches!(
+            fixture.service.write_hook_tab_agent_type_from_claim(
+                &tab_id,
+                AGENT.into(),
+                Some(&tab_id),
+                claim.identity_evidence(),
+            ),
+            Some(
+                crate::service::provider_identity::AgentTypeWriteOutcome::Applied { .. }
+                    | crate::service::provider_identity::AgentTypeWriteOutcome::Kept { .. }
+            )
+        ));
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.pending_model_switch_observation.as_ref()),
+            Some(&observation)
+        );
+
+        fixture
+            .service
+            .record_launch_reported_model(&tab_id, AGENT, "session-live", "haiku");
+        fixture
+            .service
+            .refresh_session_model_for_current_tab(&tab_id);
+        assert_eq!(session_model(&fixture.service.mux, &tab_id), None);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
+
+        post_boundary_models
+            .lock()
+            .unwrap()
+            .insert("session-live".into(), "claude-sonnet-5-5".into());
+        fixture
+            .service
+            .record_post_launch_turn_model(&tab_id, observation, "binding-switch");
+
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_model.as_deref(), Some("sonnet"));
+        assert!(tab
+            .agent_session_model_identity
+            .as_ref()
+            .is_some_and(|identity| identity.model_switch_turn_confirmed));
+        assert!(tab.pending_model_switch_observation.is_none());
+        assert!(tab.model_fallback.is_none());
+        assert!(tab.model_identity_mismatch.is_none());
+        drop(mux);
+        assert!(fixture.service.notif.lock().list(false).is_empty());
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -418,6 +494,8 @@ mod model_refresh_tests {
         tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
             session_id: "session-known".into(),
             session_binding_nonce: "nonce-known".into(),
+            launch_report: None,
+            model_switch_turn_confirmed: false,
         });
         let (provider, detection_calls) =
             SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
@@ -700,6 +778,8 @@ mod model_refresh_tests {
         tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
             session_id: "session-replay".into(),
             session_binding_nonce: "nonce-replay".into(),
+            launch_report: None,
+            model_switch_turn_confirmed: false,
         });
         let fixture = ServiceFixture::new(mux);
         let mut plan = Plan::new(

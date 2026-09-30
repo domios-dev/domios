@@ -408,7 +408,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "codeterm  ws_code  4 tabs  D:/Developer/codeterm  (self, protected)\n  team CLI council  team_cli  plan=pl_cli\n    orch  CLI audit  [opus · orchestrator · idle]  (self)\n      worker  Docs audit  [sol · worker · working]\n  team  team_other\n    other  A second independent team with …\n  (no team)\n    shell  logs\n\nempty  ws_empty  0 tabs  D:/empty  (active, empty)\n"
+            "codeterm  ws_code  4 tabs  D:/Developer/codeterm  (self, protected)\n  team CLI council  team_cli  plan=pl_cli\n    orch  CLI audit  [opus · orchestrator · idle]  (self)\n      worker  Docs audit  [5.6-sol · worker · working]\n  team  team_other\n    other  A second independent team with …\n  (no team)\n    shell  logs\n\nempty  ws_empty  0 tabs  D:/empty  (active, empty)\n"
         );
         assert_eq!(output.matches("ws_code").count(), 1);
     }

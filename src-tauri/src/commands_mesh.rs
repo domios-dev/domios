@@ -106,110 +106,7 @@ pub async fn mesh_disconnect(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Notify the other side to disconnect too (use signed JWT auth)
-    let (peer, signed_token, our_id) = {
-        let m = mesh.lock();
-        let peer = m.paired_peers.get(&instance_id).cloned();
-        let token = match m.sign_request() {
-            Ok(t) => Some(t),
-            Err(e) => {
-                log::error!("[mesh] Failed to sign disconnect: {}", e);
-                None
-            }
-        };
-        let id = m.ident.identity.instance_id.clone();
-        (peer, token, id)
-    };
-    if signed_token.is_none() {
-        log::warn!("[mesh] No signed token — disconnect notification skipped");
-    }
-    if let (Some(peer), Some(token)) = (peer, signed_token) {
-        let addr = peer
-            .addresses
-            .iter()
-            .find(|a| a.is_tailscale)
-            .or_else(|| peer.addresses.first());
-        if let Some(addr) = addr {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
-            let url = format!(
-                "http://{}:{}/api/mesh/peers/{}",
-                addr.ip, peer.api_port, our_id
-            );
-            match client
-                .delete(&url)
-                .header("Authorization", format!("Bearer {}", token))
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => {
-                    log::info!("[mesh] Notified {} about disconnect", instance_id);
-                }
-                Ok(resp) => {
-                    let body = resp.text().await.unwrap_or_default();
-                    log::warn!(
-                        "[mesh] Disconnect notify rejected by {}: {}",
-                        instance_id,
-                        body
-                    );
-                }
-                Err(e) => log::warn!(
-                    "[mesh] Failed to notify {} about disconnect: {}",
-                    instance_id,
-                    e
-                ),
-            }
-        }
-    }
-    // Extract remaining peers + token BEFORE unpair (need lock only briefly)
-    let (remaining_peers, broadcast_token) = {
-        let m = mesh.lock();
-        let peers: Vec<_> = m
-            .paired_peers
-            .values()
-            .filter(|p| p.instance_id != instance_id)
-            .cloned()
-            .collect();
-        let token = m.sign_request().ok();
-        (peers, token)
-    };
-
     mesh.lock().unpair(&instance_id);
-
-    if let Some(token) = broadcast_token {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_default();
-        for peer in &remaining_peers {
-            if let Some(addr) = peer.addresses.first() {
-                let url = format!(
-                    "http://{}:{}/api/mesh/peers/{}",
-                    addr.ip, peer.api_port, instance_id
-                );
-                match http
-                    .delete(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .send()
-                    .await
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        log::info!(
-                            "[mesh] Notified {} to remove {}",
-                            peer.instance_name,
-                            instance_id
-                        );
-                    }
-                    _ => log::debug!(
-                        "[mesh] Failed to notify {} about mesh removal",
-                        peer.instance_name
-                    ),
-                }
-            }
-        }
-    }
 
     crate::api::events::emit_everywhere(
         &svc.app_handle,
@@ -456,15 +353,17 @@ pub async fn ordinary_tabs_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
-    let local = crate::dispatch::dispatch_tab_summary_if_ready(
-        &crate::dispatch::Command::TabSummary {
+    let port: std::sync::Arc<dyn crate::dispatch::CommandPort> = svc.inner().clone();
+    let local = crate::dispatch::dispatch_tab_summary_blocking(
+        crate::dispatch::Command::TabSummary {
             workspace_id: None,
             caller_tab_id: None,
             focused_workspace: false,
             agents_only: false,
         },
-        svc.as_ref(),
-    )?
+        port,
+    )
+    .await?
     .into_json()
     .as_array()
     .cloned()

@@ -784,6 +784,7 @@ fn canonical_tab_close_preserves_remote_worker_cleanup_route() {
     let mut action = TabAction::Close {
         id: None,
         tab: Some("tab_remote".into()),
+        force: false,
     };
     crate::args::misc::normalize_required_tab_selector(&mut action).unwrap();
     let command = Commands::Tab { action };

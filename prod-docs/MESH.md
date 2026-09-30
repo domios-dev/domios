@@ -10,32 +10,15 @@
 
 ## Discovery
 
-Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list.
+Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list. UDP discovery broadcasts every 30 seconds.
 
-Broadcast requires a live, health-proven remote listener. A loopback-only or
-unready instance refuses with `mesh_listener_not_remotely_ready` before enabling
-broadcast; it never advertises LAN access merely because that interface exists.
-Discovery records carry the development flag and only addresses served by the
-ready listener set. Named dev instances can opt into an additional authenticated
-tailnet listener while retaining loopback; see `codeterm docs CONFIG`.
-An empty discovery snapshot is not proof that asynchronous resolution has ended.
+Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. Named dev instances can opt into an additional authenticated tailnet listener while retaining loopback; see `codeterm docs CONFIG`. An empty discovery snapshot is not proof that asynchronous resolution has ended.
 
 ## Local REST availability
 
-The local REST supervisor, not the mesh liveness detector, owns listener
-recovery. Listener/server exit produces a failed lifecycle event and exactly
-one newer generation; that replacement is advertised healthy only after socket
-ownership and a successful real `/api/health` response. Bind ownership failure
-and a still-bound listener with all four REST workers blocked have distinct
-diagnostics, so worker starvation does not cause listener-generation churn.
+The local REST supervisor, not the mesh liveness detector, owns listener recovery. Listener/server exit produces a failed lifecycle event and exactly one newer generation; that replacement is advertised healthy only after socket ownership and a successful real `/api/health` response. Bind ownership failure and a still-bound listener with all four REST workers blocked have distinct diagnostics, so worker starvation does not cause listener-generation churn.
 
-Replacement readiness is queued to the liveness owner with a monotonic recovery
-transition id, which restores local HTTP health, emits the existing
-`mesh-state-changed` resync signal, and broadcasts the refreshed announce
-exactly once. Distinct worker-stall recoveries within one listener generation
-receive distinct ids; a duplicate observation cannot claim another resync.
-Relay delivery keeps its existing at-most-once and structured-error behavior
-across the outage.
+Replacement readiness is queued to the liveness owner with a monotonic recovery transition id, which restores local HTTP health, emits the existing `mesh-state-changed` resync signal, and broadcasts the refreshed announce exactly once. Distinct worker-stall recoveries within one listener generation receive distinct ids; a duplicate observation cannot claim another resync. Relay delivery keeps its existing at-most-once and structured-error behavior across the outage.
 
 ## Auth Model
 
@@ -66,11 +49,18 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 4. Peer sends introductions to all existing peers
 5. C is now in the mesh. All peers know about C.
 
+### Vouched introductions
+
+1. A is paired with B; B discovers C and sends C's identity and addresses to A.
+2. A records C as discovered and shows a pending pairing request with an `action_needed` notification.
+3. When A's owner approves, A sends the ordinary pairing request to C.
+4. C's owner approves the request; the correlated acceptance completes pairing on A and C.
+
 ### Flow 3: Disconnecting a Peer
 
-1. Machine clicks "Disconnect" on a peer — or "Exit Mesh" to leave entirely
-2. Notifies all peers to remove the disconnected machine
-3. Pubkey removed and the peer identity is tombstoned locally; future pairing is refused until the owner explicitly lifts that revocation.
+1. The local owner clicks "Disconnect" on a peer.
+2. The peer key is removed locally and the identity is tombstoned locally.
+3. Other machines keep their independent pairings until their owners disconnect them.
 
 ### Flow 4: Re-pairing a Disconnected Identity
 
@@ -83,87 +73,65 @@ Pairing records are keyed only by peer identity. Matching names or network addre
 ## Security
 
 - Ed25519 signed requests with 5-minute expiry and nonce (replay protection)
-- Manual approval for pairing (no auto-pair)
+- Every pairing request, including a vouched introduction, stays pending until the receiving owner approves it. The request raises an `action_needed` notification. Discovery and introductions never pair a peer.
 - Public keys exchanged during pairing, verified on every request
-- Disconnect removes the paired key and records a revocation by default.
+- Disconnect removes only the local pairing and records a local revocation by default; it does not cascade through third parties.
 - Only an owner authenticated with the local API token can lift a revocation; pairing never clears one implicitly.
+
+### Peer access levels
+
+Access is enforced on direct signed requests and relayed requests. Secret routes and mesh token minting are local-only at every level.
+
+| Level | Permitted operations |
+|---|---|
+| Full | All peer API operations except local-only secret routes and token minting. May announce addresses, sync peer introductions, and introduce peers. |
+| ReadOnly | `GET` routes permitted by peer policy, excluding local-only secret routes and token minting. `POST /api/mesh/sync` carries only the sender's liveness and identity; announce and third-party introductions are refused. |
+| AgentIsolated | Spawn agents; list only tabs spawned by this peer; read tab text and send input or attachments, exec, respond, report, or clear only on those tabs. It cannot read other tabs or workspace lists, mesh inventory, memory, configuration, secrets, or notifications. |
+| Custom | Only operations granted by the configured `Permission` values; `Admin` grants ordinary peer API access and sender-only sync, except local-only routes and Full-only announce/introduction controls. |
+
+AgentIsolated ownership is stamped from the authenticated signed peer identity when an agent is spawned. Caller-supplied ownership fields cannot claim another peer's tabs. Every tab-scoped route checks the stored owner before dispatch.
 
 ## Web UI discovery and relay
 
-Every live announce carries `relay_protocol_version` and an optional typed
-`web_ui` capability. Endpoints are limited to verified Tailscale HTTPS,
-Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes
-`/api/health` and matches the running build before advertising an origin; the
-receiver validates and reorders the typed endpoints before storing them.
+Every live announce carries `relay_protocol_version` and an optional typed `web_ui` capability. Endpoints are limited to verified Tailscale HTTPS, Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes `/api/health` and matches the running build before advertising an origin; the receiver validates and reorders the typed endpoints before storing them.
 
-The default **Open** action never sends a remote daemon token to the browser.
-It opens the local Web UI entry origin with the local token in a URL fragment
-and a paired peer ID. The browser removes that fragment from history, resolves
-the peer name from the authenticated local peer list, and sends API traffic
-through the signed Mesh relay. Relay authorization uses the same policy as a
-direct signed peer request. REST config responses redact `api.token`, and
-`/api/secrets/*` cannot be relayed even with Full access.
+The default **Open** action never sends a remote daemon token to the browser. It opens the local Web UI entry origin with the local token in a URL fragment and a paired peer ID. The browser removes that fragment from history, resolves the peer name from the authenticated local peer list, and sends API traffic through the signed Mesh relay. Relay authorization uses the same policy as a direct signed peer request. REST config responses redact `api.token`, and `/api/secrets/*` cannot be relayed even with Full access.
 
-Relay protocol version `1` is intentionally incompatible with older daemons. Both relay paths reject
-older peers with `426 Upgrade Required`; the Mesh card disables **Open** and requests an update.
+Relay protocol version `1` is intentionally incompatible with older daemons. Both relay paths reject older peers with `426 Upgrade Required`; the Mesh card disables **Open** and requests an update.
 
-Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`,
-just like remote desktop tabs. The gateway requires that composite identity for
-output streams; an unscoped request returns 400 even when metadata reads succeed.
-Each subscription keeps its own peer-qualified replay cursor and uses only the
-serving gateway's credentials. The initial standalone boot frame establishes the
-cursor namespace before output arrives, so reconnects resume rather than discard
-the saved byte offset. A matching relay protocol does not by itself prove
-every feature is available on an older application version.
+Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`, just like remote desktop tabs. The gateway requires that composite identity for output streams; an unscoped request returns 400 even when metadata reads succeed. Each subscription keeps its own peer-qualified replay cursor and uses only the serving gateway's credentials. The initial standalone boot frame establishes the cursor namespace before output arrives, so reconnects resume rather than discard the saved byte offset. A matching relay protocol does not by itself prove every feature is available on an older application version.
 
-`POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and
-`503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
+`POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and `503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
 
 A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are the constants in `codeterm-types` (`mesh::delivery`); `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline. The sender's own leg is classified the same way rather than collapsing to a bare `502` — `send_relay` returns a `TransportError` carrying a `mesh_transport_*` constant onto that same envelope, and only a connect-phase failure claims `bytes_written=false`.
 
-The serving browser origin remains its gateway. During an outage an already-loaded page can render,
-but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
+`--mesh PEER` accepts, in order: an exact instance id, a unique instance-id prefix (the short id `mesh status` prints, 6+ hex characters), the advertised name, or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
+
+The CLI reports a relayed send from the peer's own verdict, the same way a local send does: bytes that reached the target PTY (`bytes_written=true`) print as accepted with `delivery: pending` even when the peer's submit confirmation outlived the relay, and only `bytes_written=false` or unknown is a failure. Failures carry `error.class` — `deterministic` (the same request will be refused again: authorization, protocol mismatch, unknown tab, 4xx), `transient` (retry can help: busy tab, saturated window, 429/502-504) or `unknown` (a peer refusal that did not say). The retry hint follows the class, and only `transient` says retry. `send --mesh` prints only the result — the payload is never echoed. A `--to-shell` payload with a line over 4095 bytes to a non-Windows peer is refused before sending (`line_exceeds_tty_limit`, nothing written), because a canonical-mode tty truncates such a line while the write reports success.
+
+A rename or address change announced while a paired peer is unreachable is remembered and re-announced when that peer next comes online.
+
+The serving browser origin remains its gateway. During an outage an already-loaded page can render, but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
 ## Remote plan commands
 
-`plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves
-files and stdin locally, then sends the resulting content through the signed mesh
-RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identity
-and working-directory defaults are not forwarded; explicit project paths refer to
-the target machine. Mutations require `Full` peer access and carry an idempotency ID.
+`plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves files and stdin locally, then sends the resulting content through the signed mesh RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identity and working-directory defaults are not forwarded; explicit project paths refer to the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
-Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on a
-newer protocol refuses an older (or versionless) caller with the typed
-version-skew error (`-32002`, both versions + recovery command), and the relay
-forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
+Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on a newer protocol refuses an older (or versionless) caller with the typed version-skew error (`-32002`, both versions + recovery command), and the relay forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
 
 ## Cross-mesh worker reports (spawn + explicit bind)
 
 ### Plan-bound mesh dispatch
 
-`plan task dispatch <plan> <task> --mesh PEER_ID --execution-intent mutating`
-creates an origin attempt before the signed peer request; generic mesh plan RPC
-runs against the peer's plan store.
+`plan task dispatch <plan> <task> --mesh PEER_ID --execution-intent mutating` creates an origin attempt before the signed peer request; generic mesh plan RPC runs against the peer's plan store.
 
-The peer requires the same repository identity and base commit, provisions its
-lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base,
-offline peers, and lost relays are explicit attempt states; failed attempts
-close so dispatch can retry. ACK/report relays authenticate the origin peer
-and persist idempotently on its attempt.
+The peer requires the same repository identity and base commit, provisions its lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base, offline peers, and lost relays are explicit attempt states; failed attempts close so dispatch can retry. The origin checks that the peer advertises `remote_task_dispatch` (`/api/identify` features) before creating an attempt, and an HTTP refusal from the peer is `peer_refused`, not `relay_lost`. ACK/report relays authenticate the origin peer and persist idempotently on its attempt.
 
-After origin review accepts the report, run
-`codeterm plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks
-that authenticated peer for the bound lane bundle and refuses unless its tip
-equals the accepted report SHA. Integration requires a clean checkout on the
-dispatch-time destination branch, verifies the bundle, and creates a real merge
-commit with ancestry. Cherry-pick and squash are invalid.
+After origin review accepts the report, run `codeterm plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks that authenticated peer for the bound lane bundle and refuses unless its tip equals the accepted report SHA. Integration requires a clean checkout on the dispatch-time destination branch, verifies the bundle, and creates a real merge commit with ancestry. Cherry-pick and squash are invalid.
 
-Both peers enforce Full access and owner rules. No token, provider credential,
-secret, or secret-bearing environment enters the task payload.
+Both peers enforce Full access and owner rules. No token, provider credential, secret, or secret-bearing environment enters the task payload.
 
-The general `agent spawn --mesh PEER --role Worker` path remains task-less and
-does not create an origin attempt. Use plan-bound dispatch for accountable work;
-use task-less mesh spawn only for exploratory work without a plan assignment.
+The general `agent spawn --mesh PEER --role Worker` path remains task-less and does not create an origin attempt. Use plan-bound dispatch for accountable work; use task-less mesh spawn only for exploratory work without a plan assignment.
 
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
@@ -171,43 +139,19 @@ use task-less mesh spawn only for exploratory work without a plan assignment.
    codeterm agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
    ```
 
-   A brief is authored prose, so it travels as a file. `--task "<brief>"` is
-   refused once the text is multiline or over 240 characters: your shell would
-   have expanded it before the CLI ran, and a remote Worker cannot be handed a
-   silently truncated assignment. `--task-file -` with a single-quoted heredoc
-   works the same way.
+   A brief is authored prose, so it travels as a file. `--task "<brief>"` is refused once the text is multiline or over 240 characters: your shell would have expanded it before the CLI ran, and a remote Worker cannot be handed a silently truncated assignment. `--task-file -` with a single-quoted heredoc works the same way.
 
-   Mesh spawns require `--cwd` to name a workspace directory on the peer. A
-   `--task-file` path is read on the caller machine and its contents are sent;
-   the local path is never sent to the peer.
+   Mesh spawns require `--cwd` to name a workspace directory on the peer; the peer refuses one that is not an absolute, existing directory there. Git Bash rewrites POSIX arguments such as `/srv/project` into Windows paths before the CLI runs, so pass a POSIX `--cwd` with `MSYS_NO_PATHCONV=1` set. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
 
-   This is a **supported task-less Worker shape**, including for work that
-   changes source on the peer: it owns no task because none can exist for it,
-   and it declares no `--execution-intent`. Keep `--role Worker` — that is the
-   field the peer resolves the Worker doctrine from, including the rule that
-   every turn ends in exactly one `codeterm agent report`. A roleless spawn is
-   accepted too and loses that doctrine silently, which on a remote machine
-   means the work never reports home. `--execution-intent mutating` is still
-   refused without a task binding, on the peer's own daemon; the mesh has no
-   binding to give it, so leave the flag off.
+   This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `codeterm agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
 
-The general mesh spawn path remains available for task-less work; it does not
-participate in the origin task/report/merge lifecycle above.
+The general mesh spawn path remains available for task-less work; it does not participate in the origin task/report/merge lifecycle above.
 
 ## Peer API compatibility
 
-Before a relayed CLI operation, the caller reads the peer's authenticated
-`/api/identify` response. Peers older than 1.7.8 use the pane-era wire contract,
-so the caller translates tab routes and identifier fields at the relay boundary
-and normalizes the response back to the current tab contract. The preflight and
-operation use distinct signed nonces. This adapter does not invent endpoints or
-features absent from the older peer.
+Before a relayed CLI operation, the caller reads the peer's authenticated `/api/identify` response. Peers older than 1.7.8 use the pane-era wire contract, so the caller translates tab routes and identifier fields at the relay boundary and normalizes the response back to the current tab contract. The preflight and operation use distinct signed nonces. This adapter does not invent endpoints or features absent from the older peer.
 
-Recurring delayed-message create and edit operations require `delayed_recurrence`
-in the target's advertised identify `features`. The origin refuses when the
-feature is missing or no feature list is advertised, naming the peer and its
-reported version and directing the user to update the peer or send a one-shot.
-One-shot delays remain available to older peers.
+Recurring delayed-message create and edit operations require `delayed_recurrence` in the target's advertised identify `features`. The origin refuses when the feature is missing or no feature list is advertised, naming the peer and its reported version and directing the user to update the peer or send a one-shot. One-shot delays remain available to older peers.
 
 ## Bridge migration
 
@@ -231,4 +175,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 38 -->
+<!-- revision: 43 -->

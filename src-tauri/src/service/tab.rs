@@ -5,6 +5,7 @@ use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
+use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "tab/lifecycle_exit.rs"]
@@ -17,11 +18,19 @@ mod tests;
 pub(crate) use lifecycle_exit::clear_agent_identity_for_lifecycle_exit;
 
 pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
+pub const MAX_TAB_TITLE_CHARS: usize = 64;
 pub(crate) const TAB_TITLE_ERROR: &str =
-    "tab title must be one word with no whitespace; put descriptive text in description";
+    "tab title must be one word of at most 64 characters with no whitespace or control characters; put descriptive text in description";
 
 pub(crate) fn validate_tab_title(title: &str) -> Result<(), String> {
-    if title.is_empty() || title.chars().any(char::is_whitespace) {
+    if title.is_empty()
+        || title.chars().count() > MAX_TAB_TITLE_CHARS
+        || title.chars().any(|character| {
+            character.is_whitespace()
+                || character.is_control()
+                || matches!(character, '\u{2028}' | '\u{2029}')
+        })
+    {
         Err(TAB_TITLE_ERROR.to_string())
     } else {
         Ok(())
@@ -60,7 +69,14 @@ pub(crate) fn is_coordinator(
 }
 
 pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
+    // Surrounding whitespace, tabs included, is trimmed rather than refused.
     let trimmed = value.trim();
+    if trimmed
+        .chars()
+        .any(|character| character.is_control() || matches!(character, '\u{2028}' | '\u{2029}'))
+    {
+        return Err("description must be one line without control characters".into());
+    }
     if trimmed.chars().count() > MAX_TAB_DESCRIPTION_CHARS {
         return Err(format!(
             "description must be {} characters or fewer",
@@ -122,6 +138,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
         self.clear_dead_planner_binding(tab_id);
@@ -163,13 +180,16 @@ impl ServiceContext {
         false
     }
 
-    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close
-    /// and requires caller attribution before closing a coordinator Tab.
+    /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close,
+    /// requires caller attribution before closing a coordinator Tab, and makes
+    /// an agent caller pass `force` to close a Worker holding in-progress work.
+    /// Returns the warnings a human close of such a Worker must surface.
     pub fn close_tab_guarded(
         &self,
         caller_tab_id: Option<&str>,
         target_tab_id: &str,
-    ) -> Result<(), String> {
+        force: bool,
+    ) -> Result<Vec<String>, String> {
         let (canon_target, canon_caller) = {
             let mux = self.mux.read();
             let target = mux
@@ -197,7 +217,23 @@ impl ServiceContext {
                 Some(_) => {}
             }
         }
-        self.close_tab(target_tab_id)
+        let assignments = self.in_progress_assignments_for_tab(&canon_target);
+        let agent_caller = caller_tab_id.is_some_and(|caller| !caller.trim().is_empty());
+        if agent_caller && !force && !assignments.is_empty() {
+            let lines: Vec<String> = assignments.iter().map(|loss| loss.refusal_line()).collect();
+            return Err(format!(
+                "{BUSY_WORKER_CLOSE_REFUSAL_PREFIX}: Tab {canon_target} is a Worker with unfinished work: {}. \
+                 Rerun with --force to close it; its Orchestrator is then notified with the recovery command.",
+                lines.join("; ")
+            ));
+        }
+        self.close_tab(target_tab_id)?;
+        Ok(busy_worker_close_warnings(&canon_target, &assignments))
+    }
+
+    /// Warnings for a close that bypassed the caller guard (human surfaces).
+    pub(crate) fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
+        busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
     }
 
     pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {
@@ -253,13 +289,17 @@ impl ServiceContext {
         self.finish_tab_close(tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
-        {
+        let resolved = {
             let mut notif = self.notif.lock();
+            // A closed tab has no agent to exit or prompt to answer, so its conditions end with it.
+            let resolved = notif.resolve_tab_conditions(&canonical_tab_id);
             notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));
             // An unanswered question outlives its tab as a visibly undeliverable
             // card, never as buttons that would quietly do nothing.
             notif.forget_answer_tab(tab_id);
-        }
+            resolved
+        };
+        self.announce_resolved(&resolved);
         self.release_bridge_threads(tab_id);
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
@@ -756,10 +796,38 @@ impl ServiceContext {
     ) -> Option<codeterm_types::pty::PromptIdentity> {
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id)?;
+        let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
+        if let Some(pty_id) = resolved_pty {
+            self.release_prompt_waiting(tab_id, &pty_id);
+        }
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
+        self.release_boot_owner_prompt(tab_id);
         identity
+    }
+
+    /// A resolved prompt no longer holds its PTY in Waiting; the next output
+    /// re-derives Working from real activity.
+    fn release_prompt_waiting(&self, tab_id: &str, pty_id: &str) {
+        use crate::agent::status::TabStatus;
+        let released = {
+            let mut tracker = self.agent_tracker.lock();
+            let waiting = tracker.get_status_if_tracked(pty_id) == Some(TabStatus::Waiting);
+            if waiting {
+                tracker.set_idle(pty_id);
+            }
+            waiting
+        };
+        if released {
+            let now = self.reconciled_tab_status_for_id(tab_id, TabStatus::Idle);
+            self.emit_tab_status_if_changed(pty_id, TabStatus::Waiting, now);
+            crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
+                pty_id,
+                TabStatus::Waiting,
+                TabStatus::Idle,
+            );
+        }
     }
 
     fn mark_prompt_responded(

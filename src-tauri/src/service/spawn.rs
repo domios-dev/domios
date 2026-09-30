@@ -37,7 +37,7 @@ pub(crate) use spawn_model_catalogue::{
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
 use crate::multiplexer::types::TabCloseReason;
-use spawn_hidden_delivery::deliver_hidden_pty_task;
+use spawn_hidden_delivery::{deliver_hidden_pty_task, hidden_launch_args};
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
@@ -159,6 +159,8 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default)]
     pub activate: Option<bool>,
+    #[serde(skip)]
+    pub(crate) launch_purpose: super::unattended_launch::LaunchPurpose,
 }
 
 /// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
@@ -278,8 +280,9 @@ impl ServiceContext {
         let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
-        let clearance = provider_launch_preflight(&self.agent_registry, &agent_cmd)
-            .map_err(|e| e.to_string())?;
+        let clearance =
+            provider_launch_preflight(&self.agent_registry, &agent_cmd, permission_bypass)
+                .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
@@ -297,6 +300,10 @@ impl ServiceContext {
             &agent_cmd,
             launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
+        )?;
+        super::unattended_launch::preflight(
+            &self.agent_registry,
+            &agent.unattended_launch(&agent_cmd, launch_model.as_deref(), permission_bypass),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.notify_model_fallback(notice);
@@ -721,6 +728,7 @@ impl ServiceContext {
             agent.extra_env.clone(),
             task_identity,
             ready_tx,
+            None,
         );
 
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
@@ -738,8 +746,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn spawn_hidden_agent_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
-        use std::collections::HashMap;
-
         let agent = match &spec.command {
             TabCommand::Agent(a) => a.clone(),
             _ => return Err("spawn_hidden_agent_impl called without Agent command".into()),
@@ -755,8 +761,9 @@ impl ServiceContext {
                 &agent.provider,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
-        let clearance = provider_launch_preflight(&self.agent_registry, &agent.provider)
-            .map_err(|e| e.to_string())?;
+        let clearance =
+            provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
+                .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
@@ -780,6 +787,10 @@ impl ServiceContext {
             &agent.provider,
             launch_model.as_deref(),
             agent.reasoning_effort.as_deref(),
+        )?;
+        super::unattended_launch::preflight(
+            &self.agent_registry,
+            &agent.unattended_launch(&agent.provider, launch_model.as_deref(), permission_bypass),
         )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.notify_model_fallback(notice);
@@ -988,19 +999,8 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let mut model_args: Vec<String> = launch_model
-            .as_ref()
-            .and_then(|m| {
-                self.agent_registry
-                    .with_provider(&agent.provider, |p| p.model_launch_args(m))
-            })
-            .unwrap_or_default();
-        model_args.extend(self.reasoning_effort_launch_args_or_notice(
-            &tab_id,
-            &agent.provider,
-            launch_model.as_deref(),
-            agent.reasoning_effort.as_deref(),
-        ));
+        let model_args =
+            hidden_launch_args(self, &tab_id, &agent, &launch_model, permission_bypass);
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();

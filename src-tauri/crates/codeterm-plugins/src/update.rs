@@ -19,8 +19,12 @@ pub(super) fn update_command(id: Option<String>) -> Result<serde_json::Value, St
 }
 
 pub(super) fn update_one(id: &str) -> Result<(), String> {
+    let parsed_id = PluginId::parse(id.to_string())?;
+    if !plugin_dir(&parsed_id).exists() {
+        return Err(format!("plugin '{id}' is not installed"));
+    }
     let record = read_install_record(id)?;
-    let before = manifest_version(&plugin_dir(id)).ok().flatten();
+    let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
     match record.source.clone() {
         InstallSource::Dir { path } => {
             let after = manifest_version(Path::new(&path)).ok().flatten();
@@ -118,6 +122,7 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
     let mut blocked = Vec::new();
     for plugin in requested {
         let id = plugin.id.clone();
+        let parsed_id = PluginId::parse(id.clone())?;
         let plugin_path = plugin_path(&plugin)?;
         let source_dir = channel_path.join(&plugin_path);
         let min = plugin
@@ -142,7 +147,7 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
                 Some(SYSTEM_CHANNEL_NAME.to_string()),
             )),
         };
-        let before = manifest_version(&plugin_dir(&id)).ok().flatten();
+        let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
         let result = install_from_dir(&source_dir, &id, Some(&record));
         audit_plugin_result(
             "update_system",

@@ -30,7 +30,7 @@ function descriptor(id: string): ProviderDescriptor {
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    model_switch_format: "/switch {model}",
+    model_switch: "restart_resume",
     supports_permission_auto_confirm: true,
   } as ProviderDescriptor;
 }

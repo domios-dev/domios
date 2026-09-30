@@ -189,23 +189,20 @@ fn recovery_burst_stops_when_update_dialog_appears_after_initial_submit() {
         opts(),
         |shell_submit| {
             guard_checks += 1;
-            match guard_checks {
-                1 | 2 => {
-                    assert!(shell_submit);
-                    Ok(())
-                }
-                _ => {
-                    assert!(!shell_submit);
-                    Err(InjectionError::AgentTuiPresent {
-                        pty_id: "same-pty".into(),
-                    })
-                }
+            if guard_checks == 1 {
+                assert!(shell_submit);
+                Ok(())
+            } else {
+                assert!(!shell_submit);
+                Err(InjectionError::AgentTuiPresent {
+                    pty_id: "same-pty".into(),
+                })
             }
         },
     )
     .unwrap();
 
-    assert_eq!(guard_checks, 3);
+    assert_eq!(guard_checks, 2);
     assert_eq!(&*io.writes.borrow(), &["paste:payload", "enter"]);
     assert_eq!(result.bytes_written, 7);
     assert_eq!(result.submit_key_writes, 1);
@@ -234,23 +231,20 @@ fn recovery_burst_stops_on_trust_dialog_after_shell_started_tui() {
         opts(),
         |shell_submit| {
             guard_checks += 1;
-            match guard_checks {
-                1 | 2 => {
-                    assert!(shell_submit);
-                    Ok(())
-                }
-                _ => {
-                    assert!(!shell_submit);
-                    Err(InjectionError::AgentTuiPresent {
-                        pty_id: "same-pty".into(),
-                    })
-                }
+            if guard_checks == 1 {
+                assert!(shell_submit);
+                Ok(())
+            } else {
+                assert!(!shell_submit);
+                Err(InjectionError::AgentTuiPresent {
+                    pty_id: "same-pty".into(),
+                })
             }
         },
     )
     .unwrap();
 
-    assert_eq!(guard_checks, 3);
+    assert_eq!(guard_checks, 2);
     assert_eq!(&*io.writes.borrow(), &["paste:codex", "enter"]);
     assert_eq!(result.submit_key_writes, 1);
     assert!(result.submit_anomaly);
@@ -269,7 +263,7 @@ fn plain_shell_send_succeeds_when_recovery_proof_is_absent() {
         opts(),
         |initial_key| {
             guard_checks += 1;
-            if guard_checks < 3 {
+            if guard_checks == 1 {
                 assert!(initial_key);
                 Ok(())
             } else {
@@ -282,7 +276,7 @@ fn plain_shell_send_succeeds_when_recovery_proof_is_absent() {
     )
     .unwrap();
 
-    assert_eq!(guard_checks, 3);
+    assert_eq!(guard_checks, 2);
     assert_eq!(&*io.writes.borrow(), &["paste:ls", "enter"]);
     assert_eq!(result.submit_key_writes, 1);
 }
@@ -293,15 +287,12 @@ fn observed_initial_enter_stops_before_recovery_guard() {
     let mut guard_checks = 0;
     let result = run_with_submit_key(&io, "codex", true, b"\r", tui(), opts(), |initial_key| {
         guard_checks += 1;
-        assert!(
-            initial_key,
-            "an observed initial Enter suppresses recovery keys"
-        );
+        assert!(initial_key);
         Ok(())
     })
     .unwrap();
 
-    assert_eq!(guard_checks, 2);
+    assert_eq!(guard_checks, 1);
     assert_eq!(io.payload_writes.get(), 1);
     assert_eq!(io.submit_key_writes.get(), 1);
     assert!(result.submit_observed);
@@ -324,7 +315,7 @@ fn empty_enter_guard_refusal_after_initial_key_is_not_a_new_error() {
         opts(),
         |initial_key| {
             guard_checks += 1;
-            if guard_checks < 3 {
+            if guard_checks == 1 {
                 assert!(initial_key);
                 Ok(())
             } else {
@@ -337,7 +328,7 @@ fn empty_enter_guard_refusal_after_initial_key_is_not_a_new_error() {
     )
     .unwrap();
 
-    assert_eq!(guard_checks, 3);
+    assert_eq!(guard_checks, 2);
     assert_eq!(&*io.writes.borrow(), &["paste:", "enter"]);
     assert_eq!(result.bytes_written, 0);
     assert_eq!(result.submit_key_writes, 1);

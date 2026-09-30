@@ -18,9 +18,10 @@ A skill is a **folder**, not a single file. `SKILL.md` is the index that mem ing
 
 CLI:
 
-- `codeterm mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (dev: `~/.codeterm-dev/skills/`, prod: `~/.codeterm/skills/`), seed `SKILL.md` with frontmatter + sections, and register in mem.
+- `codeterm mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (`skills/` inside the active instance data dir: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev, `~/.codeterm-dev-<name>/` for a named instance), seed `SKILL.md` with frontmatter + sections, and register in mem.
 - `codeterm mem skill add <folder>` — register an existing folder (cloned repo, copied from another machine).
 - `codeterm mem skill list` — list every registered skill folder.
+- Removing a skill: `codeterm mem delete <id>`. The delete records a tombstone for the folder's `SKILL.md`, so the Librarian never re-registers it; the folder stays on disk. `codeterm mem skill add <folder>` clears the tombstone.
 
 Inside `SKILL.md`, reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, agents `cat SKILL.md` to recall the procedure, then execute the scripts directly. Edit any file in the folder → Librarian re-indexes on its next scan; `codeterm mem sync` triggers immediately.
 
@@ -30,7 +31,7 @@ A background loop that periodically scans every mem item carrying `source_path` 
 
 - File mtime > index mtime → re-read body, re-vectorize, update FTS5.
 - File deleted → flag the item (kept searchable, not removed).
-- New skill folder dropped into `<skills-dir>/` without registration → auto-discovered and indexed.
+- New skill folder dropped into `<skills-dir>/` without registration and without a tombstone → auto-discovered and indexed during the Librarian pass (not by `codeterm mem sync`). One folder maps to one item; duplicate items for the same `SKILL.md` are merged, keeping the explicitly registered one.
 
 Manual trigger: `codeterm mem sync` (or `POST /api/mem/sync`). Code lives in `src-tauri/src/mem/librarian.rs`.
 
@@ -102,4 +103,4 @@ SQL precomputes optimization targets so agent doesn't re-scan everything:
 
 Available at `GET /api/mem/dream/report`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

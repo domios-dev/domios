@@ -9,7 +9,7 @@ const CLAUDE_SIBLING: &str = "bbbb2222-find-4bbb-8bbb-bbbbbbbbbbbb";
 const CODEX_INDEXED: &str = "11111111-1111-1111-1111-111111111111";
 const CODEX_UNINDEXED: &str = "33333333-3333-3333-3333-333333333333";
 
-fn claude_js_rooted_at(projects_root: &std::path::Path) -> JsProvider {
+pub(super) fn claude_js_rooted_at(projects_root: &std::path::Path) -> JsProvider {
     let dir = workspace_plugins_root().join("provider-claude");
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("plugin.json")).unwrap()).unwrap();
@@ -76,6 +76,16 @@ fn claude_find_session_native_js_parity() {
         .expect("JS enumerates the fixture");
     assert_eq!(json_of(&native_found), json_of(&native_listed));
     assert_eq!(json_of(&js_found), json_of(&js_listed));
+
+    let js_search_candidate = js
+        .enumerate_sessions_for_search()
+        .into_iter()
+        .find(|session| session.session_id == CLAUDE_SID)
+        .expect("search enumeration uses the same session file");
+    assert_eq!(js_search_candidate.file_path, native_listed.file_path);
+    assert_eq!(js_search_candidate.modified_ts, native_listed.modified_ts);
+    let js_search_described = js.describe_session_for_search(&js_search_candidate);
+    assert_eq!(json_of(&native_listed), json_of(&js_search_described));
 
     let pathlike = format!("../-work-owned/{CLAUDE_SID}");
     for unowned in [

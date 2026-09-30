@@ -1,4 +1,4 @@
-use codeterm_types::notification::{answer_actions, CallerAction, NotifyLevel};
+use codeterm_types::notification::{answer_actions, validate_title, CallerAction, NotifyLevel};
 
 /// `notification.create` params. The body has exactly one source — the calling
 /// tab's pad — so a shell can never mangle a question before the user reads it.
@@ -23,8 +23,7 @@ pub fn send_params(
 ) -> serde_json::Value {
     let body = from_pad.map(|path| {
         crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         })
     });
     params_from_body(
@@ -38,8 +37,7 @@ pub fn send_params(
         crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
     )
     .unwrap_or_else(|e| {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, e.to_string());
     })
 }
 
@@ -63,6 +61,7 @@ fn params_from_body(
     offer: Offer<'_>,
     caller_tab_id: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    let title = validate_title(title)?;
     let mut params = serde_json::json!({ "title": title, "severity": severity });
     if let Some(body) = body {
         params["body"] = serde_json::Value::String(body);
@@ -90,6 +89,15 @@ fn params_from_body(
     Ok(params)
 }
 
+/// A named jump target must name something; whether that tab exists is the
+/// daemon's fact, checked there.
+pub fn vet_target_tab(target_tab: Option<&str>) -> Result<(), String> {
+    match target_tab {
+        Some(tab) if tab.trim().is_empty() => Err("--target-tab must name a tab".to_string()),
+        _ => Ok(()),
+    }
+}
+
 /// The chat message this notification jumps to. Both ids travel as navigation
 /// hints; the daemon never treats them as provenance.
 pub fn with_target(
@@ -97,6 +105,9 @@ pub fn with_target(
     target_tab: Option<&str>,
     chat_message: Option<&str>,
 ) -> serde_json::Value {
+    if let Err(e) = vet_target_tab(target_tab) {
+        crate::cmd::print::fail(1, e);
+    }
     if let Some(tab) = target_tab {
         params["target_tab_id"] = serde_json::Value::String(tab.to_string());
         if let Some(message) = chat_message {

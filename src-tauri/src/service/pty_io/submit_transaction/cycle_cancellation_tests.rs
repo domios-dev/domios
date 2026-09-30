@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::pty_io::test_support::{join, recv};
 
 #[cfg(target_os = "windows")]
 fn real_pty_fixture(pty_id: &str) -> (crate::service::test_fixture::ServiceFixture, String) {
@@ -35,7 +36,7 @@ fn cancelled_submit_cycle_cannot_write_trailing_enter_into_next_prompt() {
     let (release_retry_tx, release_retry_rx) = std::sync::mpsc::channel();
     old_claim.set_boundary_hook(move || {
         at_boundary_tx.send(()).unwrap();
-        release_retry_rx.recv().unwrap();
+        recv(&release_retry_rx, "release retry event");
     });
     let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let retry_events = std::sync::Arc::clone(&events);
@@ -60,13 +61,13 @@ fn cancelled_submit_cycle_cannot_write_trailing_enter_into_next_prompt() {
         wrote
     });
 
-    at_boundary_rx.recv().unwrap();
+    recv(&at_boundary_rx, "retry boundary event");
     fixture.service.write_raw(&tab_id, b"/model").unwrap();
     events.lock().push("new:ingress-acknowledged");
     events.lock().push("new:/model-picker");
     release_retry_tx.send(()).unwrap();
 
-    assert!(!retry.join().unwrap());
+    assert!(!join(retry, "cancelled submit key").unwrap());
     assert_eq!(
         &*events.lock(),
         &["new:ingress-acknowledged", "new:/model-picker"]
@@ -103,7 +104,7 @@ fn superseded_pre_paste_claim_has_no_parser_side_effects_on_real_transport() {
     let (release_paste_tx, release_paste_rx) = std::sync::mpsc::channel();
     old_claim.set_boundary_hook(move || {
         at_boundary_tx.send(()).unwrap();
-        release_paste_rx.recv().unwrap();
+        recv(&release_paste_rx, "release paste event");
     });
     let old_service = fixture.service.clone();
     let old_pty_id = pty_id.to_string();
@@ -122,11 +123,13 @@ fn superseded_pre_paste_claim_has_no_parser_side_effects_on_real_transport() {
         )
     });
 
-    at_boundary_rx.recv().unwrap();
+    recv(&at_boundary_rx, "paste boundary event");
     fixture.service.write_raw(&tab_id, b"/model").unwrap();
     release_paste_tx.send(()).unwrap();
 
-    let error = old_send.join().unwrap().unwrap_err();
+    let error = join(old_send, "superseded paste send")
+        .unwrap()
+        .unwrap_err();
     assert!(matches!(
         &error,
         InjectionError::AgentInputUnavailable { pty_id: actual } if actual == pty_id
@@ -182,15 +185,15 @@ fn newer_ingress_claim_does_not_wait_for_prior_write_acknowledgement() {
                 release_ack_rx
             })
             .expect("old generation must enqueue before cancellation");
-        acknowledgment.recv().unwrap();
+        recv(&acknowledgment, "write acknowledgement event");
     });
 
-    enqueued_rx.recv().unwrap();
+    recv(&enqueued_rx, "write enqueue event");
     let new_claim = claim_submit_cycle(pty_id);
     assert!(!observed_old_claim.is_current());
     assert!(new_claim.is_current());
     release_ack_tx.send(()).unwrap();
-    old_write.join().unwrap();
+    join(old_write, "prior write acknowledgement").unwrap();
 }
 
 struct SupersededBeforePaste;

@@ -28,8 +28,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // `debug` refuses with its own message and exit code rather than a
         // verdict; the table declares that shape instead of normalising it.
         ApiVerdict::RefusedInPlace => {
-            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
-            std::process::exit(2);
+            crate::cmd::print::fail(
+                2,
+                "`debug` is local-only — refusing to crash a remote peer via --mesh",
+            );
         }
         ApiVerdict::Rest => rest_request(cmd),
     }
@@ -182,8 +184,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     "title": title,
                     "body": from_pad.as_ref().map(|path| {
                         crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
-                            eprintln!("Error: {e}");
-                            std::process::exit(1)
+                            crate::cmd::print::fail(1, e.to_string())
                         })
                     }),
                     "severity": severity,
@@ -193,8 +194,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 // Inserted only when offered, because the local path omits the key
                 // rather than sending null — the two bodies have to stay identical.
                 if let Some(actions) = crate::cmd::notify::choice_actions(choice).unwrap_or_else(|e| {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1)
+                    crate::cmd::print::fail(1, e.to_string())
                 }) {
                     body["actions"] = serde_json::to_value(actions).unwrap_or_default();
                 }
@@ -341,11 +341,12 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::TabAction::Close { id, tab } => {
+            crate::TabAction::Close { id, tab, force } => {
                 let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
                     return unsupported("tab close requires --tab <ID>");
                 };
-                ("POST".into(), format!("/api/tabs/{}/close", id), None)
+                let query = if *force { "?force=true" } else { "" };
+                ("POST".into(), format!("/api/tabs/{}/close{query}", id), None)
             }
             crate::TabAction::Restart { tab, cwd, cmd } => {
                 if cmd.is_some() {
@@ -488,15 +489,13 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 pop,
             } => {
                 let resolved = if let Some(path) = from_pad {
-                    crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
-                        eprintln!("Error: {e}"); std::process::exit(1)
-                    })
+                    crate::cmd::payload_source::read_from_pad(path)
+                        .unwrap_or_else(|e| crate::cmd::print::fail(1, e.to_string()))
                 } else if *from_stdin {
                     use std::io::Read;
                     let mut buf = String::new();
                     if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-                        eprintln!("Error: failed to read --from-stdin: {}", e);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, format!("failed to read --from-stdin: {}", e));
                     }
                     buf
                 } else if let Some(path) = from_file.as_ref() {
@@ -505,16 +504,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     match std::fs::read_to_string(path) {
                         Ok(s) => s,
                         Err(e) => {
-                            eprintln!("Error: failed to read --from-file {}: {}", path, e);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(1, format!("failed to read --from-file {}: {}", path, e));
                         }
                     }
                 } else {
                     body.clone().unwrap_or_default()
                 };
                 if resolved.trim().is_empty() {
-                    eprintln!("Error: paste put (mesh) body is empty");
-                    std::process::exit(2);
+                    crate::cmd::print::fail(2, "paste put (mesh) body is empty");
                 }
                 let mut payload = serde_json::json!({"body": resolved});
                 if let Some(spec) = ttl.as_deref() {
@@ -763,7 +760,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 Some(
                     serde_json::json!({
                         "text": from_pad.as_ref().map(|path| crate::cmd::payload_source::read_from_pad(path)
-                            .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1) }))
+                            .unwrap_or_else(|e| crate::cmd::print::fail(1, e.to_string())))
                             .or_else(|| text.clone())
                             .map(|text| crate::cmd::bridge::bridge_text(text, *raw_text)),
                         "chat_id": to,

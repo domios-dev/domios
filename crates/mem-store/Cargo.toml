@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+codeterm-paths = { path = "../codeterm-paths" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }

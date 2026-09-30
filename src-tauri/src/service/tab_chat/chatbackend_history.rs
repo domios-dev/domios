@@ -11,6 +11,7 @@ use std::sync::{Arc, LazyLock};
 use parking_lot::Mutex;
 
 use crate::agent::chat_types::ChatMsg;
+use crate::persisted_state::{Loaded, StateFile};
 
 const SESSIONS_SUBDIR: &str = "chatbackend-sessions";
 const META_KEY: &str = "_meta";
@@ -49,8 +50,8 @@ pub fn context_sidecar_path(plugin_id: &str, session_id: &str) -> PathBuf {
 }
 
 /// Read the persisted transcript (durable truth), skipping the `_meta` header.
-/// Missing / unreadable file ⇒ empty. Unparseable lines (e.g. a half-written
-/// final line after a crash) are skipped, never fatal.
+/// Missing / unreadable file ⇒ empty. Unparseable lines are skipped here; the
+/// next flush preserves such a file as a corrupt copy before replacing it.
 pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
     try_read_messages(path).unwrap_or_default()
 }
@@ -58,8 +59,11 @@ pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
 /// Like [`read_messages`], but keeps the read error so a caller that must not
 /// degrade silently can tell "no transcript yet" from "transcript unreadable".
 pub fn try_read_messages(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
-    let content = std::fs::read_to_string(path)?;
-    Ok(content
+    Ok(parse_messages(&std::fs::read_to_string(path)?))
+}
+
+fn parse_messages(content: &str) -> Vec<ChatMsg> {
+    content
         .lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -68,15 +72,41 @@ pub fn try_read_messages(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
             }
             serde_json::from_str::<ChatMsg>(line).ok()
         })
-        .collect())
+        .collect()
 }
 
 /// Read the persisted openSession config from the `_meta` header line.
 pub fn read_meta(path: &Path) -> Option<serde_json::Value> {
-    let content = std::fs::read_to_string(path).ok()?;
+    parse_meta(&std::fs::read_to_string(path).ok()?)
+}
+
+fn parse_meta(content: &str) -> Option<serde_json::Value> {
     let first = content.lines().next()?.trim();
     let v: serde_json::Value = serde_json::from_str(first).ok()?;
     v.get(META_KEY).cloned()
+}
+
+/// Transcripts rewrite on every streamed chunk, so they keep no rotating backups.
+fn transcript_file(path: &Path) -> StateFile {
+    StateFile::new(path)
+        .without_backups()
+        .with_validator(validate_transcript)
+}
+
+fn validate_transcript(content: &str) -> Result<(), String> {
+    for (index, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", index + 1))?;
+        if value.get(META_KEY).is_none() {
+            serde_json::from_value::<ChatMsg>(value)
+                .map_err(|e| format!("line {}: {e}", index + 1))?;
+        }
+    }
+    Ok(())
 }
 
 fn is_meta_line(line: &str) -> bool {
@@ -126,10 +156,15 @@ impl ChatBackendHistory {
     }
 
     pub fn open_at(path: PathBuf) -> Self {
-        let meta = read_meta(&path);
+        let parsed = transcript_file(&path)
+            .load(|content| Ok::<_, String>((parse_meta(content), parse_messages(content))));
+        let (meta, messages) = match parsed {
+            Loaded::Parsed(loaded) | Loaded::Recovered { value: loaded, .. } => loaded,
+            Loaded::Missing | Loaded::Unrecoverable { .. } => (None, Vec::new()),
+        };
         let mut order = Vec::new();
         let mut by_id = HashMap::new();
-        for m in read_messages(&path) {
+        for m in messages {
             if !by_id.contains_key(&m.id) {
                 order.push(m.id.clone());
             }
@@ -207,10 +242,12 @@ impl ChatBackendHistory {
                 }
             }
         }
-        if let Some(parent) = self.path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        let file = transcript_file(&self.path);
+        if let Err(error) = file.save(&out) {
+            if file.held().is_none() {
+                log::warn!("[chatbackend] transcript not saved: {error}");
+            }
         }
-        let _ = std::fs::write(&self.path, out);
     }
 }
 
@@ -448,5 +485,23 @@ mod tests {
         let read = read_messages(&path);
         assert_eq!(read.len(), 1, "corrupt last line skipped, not fatal");
         assert_eq!(read[0].content, "ok");
+    }
+
+    #[test]
+    fn flush_preserves_a_transcript_with_an_unparseable_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let original = "{\"id\":\"1\",\"type\":\"assistant\",\"content\":\"ok\"}
+{half-written";
+        std::fs::write(&path, original).unwrap();
+
+        let mut h = ChatBackendHistory::open_at(path.clone());
+        assert!(h.upsert(&[msg("2", "b")]));
+
+        let copies = transcript_file(&path).corrupt_copies();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), original);
+        let ids: Vec<String> = read_messages(&path).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["1".to_string(), "2".to_string()]);
     }
 }

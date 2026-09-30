@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
-    ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
-    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
-    TurnEvidenceNormalization, VerifySubmitStrategy,
+    ModelAvailability, ModelInfo, PasteCapability, ProviderReadinessStrategy, ProviderStateVerdict,
+    ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -28,7 +28,13 @@ pub struct SubprocessPermission {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
     #[serde(default)]
+    pub sandboxed_linux_launch: Option<SandboxedLinuxLaunchCapability>,
+    #[serde(default)]
+    pub launch_permissions: Option<crate::provider::LaunchPermissionCapability>,
+    #[serde(default)]
     pub paste_limit_bytes: Option<usize>,
+    #[serde(default)]
+    pub paste: Option<PasteCapability>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
@@ -340,6 +346,23 @@ pub struct SessionsConfig {
     /// File extension session files use (`jsonl`, `json`, etc).
     #[serde(default = "default_session_ext")]
     pub file_extension: String,
+    #[serde(default)]
+    pub search_files: Option<SessionFileSearchConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SessionFileSearchConfig {
+    #[serde(default)]
+    pub root_subdir: Option<String>,
+    #[serde(default = "default_session_search_depth")]
+    pub directory_depth: usize,
+    #[serde(default)]
+    pub file_stem_regex: Option<String>,
+}
+
+fn default_session_search_depth() -> usize {
+    1
 }
 
 fn default_session_ext() -> String {
@@ -432,9 +455,14 @@ pub struct CommandsConfig {
     /// `""` for Ctrl+C.
     #[serde(default)]
     pub stop_key: Option<String>,
-    /// Format string with `{model}` placeholder.
+    /// Ordered raw key bytes for a multi-key stop action.
     #[serde(default)]
-    pub model_switch_format: Option<String>,
+    pub stop_keys: Option<Vec<String>>,
+    /// Wait for a PTY screen change between sequence keys.
+    #[serde(default)]
+    pub stop_key_wait_for_output: bool,
+    #[serde(default)]
+    pub model_switch: crate::provider::ModelSwitchMode,
     #[serde(default)]
     pub auto_approve_flags: Vec<String>,
     /// Each element may contain `{model}` placeholder.

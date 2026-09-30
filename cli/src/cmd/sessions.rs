@@ -69,6 +69,90 @@ fn format_unix_ts(ts: i64) -> String {
     format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m, d, hh, mm)
 }
 
+fn search_warning_lines(val: &serde_json::Value) -> Vec<String> {
+    val.get("warnings")
+        .and_then(|v| v.as_array())
+        .map(|warnings| {
+            warnings
+                .iter()
+                .filter_map(|w| w.get("message").and_then(|m| m.as_str()))
+                .map(|message| format!("warning: {message}"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Human rendering of a search result; warnings name every provider store the
+/// search could not fully read, so an empty result is never a silent miss.
+fn render_search_human(query: &str, val: &serde_json::Value) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let hits = val
+        .get("hits")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if hits.is_empty() {
+        let _ = writeln!(out, "No sessions matched: {query}");
+    } else {
+        let _ = writeln!(out, "Found {} session(s) for: {query}\n", hits.len());
+    }
+    for (i, hit) in hits.iter().enumerate() {
+        let meta = hit.get("meta").cloned().unwrap_or_default();
+        let field = |key: &str| meta.get(key).and_then(|v| v.as_str()).unwrap_or("");
+        let provider_id = meta.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
+        let sid = meta
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let project = field("project_path");
+        let title = field("title");
+        let modified = meta
+            .get("modified_ts")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let modified_str = format_unix_ts(modified);
+        let _ = writeln!(out, "{:─<70}", "");
+        let header = if title.is_empty() {
+            format!("{}. [{}] [{}] {}", i + 1, provider_id, modified_str, sid)
+        } else {
+            format!(
+                "{}. [{}] [{}] {} — {}",
+                i + 1,
+                provider_id,
+                modified_str,
+                title,
+                sid
+            )
+        };
+        let _ = writeln!(out, "  {header}");
+        if !project.is_empty() {
+            let _ = writeln!(out, "  project: {project}");
+        }
+        let _ = writeln!(
+            out,
+            "  resume:  codeterm sessions resume {}\n",
+            shell_quote(sid)
+        );
+        if let Some(snips) = hit.get("snippets").and_then(|v| v.as_array()) {
+            for s in snips {
+                let role = s.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let tag = match role {
+                    "user" => "You",
+                    "assistant" => provider_id,
+                    other => other,
+                };
+                let _ = writeln!(out, "  [{tag}] {text}\n");
+            }
+        }
+    }
+    for line in search_warning_lines(val) {
+        let _ = writeln!(out, "{line}");
+    }
+    out
+}
+
 pub fn handle_sessions(
     json_mode: bool,
     action: SessionsAction,
@@ -107,7 +191,10 @@ pub fn handle_sessions(
                 Err(e) => fail_transport(json_mode, &e),
             };
             let status = resp.status();
-            let val: serde_json::Value = resp.json().unwrap_or_default();
+            // A refused query (unknown provider) answers in plain text; keep it for the error line.
+            let body = resp.text().unwrap_or_default();
+            let val: serde_json::Value =
+                serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body));
             if let BackendOutcome::Failure(machine) = classify_backend_response(status, &val) {
                 fail(json_mode, &format!("Error: {machine}"), &machine);
             }
@@ -115,81 +202,7 @@ pub fn handle_sessions(
                 println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
                 return;
             }
-            let hits = val
-                .get("hits")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            if hits.is_empty() {
-                println!("No sessions matched: {}", query);
-                return;
-            }
-            println!("Found {} session(s) for: {}\n", hits.len(), query);
-            for (i, hit) in hits.iter().enumerate() {
-                let meta = hit.get("meta").cloned().unwrap_or_default();
-                let provider_id = meta.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
-                let sid = meta
-                    .get("session_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let project = meta
-                    .get("project_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let title = meta.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let modified = meta
-                    .get("modified_ts")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let modified_str = format_unix_ts(modified);
-                println!("{:─<70}", "");
-                let header = if title.is_empty() {
-                    format!("{}. [{}] [{}] {}", i + 1, provider_id, modified_str, sid)
-                } else {
-                    format!(
-                        "{}. [{}] [{}] {} — {}",
-                        i + 1,
-                        provider_id,
-                        modified_str,
-                        title,
-                        sid
-                    )
-                };
-                println!("  {}", header);
-                if !project.is_empty() {
-                    println!("  project: {}", project);
-                }
-                // Claude resolves --resume by encoded cwd, so include a `cd <project_path>` hint when known.
-                let resume_cmd = match provider_id {
-                    "claude" => format!("claude --resume {}", sid),
-                    "codex" => format!("codex resume {}", sid),
-                    other => format!("{} resume {}", other, sid),
-                };
-                let resume_hint = if !project.is_empty() {
-                    format!("cd {} && {}", shell_quote(project), resume_cmd)
-                } else {
-                    resume_cmd
-                };
-                println!("  resume:  {}", resume_hint);
-                println!();
-                if let Some(snips) = hit.get("snippets").and_then(|v| v.as_array()) {
-                    for s in snips {
-                        let role = s.get("role").and_then(|v| v.as_str()).unwrap_or("?");
-                        let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                        let tag = match role {
-                            "user" => "You".to_string(),
-                            "assistant" => match provider_id {
-                                "claude" => "Claude".to_string(),
-                                "codex" => "Codex".to_string(),
-                                other => other.to_string(),
-                            },
-                            other => other.to_string(),
-                        };
-                        println!("  [{}] {}", tag, text);
-                        println!();
-                    }
-                }
-            }
+            print!("{}", render_search_human(&query, &val));
         }
         SessionsAction::Resume {
             session_id,

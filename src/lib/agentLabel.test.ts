@@ -25,9 +25,9 @@ const LABEL_ROWS: LabelRow[] = [
   { row: "fresh spawn", provider: "claude", model: "opus", liveness: "live", expected: "opus" },
   { row: "restoring", provider: "claude", model: "opus", liveness: "unobserved", expected: "opus?" },
   { row: "restored as shell", provider: "claude", model: "opus", liveness: "absent", expected: "opus!" },
-  { row: "codex codename", provider: "codex", model: "gpt-5.6-sol", liveness: "live", expected: "sol" },
-  { row: "codex codename restoring", provider: "codex", model: "gpt-5.6-luna", liveness: "unobserved", expected: "luna?" },
-  { row: "codex codename gone", provider: "codex", model: "gpt-5.3-codex-spark", liveness: "absent", expected: "spark!" },
+  { row: "codex codename", provider: "codex", model: "gpt-5.6-sol", liveness: "live", expected: "5.6-sol" },
+  { row: "codex codename restoring", provider: "codex", model: "gpt-5.6-luna", liveness: "unobserved", expected: "5.6-luna?" },
+  { row: "codex codename gone", provider: "codex", model: "gpt-5.3-codex-spark", liveness: "absent", expected: "5.3-spark!" },
   { row: "uncodenamed codex", provider: "codex", model: "gpt-5.5", liveness: "live", expected: "gpt 5.5" },
   { row: "long vendor id", provider: "claude", model: "claude-sonnet-4-5-20250929", liveness: "live", expected: "sonnet" },
   // no model: the provider stands in, at every liveness
@@ -249,7 +249,7 @@ describe("agentModelBadgeLabel", () => {
   });
 
   it("keeps the catalogue short name for a claimed model", () => {
-    expect(agentModelBadgeLabel("codex", { sessionModel: "gpt-5.6-sol" }, "live")).toBe("sol");
+    expect(agentModelBadgeLabel("codex", { sessionModel: "gpt-5.6-sol" }, "live")).toBe("5.6-sol");
     expect(agentModelBadgeLabel("claude", { sessionModel: "opus" }, "live")).toBe("opus");
   });
 
@@ -286,16 +286,18 @@ describe("shortModelName", () => {
   });
 
   it("mirrors the Rust families", () => {
-    expect(shortModelName("gpt-5.6-terra")).toBe("terra");
+    expect(shortModelName("gpt-5.6-sol")).toBe("5.6-sol");
+    expect(shortModelName("gpt-6.1-sol")).toBe("6.1-sol");
+    expect(shortModelName("gpt-5.6-terra")).toBe("5.6-terra");
     expect(shortModelName("gpt-6-astra")).toBe("astra");
-    expect(shortModelName("gpt-5.4-mini")).toBe("mini");
+    expect(shortModelName("gpt-5.4-mini")).toBe("5.4-mini");
     expect(shortModelName("Opus")).toBe("opus");
     expect(shortModelName("claude-fable-5-1")).toBe("fable");
     expect(shortModelName("openai/gpt-5.5")).toBe("gpt 5.5");
   });
 
-  it("resolves a bumped version to the same family", () => {
-    expect(shortModelName("gpt-5.9-sol")).toBe(shortModelName("gpt-5.6-sol"));
+  it("keeps dotted versions with their family", () => {
+    expect(shortModelName("gpt-5.9-sol")).toBe("5.9-sol");
     expect(shortModelName("claude-opus-9")).toBe(shortModelName("opus"));
   });
 

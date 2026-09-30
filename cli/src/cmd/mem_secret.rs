@@ -14,8 +14,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
     let http = match crate::build_local_api() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
     let base = base.as_str();
@@ -48,14 +47,13 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
 
     let print_or_exit = |status: u16, body: serde_json::Value| -> ! {
         if let Some(code) = exit_for_status(status) {
-            if json_mode {
-                eprintln!(
-                    "{}",
-                    serde_json::to_string_pretty(&body).unwrap_or_default()
-                );
-            } else if let Some(err) = body.get("error") {
-                let kind = err.get("kind").and_then(|k| k.as_str()).unwrap_or("error");
-                let msg = err
+            let error = body.get("error");
+            let kind = error
+                .and_then(|err| err.get("kind"))
+                .and_then(|k| k.as_str())
+                .unwrap_or("error");
+            let message = match error {
+                Some(err) => err
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or(match kind {
@@ -68,12 +66,22 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                             "secret store: already exists (use --overwrite to replace)"
                         }
                         _ => "secret store: error",
-                    });
-                eprintln!("Error: {}", msg);
-            } else {
-                eprintln!("Error: HTTP {}", status);
+                    })
+                    .to_string(),
+                None => format!("HTTP {}", status),
+            };
+            let mut data = serde_json::json!({ "http_status": status, "secret_kind": kind });
+            if status == 0 {
+                data["code"] = serde_json::json!("unavailable");
             }
-            std::process::exit(code);
+            crate::cmd::print::fail_with(
+                code,
+                &crate::cmd::print::CliError {
+                    message,
+                    code: None,
+                    data: Some(data),
+                },
+            );
         }
         if json_mode {
             println!(
@@ -109,8 +117,10 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 None => {
                     let mut s = String::new();
                     if std::io::stdin().read_to_string(&mut s).is_err() || s.is_empty() {
-                        eprintln!("Error: no value provided (pass --value or pipe to stdin)");
-                        std::process::exit(2);
+                        crate::cmd::print::fail(
+                            2,
+                            "no value provided (pass --value or pipe to stdin)",
+                        );
                     }
                     s.trim_end_matches('\n').to_string()
                 }
@@ -181,6 +191,10 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
         }
         MemSecretAction::Delete { name, yes } => {
             if !yes {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    crate::cmd::print::fail(1, format!("refusing to prompt on non-interactive stdin — pass --yes to delete '{}'", name));
+                }
                 eprint!("Delete secret '{}'? [y/N] ", name);
                 let _ = std::io::stderr().flush();
                 let mut answer = String::new();
@@ -235,10 +249,10 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 if status == 200 && body.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                     print_or_exit(status, body);
                 } else if status == 200 {
-                    eprintln!(
-                        "Error: no stored master password — pass --password or pipe to stdin"
+                    crate::cmd::print::fail(
+                        2,
+                        "no stored master password — pass --password or pipe to stdin",
                     );
-                    std::process::exit(2);
                 } else {
                     print_or_exit(status, body);
                 }
@@ -264,8 +278,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 None => read_stdin().trim().to_string(),
             };
             if pw.is_empty() {
-                eprintln!("Error: master password is empty");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, "master password is empty");
             }
 
             let (decl_status, decl_body) =

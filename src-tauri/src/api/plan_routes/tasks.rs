@@ -784,6 +784,38 @@ fn owner_tab_is_gone(svc: &ServiceState, owner_tab_id: Option<&str>) -> bool {
     owner_tab_id.is_none_or(|tab_id| svc.mux.read().get_tab(tab_id).is_none())
 }
 
+// A never-dispatched task has no Worker owner to prove, so only the Plan
+// Orchestrator, its Planner, or a confirmed human may mutate it.
+async fn require_plan_role_for_unowned_task(
+    svc: &ServiceState,
+    headers: &HeaderMap,
+    plan_id: &str,
+    caller: &crate::service::AuthenticatedPlanCaller,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let confirmed_human = headers
+        .get("X-CodeTerm-Plan-Confirmation")
+        .and_then(|value| value.to_str().ok())
+        == Some(plan_id);
+    if caller.tab_id.as_deref().is_none_or(str::is_empty) && !confirmed_human {
+        return Err(text_err(
+            axum::http::StatusCode::FORBIDDEN,
+            "task mutation requires a Plan role or explicit human confirmation",
+        ));
+    }
+    if !confirmed_human
+        && !matches!(
+            svc.classify_planning_caller_async(plan_id, caller).await,
+            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
+        )
+    {
+        return Err(text_err(
+            axum::http::StatusCode::FORBIDDEN,
+            "the caller is not the Plan Orchestrator or Planner",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) async fn verify_task_mutation_owner(
     svc: &ServiceState,
     headers: &HeaderMap,
@@ -796,11 +828,15 @@ pub(super) async fn verify_task_mutation_owner(
         .show_task(task_id)
         .filter(|detail| detail.plan_id == plan_id)
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
-    if detail.task.interruption.owner_epoch == 0 {
-        return Ok(());
-    }
     let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
+    if detail.task.interruption.owner_epoch == 0 {
+        return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
+    }
     if recovery == TaskMutationKind::Recovery
+        && caller
+            .tab_id
+            .as_deref()
+            .is_some_and(|tab_id| !tab_id.is_empty())
         && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
     {
         match svc

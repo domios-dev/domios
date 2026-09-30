@@ -206,6 +206,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
     assert!(!text.contains("Current focus:"));
     assert!(!text.contains("old focus"));
 
+    store.start_task_for_test(&live.id, &task_id, 23);
     store
         .close_task(&live.id, &task_id, Some("done"), Default::default(), 24)
         .unwrap();
@@ -415,6 +416,7 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
             20,
         )
         .unwrap();
+    store.start_task_for_test(&plan_id, &task_id, 29);
     store
         .close_task(
             &plan_id,
@@ -509,6 +511,7 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
             3,
         )
         .unwrap();
+    store.start_task_for_test(&plan.id, &task_id, 3);
     store
         .close_task(&plan.id, &task_id, None, AgentRef::from_tab("orch"), 4)
         .unwrap();

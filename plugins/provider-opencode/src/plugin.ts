@@ -27,12 +27,15 @@ import {
   scanMessagesForModel,
   scanMessagesForQualifiedModel,
   scanSessionDirectory,
+  ASSISTANT_MESSAGE_MAX_BYTES,
+  MESSAGE_ROLE_MAX_BYTES,
   safeJson,
   OpencodePart,
   OpencodeConfig,
   OpencodeSessionRow,
   ModelGroupUsage,
 } from "./helpers";
+import { readOpencodeSessionContent, SessionContentQuery } from "./sessionContent";
 
 const TITLE_RE = /opencode/i;
 // Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
@@ -142,6 +145,18 @@ const plugin: PluginModule = {
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
+    try {
+      const event = JSON.parse(t) as {
+        type?: string;
+        properties?: { status?: { type?: string } };
+      };
+      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.idle") events.push("task_complete");
+      if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
+        events.push("turn_started");
+      }
+    } catch (_) {
+    }
     if (
       t.indexOf("Permission required") !== -1 ||
       t.indexOf("Allow this tool call") !== -1 ||
@@ -196,18 +211,10 @@ const plugin: PluginModule = {
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts: string[] = [];
-    let localTaskPath: string | null = null;
+    let taskPath: string | null = null;
     if (p.task) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
-      const platform = host.platform();
-      const taskName = taskPath.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]/g, "-");
-      localTaskPath = `.codeterm/${taskName}`;
-      const source = host.shell.quoteFor(taskPath, platform);
-      const local = host.shell.quoteFor(localTaskPath, platform);
-      parts.push(platform === "windows"
-        ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
-        : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -229,10 +236,7 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    const cleanup = localTaskPath
-      ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}`
-      : "";
-    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : undefined, cleanup);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -260,20 +264,13 @@ const plugin: PluginModule = {
     if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
     if (!taskPath) return withPadPermissionConfig(parts.join(" "));
-    const taskName = taskPath.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]/g, "-");
-    const localTaskPath = `.codeterm/${taskName}`;
-    const source = host.shell.quoteFor(taskPath, platform);
-    const local = host.shell.quoteFor(localTaskPath, platform);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
-    const prologue = platform === "windows"
-      ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;`
-      : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
-    const cleanup = platform === "windows"
-      ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;`
-      : `rm -f -- ${local}`;
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
+    const prologue = project
+      ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
+      : "";
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -332,6 +329,16 @@ const plugin: PluginModule = {
     if (!db || !host.fs.fileExists(db)) return null;
     const rows = host.fs.sqliteQuery<OpencodeSessionRow>(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
+  },
+
+  readSessionContent(
+    sessionId: string,
+    query: SessionContentQuery,
+  ): { messages: unknown[]; truncated?: boolean } | null {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    return readOpencodeSessionContent(db, sessionId, query) as { messages: unknown[]; truncated?: boolean } | null;
   },
 
   checkIntegration(): unknown {
@@ -480,8 +487,9 @@ const plugin: PluginModule = {
     if (!db || !host.fs.fileExists(db)) return null;
     if (!sessionId) return null;
     return scanMessagesForModel(db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]);
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
+        "ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
   },
 
   usesStructuredChat(): boolean { return true; },
@@ -494,13 +502,14 @@ const plugin: PluginModule = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; msg?: string }>(
+    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null }>(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg " +
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
+        "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
         "FROM part p JOIN message m ON m.id = p.message_id " +
         "WHERE p.session_id = ?1 AND p.time_updated >= ?2 " +
         "ORDER BY p.time_updated ASC, p.id ASC",
-      [sessionId, sinceMs]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages: unknown[] = [];
     let lastTs = sinceMs;
@@ -517,9 +526,7 @@ const plugin: PluginModule = {
       seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
-      let role = "assistant";
-      const msg = safeJson(rows[i].msg);
-      if (msg && (msg as { role?: string }).role) role = (msg as { role: string }).role;
+      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
       const cm = partToChatMsg(part as OpencodePart, role, id, created);
       if (cm) messages.push(cm);
     }

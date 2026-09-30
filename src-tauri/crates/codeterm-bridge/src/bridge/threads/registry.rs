@@ -2,7 +2,9 @@
 //! token, URL, port or any other connection value.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use codeterm_util::persisted_state::{Loaded, StateFile};
 
 use serde::{Deserialize, Serialize};
 
@@ -68,15 +70,12 @@ impl ThreadRegistry {
     }
 
     pub fn load(path: PathBuf) -> Self {
-        let snapshot = match std::fs::read_to_string(&path) {
-            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|error| {
-                log::warn!(
-                    "[bridge-threads] ignoring unreadable {}: {error}",
-                    path.display()
-                );
-                Snapshot::default()
-            }),
-            Err(_) => Snapshot::default(),
+        let snapshot = match state_file(&path).load(parse_snapshot) {
+            Loaded::Parsed(snapshot)
+            | Loaded::Recovered {
+                value: snapshot, ..
+            } => snapshot,
+            Loaded::Missing | Loaded::Unrecoverable { .. } => Snapshot::default(),
         };
         Self {
             path: Some(path),
@@ -245,11 +244,80 @@ impl ThreadRegistry {
         let Ok(raw) = serde_json::to_string_pretty(&self.snapshot) else {
             return;
         };
-        if let Err(error) = codeterm_util::atomic_write::write_atomic(path, raw) {
+        if let Err(error) = state_file(path).save(&raw) {
             log::warn!(
                 "[bridge-threads] failed to persist {}: {error}",
                 path.display()
             );
         }
+    }
+}
+
+fn state_file(path: &Path) -> StateFile {
+    StateFile::new(path).with_validator(validate_snapshot)
+}
+
+fn parse_snapshot(raw: &str) -> Result<Snapshot, String> {
+    serde_json::from_str(raw).map_err(|error| error.to_string())
+}
+
+fn validate_snapshot(raw: &str) -> Result<(), String> {
+    parse_snapshot(raw).map(|_| ())
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    fn scratch_path() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bridge-threads-{}", uuid_like()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("telegram-threads.json")
+    }
+
+    fn uuid_like() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{}-{nanos}", std::process::id())
+    }
+
+    fn binding() -> ThreadBinding {
+        ThreadBinding {
+            scope: ChatScope {
+                service: "telegram".into(),
+                bot_id: 1,
+                chat_id: 2,
+            },
+            tab_id: "tab".into(),
+            thread_id: 3,
+            topic_name: "Tab".into(),
+            intro_posted: false,
+            closed: false,
+            stale: false,
+        }
+    }
+
+    #[test]
+    fn corrupt_registry_recovers_bindings_and_never_saves_defaults_over_it() {
+        let path = scratch_path();
+        ThreadRegistry::load(path.clone()).bind(binding());
+        std::fs::write(&path, "{\"bindings\": [").unwrap();
+
+        let recovered = ThreadRegistry::load(path.clone());
+        assert!(recovered.binding_for_thread(&binding().scope, 3).is_some());
+
+        std::fs::remove_dir_all(state_file(&path).backup_dir()).unwrap();
+        std::fs::write(&path, "{\"bindings\": [").unwrap();
+        let mut held = ThreadRegistry::load(path.clone());
+        held.bind(binding());
+        assert!(!path.exists());
+        let copies = state_file(&path).corrupt_copies();
+        assert_eq!(
+            std::fs::read_to_string(copies.last().unwrap()).unwrap(),
+            "{\"bindings\": ["
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

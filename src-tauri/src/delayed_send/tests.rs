@@ -223,6 +223,82 @@ fn missing_target_stops_series_and_records_reason() {
 }
 
 #[test]
+fn agent_ready_event_releases_delayed_delivery_waiter() {
+    let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let waiter_ready = ready.clone();
+    let waiter = std::thread::spawn(move || {
+        crate::service::boot_wait::wait_until(
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+            || waiter_ready.load(std::sync::atomic::Ordering::Acquire),
+        )
+    });
+    ready.store(true, std::sync::atomic::Ordering::Release);
+    crate::service::boot_wait::notify_boot_changed();
+    assert!(waiter.join().unwrap());
+}
+
+#[test]
+fn delayed_failure_kept_not_deleted() {
+    let (dir, queue) = queue();
+    let msg = queue
+        .enqueue(
+            "tab-a".into(),
+            None,
+            None,
+            "persist failure".into(),
+            Some(1),
+            ReminderCreator::default(),
+        )
+        .unwrap();
+    queue.claim_due(u64::MAX).unwrap();
+    queue
+        .mark_failed(&msg.id, "AgentReady deadline elapsed".into())
+        .unwrap();
+    let reopened = DelayedSendQueue::open(dir.path().join("delayed_send.json")).unwrap();
+    let failed = reopened.list(None).pop().unwrap();
+    assert_eq!(failed.state, DelayedMessageState::Failed);
+    assert_eq!(failed.error.as_deref(), Some("AgentReady deadline elapsed"));
+}
+
+#[test]
+fn failed_recurring_tick_keeps_future_ticks() {
+    let (_dir, queue) = queue();
+    let msg = queue
+        .enqueue_with_recurrence(
+            "tab-a".into(),
+            None,
+            None,
+            "series payload".into(),
+            Some(100_000),
+            ReminderCreator::default(),
+            Some(RecurrenceRule {
+                every_ms: 60_000,
+                until_ms: None,
+                count: Some(3),
+            }),
+            None,
+        )
+        .unwrap();
+    queue.claim_due(100_000).unwrap();
+    queue
+        .finish_tick(
+            &msg.id,
+            100_000,
+            Some("AgentReady deadline elapsed".into()),
+            false,
+        )
+        .unwrap();
+    let remaining = queue.list(None).pop().unwrap();
+    assert_eq!(remaining.state, DelayedMessageState::Queued);
+    assert_eq!(remaining.scheduled_at_ms, 160_000);
+    assert_eq!(remaining.tick_index, 1);
+    assert_eq!(
+        remaining.error.as_deref(),
+        Some("AgentReady deadline elapsed")
+    );
+}
+
+#[test]
 fn restart_recovery_skips_an_uncertain_tick_before_resuming() {
     let (dir, queue) = queue();
     let msg = queue
@@ -481,4 +557,63 @@ fn v2_queue_file_loads_with_recurrence_defaults() {
     assert_eq!(old.skipped_ticks, 0);
     assert_eq!(old.team_id, None);
     assert_eq!(old.last_tick_send_sequence, 0);
+}
+
+fn enqueue_one(queue: &DelayedSendQueue, text: &str) -> Result<DelayedMessage, String> {
+    queue.enqueue(
+        "tab".into(),
+        None,
+        None,
+        text.into(),
+        Some(100),
+        ReminderCreator::default(),
+    )
+}
+
+#[test]
+fn corrupt_queue_is_preserved_and_recovered_from_backup() {
+    let (dir, queue) = queue();
+    enqueue_one(&queue, "kept").unwrap();
+    drop(queue);
+    let path = dir.path().join("delayed_send.json");
+    let full = fs::read(&path).unwrap();
+    let truncated = full[..full.len() / 2].to_vec();
+    fs::write(&path, &truncated).unwrap();
+
+    let reopened = DelayedSendQueue::open(path.clone()).unwrap();
+
+    assert_eq!(reopened.list(None)[0].text, "kept");
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read(&copies[0]).unwrap(), truncated);
+}
+
+#[test]
+fn corrupt_queue_without_backup_is_never_saved_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("delayed_send.json");
+    let broken = b"{\"version\":3,\"messages\":[{\"id\":".to_vec();
+    fs::write(&path, &broken).unwrap();
+
+    let queue = DelayedSendQueue::open(path.clone()).unwrap();
+
+    assert!(queue.list(None).is_empty());
+    assert!(enqueue_one(&queue, "new").is_err());
+    assert!(!path.exists());
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read(&copies[0]).unwrap(), broken);
+}
+
+#[test]
+fn malformed_record_is_preserved_before_the_next_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("delayed_send.json");
+    let fixture = r#"{"version":2,"messages":[{"id":"dmsg-bad","paneId":42}]}"#;
+    fs::write(&path, fixture).unwrap();
+    let queue = DelayedSendQueue::open(path.clone()).unwrap();
+
+    enqueue_one(&queue, "new").unwrap();
+
+    let copies = queue_file(&path).corrupt_copies();
+    assert_eq!(fs::read_to_string(&copies[0]).unwrap(), fixture);
+    assert_eq!(DelayedSendQueue::open(path).unwrap().list(None).len(), 1);
 }

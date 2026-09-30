@@ -6,10 +6,19 @@ use crate::service::ServiceContext;
 #[cfg(test)]
 mod tests;
 
+const PROJECT_PROBE_PARALLELISM: usize = 8;
+
 pub(crate) fn restore(service: &ServiceContext) {
     service.kick_off_pollers_for_existing_agents();
 
-    let workspace_cwds = workspace_cwds(&service.mux);
+    let mut workspace_cwds = workspace_cwds(&service.mux);
+    workspace_cwds.sort();
+    workspace_cwds.dedup();
+    let probe_paths: Vec<_> = workspace_cwds
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    codeterm_plan::service_plan::paths::warm_project_roots(&probe_paths, PROJECT_PROBE_PARALLELISM);
 
     for cwd in workspace_cwds {
         if let Err(error) = service.ensure_plan_project_loaded(Path::new(&cwd)) {

@@ -9,13 +9,154 @@ use super::{
 };
 use crate::ids;
 
+fn normalized_sources(item: &NewMemItem) -> (Option<String>, Option<String>) {
+    if item.kind.as_str() == "skill" {
+        (
+            item.source
+                .as_deref()
+                .map(codeterm_mem_store::skill_folders::normalize_file_source),
+            item.source_path
+                .as_deref()
+                .map(codeterm_mem_store::skill_folders::normalize_file_source),
+        )
+    } else {
+        (item.source.clone(), item.source_path.clone())
+    }
+}
+
 /// >2KB bodies go to content-addressed blob.
 pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
     insert_with_options(conn, item, blobs_dir, false, None)
 }
 
 pub fn upsert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
+    let candidate = ids::compose(item.kind.as_str(), &ids::slugify(&item.title));
+    if exists(conn, &candidate).map_err(|e| e.to_string())? {
+        replace_existing(conn, &candidate, item, blobs_dir)?;
+        return Ok(candidate);
+    }
     insert_with_options(conn, item, blobs_dir, true, None)
+}
+
+pub fn find_by_kind_title(
+    conn: &Connection,
+    kind: &str,
+    title: &str,
+) -> Result<Option<String>, String> {
+    conn.query_row(
+        "SELECT id FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
+        params![kind, title],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| format!("find mem item: {error}"))
+}
+
+pub fn replace_existing(
+    conn: &Connection,
+    id: &str,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<(), String> {
+    let Some(previous) = get(conn, id, blobs_dir)? else {
+        return Err(format!("mem item {id} not found"));
+    };
+    let (source, source_path) = normalized_sources(item);
+    let previous_source_path: Option<String> = conn
+        .query_row(
+            "SELECT source_path FROM mem_items WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("read source path: {e}"))?
+        .flatten();
+    let mut changed = Vec::new();
+    if previous.title != item.title {
+        changed.push("title");
+    }
+    if previous.body != item.body {
+        changed.push("body");
+    }
+    if previous.summary != item.summary {
+        changed.push("summary");
+    }
+    if previous.area != item.area {
+        changed.push("area");
+    }
+    if previous.tags != item.tags {
+        changed.push("tags");
+    }
+    if previous.scope != item.scope.as_str() {
+        changed.push("scope");
+    }
+    if previous.source != source {
+        changed.push("source");
+    }
+    if previous_source_path != source_path {
+        changed.push("source_path");
+    }
+    let previous_pinned: bool = conn
+        .query_row(
+            "SELECT COALESCE(is_pinned_wakeup, 0) != 0 FROM mem_items WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("read pinned state: {e}"))?;
+    if previous_pinned != item.pinned {
+        changed.push("pinned");
+    }
+    if (previous.importance - item.importance).abs() > f64::EPSILON {
+        changed.push("importance");
+    }
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let (inline, blob) = if item.body.len() > INLINE_BODY_LIMIT {
+        (None, Some(write_blob(blobs_dir, &item.body)?))
+    } else {
+        (Some(item.body.clone()), None)
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let tags = serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {e}"))?;
+    conn.execute(
+        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL WHERE id=?13",
+        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id],
+    ).map_err(|e| format!("replace mem item: {e}"))?;
+    conn.execute("DELETE FROM mem_fts WHERE mem_id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO mem_fts (mem_id,title,summary,body,tags) VALUES (?1,?2,?3,?4,?5)",
+        params![
+            id,
+            item.title,
+            item.summary.as_deref().unwrap_or(""),
+            item.body,
+            item.tags.join(" ")
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let old = HistorySnapshot {
+        title: Some(previous.title),
+        body: Some(previous.body),
+        importance: Some(previous.importance),
+        kind: Some(previous.kind.clone()),
+    };
+    let new = HistorySnapshot {
+        title: Some(item.title.clone()),
+        body: Some(item.body.clone()),
+        importance: Some(item.importance),
+        kind: Some(previous.kind),
+    };
+    history_log(
+        conn,
+        id,
+        "update",
+        &old,
+        &new,
+        Some(&format!("fields={}", changed.join(","))),
+    );
+    Ok(())
 }
 
 /// Create a bundled item and record its fingerprint in the SAME insert —
@@ -37,6 +178,7 @@ fn insert_with_options(
     fingerprint: Option<&str>,
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
+    let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
 
@@ -92,8 +234,7 @@ fn insert_with_options(
         };
 
     // call — both here and in mem/file_sync.rs::sync_one.
-    let (source_size, source_mtime) = item
-        .source_path
+    let (source_size, source_mtime) = source_path
         .as_ref()
         .map(|p| p.strip_prefix("file:").unwrap_or(p))
         .and_then(|p| std::fs::metadata(p).ok())
@@ -106,6 +247,11 @@ fn insert_with_options(
             (Some(size), mtime)
         })
         .unwrap_or((None, None));
+
+    if let Some(path) = source_path.as_deref() {
+        codeterm_mem_store::skill_folders::clear_tombstone(conn, path)
+            .map_err(|e| format!("clear source tombstone: {}", e))?;
+    }
 
     let pinned_int: i64 = if item.pinned { 1 } else { 0 };
     conn.execute(
@@ -126,11 +272,11 @@ fn insert_with_options(
             &tags_json,
             &body_inline,
             &body_blob_path,
-            &item.source,
+            &source,
             item.importance,
             &now,
             &now,
-            &item.source_path,
+            &source_path,
             source_size,
             &source_mtime,
             pinned_int,
@@ -408,12 +554,8 @@ pub fn managed_payload(
     let Some(kind) = MemKind::from_str(&kind) else {
         return Err(format!("unrecognized kind {kind}"));
     };
-    // `MemScope::from_str` is infallible (defaults to Global), so an
-    // unrecognized stored value must be caught by round-tripping it.
-    let parsed_scope = MemScope::from_str(&scope);
-    if parsed_scope.as_str() != scope {
-        return Err(format!("unrecognized scope {scope}"));
-    }
+    let parsed_scope =
+        MemScope::from_str(&scope).map_err(|_| format!("unrecognized scope {scope}"))?;
     let body = if let Some(inline) = body_inline {
         inline
     } else if let Some(rel) = body_blob_path.as_ref() {
@@ -664,6 +806,10 @@ pub fn update(
         prev_fingerprint
     };
 
+    if !managed_changed && patch.bump_recurrence.unwrap_or(0) == 0 {
+        return Ok(false);
+    }
+
     let tags_json =
         serde_json::to_string(&new_tags).map_err(|e| format!("serialize tags: {}", e))?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -721,30 +867,46 @@ pub fn update(
     // can see the write happened — but leave old_/new_ at None for fields that were unchanged.
     let mut old = HistorySnapshot::default();
     let mut new = HistorySnapshot::default();
-    let mut dirty = false;
+    let mut changed_fields = Vec::new();
     if new_title != prev_title {
         old.title = Some(prev_title);
         new.title = Some(new_title);
-        dirty = true;
+        changed_fields.push("title");
     }
     if new_body != prev_body {
         old.body = Some(prev_body);
         new.body = Some(new_body);
-        dirty = true;
+        changed_fields.push("body");
     }
     if (new_importance - prev_importance).abs() > f64::EPSILON {
         old.importance = Some(prev_importance);
         new.importance = Some(new_importance);
-        dirty = true;
+        changed_fields.push("importance");
     }
-    if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
-        dirty = true;
+    if new_summary != prev_summary {
+        changed_fields.push("summary");
+    }
+    if new_area != prev_area {
+        changed_fields.push("area");
+    }
+    if new_tags != prev_tags {
+        changed_fields.push("tags");
+    }
+    if new_pinned != prev_pinned {
+        changed_fields.push("pinned");
     }
     // Kind is not patchable via MemUpdate, but record it so downstream consumers can see which kind the item was at update time.
-    if dirty {
+    if !changed_fields.is_empty() {
         old.kind = Some(prev_kind.clone());
         new.kind = Some(prev_kind);
-        history_log(conn, id, "update", &old, &new, None);
+        history_log(
+            conn,
+            id,
+            "update",
+            &old,
+            &new,
+            Some(&format!("fields={}", changed_fields.join(","))),
+        );
     }
 
     Ok(true)
@@ -771,6 +933,23 @@ pub fn delete_with_reason(
         )
         .optional()
         .map_err(|e| format!("pre-delete fetch: {}", e))?;
+
+    let is_merge = reason.map_or(false, |r| r.starts_with("merge_into="));
+    if !is_merge {
+        let source_path: Option<String> = conn
+            .query_row(
+                "SELECT source_path FROM mem_items WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("pre-delete source fetch: {}", e))?
+            .flatten();
+        if let Some(path) = source_path {
+            codeterm_mem_store::skill_folders::record_tombstone(conn, &path)
+                .map_err(|e| format!("record source tombstone: {}", e))?;
+        }
+    }
 
     let n = conn
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])

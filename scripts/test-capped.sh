@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# Run `cargo test`, optionally under a process-group timeout.
+# Run tests under a process-group timeout.
 #
-# With TEST_CAP_SECS set, kills the WHOLE process group — cargo AND every
+# The cap kills the WHOLE process group — cargo AND every
 # spawned test binary (*/target/*/deps/*) — so no orphans survive the cap.
 #
-# Uncapped by default. An explicit cap exits 124 on timeout (matches GNU timeout);
-# otherwise the wrapper passes through cargo's own exit code.
+# TEST_CAP_SECS defaults to 600; 0 disables it. A cap exits 124 on timeout.
+# Otherwise the wrapper passes through the test command's exit code.
 #
 # Fail-closed filtering: when the caller supplies a test-name filter, a run that
 # executed zero tests exits 97 instead of reporting cargo's success. A run with
 # no filter is never subject to that check.
 #
 # Usage:
-#   scripts/test-capped.sh [-- <cargo-test-args>...]
-#   TEST_CAP_SECS=30 scripts/test-capped.sh -- my_crate::my_mod
+#   scripts/test-capped.sh [<cargo-test-args>...]
+#   scripts/test-capped.sh --exec <command> [<args>...]
 #
 # Overridable env:
-#   TEST_CAP_SECS   optional positive seconds before SIGTERM + banner
+#   TEST_CAP_SECS   positive seconds before SIGTERM + banner, or 0 to disable
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
+#   CARGO_TEST_BUILD_CMD optional build-phase command used by this script's fixtures
 #   CODETERM_EMBED_CACHE_DIR shared machine cache for immutable embedding models
 #
 # Not overridable — always cleared/set before the test command runs:
@@ -27,12 +28,34 @@
 
 set -euo pipefail
 
-TEST_CAP_SECS="${TEST_CAP_SECS:-}"
+EXEC_MODE=0
+if [[ "${1:-}" == "--exec" ]]; then
+    EXEC_MODE=1
+    shift
+    [ "$#" -gt 0 ] || {
+        printf 'error: --exec requires a command.\n' >&2
+        exit 2
+    }
+fi
+
+TEST_CAP_SECS="${TEST_CAP_SECS:-600}"
+if [[ ! "$TEST_CAP_SECS" =~ ^[0-9]+$ ]]; then
+    printf 'error: TEST_CAP_SECS must be a non-negative integer.\n' >&2
+    exit 2
+fi
+if [ -n "${CARGO_TEST_CMD:-}" ]; then
+    CARGO_TEST_CMD_DEFAULT=0
+else
+    CARGO_TEST_CMD_DEFAULT=1
+fi
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
 # whole script at exit 141 with zero output.
-HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2}')}"
+HOST_TRIPLE=""
+if [ "$EXEC_MODE" -eq 0 ]; then
+    HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2}')}"
+fi
 
 configure_embed_cache() {
     if [ -n "${CODETERM_EMBED_CACHE_DIR:-}" ]; then
@@ -59,10 +82,10 @@ isolate_conpty_test_dir() {
     export CODETERM_CONPTY_TEST_ISOLATION
 }
 
-[[ -n "$HOST_TRIPLE" ]] || {
+if [ "$EXEC_MODE" -eq 0 ] && [[ -z "$HOST_TRIPLE" ]]; then
     printf 'error: unable to determine Rust host triple.\n' >&2
     exit 2
-}
+fi
 
 configure_windows_test_target() {
     [[ "$HOST_TRIPLE" == *-windows-* ]] || return 0
@@ -128,10 +151,18 @@ if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" =
     exit 2
 fi
 
-configure_windows_test_target
-configure_embed_cache
-isolate_conpty_test_dir
-ensure_embed_sidecar
+if [ "$EXEC_MODE" -eq 0 ]; then
+    configure_windows_test_target
+    configure_embed_cache
+    isolate_conpty_test_dir
+    ensure_embed_sidecar
+fi
+
+if [ "$TEST_CAP_SECS" -eq 0 ]; then
+    printf '[test-capped] test execution cap disabled (TEST_CAP_SECS=0).\n'
+else
+    printf '[test-capped] test execution cap: %ss\n' "$TEST_CAP_SECS"
+fi
 
 ZERO_MATCH_EXIT=97
 REQUESTED_FILTER=""
@@ -208,37 +239,86 @@ run_capped() {
 }
 
 run_test() {
-    if [ -n "$TEST_CAP_SECS" ]; then
-        run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"
+    if [ "$TEST_CAP_SECS" -gt 0 ]; then
+        if [ "$EXEC_MODE" -eq 1 ]; then
+            run_capped "$TEST_CAP_SECS" "$@"
+        else
+            run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"
+        fi
     else
-        $CARGO_TEST_CMD "$@"
+        if [ "$EXEC_MODE" -eq 1 ]; then
+            "$@"
+        else
+            $CARGO_TEST_CMD "$@"
+        fi
     fi
 }
 
-detect_requested_filter "$@"
+run_build() {
+    [ "$EXEC_MODE" -eq 0 ] || return 0
+    if [ -n "${CARGO_TEST_BUILD_CMD:-}" ]; then
+        $CARGO_TEST_BUILD_CMD --no-run "$@"
+    elif [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
+        $CARGO_TEST_CMD --no-run "$@"
+    fi
+}
 
-if [ -n "$REQUESTED_FILTER" ]; then
-    TEST_LOG=$(mktemp)
-    trap 'rm -f "$TEST_LOG"' EXIT
-    if run_test "$@" | tee "$TEST_LOG"; then
+if [ "$EXEC_MODE" -eq 0 ]; then
+    detect_requested_filter "$@"
+    if [ -n "${CARGO_TEST_BUILD_CMD:-}" ] || [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
+        printf '[test-capped] compiling test targets before the execution cap.\n'
+        if run_build "$@"; then
+            :
+        else
+            BUILD_EXIT=$?
+            printf '[test-capped] test target compilation failed with exit %s.\n' "$BUILD_EXIT" >&2
+            exit "$BUILD_EXIT"
+        fi
+    fi
+fi
+
+TEST_LOG=$(mktemp)
+trap 'rm -f "$TEST_LOG"' EXIT
+if run_test "$@" 2>&1 | tee "$TEST_LOG"; then
+    if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
         if filtered_run_matched_nothing "$TEST_LOG"; then
             report_zero_match
             exit "$ZERO_MATCH_EXIT"
         fi
-        exit 0
-    else
-        CARGO_EXIT=$?
     fi
-elif run_test "$@"; then
     exit 0
 else
     CARGO_EXIT=$?
 fi
 
-if [ -n "$TEST_CAP_SECS" ] && [ "$CARGO_EXIT" -eq 124 ]; then
+if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$CARGO_EXIT" -eq 124 ]; then
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
-    printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
+    printf '  DEADLOCK / HANG: test execution exceeded %ss cap.\n' "$TEST_CAP_SECS"
+    printf '  Tests still running at the cap:\n'
+    RUNNING_TESTS=$(awk '
+        /^test .+ has been running for over [0-9]+ seconds/ {
+            name = $0
+            sub(/^test /, "", name)
+            sub(/ has been running for over [0-9]+ seconds.*/, "", name)
+            secs = $0
+            sub(/.* has been running for over /, "", secs)
+            sub(/ seconds.*/, "", secs)
+            running[name] = secs
+        }
+        /^test .+ \.\.\. (ok|FAILED|ignored|bench)/ {
+            name = $0
+            sub(/^test /, "", name)
+            sub(/ \.\.\. .*/, "", name)
+            delete running[name]
+        }
+        END { for (name in running) print name " (over " running[name] " seconds)" }
+    ' "$TEST_LOG" | sort | sed 's/^/    /')
+    if [ -n "$RUNNING_TESTS" ]; then
+        printf '%s\n' "$RUNNING_TESTS"
+    else
+        printf '    No libtest active-test line was captured.\n'
+    fi
     printf '  Read the code — do NOT re-run with a bigger cap.\n'
     printf '══════════════════════════════════════════════════════════════════\n'
 fi

@@ -64,6 +64,7 @@ describe("remote tab transport adapter", () => {
       "resize_pty", "read_pty", "claim_resize_owner", "chat_start", "chat_stop",
       "chat_backfill", "chat_send_text", "chat_send_status", "shell_command_snapshot",
       "delayed_send_list", "delayed_send_create", "mux_respond_prompt", "restart_agent_tab",
+      "switch_agent_model",
     ];
 
     // OUTBOUND: every command kind rewrites the composite owner to the raw peer tab id.
@@ -76,6 +77,10 @@ describe("remote tab transport adapter", () => {
       // send path derives the raw id as ordinary.slice(`mesh:${peer}/`.length); prove they agree.
       expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
     }
+
+    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d" });
+    expect(modelSwitch?.suffix).toBe("/agent/model");
+    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d" });
 
     // INBOUND: parse is the exact inverse, so a raw peer tab id remaps only to its composite owner.
     const identity = parseCompositeTabId(composite);

@@ -270,10 +270,12 @@ fn update_consent(label: &str) -> UpdateConsent {
 }
 
 fn update_gate(statuses: &[Option<TabStatus>]) -> UpdateGate {
-    if statuses
-        .iter()
-        .any(|status| !matches!(status, Some(TabStatus::Idle | TabStatus::Dead)))
-    {
+    if statuses.iter().any(|status| {
+        !matches!(
+            status,
+            Some(TabStatus::Idle | TabStatus::Error | TabStatus::Dead)
+        )
+    }) {
         return UpdateGate::WaitForIdle;
     }
     UpdateGate::Ready
@@ -308,6 +310,7 @@ fn restart_targets(
     for ((tab_id, tab), status) in tabs.into_iter().zip(statuses) {
         match status {
             Some(TabStatus::Dead) => continue,
+            Some(TabStatus::Error) => {}
             Some(TabStatus::Idle) => {}
             Some(TabStatus::Working | TabStatus::Waiting) | None => unreachable!(),
         }

@@ -4,7 +4,7 @@
 //!
 //! Contract: all functions are synchronous (QuickJS blocks their VM, so nothing
 //! here may block on the hot path); complex data is returned as a JSON string;
-//! errors are signalled by `null` (no exceptions across the FFI boundary).
+//! errors are signalled by `null`; a breached size bound throws a RangeError.
 //!
 //! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
 //! `~/.codeterm/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
@@ -23,9 +23,13 @@ use std::sync::{Arc, OnceLock, Weak};
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
+mod sqlite;
+
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
+
+const PLUGIN_READ_FILE_LIMIT: u64 = 1024 * 1024;
 
 struct HeldFileLock {
     call_id: String,
@@ -217,18 +221,6 @@ impl PluginSandbox {
 
     pub(super) fn plugin_id(&self) -> &str {
         &self.plugin_id
-    }
-
-    /// Where `host.writeTempFile` scratches to: the bare system temp dir for
-    /// an unrestricted plugin, the plugin's own scoped subdir when confined —
-    /// matching the same grant `confined_roots` hands out, so a confined
-    /// plugin's writes always land inside its own write root.
-    pub(super) fn temp_dir(&self) -> PathBuf {
-        if self.unrestricted || self.plugin_id.is_empty() {
-            std::env::temp_dir()
-        } else {
-            super::loader::plugin_temp_dir(&self.plugin_id)
-        }
     }
 
     /// How many sandbox capabilities this plugin has been denied so far. Read
@@ -510,12 +502,14 @@ pub(super) fn install(
         }
     });
     let sb = sandbox.clone();
-    bind!("readFile", move |path: String| -> Option<String> {
+    bind!("readFile", move |ctx: Ctx,
+                            path: String|
+          -> rquickjs::Result<Option<String>> {
         if !sb.can_read(&path) {
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
-            return None;
+            return Ok(None);
         }
-        std::fs::read_to_string(&path).ok()
+        read_plugin_file(&path).map_err(|error| rquickjs::Exception::throw_range(&ctx, &error))
     });
     let sb = sandbox.clone();
     bind!("readFileHead", move |path: String,
@@ -644,11 +638,10 @@ pub(super) fn install(
      -> String {
         shell_env_prefix(&name, &value, &platform)
     });
-    let sb = sandbox.clone();
     bind!("writeTempFile", move |contents: String,
                                  suffix: Option<String>|
           -> Option<String> {
-        write_temp_file(&sb.temp_dir(), &contents, suffix.as_deref())
+        codeterm_util::task_files::write(&contents, suffix.as_deref())
     });
     bind!("toolcallParse", |raw_text: String,
                             schema_json: String|
@@ -670,16 +663,12 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
-    bind!("sqliteQueryAllJson", move |db: String,
-                                      sql: String,
-                                      params_json: Option<String>|
-          -> Option<String> {
-        if !sb.can_read(&db) {
-            log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
-            return None;
+    bind!(
+        "sqliteQueryAllJson",
+        move |ctx: Ctx, db: String, sql: String, params_json: Option<String>| {
+            sqlite::host_query(&ctx, &sb, &db, &sql, params_json.as_deref())
         }
-        sqlite_query_all_json(&db, &sql, params_json.as_deref())
-    });
+    );
 
     bind!("log", |level: String, msg: String| {
         match level.as_str() {
@@ -842,6 +831,29 @@ fn read_file_bounded(path: &str, max_bytes: u64, tail: bool) -> Option<String> {
     }
     buf.truncate(filled);
     Some(utf8_trim_partial(&buf, cut_front))
+}
+
+/// An unreadable file is `Ok(None)`, the SDK's `string | null`; only the size cap throws.
+pub(super) fn read_plugin_file(path: &str) -> Result<Option<String>, String> {
+    use std::io::Read;
+    let Ok(file) = File::open(path) else {
+        return Ok(None);
+    };
+    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
+        return Ok(None);
+    };
+    if size > PLUGIN_READ_FILE_LIMIT {
+        return Err(format!("readFile limit is {PLUGIN_READ_FILE_LIMIT} bytes"));
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    if file
+        .take(PLUGIN_READ_FILE_LIMIT)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return Ok(None);
+    }
+    Ok(String::from_utf8(bytes).ok())
 }
 
 /// Drop a partial UTF-8 sequence left dangling at a byte-cut boundary: leading
@@ -1009,88 +1021,6 @@ fn powershell_quote(s: &str) -> String {
     }
     out.push('\'');
     out
-}
-
-fn write_temp_file(dir: &Path, contents: &str, suffix: Option<&str>) -> Option<String> {
-    use std::io::Write;
-    std::fs::create_dir_all(dir).ok()?;
-    let suffix = suffix.unwrap_or("");
-    let name = format!(
-        "codeterm-plugin-{}{}",
-        uuid::Uuid::new_v4().simple(),
-        suffix,
-    );
-    let path = dir.join(name);
-    let mut f = std::fs::File::create(&path).ok()?;
-    f.write_all(contents.as_bytes()).ok()?;
-    Some(path.to_string_lossy().into_owned())
-}
-
-fn sqlite_query_all_json(db_path: &str, sql: &str, params_json: Option<&str>) -> Option<String> {
-    let params: Vec<serde_json::Value> = match params_json {
-        Some(j) => serde_json::from_str(j).ok()?,
-        None => Vec::new(),
-    };
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
-    let mut stmt = conn.prepare(sql).ok()?;
-    let col_count = stmt.column_count();
-    let col_names: Vec<String> = (0..col_count)
-        .map(|i| {
-            stmt.column_name(i)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|_| format!("col_{i}"))
-        })
-        .collect();
-    let bound: Vec<Box<dyn rusqlite::ToSql>> = params
-        .into_iter()
-        .map(|v| -> Box<dyn rusqlite::ToSql> {
-            match v {
-                serde_json::Value::Null => Box::new(rusqlite::types::Null),
-                serde_json::Value::Bool(b) => Box::new(b),
-                serde_json::Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        Box::new(i)
-                    } else if let Some(f) = n.as_f64() {
-                        Box::new(f)
-                    } else {
-                        Box::new(n.to_string())
-                    }
-                }
-                serde_json::Value::String(s) => Box::new(s),
-                other => Box::new(other.to_string()),
-            }
-        })
-        .collect();
-    let bound_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
-    let rows_iter = stmt
-        .query_map(rusqlite::params_from_iter(bound_refs), |row| {
-            let mut obj = serde_json::Map::with_capacity(col_count);
-            for i in 0..col_count {
-                let val: rusqlite::types::Value =
-                    row.get(i).unwrap_or(rusqlite::types::Value::Null);
-                let jv = match val {
-                    rusqlite::types::Value::Null => serde_json::Value::Null,
-                    rusqlite::types::Value::Integer(i) => serde_json::Value::from(i),
-                    rusqlite::types::Value::Real(f) => serde_json::Value::from(f),
-                    rusqlite::types::Value::Text(s) => serde_json::Value::String(s),
-                    rusqlite::types::Value::Blob(b) => {
-                        use base64::Engine;
-                        serde_json::Value::String(
-                            base64::engine::general_purpose::STANDARD.encode(b),
-                        )
-                    }
-                };
-                obj.insert(col_names[i].clone(), jv);
-            }
-            Ok(serde_json::Value::Object(obj))
-        })
-        .ok()?;
-    let rows: Vec<serde_json::Value> = rows_iter.flatten().collect();
-    serde_json::to_string(&rows).ok()
 }
 
 // Name of the global the host object is installed under (see install above).

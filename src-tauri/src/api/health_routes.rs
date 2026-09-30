@@ -6,6 +6,8 @@ use axum::{
 
 use crate::api::routes::{check_auth, AppState};
 
+pub(crate) const REMOTE_TASK_DISPATCH_FEATURE: &str = "remote_task_dispatch";
+
 const IDENTIFY_FEATURES: &[&str] = &[
     "multiplexer",
     "agent-detection",
@@ -13,6 +15,7 @@ const IDENTIFY_FEATURES: &[&str] = &[
     "rest-api",
     "canvas",
     "delayed_recurrence",
+    REMOTE_TASK_DISPATCH_FEATURE,
 ];
 
 pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
@@ -59,6 +62,11 @@ pub async fn identify(
 #[cfg(test)]
 mod tests {
     use super::IDENTIFY_FEATURES;
+
+    #[test]
+    fn identify_advertises_remote_task_dispatch_capability() {
+        assert!(IDENTIFY_FEATURES.contains(&super::REMOTE_TASK_DISPATCH_FEATURE));
+    }
 
     #[test]
     fn identify_advertises_delayed_recurrence_capability() {

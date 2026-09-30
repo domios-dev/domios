@@ -88,6 +88,37 @@ fn reasoning_effort_capability_is_declared_and_gated() {
 }
 
 #[test]
+fn bundled_providers_advertise_only_efforts_they_can_launch() {
+    let Some(plugins_root) = require_plugins() else {
+        return;
+    };
+    let mut provider_ids: Vec<String> = std::fs::read_dir(&plugins_root)
+        .expect("read plugins dir")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|name| name.strip_prefix("provider-").map(str::to_string))
+        .collect();
+    provider_ids.sort();
+    assert!(provider_ids.iter().any(|id| id == "opencode"));
+
+    for id in &provider_ids {
+        let provider = load_js(id);
+        for effort in provider.reasoning_efforts() {
+            let args = provider.reasoning_effort_launch_args(&effort.id);
+            assert!(
+                args.iter().any(|arg| arg.contains(&effort.id)),
+                "{id} advertises effort '{}' but launches it with {args:?}",
+                effort.id
+            );
+        }
+    }
+
+    let opencode = load_js("opencode");
+    assert!(opencode.reasoning_efforts().is_empty());
+    assert!(opencode.reasoning_effort_launch_args("high").is_empty());
+    assert!(opencode.validate_reasoning_effort(Some("high")).is_err());
+}
+
+#[test]
 fn session_owned_reasoning_effort_native_js_parity() {
     let native = DiscoverModelsNativeStub;
     let js = load_inline_js(

@@ -1,10 +1,26 @@
-pub(crate) fn notify(service: &crate::service::ServiceContext) {
+/// The sweep walks provider plugin VMs and the disk, so it runs off the startup-critical path.
+pub(crate) fn notify(service: &crate::service::ServiceState) -> std::thread::JoinHandle<()> {
+    let service = service.clone();
+    std::thread::Builder::new()
+        .name("launch-artifact-sweep".into())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            sweep(&service);
+            log::info!(
+                "[startup] launch artifact sweep took {:?}",
+                started.elapsed()
+            );
+        })
+        .expect("spawn launch artifact sweep thread")
+}
+
+fn sweep(service: &crate::service::ServiceContext) {
     crate::service::launch_artifacts::sweep_after_restore(service);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::notify;
+    use super::sweep;
     use crate::agent::provider::LaunchArtifactSweepRequest;
     use crate::agent::test_provider::MockProvider;
     use crate::multiplexer::state::MultiplexerState;
@@ -46,7 +62,7 @@ mod tests {
                 .with_launch_artifact_logs(requests.clone(), Arc::new(Mutex::new(Vec::new()))),
         ));
 
-        notify(&fixture.service);
+        sweep(&fixture.service);
 
         {
             let requests = requests.lock();

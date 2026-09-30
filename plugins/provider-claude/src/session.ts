@@ -1,3 +1,4 @@
+import type { SessionModelTranscriptBoundary } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
@@ -77,6 +78,112 @@ export function claudeSessionFilePath(cwd: string, sessionId: string): string | 
   const encoded = encodeCwdDashed(cwd);
   const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+
+export function sessionModelTranscriptBoundary(
+  cwd: string,
+  sessionId: string,
+): SessionModelTranscriptBoundary | null {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (contents === null) return null;
+  if (!contents) {
+    return {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true,
+    };
+  }
+  const lines = contents.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    let entry: ClaudeEntry;
+    try { entry = JSON.parse(line); } catch (_) { continue; }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    if (typeof entry.uuid === "string" && entry.uuid) {
+      return {
+        lastEntryUuid: entry.uuid,
+        lastEntryTimestamp: null,
+        lastEntryType: null,
+        boundaryFound: true,
+      };
+    }
+    if (entry.type === "user" || entry.type === "assistant") {
+      const timestamp = cleanMetadataValue(entry.timestamp);
+      return timestamp
+        ? {
+          lastEntryUuid: null,
+          lastEntryTimestamp: timestamp,
+          lastEntryType: entry.type,
+          boundaryFound: true,
+        }
+        : null;
+    }
+  }
+  return lines.some(line => line.trim())
+    ? null
+    : {
+      lastEntryUuid: null,
+      lastEntryTimestamp: null,
+      lastEntryType: null,
+      boundaryFound: true,
+    };
+}
+
+export function detectSessionModelAfterBoundary(
+  cwd: string,
+  sessionId: string,
+  boundary: SessionModelTranscriptBoundary,
+): string | null {
+  const path = claudeSessionFilePath(cwd, sessionId);
+  if (!path || !host.fs.fileExists(path)) return null;
+  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  if (!contents) return null;
+  if (!boundary.boundaryFound) return null;
+  const entries: ClaudeEntry[] = [];
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line) as ClaudeEntry;
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) entries.push(entry);
+    } catch (_) {
+      continue;
+    }
+  }
+  let boundaryIndex = -1;
+  if (boundary.lastEntryUuid !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      if (entries[index].uuid === boundary.lastEntryUuid) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  } else if (boundary.lastEntryTimestamp !== null && boundary.lastEntryType !== null) {
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index];
+      if (
+        entry.type === boundary.lastEntryType
+        && cleanMetadataValue(entry.timestamp) === boundary.lastEntryTimestamp
+      ) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+    if (boundaryIndex < 0) return null;
+  }
+  for (let index = entries.length - 1; index > boundaryIndex; index--) {
+    const entry = entries[index];
+    if (entry.type !== "assistant") continue;
+    const model = entry.message?.model;
+    if (typeof model === "string" && model && model !== "<synthetic>") {
+      return familyFromModelId(model);
+    }
+  }
+  return null;
 }
 
 function encodeCwdDashed(cwd: string): string {

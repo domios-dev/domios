@@ -287,6 +287,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         match result {
             Ok(()) => {
                 report.ok += 1;
+                mesh.lock().record_announce_outcome(peer_id, true);
                 log::debug!(
                     "[mesh/announce] sent to {} ({}) addrs={:?}",
                     peer_name,
@@ -303,6 +304,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 report.stale_peers.push(peer_id.clone());
             }
             Err(e) => {
+                mesh.lock().record_announce_outcome(peer_id, false);
                 log::warn!("[mesh/announce] {} send failed: {}", peer_id, e);
                 report.errors.push(format!("{}: {}", peer_id, e));
             }

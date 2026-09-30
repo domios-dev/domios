@@ -41,7 +41,38 @@ pub(super) fn should_notify_pending_prompt(
         != codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt)
 }
 
+/// A permission request reaches the tab twice: rendered from its hook payload
+/// and parsed from the screen. Once one rendering is surfaced, the other is the
+/// same prompt and must neither displace it nor notify again.
+pub(super) fn is_second_rendering(
+    existing: Option<(&PendingPrompt, codeterm_types::pty::PromptKind)>,
+    new: (&PendingPrompt, codeterm_types::pty::PromptKind),
+    request_rendering: Option<&PendingPrompt>,
+) -> bool {
+    let (Some((existing, existing_kind)), Some(request)) = (existing, request_rendering) else {
+        return false;
+    };
+    existing_kind == new.1 && existing != new.0 && (new.0 == request || existing == request)
+}
+
 impl ServiceContext {
+    pub(super) fn is_second_prompt_rendering(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+        kind: codeterm_types::pty::PromptKind,
+    ) -> bool {
+        let request = self
+            .prompt_detector
+            .lock()
+            .permission_request_rendering(tab_id);
+        let mux = self.mux.read();
+        let existing = mux
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref().zip(tab.pending_prompt_kind));
+        is_second_rendering(existing, (prompt, kind), request.as_ref())
+    }
+
     fn trust_notification_key(&self, tab_id: &str) -> Option<String> {
         let (provider, cwd) = {
             let mux = self.mux.read();
@@ -61,13 +92,18 @@ impl ServiceContext {
         Some(format!("{provider}:{folder}"))
     }
 
-    pub(super) fn notify_pending_prompt(
+    /// Raise the tab's pending-prompt condition to whoever owns the tab. `None`
+    /// means a sibling tab's notice for the same folder trust already stands.
+    pub(crate) fn notify_pending_prompt(
         &self,
         tab_id: &str,
         prompt: &PendingPrompt,
         kind: codeterm_types::pty::PromptKind,
-    ) {
-        if kind == codeterm_types::pty::PromptKind::DirectoryTrust {
+    ) -> Option<crate::service::tab_conditions::ConditionRoute> {
+        // Only a user-facing tab may own the shared trust notice, or a hidden sibling would silence it.
+        if kind == codeterm_types::pty::PromptKind::DirectoryTrust
+            && self.tab_is_user_facing(tab_id)
+        {
             // Without a resolvable folder there is no sibling to share with, so the tab notifies alone.
             let key = self.trust_notification_key(tab_id);
             if let Some(key) = key {
@@ -81,7 +117,7 @@ impl ServiceContext {
                         tab_id,
                         &prompt.question,
                     );
-                    return;
+                    return None;
                 }
             }
         }
@@ -111,16 +147,16 @@ impl ServiceContext {
             .chain(labels.iter().map(String::as_str))
             .collect::<Vec<_>>()
             .join("\n");
-        self.create_prompt_notification_ext(
-            "Agent needs your response".to_string(),
-            Some(body),
-            Some("warning"),
-            actions,
-            Some(true),
-            super::super::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-            super::super::notification::PushIntent {
-                level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("pending-prompt:{tab_id}:{}", uuid::Uuid::new_v4())),
+        let route = self.raise_tab_condition(
+            tab_id,
+            crate::notification::dedupe::TabCondition::PendingPrompt,
+            crate::service::tab_conditions::ConditionNotice {
+                title: "Agent needs your response".to_string(),
+                body,
+                actions,
+                hint: Some(format!(
+                    "Answer it with `codeterm tab respond <option> --tab {tab_id}`."
+                )),
             },
         );
         let prompt_is_current = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
@@ -129,12 +165,67 @@ impl ServiceContext {
         if prompt_is_current {
             crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
         }
+        Some(route)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::claim_trust_notification;
+    use super::{claim_trust_notification, is_second_rendering};
+    use codeterm_types::pty::{PendingPrompt, PromptKind, PromptOption};
+
+    fn rendering(labels: &[&str]) -> PendingPrompt {
+        PendingPrompt {
+            question: "opaque".into(),
+            options: labels
+                .iter()
+                .enumerate()
+                .map(|(index, label)| PromptOption {
+                    label: (*label).into(),
+                    value: (index + 1).to_string(),
+                })
+                .collect(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        }
+    }
+
+    #[test]
+    fn one_permission_request_surfaces_once_whichever_rendering_comes_first() {
+        let kind = PromptKind::Provider;
+        let hook = rendering(&["hook-a"]);
+        let screen = rendering(&["screen-a", "screen-b"]);
+        let later = rendering(&["later-a", "later-b"]);
+
+        assert!(is_second_rendering(
+            Some((&screen, kind)),
+            (&hook, kind),
+            Some(&hook)
+        ));
+        assert!(is_second_rendering(
+            Some((&hook, kind)),
+            (&screen, kind),
+            Some(&hook)
+        ));
+        assert!(!is_second_rendering(None, (&hook, kind), Some(&hook)));
+        assert!(!is_second_rendering(
+            Some((&screen, kind)),
+            (&later, kind),
+            Some(&hook)
+        ));
+        assert!(!is_second_rendering(
+            Some((&screen, kind)),
+            (&hook, kind),
+            None
+        ));
+        assert!(!is_second_rendering(
+            Some((&screen, PromptKind::DirectoryTrust)),
+            (&hook, kind),
+            Some(&hook)
+        ));
+    }
 
     #[test]
     fn sibling_codex_trust_prompts_share_one_owner_notification() {

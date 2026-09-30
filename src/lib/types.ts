@@ -258,7 +258,7 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedTabView[];
-  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from the
+  /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
   tab_statuses?: Record<string, TabStatus>;
@@ -372,7 +372,7 @@ export interface Notification {
   sticky?: boolean;
 }
 
-export type TabStatus = "Working" | "Waiting" | "Idle" | "Dead";
+export type TabStatus = "Working" | "Waiting" | "Idle" | "Error" | "Dead";
 
 /** A worker running on another mesh peer that reports to a local orchestrator.
  *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost
@@ -466,7 +466,7 @@ export interface SpawnWorkerReq {
 
 // Cron types
 
-export type CronRunStatus = "Running" | "Success" | "Failed" | "Cancelled";
+export type CronRunStatus = "Running" | "AwaitingOwnerPrompt" | "Success" | "Failed" | "Cancelled";
 
 export interface CronRunInfo {
   run_id: string;
@@ -653,7 +653,6 @@ export interface SecretsConfig {
 
 export interface BitwardenSettings {
   server_url: string;
-  persist_master_password: boolean;
 }
 
 export interface MeshConfig {
@@ -942,6 +941,8 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
+export type ModelSwitchMode = "restart_resume" | "unsupported";
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -994,10 +995,9 @@ export interface ProviderDescriptor {
   badge?: string | null;
   /** Provider-declared shell command that updates the CLI on this platform. */
   update_command?: string | null;
-  /// Provider-declared in-agent model switch template. `{model}` is replaced
-  /// with the selected ModelInfo id. Missing means the provider does not
-  /// support arg-based live model switching.
-  model_switch_format?: string | null;
+  /// How a live tab switches model: `restart_resume` relaunches the tab on its
+  /// own session. Missing or `unsupported` means the model is chosen at spawn.
+  model_switch?: ModelSwitchMode;
   /// Provider-declared in-agent context-compaction command. Consumed
   /// capability-keyed by the orchestrator refresh cycle. Missing = no compact.
   compact_command?: string | null;

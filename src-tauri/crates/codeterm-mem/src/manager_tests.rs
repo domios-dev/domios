@@ -1,5 +1,173 @@
 use super::*;
 
+fn folder_skill_item(source_path: &std::path::Path, tags: Vec<String>) -> NewMemItem {
+    let source = format!("file:{}", source_path.display());
+    NewMemItem {
+        kind: MemKind::Skill,
+        scope: MemScope::Global,
+        title: "QA Curator".into(),
+        summary: None,
+        area: None,
+        tags,
+        body: "# QA Curator\nA test skill.".into(),
+        source: Some(source.clone()),
+        importance: 4.0,
+        source_path: Some(source),
+        pinned: false,
+    }
+}
+
+#[test]
+fn deleting_scaffold_skill_removes_its_instance_folder() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skill_dir = data_dir.path().join("skills").join("qa-curator");
+    std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
+    std::fs::write(skill_dir.join("SKILL.md"), "# QA Curator").unwrap();
+    std::fs::write(skill_dir.join("scripts/check.sh"), "exit 0").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &skill_dir.join("SKILL.md"),
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+
+    assert!(mem.delete(&id).unwrap());
+    assert!(!skill_dir.exists());
+}
+
+#[test]
+fn deleting_folder_skill_removes_every_normalized_source_registration() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skills_root = data_dir.path().join("skills");
+    let skill_dir = skills_root.join("qa-curator");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    let skill_md = skill_dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# QA Curator").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let explicit_id = mem
+        .save(folder_skill_item(
+            &skill_md,
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+    let twin_source = format!(
+        "file:{}",
+        skills_root
+            .join("qa-curator")
+            .join("..")
+            .join("qa-curator")
+            .join("SKILL.md")
+            .display()
+    );
+    let twin_id = mem
+        .save(NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "QA Curator Twin".into(),
+            summary: None,
+            area: None,
+            tags: vec!["folder-skill".into(), "auto-registered".into()],
+            body: "# QA Curator Twin".into(),
+            source: Some(twin_source.clone()),
+            importance: 4.0,
+            source_path: Some(twin_source),
+            pinned: false,
+        })
+        .unwrap();
+    let legacy_twin_source = format!(
+        "file:{}",
+        skills_root
+            .join("qa-curator")
+            .join("..")
+            .join("qa-curator")
+            .join("SKILL.md")
+            .display()
+    );
+    let legacy_conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    legacy_conn
+        .execute(
+            "UPDATE mem_items SET source = ?1, source_path = ?1 WHERE id = ?2",
+            rusqlite::params![legacy_twin_source, twin_id],
+        )
+        .unwrap();
+    drop(legacy_conn);
+
+    assert!(mem.delete(&explicit_id).unwrap());
+    assert!(mem.get(&explicit_id).unwrap().is_none());
+    assert!(mem.get(&twin_id).unwrap().is_none());
+    assert!(!skill_dir.exists());
+    drop(mem);
+
+    let conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    store::init_schema(&conn).unwrap();
+    let report = codeterm_mem_store::skill_folders::sync_skill_folders(&conn, &skills_root);
+    let remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_items WHERE kind = 'skill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert!(report.registered.is_empty());
+    assert_eq!(remaining, 0);
+}
+
+#[test]
+fn deleted_external_source_skill_stays_absent_after_restart_scan() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let skills_root = data_dir.path().join("skills");
+    let skill_dir = skills_root.join("curated");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(skill_dir.join("SKILL.md"), "# Curated Skill").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &skills_root
+                .join("curated")
+                .join("..")
+                .join("curated")
+                .join("SKILL.md"),
+            vec!["external-source".into()],
+        ))
+        .unwrap();
+    assert!(mem.delete(&id).unwrap());
+    assert!(skill_dir.exists());
+    drop(mem);
+
+    let conn = Connection::open(data_dir.path().join("knowledge.db")).unwrap();
+    store::init_schema(&conn).unwrap();
+    let report = codeterm_mem_store::skill_folders::sync_skill_folders(&conn, &skills_root);
+
+    assert!(report.registered.is_empty());
+    assert_eq!(report.skipped_tombstoned.len(), 1);
+}
+
+#[test]
+fn deleting_scaffold_skill_never_removes_provider_folder() {
+    let data_dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(data_dir.path().join("skills")).unwrap();
+    let provider_skill = data_dir.path().join("provider").join("qa-curator");
+    std::fs::create_dir_all(&provider_skill).unwrap();
+    std::fs::write(provider_skill.join("SKILL.md"), "# QA Curator").unwrap();
+
+    let mem = MemManager::open_offline(data_dir.path()).unwrap();
+    let id = mem
+        .save(folder_skill_item(
+            &provider_skill.join("SKILL.md"),
+            vec!["folder-skill".into(), "scaffold".into()],
+        ))
+        .unwrap();
+
+    assert!(mem.delete(&id).unwrap());
+    assert!(provider_skill.exists());
+    assert!(provider_skill.join("SKILL.md").exists());
+}
+
 #[test]
 fn open_in_memory_works() {
     let mem = MemManager::open_in_memory().unwrap();
@@ -29,6 +197,124 @@ fn save_and_get_roundtrip() {
     let got = mem.get(&id).unwrap().unwrap();
     assert_eq!(got.title, "test fact");
     assert_eq!(got.body, "the body of the fact");
+}
+
+#[test]
+fn save_same_title_new_body_versions_in_place() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let item = |body: &str| NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "save version contract".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: body.into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+        pinned: false,
+    };
+    let first = mem.save_with_outcome(item("v1"), false).unwrap();
+    let before = mem.get(&first.id).unwrap().unwrap();
+    let updated =
+        store::with_changed_by("agent:caller", || mem.save_with_outcome(item("v2"), false))
+            .unwrap();
+    let after = mem.get(&updated.id).unwrap().unwrap();
+    assert_eq!(updated.outcome, "updated");
+    assert_eq!(after.body, "v2");
+    assert_eq!(after.uid, before.uid);
+    assert_eq!(after.created_at, before.created_at);
+    let history = mem.get_item_history(&updated.id).unwrap();
+    let version = history
+        .iter()
+        .find(|entry| entry.old_body.as_deref() == Some("v1"))
+        .unwrap();
+    assert_eq!(version.changed_by, "agent:caller");
+    assert_eq!(version.changed_fields, vec!["body"]);
+}
+
+#[test]
+fn save_same_title_same_body_no_extract() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let item = |body: &str| NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "save unchanged contract".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: body.into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+        pinned: false,
+    };
+    let created = mem.save_with_outcome(item(" same  body "), false).unwrap();
+    let unchanged = mem.save_with_outcome(item("same body"), false).unwrap();
+    assert_eq!(unchanged.outcome, "unchanged");
+    assert_eq!(unchanged.id, created.id);
+    assert_eq!(mem.get(&created.id).unwrap().unwrap().recurrence_count, 1);
+    assert_eq!(mem.get_item_history(&created.id).unwrap().len(), 1);
+}
+
+#[test]
+fn replace_preserves_uid_and_history() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let item = |body: &str| NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "replace identity contract".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: body.into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+        pinned: false,
+    };
+    let first = mem.save_with_outcome(item("old"), false).unwrap();
+    let uid = mem.get(&first.id).unwrap().unwrap().uid;
+    let replaced = mem.save_with_outcome(item("new"), true).unwrap();
+    assert_eq!(replaced.outcome, "updated");
+    assert_eq!(mem.get(&first.id).unwrap().unwrap().uid, uid);
+    assert!(mem
+        .get_item_history(&first.id)
+        .unwrap()
+        .iter()
+        .any(|entry| entry.old_body.as_deref() == Some("old")));
+}
+
+#[test]
+fn mem_update_noop_reports_unchanged() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = mem
+        .save(NewMemItem {
+            kind: MemKind::Note,
+            scope: MemScope::Global,
+            title: "no-op update contract".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "same".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let changed = mem
+        .update(
+            &id,
+            store::MemUpdate {
+                body: Some("same".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(!changed);
+    assert_eq!(mem.get_item_history(&id).unwrap().len(), 1);
 }
 
 #[test]

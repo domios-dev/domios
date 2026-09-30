@@ -179,6 +179,10 @@ pub enum TabAction {
         /// Tab ID to close.
         #[arg(long = "tab", value_name = "ID")]
         tab: Option<String>,
+        /// Close a Worker that still holds an in-progress task; its Orchestrator
+        /// is notified with the recovery command.
+        #[arg(long)]
+        force: bool,
     },
     /// Rename a tab (default: current tab)
     Rename {
@@ -289,7 +293,7 @@ pub enum TabAction {
         pattern: String,
     },
     /// Interrupt the agent's current generation (NOT a clean exit). Sends the
-    /// provider's declared stopKey (Esc for all bundled providers). Plain
+    /// provider's declared stop-key sequence. Plain
     /// shells get a 200 with {stopped:false} (no key). Designed for
     /// mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it
     /// map straight here.
@@ -319,7 +323,7 @@ pub enum TabAction {
 pub fn normalize_required_tab_selector(action: &mut TabAction) -> Result<(), String> {
     let (command, id, tab) = match action {
         TabAction::Focus { id, tab } => ("focus", id, tab),
-        TabAction::Close { id, tab } => ("close", id, tab),
+        TabAction::Close { id, tab, .. } => ("close", id, tab),
         _ => return Ok(()),
     };
     let selector = tab
@@ -422,7 +426,7 @@ fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyL
 pub enum NotifyAction {
     /// Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it.
     Send {
-        /// Notification title
+        /// Notification title: not blank, at most 200 characters
         title: String,
 
         /// Read the notification body from a relative file in the calling tab's pad
@@ -470,7 +474,7 @@ pub enum NotifyAction {
         #[arg(long = "offer-accept", value_name = "LABEL", requires = "offer")]
         offer_accept: Option<String>,
 
-        /// The tab whose chat holds the message this notification is about
+        /// The open tab whose chat holds the message this notification is about
         #[arg(long = "target-tab", value_name = "TAB_ID")]
         target_tab: Option<String>,
 

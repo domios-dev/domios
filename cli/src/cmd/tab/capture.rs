@@ -41,8 +41,7 @@ pub(super) fn handle_tab_capture(
     let http = match build_local_api() {
         Ok(client) => client,
         Err(error) => {
-            eprintln!("Error: failed to build HTTP client: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to build HTTP client: {error}"));
         }
     };
     let (tab, url, body) = match action {
@@ -66,8 +65,7 @@ pub(super) fn handle_tab_capture(
             handle_result(json, Ok(value));
         }
         Err(error) => {
-            eprintln!("Error: capture request failed: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("capture request failed: {error}"));
         }
     }
 }

@@ -276,7 +276,12 @@ pub enum PlanAction {
     /// Resume a paused effort, restoring its previous mode
     Resume { plan_id: String },
     /// Archive a plan
-    Archive { plan_id: String },
+    Archive {
+        plan_id: String,
+        /// Confirm archive when no Plan tab identity is available.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
     /// Delete a plan. Cascades: the plan's owned spec (1:1, co-located
@@ -630,6 +635,23 @@ mod tests {
         assert!(help.contains("owned spec"), "{help}");
     }
 
+    #[test]
+    fn plan_archive_accepts_human_confirmation_flag() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::PlanAction;
+        use clap::Parser;
+
+        let cli = Cli::try_parse_from(["codeterm", "plan", "archive", "pl_1", "--yes"])
+            .expect("confirmed human archive should parse");
+
+        assert!(matches!(
+            cli.command,
+            Commands::Plan {
+                action: PlanAction::Archive { yes: true, .. }
+            }
+        ));
+    }
+
     fn parse_goal_set(argv: &[&str]) -> (Option<String>, Option<String>) {
         use crate::args::cli::Commands;
         use crate::args::plan::{PlanAction, PlanGoalAction};
@@ -720,5 +742,38 @@ mod tests {
         ]);
         assert_eq!(goal_text, None);
         assert_eq!(vision.as_deref(), Some("explicit vision"));
+    }
+
+    #[test]
+    fn review_verdict_plan_id_is_optional_before_the_task_id() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanReviewAction};
+        use clap::Parser;
+
+        let parse = |argv: &[&str]| match Cli::try_parse_from(argv)
+            .expect("review accept should parse")
+            .command
+        {
+            Commands::Plan {
+                action:
+                    PlanAction::Review {
+                        action:
+                            PlanReviewAction::Accept {
+                                plan_id, task_id, ..
+                            },
+                    },
+            } => (plan_id, task_id),
+            _ => panic!("expected plan review accept"),
+        };
+        let base = ["codeterm", "plan", "review", "accept"];
+        let short: Vec<&str> = base.iter().copied().chain(["t_1", "--note", "n"]).collect();
+        let full: Vec<&str> = base
+            .iter()
+            .copied()
+            .chain(["pl_1", "t_1", "--note", "n"])
+            .collect();
+
+        assert_eq!(parse(&short), (None, "t_1".to_string()));
+        assert_eq!(parse(&full), (Some("pl_1".to_string()), "t_1".to_string()));
     }
 }

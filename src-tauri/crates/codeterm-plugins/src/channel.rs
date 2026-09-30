@@ -41,7 +41,13 @@ pub(super) fn add_channel(
     } else {
         clone_git_channel(&source, &cache_path)?;
     }
-    let manifest = read_channel_manifest(&cache_path)?;
+    let manifest = match read_channel_manifest(&cache_path) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&cache_path);
+            return Err(error);
+        }
+    };
     let name = name_override.unwrap_or_else(|| manifest.name.clone());
     let final_path = channels_root().join(&name);
     if final_path != cache_path {
@@ -159,9 +165,10 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
     let manifest = read_channel_manifest(&channel_path)?;
     let mut rows = Vec::new();
     for plugin in manifest.plugins {
+        let plugin_id = PluginId::parse(plugin.id.clone())?;
         let remote_path = plugin_path(&plugin)?;
         let remote_dir = channel_path.join(&remote_path);
-        let local_dir = plugin_dir(&plugin.id);
+        let local_dir = plugin_dir(&plugin_id);
         let local_version = manifest_version(&local_dir).ok().flatten();
         let remote_version = plugin
             .version

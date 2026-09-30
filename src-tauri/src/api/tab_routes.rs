@@ -8,9 +8,16 @@ use serde::Deserialize;
 use crate::api::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
+mod exec;
 mod send;
+mod stop;
 
+pub use exec::exec_in_tab;
 pub use send::{chat_send_status, chat_send_text, send_text};
+pub use stop::stop_tab;
+
+#[cfg(test)]
+pub(crate) use exec::ExecBody;
 
 #[cfg(test)]
 pub(crate) use send::{
@@ -35,7 +42,9 @@ pub async fn list_tabs(
         focused_workspace,
         agents_only: query.agents,
     };
-    let result = crate::dispatch::dispatch_tab_summary_if_ready(&command, state.svc.as_ref())
+    let svc: std::sync::Arc<dyn crate::dispatch::CommandPort> = state.svc.clone();
+    let result = crate::dispatch::dispatch_tab_summary_blocking(command, svc)
+        .await
         .map_err(|error| {
             if error == crate::dispatch::TAB_SUMMARY_BUSY_ERROR {
                 log::warn!("[api/tabs] {error}");
@@ -47,8 +56,12 @@ pub async fn list_tabs(
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
         })?;
-    let local = result.into_json();
-    if query.local_only {
+    let mut local = result.into_json();
+    let isolated_peer = crate::api::auth::isolated_caller_peer_id(&state, &headers);
+    if let Some(peer_id) = isolated_peer.as_deref() {
+        retain_peer_owned_tab_rows(&state, peer_id, &mut local);
+    }
+    if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));
     }
     let local = local.as_array().cloned().unwrap_or_default();
@@ -60,6 +73,34 @@ pub async fn list_tabs(
         )
         .await,
     )))
+}
+
+/// Narrows a tab listing to the rows an AgentIsolated peer owns; a non-array
+/// listing is cleared rather than passed through.
+pub(crate) fn retain_peer_owned_tab_rows(
+    state: &AppState,
+    peer_id: &str,
+    listing: &mut serde_json::Value,
+) {
+    let Some(rows) = listing.as_array_mut() else {
+        *listing = serde_json::Value::Array(Vec::new());
+        return;
+    };
+    let mux = state.svc.mux.read();
+    rows.retain_mut(|row| {
+        let Some(tab_id) = row.get("id").and_then(serde_json::Value::as_str) else {
+            return false;
+        };
+        let allowed = mux
+            .get_tab(tab_id)
+            .is_some_and(|tab| crate::api::auth::peer_owns_tab(peer_id, tab));
+        if allowed {
+            if let Some(object) = row.as_object_mut() {
+                object.remove("other_workspace_tab_count");
+            }
+        }
+        allowed
+    });
 }
 
 #[derive(Default, Deserialize)]
@@ -335,63 +376,6 @@ fn validate_chat_backend_spawn(
     }
 }
 
-/// Interrupt the agent's current operation (NOT a clean exit).
-/// Reads `provider.stop_keystroke()` for the tab's agent_type and
-/// writes those raw bytes to the PTY. 200 + `{stopped:false}` when
-/// the provider has no stop keystroke declared; 404 when the tab
-/// or PTY is gone. Used by the per-tab Stop button.
-pub async fn stop_tab(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_tab_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
-    let (agent_id, session_id) = {
-        let mux = state.svc.mux.write();
-        match mux.get_tab(&tab_id) {
-            Some(tab) => (tab.agent_type.clone(), tab.agent_session_id.clone()),
-            None => (None, None),
-        }
-    };
-    // No agent on this tab → nothing to stop.
-    let Some(aid) = agent_id else {
-        return Ok(Json(serde_json::json!({"ok": true, "stopped": false})));
-    };
-    if let Some(sid) = session_id {
-        let svc = state.svc.clone();
-        let tab = tab_id.clone();
-        let structured_abort = tokio::task::spawn_blocking(move || {
-            crate::service::structured_prompt::abort_session(&svc, &tab, &sid)
-        })
-        .await
-        .ok()
-        .flatten();
-        if let Some(Ok(())) = structured_abort {
-            if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
-                state.svc.mark_agent_interrupted(&pty_id);
-            }
-            return Ok(Json(
-                serde_json::json!({"ok": true, "stopped": true, "structured_abort": true}),
-            ));
-        }
-    }
-    let key: String = state
-        .svc
-        .agent_registry
-        .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
-        .flatten()
-        .unwrap_or_else(|| "\x1b".to_string());
-    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
-        state.svc.mark_agent_interrupted(&pty_id);
-    }
-    state
-        .svc
-        .write_raw(&tab_id, key.as_bytes())
-        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
-    Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
-}
-
 pub async fn focus_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -437,127 +421,17 @@ pub async fn get_tab_output(
     Ok(Json(result.into_json()))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ExecBody {
-    command: String,
-    timeout_ms: Option<u64>,
-    strip_ansi: Option<bool>,
-}
-
-pub async fn exec_in_tab(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_tab_id): Path<String>,
-    Json(body): Json<ExecBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let tab_id = resolve_tab(&state, &raw_tab_id)?;
-
-    // the link, else await_pty_link waits for a PTY nothing triggered and fails.
-    state
-        .svc
-        .ensure_tab_pty_for_send(&tab_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
-    if !await_pty_link(&state, &tab_id).await {
-        return Err((StatusCode::NOT_FOUND, "Tab not found or PTY did not start"));
-    }
-    let pty_id = state
-        .svc
-        .resolve_pty_id(&tab_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
-
-    let start_offset = state
-        .svc
-        .output_buf
-        .lock()
-        .get_text(&pty_id)
-        .map(|t| t.len())
-        .unwrap_or(0);
-
-    // path; plain shell tabs use script-exec so markers never leak literally.
-    let has_agent = state.svc.tab_has_agent(&tab_id);
-    if has_agent {
-        state
-            .svc
-            .send_text(&tab_id, &body.command)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
-    } else {
-        state
-            .svc
-            .send_shell_spawn(&pty_id, &body.command)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
-    }
-
-    let timeout_ms = body.timeout_ms.unwrap_or(10000);
-    let buf_clone = state.svc.output_buf.clone();
-    let pty_clone = pty_id.clone();
-
-    let result = tokio::spawn(async move {
-        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-            let len1 = buf_clone
-                .lock()
-                .get_text(&pty_clone)
-                .map(|t| t.len())
-                .unwrap_or(0);
-            if len1 > start_offset {
-                tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
-                let len2 = buf_clone
-                    .lock()
-                    .get_text(&pty_clone)
-                    .map(|t| t.len())
-                    .unwrap_or(0);
-                if len2 == len1 || tokio::time::Instant::now() >= deadline {
-                    let text = buf_clone.lock().get_text(&pty_clone).unwrap_or_default();
-                    let new = if start_offset < text.len() {
-                        text[start_offset..].to_string()
-                    } else {
-                        String::new()
-                    };
-                    return (new, text.len(), false);
-                }
-            }
-            if tokio::time::Instant::now() >= deadline {
-                let text = buf_clone.lock().get_text(&pty_clone).unwrap_or_default();
-                let new = if start_offset < text.len() {
-                    text[start_offset..].to_string()
-                } else {
-                    String::new()
-                };
-                return (new, text.len(), true);
-            }
-        }
-    })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Exec task failed"))?;
-
-    let (raw_output, offset, timed_out) = result;
-    let output = if body.strip_ansi.unwrap_or(false) {
-        // Re-emulate at the pty's REAL width: shell partial-line redraws
-        // (zsh's % padding) erase the last output line at any other width.
-        let cols = state
-            .svc
-            .pty
-            .lock()
-            .size(&pty_id)
-            .map(|(c, _)| c)
-            .unwrap_or(200);
-        crate::pty::ansi::clean_terminal_output_sized(&raw_output, 500, cols)
-    } else {
-        raw_output
-    };
-    let mut resp = serde_json::json!({"output": output, "offset": offset});
-    if timed_out {
-        resp["timeout"] = serde_json::json!(true);
-    }
-    Ok(Json(resp))
+#[derive(Deserialize, Default)]
+pub(crate) struct CloseTabQuery {
+    #[serde(default)]
+    force: bool,
 }
 
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
+    Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
@@ -566,14 +440,20 @@ pub async fn close_tab(
             &crate::dispatch::Command::TabClose {
                 tab_id,
                 caller_tab_id: Some(caller_tab_id),
+                force: query.force,
             },
             state.svc.as_ref(),
         )
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
+    let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
     state.svc.close_tab(&tab_id).map_err(map_close_error)?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut result = serde_json::json!({ "ok": true });
+    if !warnings.is_empty() {
+        result["warnings"] = serde_json::json!(warnings);
+    }
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -637,6 +517,7 @@ pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
     } else if e.starts_with("Workspace is closing:")
         || e.starts_with("Workspace close reservation lost:")
         || e.starts_with("Workspace changed while closing:")
+        || e.starts_with(crate::service::worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX)
     {
         StatusCode::CONFLICT
     } else {

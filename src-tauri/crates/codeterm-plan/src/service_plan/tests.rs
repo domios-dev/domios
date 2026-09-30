@@ -4,6 +4,7 @@ use crate::service_plan::task_queries::TaskListFilter;
 
 mod tag_retag;
 mod task_queries;
+mod task_text_caps;
 
 fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let root = tempfile::tempdir().unwrap().keep();
@@ -597,6 +598,7 @@ fn update_task_preserves_model_when_patching_parent() {
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
+    store.start_task_for_test(&id, &tid, 29);
     store
         .close_task(&id, &tid, Some("shipped"), AgentRef::from_tab("w"), 30)
         .unwrap();
@@ -629,6 +631,7 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
         })
         .unwrap();
 
+    store.start_task_for_test(&id, &tid, 29);
     store
         .close_task(&id, &tid, None, AgentRef::from_tab("w"), 30)
         .unwrap();
@@ -642,9 +645,8 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
 }
 
 #[test]
-fn close_task_accepts_every_lifecycle_state() {
+fn close_task_accepts_every_started_lifecycle_state() {
     for status in [
-        TaskStatus::Pending,
         TaskStatus::InProgress,
         TaskStatus::InReview,
         TaskStatus::Blocked,
@@ -685,6 +687,7 @@ fn close_task_accepts_every_lifecycle_state() {
 fn closed_task_assignment_is_not_indexed_or_bound() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
+    store.start_task_for_test(&id, &tid, 29);
     store
         .close_task(&id, &tid, None, AgentRef::from_tab("w"), 30)
         .unwrap();

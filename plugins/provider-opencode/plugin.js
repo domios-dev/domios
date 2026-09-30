@@ -25,11 +25,13 @@ __export(plugin_exports, {
 module.exports = __toCommonJS(plugin_exports);
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v3";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
+var ASSISTANT_MESSAGE_MAX_BYTES = 1 << 20;
+var MESSAGE_ROLE_MAX_BYTES = 16 << 20;
 var lastPromptShape = "horizontal";
 function parsePermissionPrompt(text) {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
@@ -244,7 +246,7 @@ function discoverOpencodeGroupUsage() {
   if (!db || !host.fs.fileExists(db)) return [];
   const rows = host.fs.sqliteQuery(
     db,
-    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
+    "SELECT json_extract(data,'$.providerID') AS g, COUNT(*) AS messages, SUM(COALESCE(json_extract(data,'$.tokens.input'),0)) AS input, SUM(COALESCE(json_extract(data,'$.tokens.output'),0)) AS output, SUM(COALESCE(json_extract(data,'$.tokens.cache.read'),0)) AS cache_read, SUM(COALESCE(json_extract(data,'$.tokens.cache.write'),0)) AS cache_write, SUM(COALESCE(json_extract(data,'$.cost'),0)) AS cost FROM message WHERE octet_length(data) <= " + ASSISTANT_MESSAGE_MAX_BYTES + " AND json_extract(data,'$.role')='assistant' AND json_extract(data,'$.providerID') IS NOT NULL GROUP BY g",
     []
   );
   const out = [];
@@ -534,14 +536,14 @@ function opencodeBindingPluginSource() {
     'const PROVIDER_ID = "opencode";',
     "let lastReported = null;",
     "",
-    "function endpoint() {",
+    'function endpoint(event = "session_start") {',
     "  const tab = process.env.CODETERM_TAB_ID;",
     "  const token = process.env.CODETERM_API_TOKEN;",
     "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
     "  if (!tab) return null;",
     "  if (!token || !nonce || !process.env.CODETERM_API_URL) return null;",
     '  const base = process.env.CODETERM_API_URL.replace(/\\/+$/, "");',
-    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/${event}`;",
     "}",
     "",
     "function normalizeSessionID(value) {",
@@ -558,10 +560,10 @@ function opencodeBindingPluginSource() {
     "",
     "async function report(sessionID, source, directory) {",
     "  sessionID = normalizeSessionID(sessionID);",
-    "  if (!sessionID || sessionID === lastReported) return;",
+    "  if (!sessionID) return false;",
+    "  if (sessionID === lastReported) return true;",
     "  const url = endpoint();",
-    "  if (!url) return;",
-    "  lastReported = sessionID;",
+    "  if (!url) return false;",
     "  const headers = {",
     '    "content-type": "application/json",',
     '    "x-codeterm-agent-provider": PROVIDER_ID,',
@@ -578,7 +580,8 @@ function opencodeBindingPluginSource() {
     "      cwd: directory || process.cwd(),",
     "    }),",
     "  }).then((response) => response.ok, () => false);",
-    "  if (!delivered && lastReported === sessionID) lastReported = null;",
+    "  if (delivered) lastReported = sessionID;",
+    "  return delivered;",
     "}",
     "",
     "function eventSessionID(event) {",
@@ -608,9 +611,44 @@ function opencodeBindingPluginSource() {
     "  );",
     "}",
     "",
-    "export default async function CodeTermSessionBindingPlugin({ directory }) {",
+    "function resumedSessionID(argv) {",
+    "  for (let i = 0; i < argv.length; i++) {",
+    '    if (argv[i] === "--session") return normalizeSessionID(argv[i + 1]);',
+    '    if (typeof argv[i] === "string" && argv[i].startsWith("--session=")) return normalizeSessionID(argv[i].slice(10));',
+    "  }",
+    "  return null;",
+    "}",
+    "",
+    "async function reportProviderEvent(event, directory) {",
+    "  const sessionID = eventSessionID(event);",
+    "  if (!(await report(sessionID, event.type, eventDirectory(event, directory)))) return;",
+    '  const url = endpoint("provider_event");',
+    "  if (!url) return;",
+    "  await fetch(url, {",
+    '    method: "POST",',
+    "    headers: {",
+    '      "content-type": "application/json",',
+    '      "x-codeterm-agent-provider": PROVIDER_ID,',
+    '      "x-codeterm-binding-nonce": process.env.CODETERM_SESSION_BINDING_NONCE,',
+    "      authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,",
+    "    },",
+    "    body: JSON.stringify({ session_id: sessionID, event }),",
+    "  }).catch(() => null);",
+    "}",
+    "",
+    "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
+    "  const resumed = resumedSessionID(process.argv || []);",
+    "  if (resumed && client?.session?.get) {",
+    "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
+    "    const session = result?.data || result;",
+    '    if (session?.id === resumed) await report(resumed, "session.get", session.directory || directory);',
+    "  }",
     "  return {",
     "    async event({ event }) {",
+    '      if (event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
+    "        await reportProviderEvent(event, directory);",
+    "        return;",
+    "      }",
     "      if (",
     '        event?.type === "session.created" ||',
     '        event?.type === "session.updated" ||',
@@ -655,8 +693,8 @@ function scanMessagesForQualifiedModel(db, sessionId) {
   try {
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
     );
     for (let i = 0; i < rows.length; i++) {
       const raw = rows[i].data;
@@ -685,6 +723,49 @@ function scanSessionDirectory(db, sessionId) {
   } catch (_) {
     return null;
   }
+}
+
+// plugins/provider-opencode/src/sessionContent.ts
+var CONTENT_SQL_HEAD = "WITH budget AS (SELECT id, SUM(octet_length(data)) OVER (ORDER BY time_created DESC, id DESC) AS running FROM part WHERE session_id = ?1) SELECT p.time_created AS ts, p.data AS part, m.data AS msg FROM budget b JOIN part p ON p.id = b.id JOIN message m ON m.id = p.message_id WHERE b.running <= ?2";
+var CONTENT_SQL_TAIL = " ORDER BY p.time_created ASC, p.id ASC";
+var TOTAL_SQL = "SELECT SUM(octet_length(data)) AS total FROM part WHERE session_id = ?1";
+function queryRows(db, sql, params) {
+  const raw = host.sqliteQueryAllJson(db, sql, JSON.stringify(params));
+  if (raw === null || raw === void 0) return null;
+  const rows = safeJson(raw);
+  return Array.isArray(rows) ? rows : null;
+}
+function likePattern(term) {
+  return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
+}
+function readOpencodeSessionContent(db, sessionId, query) {
+  const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
+  const hints = query && Array.isArray(query.hintTerms) ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0) : [];
+  const totals = queryRows(db, TOTAL_SQL, [sessionId]);
+  if (!totals) return null;
+  const total = Number(totals.length > 0 ? totals[0].total : 0) || 0;
+  const params = [sessionId, maxBytes];
+  let hintSql = "";
+  for (let i = 0; i < hints.length; i++) {
+    params.push(likePattern(hints[i]));
+    hintSql += " AND p.data LIKE ?" + String(params.length) + " ESCAPE '\\'";
+  }
+  const rows = queryRows(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params);
+  if (!rows) return null;
+  const messages = [];
+  for (let i = 0; i < rows.length; i++) {
+    const part = safeJson(rows[i].part);
+    if (!part || part.type !== "text" || typeof part.text !== "string" || !part.text.trim()) continue;
+    const msg = safeJson(rows[i].msg);
+    const ts = rows[i].ts;
+    messages.push({
+      role: msg && typeof msg.role === "string" ? msg.role : "assistant",
+      text: part.text,
+      ts: typeof ts === "number" ? Math.floor(ts / 1e3) : null,
+      isMeta: part.synthetic === true || part.ignored === true
+    });
+  }
+  return { messages, truncated: total > maxBytes };
 }
 
 // plugins/provider-opencode/src/plugin.ts
@@ -778,6 +859,15 @@ var plugin = {
   detectEvents(text) {
     const t = String(text || "");
     const events = [];
+    try {
+      const event = JSON.parse(t);
+      if (event?.type === "session.error") events.push("turn_error");
+      if (event?.type === "session.idle") events.push("task_complete");
+      if (event?.type === "session.status" && event.properties?.status?.type === "busy") {
+        events.push("turn_started");
+      }
+    } catch (_) {
+    }
     if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
       events.push("permission_request");
     }
@@ -821,16 +911,10 @@ var plugin = {
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
-    let localTaskPath = null;
+    let taskPath = null;
     if (p.task) {
-      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
-      const platform = host.platform();
-      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-      localTaskPath = `.codeterm/${taskName}`;
-      const source = host.shell.quoteFor(taskPath, platform);
-      const local = host.shell.quoteFor(localTaskPath, platform);
-      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `mkdir -p .codeterm && cp -- ${source} ${local} &&`);
     }
     parts.push("opencode");
     if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
@@ -850,8 +934,7 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    const cleanup = localTaskPath ? `${host.platform() === "windows" ? "Remove-Item -LiteralPath " : "rm -f -- "}${host.shell.quoteFor(localTaskPath, host.platform())}${host.platform() === "windows" ? " -Force -ErrorAction SilentlyContinue;" : ""}` : "";
-    return withPadPermissionConfig(parts.join(" "), localTaskPath ? [localTaskPath] : void 0, cleanup);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0);
   },
   buildResumeCommand(sessionId, skipPermissions) {
     return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
@@ -877,14 +960,9 @@ var plugin = {
     if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
     if (!taskPath) return withPadPermissionConfig(parts.join(" "));
-    const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
-    const localTaskPath = `.codeterm/${taskName}`;
-    const source = host.shell.quoteFor(taskPath, platform);
-    const local = host.shell.quoteFor(localTaskPath, platform);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
-    const prologue = platform === "windows" ? `${project ? `Set-Location -LiteralPath ${project} -ErrorAction Stop; ` : ""}New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force;` : `${project ? `cd -- ${project} && ` : ""}mkdir -p .codeterm && cp -- ${source} ${local} &&`;
-    const cleanup = platform === "windows" ? `Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue;` : `rm -f -- ${local}`;
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [localTaskPath], cleanup);
+    const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -924,6 +1002,12 @@ var plugin = {
     if (!db || !host.fs.fileExists(db)) return null;
     const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session WHERE id = ?1 LIMIT 1", [sessionId]);
     return rows.length > 0 && rows[0].id === sessionId ? opencodeSessionRecord(rows[0], db) : null;
+  },
+  readSessionContent(sessionId, query) {
+    if (typeof sessionId !== "string" || !sessionId.startsWith("ses_")) return null;
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    return readOpencodeSessionContent(db, sessionId, query);
   },
   checkIntegration() {
     const cfg = opencodeConfigPath();
@@ -1057,8 +1141,8 @@ var plugin = {
     if (!sessionId) return null;
     return scanMessagesForModel(
       db,
-      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-      [sessionId]
+      "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
+      [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
     );
   },
   usesStructuredChat() {
@@ -1072,8 +1156,8 @@ var plugin = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
-      [sessionId, sinceMs]
+      "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_updated >= ?2 ORDER BY p.time_updated ASC, p.id ASC",
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
     );
     const messages = [];
     let lastTs = sinceMs;
@@ -1090,9 +1174,7 @@ var plugin = {
       seenAtLastTs.push(id);
       const part = safeJson(rows[i].part);
       if (!part) continue;
-      let role = "assistant";
-      const msg = safeJson(rows[i].msg);
-      if (msg && msg.role) role = msg.role;
+      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role : "assistant";
       const cm = partToChatMsg(part, role, id, created);
       if (cm) messages.push(cm);
     }

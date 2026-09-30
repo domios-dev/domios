@@ -7,6 +7,7 @@ use crate::service::plan::interruption::checkpoint_digest;
 use tauri::Emitter;
 
 const CHECKPOINT_ARTIFACT_MAX_BYTES: usize = 4 * 1024 * 1024;
+const CHECKPOINT_UNTRACKED_FILE_READ_LIMIT: u64 = CHECKPOINT_ARTIFACT_MAX_BYTES as u64;
 
 fn attempt_is_active_for_interruption(
     task_status: &crate::plan::TaskStatus,
@@ -333,6 +334,15 @@ impl super::ServiceContext {
             log::error!("[worker-interruption] fence failed: {error}");
             return false;
         }
+        if request.event == WorkerInterruptionEvent::ProcessExited {
+            let loss = self.worker_loss_for_task(
+                &request.plan_id,
+                &request.task_id,
+                tab_id,
+                crate::service::worker_loss::WorkerLossCause::ProcessExited,
+            );
+            self.report_worker_losses(loss.into_iter().collect());
+        }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
@@ -576,11 +586,18 @@ pub fn seal_git_checkpoint(
                         .to_vec(),
                 )
             } else {
-                (
-                    "file",
-                    std::fs::read(&path)
-                        .map_err(|error| format!("read untracked {relative}: {error}"))?,
-                )
+                if metadata.len() > CHECKPOINT_UNTRACKED_FILE_READ_LIMIT {
+                    return Err("checkpoint diff artifact exceeds 4 MiB bound".into());
+                }
+                let mut bytes = Vec::with_capacity(metadata.len() as usize);
+                std::fs::File::open(&path)
+                    .and_then(|file| {
+                        use std::io::Read;
+                        file.take(CHECKPOINT_UNTRACKED_FILE_READ_LIMIT)
+                            .read_to_end(&mut bytes)
+                    })
+                    .map_err(|error| format!("read untracked {relative}: {error}"))?;
+                ("file", bytes)
             };
             if diff_artifact
                 .len()

@@ -12,6 +12,13 @@ export interface SessionDeltaContext {
   from_offset: number;
 }
 
+export interface SessionModelTranscriptBoundary {
+  lastEntryUuid: string | null;
+  lastEntryTimestamp: string | null;
+  lastEntryType: string | null;
+  boundaryFound: boolean;
+}
+
 // ── statusBubble ──
 
 export type BubbleTone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
@@ -241,6 +248,12 @@ export interface AgentProvider {
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
+  sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;
+  detectSessionModelAfterBoundary?(
+    cwd: string,
+    sessionId: string,
+    boundary: SessionModelTranscriptBoundary,
+  ): string | null;
   detectSessionReasoningEffort?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   /** The one record owning exactly this id, or null; never scans session history. */
@@ -257,6 +270,12 @@ export interface AgentProvider {
    *  bare model-id prefix). The picker shows it for the selected model's group. */
   modelGroupUsage?(): ModelGroupUsage[];
   parseSessionMessages?(text: string): unknown[];
+  /** One session's messages from a store shared by every session, newest-first within
+   *  `query.maxBytes`; a message lacking any `hintTerms` entry may be omitted. Null = unreadable. */
+  readSessionContent?(
+    sessionId: string,
+    query: { maxBytes: number; hintTerms: string[] },
+  ): { messages: unknown[]; truncated?: boolean } | null;
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;

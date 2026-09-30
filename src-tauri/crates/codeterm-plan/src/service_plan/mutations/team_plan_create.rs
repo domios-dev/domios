@@ -36,6 +36,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
+        crate::service_plan::text_bounds::validate_plan_label("plan title", &title)?;
         let _writer_turn = self.mutation_writer.enter();
         let team_id = team_id.trim().to_string();
         if team_id.is_empty() {
@@ -179,6 +180,7 @@ pass an absolute path with --project, or omit --project to use the current worki
             plan.planner = None;
             plan.team_id = Some(team_id.to_string());
             plan.status = PlanStatus::Active;
+            plan.orphaned = None;
             Ok(plan.clone())
         })
     }

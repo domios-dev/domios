@@ -453,9 +453,12 @@ impl ServiceContext {
             });
         }
 
-        let clearance =
-            crate::service::spawn::provider_launch_preflight(&self.agent_registry, &agent_cmd)
-                .map_err(|e| e.to_string())?;
+        let clearance = crate::service::spawn::provider_launch_preflight(
+            &self.agent_registry,
+            &agent_cmd,
+            params.permission_bypass_requested(&agent_cmd),
+        )
+        .map_err(|e| e.to_string())?;
         let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
@@ -1091,32 +1094,6 @@ impl ServiceContext {
     }
 }
 
-pub(crate) fn remote_task_binding_matches_authority(
-    remote: Option<&super::types::RemoteTaskBinding>,
-    authority: Option<&super::types::TaskLaunchAuthority>,
-) -> bool {
-    let identity = authority.map(
-        |authority| crate::service::startup_lease::StartupTaskIdentity {
-            plan_id: authority.plan_id.clone(),
-            task_id: authority.task_id.clone(),
-            attempt_id: authority.attempt_id.clone(),
-        },
-    );
-    remote_task_binding_matches(remote, identity.as_ref())
-}
-
-fn remote_task_binding_matches(
-    remote: Option<&super::types::RemoteTaskBinding>,
-    identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
-) -> bool {
-    remote.zip(identity).is_some_and(|(remote, identity)| {
-        !remote.origin_peer_id.trim().is_empty()
-            && remote.plan_id == identity.plan_id
-            && remote.task_id == identity.task_id
-            && remote.attempt_id == identity.attempt_id
-    })
-}
-
 /// A chat backend has no interactive turn to paste a task into, so the launch
 /// brief has to travel in its session config instead. Keyed off the same
 /// spawnable predicate the routing seam uses, so the two cannot disagree.
@@ -1179,6 +1156,10 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
         params.report_target_tab_id = params.parent_tab_id.clone();
     }
 }
+
+mod remote_binding;
+use remote_binding::remote_task_binding_matches;
+pub(crate) use remote_binding::remote_task_binding_matches_authority;
 
 #[cfg(test)]
 mod tests;

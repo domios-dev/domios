@@ -10,16 +10,30 @@ impl LaunchGeneration {
         svc: &ServiceContext,
         task_identity: Option<&crate::service::startup_lease::StartupTaskIdentity>,
         public_send_key: Option<crate::service::public_send_readiness::PublicSendGateKey>,
+        origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
+        resume_session_id: Option<&str>,
     ) -> Result<(), String> {
-        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
+        let nonce = match resume_session_id {
+            Some(session_id) => {
+                svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
+            }
+            None => svc.rotate_session_binding_nonce(&self.tab_id),
+        };
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
-        svc.activate_agent_startup_supervision(
-            &self.tab_id,
-            &self.pty_id,
-            self.binding_nonce.as_deref().expect("launch binding nonce"),
-            task_identity,
-        )?;
+        // A relaunched Worker keeps its persisted task binding, but its dispatch
+        // handshake was settled by the launch that first started it.
+        let startup_owed = !origin.relaunches_existing_agent()
+            || task_identity.is_some()
+            || svc.worker_ack.startup_handshake_owed(&self.tab_id);
+        if startup_owed {
+            svc.activate_agent_startup_supervision(
+                &self.tab_id,
+                &self.pty_id,
+                self.binding_nonce.as_deref().expect("launch binding nonce"),
+                task_identity,
+            )?;
+        }
         svc.bind_public_send_launch_attempt(
             crate::service::launch_readiness::LaunchAttempt {
                 tab_id: self.tab_id.clone(),
@@ -79,12 +93,22 @@ impl LaunchGeneration {
             svc.void_launch_session_proof(&self.tab_id);
         }
         let reason = failure.reason();
+        log::warn!(
+            "[launch] Tab {} launch failed on PTY {} at {:?}: {reason}",
+            self.tab_id,
+            self.pty_id,
+            self.stage
+        );
         if let Some(attempt) = self.attempt() {
             svc.retire_public_send_launch_attempt(&attempt);
         }
-        self.finish_if_current(|| {
+        let failed = self.finish_if_current(|| {
             svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
-        })
+        });
+        if failed {
+            crate::service::task_files::release_tab(svc, &self.tab_id);
+        }
+        failed
     }
 
     pub(super) fn attempt(&self) -> Option<crate::service::launch_readiness::LaunchAttempt> {

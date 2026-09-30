@@ -1,8 +1,11 @@
 use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::startup_readiness::{
-    first_turn_binding_required, input_ready_stage_after_provider_ready,
-    launch_waits_for_first_turn_binding,
+    first_turn_binding_required, launch_waits_for_first_turn_binding, provider_ready_stage,
 };
+#[path = "tests/readiness_evidence.rs"]
+mod readiness_evidence;
+#[path = "tests/relaunch_supervision.rs"]
+mod relaunch_supervision;
 #[path = "tests/structural_wait.rs"]
 mod structural_wait;
 use super::{
@@ -124,8 +127,6 @@ fn resume_binding_on_first_turn_accepts_input_at_provider_ready() {
     ));
 
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
-    let input_ready_stage = input_ready_stage_after_provider_ready(true);
-    assert_eq!(input_ready_stage, BootStage::AgentReady);
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
     assert!(include_str!("owner_prompt_wait.rs").contains("await_lazy_session_input_readiness"));
     let launch_source = include_str!("../launch.rs");
@@ -302,10 +303,6 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     ));
     let mut launch = LaunchGeneration::begin(&tab_id, pty_id.into());
-    assert_eq!(
-        input_ready_stage_after_provider_ready(true),
-        BootStage::AgentReady,
-    );
     assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
 
     assert!(include_str!("owner_prompt_wait.rs").contains("await_lazy_session_input_readiness"));

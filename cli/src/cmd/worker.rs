@@ -1,8 +1,6 @@
 // `mem run-worker` processes one dreaming/librarian batch directly in knowledge.db.
 // It exits after one pass; supervisor runs it to isolate maintenance failures.
 
-use crate::data_dir_name;
-
 pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
     let db_path = match db_path_arg {
         Some(p) => std::path::PathBuf::from(p),
@@ -42,10 +40,13 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
         }),
         "dreaming-normalize" => worker_dreaming_normalize(&conn),
         "librarian-once" => {
-            let skills_root = dirs::home_dir()
-                .unwrap_or_default()
-                .join(data_dir_name())
-                .join("skills");
+            let mem_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
+            let data_dir = if mem_dir.file_name().is_some_and(|name| name == "mem") {
+                mem_dir.parent().unwrap_or(mem_dir)
+            } else {
+                mem_dir
+            };
+            let skills_root = data_dir.join("skills");
             worker_librarian_once(&conn, &skills_root).map(|r| serde_json::json!(r))
         }
         other => Err(format!("unknown worker kind: {}", other)),
@@ -67,8 +68,7 @@ fn worker_emit_error(msg: &str) {
 }
 
 fn resolve_default_db_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir not found")?;
-    Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
+    Ok(crate::data_root().join("mem").join("knowledge.db"))
 }
 
 /// Open a knowledge.db connection, set busy_timeout, run codeterm-mem-store
@@ -410,6 +410,8 @@ fn run_merge_pass(conn: &rusqlite::Connection) -> Result<(u64, Vec<serde_json::V
 #[derive(Debug, Default, serde::Serialize)]
 struct WorkerLibrarianReport {
     skill_folders_registered: usize,
+    skill_folders_merged: Vec<codeterm_mem_store::skill_folders::MergedSkill>,
+    skill_folders_tombstoned: usize,
     files_re_indexed: usize,
     files_unchanged: usize,
     source_missing: usize,
@@ -422,154 +424,13 @@ fn worker_librarian_once(
     skills_root: &std::path::Path,
 ) -> Result<WorkerLibrarianReport, String> {
     let mut report = WorkerLibrarianReport::default();
-    librarian_scan_skill_folders(conn, skills_root, &mut report);
+    let folders = codeterm_mem_store::skill_folders::sync_skill_folders(conn, skills_root);
+    report.skill_folders_registered = folders.registered.len();
+    report.skill_folders_merged = folders.merged;
+    report.skill_folders_tombstoned = folders.skipped_tombstoned.len();
+    report.errors.extend(folders.errors);
     librarian_sync_files(conn, &mut report)?;
     Ok(report)
-}
-
-fn librarian_scan_skill_folders(
-    conn: &rusqlite::Connection,
-    skills_root: &std::path::Path,
-    report: &mut WorkerLibrarianReport,
-) {
-    if !skills_root.is_dir() {
-        return;
-    }
-    let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
-    if let Ok(mut stmt) =
-        conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'")
-    {
-        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-            for row in rows.flatten() {
-                known.insert(row);
-            }
-        }
-    }
-
-    let entries = match std::fs::read_dir(skills_root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let folder = entry.path();
-        if !folder.is_dir() {
-            continue;
-        }
-        let skill_md = folder.join("SKILL.md");
-        if !skill_md.is_file() {
-            continue;
-        }
-        let source = format!("file:{}", skill_md.display());
-        if known.contains(&source) {
-            continue;
-        }
-
-        let body = match std::fs::read_to_string(&skill_md) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let title = title_from_skill_md(&body).unwrap_or_else(|| {
-            folder
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "skill".into())
-        });
-        let area = area_from_skill_md(&body);
-
-        let id = build_skill_id(&title);
-        let now = chrono::Utc::now().to_rfc3339();
-        let tags_json =
-            serde_json::to_string(&vec!["folder-skill", "auto-registered"]).unwrap_or("[]".into());
-        let result = conn.execute(
-            r#"INSERT OR IGNORE INTO mem_items
-               (id, uid, kind, scope, title, summary, area, tags_json,
-                body_inline, source, importance, created_at, updated_at,
-                source_path)
-               VALUES (?1, ?2, 'skill', 'global', ?3, NULL, ?4, ?5,
-                       ?6, ?7, 4.0, ?8, ?8, ?7)"#,
-            rusqlite::params![
-                &id,
-                &uuid::Uuid::new_v4().to_string(),
-                &title,
-                &area,
-                &tags_json,
-                &body,
-                &source,
-                &now,
-            ],
-        );
-        match result {
-            Ok(_n) => {
-                let _ = conn.execute(
-                    "INSERT OR REPLACE INTO mem_fts (mem_id, title, summary, body, tags) \
-                     VALUES (?1, ?2, '', ?3, ?4)",
-                    rusqlite::params![&id, &title, &body, &tags_json],
-                );
-                report.skill_folders_registered += 1;
-            }
-            Err(e) => report
-                .errors
-                .push(format!("register skill {}: {}", source, e)),
-        }
-    }
-}
-
-fn build_skill_id(title: &str) -> String {
-    let slug: String = title
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let trimmed = slug.trim_matches('_');
-    let short = if trimmed.len() > 40 {
-        trimmed
-            .char_indices()
-            .nth(40)
-            .map_or(trimmed, |(i, _)| &trimmed[..i])
-    } else {
-        trimmed
-    };
-    format!("skill_{}", short)
-}
-
-fn title_from_skill_md(body: &str) -> Option<String> {
-    if let Some(line) = body
-        .lines()
-        .take(20)
-        .find(|l| l.trim_start().starts_with("title:"))
-    {
-        let v = line
-            .trim_start()
-            .trim_start_matches("title:")
-            .trim()
-            .trim_matches('"')
-            .to_string();
-        if !v.is_empty() {
-            return Some(v);
-        }
-    }
-    body.lines()
-        .find(|l| l.trim_start().starts_with("# "))
-        .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
-}
-
-fn area_from_skill_md(body: &str) -> Option<String> {
-    body.lines()
-        .take(20)
-        .find(|l| l.trim_start().starts_with("area:"))
-        .map(|l| {
-            l.trim_start()
-                .trim_start_matches("area:")
-                .trim()
-                .trim_matches('"')
-                .to_string()
-        })
-        .filter(|s| !s.is_empty())
 }
 
 struct LibrarianTrackedItem {
@@ -862,7 +723,7 @@ mod tests {
 
     #[test]
     fn build_skill_id_ascii() {
-        let id = build_skill_id("My Skill");
+        let id = codeterm_mem_store::skill_folders::skill_id_for_title("My Skill");
         assert_eq!(id, "skill_my_skill");
     }
 
@@ -870,14 +731,18 @@ mod tests {
     fn build_skill_id_non_ascii_does_not_panic() {
         // Non-ASCII can be 3-byte; keep guard to avoid panic on byte slicing.
         let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
-        let result = std::panic::catch_unwind(|| build_skill_id(long_chinese));
+        let result = std::panic::catch_unwind(|| {
+            codeterm_mem_store::skill_folders::skill_id_for_title(long_chinese)
+        });
         assert!(result.is_ok(), "should not panic on non-ASCII skill names");
     }
 
     #[test]
     fn build_skill_id_emoji_does_not_panic() {
         let emoji_title = "🚀🎯🔥🌟💡🎨🛡️🔑🌈✨🎭🎪🎡🎢🎠🎟🎃🎄🎆🎇"; // many emoji
-        let result = std::panic::catch_unwind(|| build_skill_id(emoji_title));
+        let result = std::panic::catch_unwind(|| {
+            codeterm_mem_store::skill_folders::skill_id_for_title(emoji_title)
+        });
         assert!(result.is_ok(), "should not panic on emoji skill names");
     }
 }

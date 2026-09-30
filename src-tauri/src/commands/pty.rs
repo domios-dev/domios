@@ -1,11 +1,8 @@
 use std::io::Read;
 use tauri::AppHandle;
 
-#[path = "pty/restored_launch.rs"]
-mod restored_launch;
-use restored_launch::restored_fresh_launch_input;
-
 use crate::multiplexer::commands::MuxState;
+use crate::service::restored_launch::{restored_fresh_launch_input, RestoredFreshLaunchInput};
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
@@ -340,7 +337,7 @@ fn dispatch_restored_snapshot_launch(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
     provider_id: &str,
-    input: &restored_launch::RestoredFreshLaunchInput,
+    input: &RestoredFreshLaunchInput,
     launch_cmd: String,
 ) {
     crate::service::restored_launch::persist_restored_launch_identity(
@@ -526,6 +523,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 tracker.set_dead(&pty_id);
                 prev
             };
+            crate::service::pty_lifecycle::publish_shell_exit(svc, &pty_id);
             let tab_id = mux.write().tab_id_for_pty(&pty_id);
             if let Some(ref pid) = tab_id {
                 let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);

@@ -196,16 +196,16 @@ impl ServiceContext {
                 snap.tab_id
             ));
         }
-        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+        if !self.tab_is_idle(&snap.tab_id) {
             return Err(format!("Tab {} is no longer idle", snap.tab_id));
         }
         let claim = self
             .claim_restart(&snap.tab_id, true)
             .map_err(|error| format!("{error:?}"))?;
-        let launch_cmd = build_relaunch_command(self, &snap, true, None)
-            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
+        let launch_cmd = relaunch::build_relaunch(self, &snap, true)
+            .map(|relaunch| relaunch.command)
             .ok_or_else(|| format!("provider {} returned no resume command", snap.provider))?;
-        if !self.provider_update_tab_is_idle(&snap.tab_id) {
+        if !self.tab_is_idle(&snap.tab_id) {
             return Err(format!(
                 "Tab {} became busy before it could be paused",
                 snap.tab_id
@@ -220,7 +220,7 @@ impl ServiceContext {
         })
     }
 
-    fn provider_update_tab_is_idle(&self, tab_id: &str) -> bool {
+    fn tab_is_idle(&self, tab_id: &str) -> bool {
         let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
             return false;
         };
@@ -245,16 +245,20 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             pause.snap.tab_id.clone(),
             pause.launch_cmd,
             pause.snap.provider.clone(),
             crate::service::launch_diagnostics::AgentLaunchOrigin::Resume,
+            false,
             None,
             None,
             None,
+            Default::default(),
             None,
+            None,
+            pause.snap.session_id.clone(),
         );
         let ready = self
             .finish_observed_restart(
@@ -302,11 +306,24 @@ impl ServiceContext {
             return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
+        self.restart_live_agent(snap, force, grace_secs, None)
+    }
+
+    /// Exit, tear down and relaunch a live agent. A model switch supplies its
+    /// own resume command and commits its launch record once the old PTY is gone.
+    fn restart_live_agent(
+        &self,
+        snap: TabRestartSnapshot,
+        force: bool,
+        grace_secs: u64,
+        model_switch: Option<&model_switch::ModelSwitchLaunch>,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
 
         let restart_claim = self.claim_restart(&snap.tab_id, false)?;
+        crate::service::task_files::release_tab(self, &snap.tab_id);
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
@@ -315,30 +332,37 @@ impl ServiceContext {
         let session_was_stale = !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !session_was_stale && snap.session_id.is_some();
-        let launch_task = (!session_present)
-            .then(|| {
-                crate::service::orchestrator::provider_launch_task(
-                    &self.agent_registry,
-                    &snap.provider,
-                    None,
-                    snap.role.as_deref(),
-                    snap.role_profile.as_deref(),
-                )
-            })
-            .flatten();
-        let Some(launch_cmd) =
-            build_relaunch_command(self, &snap, session_present, launch_task.as_deref())
-                .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
-        else {
+        let relaunch = match model_switch {
+            Some(launch) if session_present => {
+                launch.command(self, &snap).map(|(command, task)| {
+                    (
+                        crate::agent::stub_launch::apply(&snap.provider, command),
+                        task,
+                    )
+                })
+            }
+            Some(_) => None,
+            None => relaunch::build_relaunch(self, &snap, session_present)
+                .map(|relaunch| (relaunch.command, relaunch.task)),
+        };
+        let Some((launch_cmd, launch_task)) = relaunch else {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
+            let reason = if model_switch.is_some() && !session_present {
+                "the Tab's session is no longer resumable, so its model cannot be switched in place"
+                    .to_string()
+            } else {
+                format!("provider {} returned no launch command", snap.provider)
+            };
             return Err(RestartAttemptError::Failed {
                 outcome,
-                reason: format!("provider {} returned no launch command", snap.provider),
+                reason,
                 timed_out: false,
             });
         };
 
         self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 outcome,
                 reason,
@@ -346,6 +370,9 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        if let Some(launch) = model_switch {
+            launch.commit(self, &snap.tab_id);
+        }
 
         self.set_and_lock_tab_agent_type_from(
             &snap.tab_id,
@@ -353,7 +380,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
             launch_cmd,
@@ -363,10 +390,18 @@ impl ServiceContext {
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::Restart
             },
+            false,
+            None,
             launch_task,
             None,
+            Default::default(),
             None,
             None,
+            if session_present {
+                snap.session_id.clone()
+            } else {
+                None
+            },
         );
         drop(restart_claim);
 
@@ -374,7 +409,14 @@ impl ServiceContext {
             outcome,
             Some(snap.pty_id.as_str()),
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )?;
+        );
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(error);
+            }
+        };
         self.settle_restored_binding(ready, &snap)
     }
 
@@ -404,11 +446,14 @@ impl ServiceContext {
                 }
                 Ok(outcome)
             }
-            Err(error) => Err(RestartAttemptError::Failed {
-                outcome,
-                reason: error.to_string(),
-                timed_out: false,
-            }),
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                Err(RestartAttemptError::Failed {
+                    outcome,
+                    reason: error.to_string(),
+                    timed_out: false,
+                })
+            }
         }
     }
 
@@ -434,6 +479,7 @@ impl ServiceContext {
                 "General Agent launch already in progress".to_string(),
             ));
         }
+        crate::service::task_files::release_tab(self, &target.tab_id);
 
         let session_was_stale = !self.session_file_present(&target);
         let outcome = RestartOutcome::accepted(&target, session_was_stale, force);
@@ -481,6 +527,7 @@ impl ServiceContext {
                 reason,
                 timed_out,
             }) => {
+                crate::service::task_files::release_tab(self, &target.tab_id);
                 outcome.old_pty_torn_down = old_pty_torn_down;
                 Err(RestartAttemptError::Failed {
                     outcome,
@@ -625,6 +672,15 @@ impl ServiceContext {
         let Some(exit_command) = exit_command else {
             return;
         };
+        // A busy composer takes the exit command as a queued user turn, so a
+        // working agent is stopped at the process by the PTY teardown instead.
+        if !self.tab_is_idle(&snap.tab_id) {
+            log::info!(
+                "[agent_restart] tab={} is busy; skipping the in-chat exit command",
+                snap.tab_id
+            );
+            return;
+        }
         if let Err(error) = self.send_text(&snap.tab_id, &exit_command) {
             log::warn!(
                 "[agent_restart] graceful exit send failed for tab={}: {}",
@@ -840,18 +896,20 @@ fn build_relaunch_command(
             crate::service::structured_prompt::ensure_for_spawn(svc, provider, &snap.tab_id, cwd)
         })
         .flatten();
-    build_relaunch_command_with_registry(
-        &svc.agent_registry,
-        provider,
-        session_id,
-        auto_approve,
-        session_present,
-        structured_prompt_server,
-        launch_task,
-        &snap.tab_id,
-        snap.cwd.as_deref(),
-        canonical_project.as_deref(),
-    )
+    crate::service::task_files::capture(svc, &snap.tab_id, || {
+        build_relaunch_command_with_registry(
+            &svc.agent_registry,
+            provider,
+            session_id,
+            auto_approve,
+            session_present,
+            structured_prompt_server,
+            launch_task,
+            &snap.tab_id,
+            snap.cwd.as_deref(),
+            canonical_project.as_deref(),
+        )
+    })
 }
 
 fn build_relaunch_command_with_registry(
@@ -877,6 +935,13 @@ fn build_relaunch_command_with_registry(
                 cwd,
                 canonical_project,
                 tab_id,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_linux_network_args(
+                registry,
+                provider,
+                auto_approve,
+                crate::agent::provider::current_platform_tag(),
                 &mut args,
             );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
@@ -922,6 +987,13 @@ fn build_relaunch_command_with_registry(
                 cwd,
                 canonical_project,
                 tab_id,
+                &mut args,
+            );
+            crate::service::launch_session_detection::append_sandbox_linux_network_args(
+                registry,
+                provider,
+                auto_approve,
+                crate::agent::provider::current_platform_tag(),
                 &mut args,
             );
             crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
@@ -971,6 +1043,13 @@ fn build_relaunch_command_with_registry(
             tab_id,
             &mut args,
         );
+        crate::service::launch_session_detection::append_sandbox_linux_network_args(
+            registry,
+            provider,
+            auto_approve,
+            crate::agent::provider::current_platform_tag(),
+            &mut args,
+        );
         crate::service::launch_session_detection::append_sandbox_agent_pad_arg(
             registry,
             provider,
@@ -995,6 +1074,11 @@ pub(crate) fn screen_shows_agent_tui(
 }
 
 mod exit_recovery;
+mod model_switch;
+mod relaunch;
+pub(crate) use model_switch::{
+    ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
+};
 
 #[cfg(test)]
 mod tests;

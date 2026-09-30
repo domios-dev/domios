@@ -474,3 +474,51 @@ fn explicit_ui_clear_does_not_depend_on_process_tree_absence() {
         .kill(&pty_id)
         .expect("stop the tab's PTY shell");
 }
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "exited-provider-shell-pty";
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_session_id = Some("verified-session".into());
+        tab.session_binding_nonce = Some("verified-nonce".into());
+        tab.pty_id = Some(pty_id.into());
+    }
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn the tab's surviving shell PTY");
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"\x1b[?2004h\x1b[?1h\x1b=");
+
+    assert!(fixture
+        .service
+        .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "provider process exited"));
+
+    assert_eq!(
+        fixture
+            .service
+            .screen_state
+            .lock()
+            .bracketed_paste_mode(pty_id),
+        Some(false)
+    );
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop the tab's surviving shell PTY");
+}

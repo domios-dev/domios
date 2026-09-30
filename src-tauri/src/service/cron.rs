@@ -3,21 +3,74 @@ use crate::cron::store::{CronCreateParams, CronJob, CronRunInfo, CronRunStatus, 
 use crate::multiplexer::types::TabCloseReason;
 use crate::CronState;
 use crate::CronWake;
+use tauri::Manager;
+
+fn cron_report_delivery_label(result: Result<(), String>) -> String {
+    match result {
+        Ok(()) => "delivered".to_string(),
+        Err(error) if error.starts_with("submit_unconfirmed:") => {
+            "delivered_unconfirmed".to_string()
+        }
+        Err(error) => format!("failed: {error}"),
+    }
+}
+
+/// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
+pub(crate) struct CronRunEnd<'a> {
+    pub(crate) job_id: &'a str,
+    pub(crate) run_id: &'a str,
+    pub(crate) status: CronRunStatus,
+    pub(crate) summary: &'a str,
+}
 
 impl ServiceContext {
+    pub(crate) fn set_cron_owner_prompt_waiting(&self, tab_id: &str, awaiting: bool) {
+        let Some(cron) = self.app_handle.try_state::<CronState>() else {
+            return;
+        };
+        let updated = cron.lock().set_tab_awaiting_owner_prompt(tab_id, awaiting);
+        match updated {
+            Ok(true) => self.emit_cron_changed(),
+            Ok(false) => {}
+            Err(error) => {
+                log::error!("Failed to persist cron owner-prompt state for tab {tab_id}: {error}");
+                self.emit_cron_changed();
+            }
+        }
+    }
+
+    pub(crate) fn sync_cron_owner_prompt_state(&self, tab_id: &str) {
+        let awaiting = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.pending_prompt.is_some());
+        self.set_cron_owner_prompt_waiting(tab_id, awaiting);
+    }
+
     pub fn cron_create(
         &self,
         cron: &CronState,
         wake: &CronWake,
         mut params: CronCreateParams,
     ) -> Result<CronJob, String> {
+        params.creator_tab_id = params
+            .creator_tab_id
+            .take()
+            .filter(|tab_id| !tab_id.trim().is_empty());
+        if let Some(tab_id) = params.creator_tab_id.as_deref() {
+            if self.mux.read().get_tab(tab_id).is_none() {
+                return Err(format!("creator_tab_id: Cron Tab {tab_id} not found"));
+            }
+        }
         let inherited_attachment = crate::service::team::resolve_inherited_team_attachment(
             &self.mux.read(),
             params.team_id.as_deref(),
             params.creator_tab_id.as_deref(),
             &params.workspace_id,
             params.detach_from_team,
-        )?;
+        )
+        .map_err(|error| format!("team_id/creator_tab_id: {error}"))?;
         params.team_id = inherited_attachment.map(|attachment| attachment.team_id);
         self.validate_cron_ownership(&params)?;
         let provider = params
@@ -26,6 +79,9 @@ impl ServiceContext {
             .filter(|agent| !agent.trim().is_empty())
             .map(str::to_string)
             .unwrap_or_else(crate::config::default_agent_provider);
+        params.agent = Some(provider.clone());
+        params.model = params.model.take().filter(|model| !model.trim().is_empty());
+        self.validate_cron_spawn_fields(&provider, params.model.as_deref(), params.cwd.as_deref())?;
         self.validate_cron_reasoning_effort(
             &provider,
             params.model.as_deref(),
@@ -40,35 +96,49 @@ impl ServiceContext {
     fn validate_cron_ownership(&self, params: &CronCreateParams) -> Result<(), String> {
         let mux = self.mux.read();
         if let Some(target_tab_id) = params.report_target_tab_id.as_deref() {
-            mux.get_tab(target_tab_id)
-                .ok_or_else(|| format!("Cron report target Tab {target_tab_id} not found"))?;
+            mux.get_tab(target_tab_id).ok_or_else(|| {
+                format!("report_target_tab_id: Cron Tab {target_tab_id} not found")
+            })?;
         }
         match (params.team_id.as_deref(), params.creator_tab_id.as_deref()) {
             (None, _) => Ok(()),
             (Some(team_id), Some(creator_tab_id)) => {
-                let creator = mux
-                    .get_tab(creator_tab_id)
-                    .ok_or_else(|| format!("Cron creator Tab {creator_tab_id} not found"))?;
+                let creator = mux.get_tab(creator_tab_id).ok_or_else(|| {
+                    format!("creator_tab_id: Cron Tab {creator_tab_id} not found")
+                })?;
                 if creator.team_id.as_deref() != Some(team_id) {
                     return Err(format!(
-                        "Cron creator Tab {creator_tab_id} does not belong to Team {team_id}"
+                        "creator_tab_id: Cron Tab {creator_tab_id} does not belong to Team {team_id}"
                     ));
                 }
                 let team_workspace = mux
                     .team_workspace(team_id)
-                    .ok_or_else(|| format!("Team {team_id} not found"))?;
+                    .ok_or_else(|| format!("team_id: Team {team_id} not found"))?;
                 if team_workspace != params.workspace_id {
                     return Err(format!(
-                        "Team {team_id} belongs to workspace {}, not {}",
+                        "team_id: Team {team_id} belongs to workspace {}, not {}",
                         team_workspace, params.workspace_id
                     ));
                 }
                 Ok(())
             }
             (Some(team_id), None) => Err(format!(
-                "Team cron {team_id} requires creator_tab_id from a live Team member"
+                "creator_tab_id: Team cron {team_id} requires a live Team member Tab"
             )),
         }
+    }
+
+    fn validate_cron_spawn_fields(
+        &self,
+        provider: &str,
+        model: Option<&str>,
+        cwd: Option<&str>,
+    ) -> Result<(), String> {
+        self.require_agent_provider_ready(provider)
+            .map_err(|error| format!("agent: {error}"))?;
+        crate::service::spawn::validate_agent_model(&self.agent_registry, provider, model)
+            .map_err(|error| format!("model: {error}"))?;
+        crate::service::spawn_cwd::validate_spawn_cwd(cwd).map_err(|error| format!("cwd: {error}"))
     }
 
     fn validate_cron_reasoning_effort(
@@ -84,7 +154,8 @@ impl ServiceContext {
         {
             return Ok(());
         }
-        self.require_agent_provider_ready(provider)?;
+        self.require_agent_provider_ready(provider)
+            .map_err(|error| format!("agent: {error}"))?;
         let model =
             model.map(|model| crate::agent::model_catalog::resolve_model(provider, Some(model)).id);
         crate::service::spawn::validate_agent_reasoning_effort(
@@ -93,6 +164,7 @@ impl ServiceContext {
             model.as_deref(),
             effort,
         )
+        .map_err(|error| format!("reasoning_effort: {error}"))
     }
 
     pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
@@ -115,9 +187,16 @@ impl ServiceContext {
         cron: &CronState,
         wake: &CronWake,
         id: &str,
-        patch: CronUpdateParams,
+        mut patch: CronUpdateParams,
     ) -> Result<CronJob, String> {
-        let (provider, model, effort) = {
+        if patch
+            .agent
+            .as_deref()
+            .is_some_and(|agent| agent.trim().is_empty())
+        {
+            patch.agent = Some(crate::config::default_agent_provider());
+        }
+        let (provider, model, cwd, effort) = {
             let store = cron.lock();
             let job = store
                 .get(id)
@@ -133,9 +212,19 @@ impl ServiceContext {
                 .clone()
                 .or_else(|| job.reasoning_effort.clone());
             let model = patch.model.clone().or_else(|| job.model.clone());
-            (provider, model, effort)
+            let cwd = patch.cwd.clone().or_else(|| job.cwd.clone());
+            (provider, model, cwd, effort)
         };
-        self.validate_cron_reasoning_effort(&provider, model.as_deref(), effort.as_deref())?;
+        self.validate_cron_spawn_fields(
+            &provider,
+            model.as_deref().filter(|model| !model.trim().is_empty()),
+            cwd.as_deref(),
+        )?;
+        self.validate_cron_reasoning_effort(
+            &provider,
+            model.as_deref().filter(|model| !model.trim().is_empty()),
+            effort.as_deref(),
+        )?;
         let job = cron.lock().update(id, patch)?;
         wake.notify_all();
         self.emit_cron_changed();
@@ -143,6 +232,16 @@ impl ServiceContext {
     }
 
     pub fn cron_delete(&self, cron: &CronState, wake: &CronWake, id: &str) -> Result<(), String> {
+        self.cron_delete_inner(cron, wake, id, false)
+    }
+
+    fn cron_delete_inner(
+        &self,
+        cron: &CronState,
+        wake: &CronWake,
+        id: &str,
+        preserve_history: bool,
+    ) -> Result<(), String> {
         let mut store = cron.lock();
         let owned_tabs: Vec<String> = store.tab_owners_for_job(id);
         let history_tabs: Vec<String> = store
@@ -159,12 +258,102 @@ impl ServiceContext {
 
         let logs_dir = store.logs_dir().join(id);
         drop(store);
-        let _ = std::fs::remove_dir_all(&logs_dir);
+        if !preserve_history {
+            let _ = std::fs::remove_dir_all(&logs_dir);
+        }
 
-        cron.lock().delete(id)?;
+        if preserve_history {
+            cron.lock().delete_preserving_history(id)?;
+        } else {
+            cron.lock().delete(id)?;
+        }
         wake.notify_all();
         self.emit_cron_changed();
         Ok(())
+    }
+
+    pub(crate) fn cron_delete_workspace(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        let (jobs, logs_dir) = {
+            let mut store = cron.lock();
+            let jobs = store.delete_for_workspace(workspace_id)?;
+            (jobs, store.logs_dir())
+        };
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        for job in jobs {
+            let _ = std::fs::remove_dir_all(logs_dir.join(job.id));
+        }
+        if let Some(wake) = wake {
+            wake.notify_all();
+        }
+        self.emit_cron_changed();
+        Ok(())
+    }
+
+    pub(crate) fn cron_settle_run_end(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        end: CronRunEnd<'_>,
+    ) {
+        self.cron_settle_run_end_with(cron, wake, end, |tab_id, text| self.send_text(tab_id, text));
+    }
+
+    /// Delivers the ended run's status to its report tab, records the outcome in history,
+    /// and retires a oneshot job while keeping that history.
+    pub(crate) fn cron_settle_run_end_with(
+        &self,
+        cron: &CronState,
+        wake: Option<&CronWake>,
+        end: CronRunEnd<'_>,
+        deliver: impl FnOnce(&str, &str) -> Result<(), String>,
+    ) {
+        let CronRunEnd {
+            job_id,
+            run_id,
+            status,
+            summary,
+        } = end;
+        let (report_target, is_oneshot) = {
+            let store = cron.lock();
+            let job = store.get(job_id);
+            (
+                job.and_then(|job| job.report_target_tab_id.clone()),
+                job.is_some_and(|job| job.oneshot),
+            )
+        };
+        let delivery = match report_target {
+            Some(report_target) => {
+                let report = format!(
+                    "Cron run {run_id} completed with status {status:?}. Summary: {summary}"
+                );
+                cron_report_delivery_label(deliver(&report_target, &report))
+            }
+            None => "no report target".to_string(),
+        };
+        if let Err(error) = cron
+            .lock()
+            .set_run_report(job_id, run_id, summary, delivery)
+        {
+            log::error!("Failed to record cron run report: job={job_id} run={run_id}: {error}");
+        }
+        if !is_oneshot {
+            return;
+        }
+        let Some(wake) = wake else {
+            log::error!("Failed to auto-delete oneshot cron: CronWake unavailable");
+            return;
+        };
+        log::info!("Oneshot cron auto-deleting: job={}", job_id);
+        if let Err(error) = self.cron_delete_inner(cron, wake, job_id, true) {
+            log::error!("Failed to auto-delete oneshot cron: {}", error);
+        }
     }
 
     pub fn cron_cancel_running(&self, cron: &CronState, id: &str) -> Result<usize, String> {
@@ -187,6 +376,7 @@ impl ServiceContext {
                         if matches!(
                             run.status,
                             super::super::cron::store::CronRunStatus::Running
+                                | super::super::cron::store::CronRunStatus::AwaitingOwnerPrompt
                         ) {
                             run.status = super::super::cron::store::CronRunStatus::Cancelled;
                             run.finished_at = Some(now_ms);
@@ -277,6 +467,8 @@ impl ServiceContext {
             tab_id: None,
             session_id: None,
             cwd: None,
+            summary: None,
+            report_delivery: None,
         };
 
         let skill_block = skill.as_deref().map(crate::commands::cron_skill_block);
@@ -366,6 +558,10 @@ impl ServiceContext {
 
         let mut store = cron.lock();
         let _ = store.record_run(id, run_info.clone());
+        drop(store);
+        if let Some(tab_id) = run_info.tab_id.as_deref() {
+            self.sync_cron_owner_prompt_state(tab_id);
+        }
         self.emit_cron_changed();
         Ok(run_info)
     }
@@ -376,12 +572,33 @@ impl ServiceContext {
         wake: &CronWake,
         run_id: &str,
         summary: Option<&str>,
+        caller_tab_id: Option<&str>,
+        binding_nonce: Option<&str>,
+        human_confirmed: bool,
     ) -> Result<(), String> {
+        let caller_tab_id = caller_tab_id.filter(|caller| !caller.trim().is_empty());
+        if caller_tab_id.is_none() && !human_confirmed {
+            return Err("completing a cron run without tab identity requires --yes".into());
+        }
         let mut store = cron.lock();
         let owner = store
             .get_tab_owner_by_run(run_id)
             .map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, tab_id)) = owner {
+            if caller_tab_id.is_some_and(|caller| {
+                caller != tab_id
+                    || !binding_nonce.is_some_and(|nonce| {
+                        self.mux
+                            .read()
+                            .get_tab(&tab_id)
+                            .and_then(|tab| tab.session_binding_nonce.as_deref())
+                            == Some(nonce)
+                    })
+            }) {
+                return Err(format!(
+                    "Only the owning Tab or a human caller may complete cron run {run_id}"
+                ));
+            }
             let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.write();
                 let tab = mux.get_tab(&tab_id);
@@ -401,7 +618,7 @@ impl ServiceContext {
             };
             let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
 
-            let summary_text = summary.unwrap_or("(no summary provided)");
+            let summary_text = summary.unwrap_or("(no summary provided)").to_string();
             let log_text = format!(
                 "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
                 summary_text, raw_clean
@@ -434,15 +651,20 @@ impl ServiceContext {
             let wake = wake.clone();
             let tab_id = tab_id.clone();
             let job_id = job_id.clone();
+            let run_id = run_id.to_string();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
-                if is_oneshot {
-                    log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                    if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {
-                        log::error!("Failed to auto-delete oneshot cron: {}", e);
-                    }
-                }
+                svc.cron_settle_run_end(
+                    &cron,
+                    Some(&wake),
+                    CronRunEnd {
+                        job_id: &job_id,
+                        run_id: &run_id,
+                        status: CronRunStatus::Success,
+                        summary: &summary_text,
+                    },
+                );
                 svc.emit_cron_changed();
             });
             Ok(())
@@ -458,8 +680,13 @@ impl ServiceContext {
         }
     }
 
-    pub fn cron_history(&self, cron: &CronState, id: &str) -> Vec<CronRunInfo> {
-        cron.lock().get_history(id).into_iter().cloned().collect()
+    pub fn cron_history(&self, cron: &CronState, id: &str) -> Result<Vec<CronRunInfo>, String> {
+        let store = cron.lock();
+        let history = store.get_history(id);
+        if history.is_empty() && store.get(id).is_none() {
+            return Err(format!("Cron job not found: {id}"));
+        }
+        Ok(history.into_iter().cloned().collect())
     }
 
     fn emit_cron_changed(&self) {
@@ -471,171 +698,5 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::sync::Arc;
-
-    use parking_lot::Mutex;
-
-    use crate::agent::test_provider::MockProvider;
-    use crate::cron::store::{CronCreateParams, CronStore, CronUpdateParams};
-    use crate::service::test_fixture::ServiceFixture;
-
-    fn fixture() -> (
-        ServiceFixture,
-        crate::CronState,
-        crate::CronWake,
-        std::path::PathBuf,
-    ) {
-        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-        let fixture = ServiceFixture::new(mux);
-        fixture.service.agent_registry.register_provider(Box::new(
-            MockProvider::with_reasoning_efforts("tiered", &["low", "medium", "high"]),
-        ));
-        let path = fixture.temp.path().join("crons.json");
-        let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
-        let wake = Arc::new(std::sync::Condvar::new());
-        (fixture, cron, wake, path)
-    }
-
-    fn create_params(name: &str, effort: Option<&str>) -> CronCreateParams {
-        CronCreateParams {
-            name: name.into(),
-            workspace_id: "workspace".into(),
-            team_id: None,
-            detach_from_team: false,
-            schedule: "0 * * * *".into(),
-            task: "run the job".into(),
-            description: None,
-            agent: Some("tiered".into()),
-            model: None,
-            reasoning_effort: effort.map(str::to_string),
-            cwd: None,
-            role: None,
-            skill: None,
-            creator_tab_id: None,
-            report_target_tab_id: None,
-            enabled: Some(false),
-            max_history: None,
-            oneshot: None,
-            jitter_max_ms: Some(0),
-            tz: None,
-            timeout_seconds: None,
-        }
-    }
-
-    fn effort_patch(effort: &str) -> CronUpdateParams {
-        CronUpdateParams {
-            name: None,
-            description: None,
-            schedule: None,
-            task: None,
-            cwd: None,
-            role: None,
-            skill: None,
-            enabled: None,
-            max_history: None,
-            agent: None,
-            model: None,
-            reasoning_effort: Some(effort.into()),
-            jitter_max_ms: None,
-            tz: None,
-            timeout_seconds: None,
-        }
-    }
-
-    #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn cron_reasoning_effort_round_trips_for_advertised_levels() {
-        let (fixture, cron, wake, path) = fixture();
-        for effort in ["low", "medium", "high"] {
-            let job = fixture
-                .service
-                .cron_create(&cron, &wake, create_params(effort, Some(effort)))
-                .unwrap();
-            assert_eq!(job.reasoning_effort.as_deref(), Some(effort));
-        }
-
-        let reloaded = CronStore::new_with_path(path);
-        let persisted: Vec<_> = reloaded
-            .list()
-            .iter()
-            .map(|job| job.reasoning_effort.as_deref())
-            .collect();
-        assert_eq!(persisted, vec![Some("low"), Some("medium"), Some("high")]);
-    }
-
-    #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn cron_create_rejects_unsupported_effort_without_write() {
-        let (fixture, cron, wake, path) = fixture();
-        fixture
-            .service
-            .cron_create(&cron, &wake, create_params("existing", Some("low")))
-            .unwrap();
-        let before = fs::read(&path).unwrap();
-
-        let error = fixture
-            .service
-            .cron_create(&cron, &wake, create_params("invalid", Some("ultra")))
-            .expect_err("unsupported effort must be rejected before persistence");
-
-        assert!(error.contains("tiered"), "provider name missing: {error}");
-        assert!(
-            error.contains("low, medium, high"),
-            "advertised levels missing: {error}"
-        );
-        assert_eq!(fs::read(&path).unwrap(), before);
-        assert_eq!(cron.lock().list().len(), 1);
-    }
-
-    #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn cron_edit_rejects_unsupported_effort_without_write() {
-        let (fixture, cron, wake, path) = fixture();
-        let job = fixture
-            .service
-            .cron_create(&cron, &wake, create_params("existing", Some("low")))
-            .unwrap();
-        let before = fs::read(&path).unwrap();
-
-        let error = fixture
-            .service
-            .cron_update(&cron, &wake, &job.id, effort_patch("ultra"))
-            .expect_err("unsupported effort must be rejected before persistence");
-
-        assert!(error.contains("tiered"), "provider name missing: {error}");
-        assert!(
-            error.contains("low, medium, high"),
-            "advertised levels missing: {error}"
-        );
-        assert_eq!(fs::read(&path).unwrap(), before);
-        assert_eq!(
-            cron.lock()
-                .get(&job.id)
-                .unwrap()
-                .reasoning_effort
-                .as_deref(),
-            Some("low")
-        );
-    }
-
-    #[test]
-    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-    fn cron_empty_reasoning_effort_clears_override() {
-        let (fixture, cron, wake, path) = fixture();
-        let job = fixture
-            .service
-            .cron_create(&cron, &wake, create_params("clearable", Some("high")))
-            .unwrap();
-
-        let updated = fixture
-            .service
-            .cron_update(&cron, &wake, &job.id, effort_patch(""))
-            .unwrap();
-
-        assert_eq!(updated.reasoning_effort, None);
-        let raw = fs::read_to_string(path).unwrap();
-        assert!(!raw.contains("reasoning_effort"));
-    }
-}
+#[path = "cron/tests.rs"]
+mod tests;

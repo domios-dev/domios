@@ -11,7 +11,7 @@ pub enum PluginAction {
         /// Install from a local plugin directory.
         #[arg(long = "from-dir")]
         from_dir: Option<String>,
-        /// Override the install id. Defaults to plugin.json#id or folder name.
+        /// Rename the installed runtime plugin id, including plugin.json#id.
         #[arg(long = "id-override")]
         id_override: Option<String>,
         /// Disambiguate channel installs when more than one channel offers the id.

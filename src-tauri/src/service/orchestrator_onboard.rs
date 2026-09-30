@@ -262,6 +262,7 @@ mod tests {
             agent_session_name: None,
             agent_session_model: None,
             agent_session_model_identity: None,
+            pending_model_switch_observation: None,
             agent_planned_model: None,
             agent_requested_model: None,
             agent_provider_resolved_model: None,

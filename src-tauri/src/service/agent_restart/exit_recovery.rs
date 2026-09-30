@@ -6,8 +6,8 @@ use std::time::Duration;
 use codeterm_types::pty::{AgentLiveness, BootStage};
 
 use super::{
-    build_relaunch_command, evidenced_transcript_block, AgentRestartError, RestartAttemptError,
-    RestartOutcome, TabRestartSnapshot, RESTART_READY_TIMEOUT_SECS,
+    evidenced_transcript_block, AgentRestartError, RestartAttemptError, RestartOutcome,
+    TabRestartSnapshot, RESTART_READY_TIMEOUT_SECS,
 };
 use crate::agent::provider_identity::provider_for_claimed_session;
 use crate::multiplexer::types::{PriorBindingNonce, Tab, TabBacking};
@@ -78,7 +78,11 @@ pub(super) fn select_recovery_session(
             )
         });
     };
-    let Some(session_id) = latest.session_id.as_deref() else {
+    let Some(session_id) = latest
+        .session_id
+        .as_deref()
+        .or(latest.resume_target_session_id.as_deref())
+    else {
         return Err(refusal(
             EXIT_RECOVERY_NO_VERIFIED_SESSION,
             "the exited launch never bound a session; spawn a fresh agent".to_string(),
@@ -186,6 +190,7 @@ impl ServiceContext {
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
+        crate::service::task_files::release_tab(self, &snap.tab_id);
 
         self.record_lifecycle(
             &snap.tab_id,
@@ -193,9 +198,8 @@ impl ServiceContext {
         );
         let mut outcome = RestartOutcome::accepted(&snap, false, force);
         outcome.recovered_in_place = true;
-        let Some(launch_cmd) = build_relaunch_command(self, &snap, true, None)
-            .map(|command| crate::agent::stub_launch::apply(&snap.provider, command))
-        else {
+        let Some(relaunch) = super::relaunch::build_relaunch(self, &snap, true) else {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 reason: format!("provider {} returned no resume command", snap.provider),
                 outcome,
@@ -206,6 +210,7 @@ impl ServiceContext {
             self.claim_exited_shell_for_recovery(attempt)?;
         }
         if let Err(reason) = self.retire_exited_shell_stage(&snap, attempt) {
+            crate::service::task_files::release_tab(self, &snap.tab_id);
             if let Some(attempt) = attempt {
                 self.release_exited_shell_recovery_claim(&snap, attempt);
             }
@@ -222,20 +227,24 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        crate::service::orchestrator::launch_agent_in_background(
+        crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
-            launch_cmd,
+            relaunch.command,
             snap.provider.clone(),
             if automatic {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::AutomaticExitRecovery
             } else {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::ExitRecovery
             },
+            false,
+            None,
+            relaunch.task,
+            None,
+            Default::default(),
             None,
             None,
-            None,
-            None,
+            snap.session_id.clone(),
         );
         drop(restart_claim);
 
@@ -243,7 +252,14 @@ impl ServiceContext {
             outcome,
             None,
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )?;
+        );
+        let ready = match ready {
+            Ok(ready) => ready,
+            Err(error) => {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(error);
+            }
+        };
         self.settle_restored_binding(ready, &snap)
     }
 

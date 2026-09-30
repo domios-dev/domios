@@ -6,11 +6,21 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_model_switch.rs"]
+mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
 use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
 #[cfg(test)]
 use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+
+fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {
+    provider
+        .get("model_catalogue")
+        .and_then(|catalogue| catalogue.get("liveDiscoveryRequired"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
 
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
@@ -20,6 +30,17 @@ fn absolute_spawn_base(
         Some(path) if path.is_absolute() => path.to_path_buf(),
         Some(path) => caller_cwd.join(path),
         None => caller_cwd.to_path_buf(),
+    }
+}
+
+/// A local spawn's `--cwd` as the daemon must receive it: absolute, resolved
+/// against the caller's own directory, which the daemon cannot know.
+pub(crate) fn caller_resolved_spawn_cwd(cwd: &str, caller_cwd: Option<&std::path::Path>) -> String {
+    match caller_cwd {
+        Some(caller_cwd) => absolute_spawn_base(Some(cwd), caller_cwd)
+            .to_string_lossy()
+            .into_owned(),
+        None => cwd.to_string(),
     }
 }
 
@@ -258,8 +279,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
     let local_http = match build_local_api() {
         Ok(client) => client,
         Err(error) => {
-            eprintln!("Error: failed to connect to local API: {error}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
         }
     };
     match action {
@@ -270,19 +290,23 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             Ok(resp) => {
                 let status = resp.status();
                 let val: serde_json::Value = resp.json().unwrap_or_default();
+                if !status.is_success() {
+                    let body = if val.is_null() {
+                        String::new()
+                    } else {
+                        val.to_string()
+                    };
+                    crate::cmd::print::fail_http(1, status.as_u16(), &body);
+                }
                 if json {
                     println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     return;
                 }
                 let Some(arr) = val.as_array() else {
-                    if status == 404 {
-                        eprintln!(
-                                "Server doesn't know /api/agents/providers — update the running CodeTerm instance."
-                            );
-                    } else {
-                        eprintln!("Unexpected response shape (HTTP {})", status);
-                    }
-                    std::process::exit(1);
+                    crate::cmd::print::fail(
+                        1,
+                        format!("Unexpected response shape (HTTP {})", status),
+                    );
                 };
                 if arr.is_empty() {
                     println!("No agent providers registered.");
@@ -313,8 +337,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
         },
         AgentAction::Models { provider } => {
@@ -323,10 +346,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .send()
             {
                 Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    let mut val: serde_json::Value = resp.json().unwrap_or_default();
                     let Some(arr) = val.as_array() else {
-                        eprintln!("Unexpected response shape");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, "Unexpected response shape");
                     };
                     let target = arr
                         .iter()
@@ -343,6 +365,50 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         );
                         std::process::exit(1);
                     };
+                    let discovery_required = provider_requires_live_model_discovery(target);
+                    if discovery_required {
+                        let response = match local_http
+                            .post(format!("{}/api/agents/providers/refresh", base))
+                            .json(&serde_json::json!({"provider_id": provider.as_str()}))
+                            .send()
+                        {
+                            Ok(response) => response,
+                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                        };
+                        let status = response.status();
+                        let refresh: serde_json::Value = response.json().unwrap_or_default();
+                        if !status.is_success() {
+                            crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
+                        }
+                        if !refresh
+                            .get("refreshed")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                        }
+                        let response = match local_http
+                            .get(format!("{}/api/agents/providers", base))
+                            .send()
+                        {
+                            Ok(response) => response,
+                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                        };
+                        let status = response.status();
+                        val = response.json().unwrap_or_default();
+                        if !status.is_success() {
+                            crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
+                        }
+                    }
+                    let Some(arr) = val.as_array() else {
+                        crate::cmd::print::fail(1, "Unexpected response shape");
+                    };
+                    let Some(target) = arr
+                        .iter()
+                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()))
+                    else {
+                        crate::cmd::print::fail(1, format!("Provider disappeared: {provider}"));
+                    };
                     if json {
                         println!("{}", format_agent_models_json(target));
                         return;
@@ -350,8 +416,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     print!("{}", format_agent_models(target, &provider));
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -364,8 +429,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             {
                 Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -384,13 +448,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     if anchors {
                         "Worker"
                     } else {
-                        eprintln!("Parent must be an Orchestrator");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, "Parent must be an Orchestrator");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             };
             match local_http
@@ -400,8 +462,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             {
                 Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -413,8 +474,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             {
                 Ok(resp) => print_local_agent_mutation_response(resp),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -430,8 +490,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     println!("{}", serde_json::to_string_pretty(&v).unwrap());
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -462,12 +521,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         && !own.starts_with(explicit.as_str())
                         && !explicit.starts_with(own.as_str());
                     if differs {
-                        eprintln!(
-                            "Error: `agent report --tab {explicit}` reports AS that tab, not TO it.\n\
-                             Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
-                             To send a message to a specific tab, use `codeterm send --tab {explicit}`."
+                        crate::cmd::print::fail(
+                            1,
+                            format!(
+                                "`agent report --tab {explicit}` reports AS that tab, not TO it.\n\
+                                 Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
+                                 To send a message to a specific tab, use `codeterm send --tab {explicit}`."
+                            ),
                         );
-                        std::process::exit(1);
                     }
                 }
             }
@@ -477,8 +538,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let tab_id = resolve_tab(client, tab);
             let message = crate::cmd::report_body::read_report_body(message, text, from_pad, doc);
             if message.is_empty() {
-                eprintln!("Error: report message, --text, or --doc is required");
-                std::process::exit(1);
+                crate::cmd::print::fail(1, "report message, --text, or --doc is required");
             }
             let resolved_echo =
                 (!json).then(|| crate::cmd::resolved_text::resolved_text_echo(&message));
@@ -502,8 +562,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     .ok()
                     .filter(|value| !value.trim().is_empty())
                     .unwrap_or_else(|| tab_id.clone());
-                eprintln!("{}", missing_report_binding_incident(&tab));
-                std::process::exit(1);
+                crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
             let mut body = serde_json::json!({
                 "tab_id": tab_id,
@@ -679,13 +738,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(value) => match render_agent_ack(&value) {
                     Ok(message) => println!("{message}"),
                     Err(error) => {
-                        eprintln!("ACK NOT ACCEPTED: {error}");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(1, format!("ACK NOT ACCEPTED: {error}"));
                     }
                 },
                 Err(error) => {
-                    eprintln!("ACK NOT ACCEPTED: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("ACK NOT ACCEPTED: {error}"));
                 }
             }
         }
@@ -696,8 +753,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     .ok()
                     .filter(|value| !value.trim().is_empty())
                     .unwrap_or_else(|| {
-                        eprintln!("STARTUP ACK NOT ACCEPTED: {name} is not set");
-                        std::process::exit(1);
+                        crate::cmd::print::fail(
+                            1,
+                            format!("STARTUP ACK NOT ACCEPTED: {name} is not set"),
+                        )
                     })
             };
             let attempt_id = required_env("CODETERM_STARTUP_ATTEMPT_ID");
@@ -731,8 +790,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             match result {
                 Ok(value) => println!("{}", render_startup_hold(&value)),
                 Err(error) => {
-                    eprintln!("STARTUP HOLD REFUSED: {error}");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, format!("STARTUP HOLD REFUSED: {error}"));
                 }
             }
         }
@@ -768,8 +826,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -785,8 +842,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     println!("Sent /compact to {}", tab_id);
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
@@ -810,8 +866,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             .get("retry-after")
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("30");
-                        eprintln!("Error: rate limited (retry after {}s)", retry);
-                        std::process::exit(1);
+                        crate::cmd::print::fail(
+                            1,
+                            format!("rate limited (retry after {}s)", retry),
+                        );
                     }
                     let val: serde_json::Value = resp.json().unwrap_or_default();
                     match restart_response_outcome(status, &val) {
@@ -823,56 +881,31 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             }
                         }
                         Err(msg) => {
-                            eprintln!("Error: {}", msg);
-                            std::process::exit(1);
+                            crate::cmd::print::fail(1, msg.to_string());
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             }
         }
         AgentAction::Model { name, tab } => {
             let tab_id = resolve_tab(client, tab);
-            let agent_type = local_http
-                .get(format!("{}/api/tabs", base))
+            let result = local_http
+                .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
+                .json(&serde_json::json!({ "model": name }))
                 .send()
-                .ok()
-                .and_then(|r| r.json::<serde_json::Value>().ok())
-                .and_then(|v| {
-                    v.as_array().and_then(|arr| {
-                        arr.iter()
-                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&tab_id))
-                            .and_then(|p| {
-                                p.get("agent_type")
-                                    .and_then(|t| t.as_str())
-                                    .map(String::from)
-                            })
-                    })
+                .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
+                .and_then(|resp| {
+                    let status = resp.status();
+                    let text = resp.text().unwrap_or_default();
+                    agent_model_switch::model_switch_result(status, &text)
                 });
-            if matches!(agent_type.as_deref(), Some("codex")) {
-                eprintln!("Error: Codex /model is an interactive picker, not scriptable.");
-                eprintln!("hint: kill the Tab and respawn with the model:");
-                eprintln!("      codeterm agent spawn codex --model {}", name);
-                std::process::exit(1);
-            }
-            // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
-            // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
-            let cmd = format!("/model {}\r", name);
-            match local_http
-                .post(format!("{}/api/tabs/{}/send", base, tab_id))
-                .json(&serde_json::json!({"text": cmd, "raw": true}))
-                .send()
-            {
-                Ok(_) => {
-                    println!("Sent /model {} to {}", name, tab_id);
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+            match result {
+                Ok(value) if json => crate::cmd::print::print_json(&value),
+                Ok(value) => println!("{}", agent_model_switch::render_model_switch(&value)),
+                Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
             }
         }
     }
@@ -962,8 +995,7 @@ fn print_local_agent_mutation_response(resp: crate::local_api::LocalApiResponse)
     match parse_agent_mutation_response(status, text) {
         Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
         Err(message) => {
-            eprintln!("Error: {message}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, message.to_string());
         }
     }
 }

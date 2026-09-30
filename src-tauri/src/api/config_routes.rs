@@ -178,8 +178,8 @@ pub async fn patch_config_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     if admit_config_write(
         crate::api::tab_routes::caller_tab_header(&headers).as_deref(),
         body.key.as_deref(),
@@ -189,16 +189,16 @@ pub async fn patch_config_api(
     {
         return Err((
             StatusCode::FORBIDDEN,
-            "Where notifications go changes only on a tapped answer",
+            "Where notifications go changes only on a tapped answer".to_string(),
         ));
     }
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed"))?;
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     if let (Some(key), Some(value)) = (body.key.as_deref(), &body.value) {
         dot_set(&mut cfg_json, key, value.clone())
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid key path"))?;
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid key path".to_string()))?;
     } else if !body.partial.is_empty() {
         if let serde_json::Value::Object(ref mut map) = cfg_json {
             for (k, v) in &body.partial {
@@ -211,16 +211,18 @@ pub async fn patch_config_api(
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
-            "Provide key+value or partial config",
+            "Provide key+value or partial config".to_string(),
         ));
     }
 
     let mut new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     crate::config::sanitize_plugin_settings(&mut new_cfg);
+    crate::config::bounds::validate_app_config(&new_cfg)
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     new_cfg.api.token = cfg.api.token.clone();
     crate::config::validate_api_trust_boundary(&new_cfg.api)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Unsafe API listener configuration"))?;
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
 
     // builtin fresh (clients send the old colors along with the new name).
     let current_theme_name = state.config.lock().theme.name.clone();
@@ -242,10 +244,8 @@ pub async fn patch_config_api(
     let renamed = !new_name.is_empty() && new_name != prev_name;
     let mesh_disabled = prev_mesh_enabled && !new_mesh_enabled;
 
-    *state.config.lock() = new_cfg.clone();
-    if let Err(e) = crate::config::save_config_pub(&new_cfg) {
-        log::error!("Config save failed: {}", e);
-    }
+    crate::config::save_config_and_apply(&state.config, new_cfg.clone())
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     // this, browser clients save the config but never see it applied.
     crate::api::events::emit_everywhere(

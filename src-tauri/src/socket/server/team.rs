@@ -24,15 +24,29 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
-        "team.list" => Ok(serde_json::json!({ "teams": mux.read().list_teams() })),
+        "team.list" => {
+            let plans = svc.plan_store.list_full();
+            let mux = mux.read();
+            let teams = mux
+                .list_teams()
+                .into_iter()
+                .map(|mut team| {
+                    team.lifecycle = lifecycle_for_team(&team, &plans);
+                    team
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({ "teams": teams }))
+        }
         "team.show" => {
             let team_id = get_string_param(params, "team_id")?;
+            let plans = svc.plan_store.list_full();
             let mux = mux.read();
             let team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
                 code: -32602,
                 message: format!("Team {team_id} not found"),
                 data: None,
             })?;
+            let team = lifecycle_for_team(&team, &plans);
             Ok(serde_json::json!({ "team": team, "members": team_members(&mux, &team_id) }))
         }
         "team.rename" => {
@@ -75,14 +89,19 @@ pub(super) fn dispatch(
                         crate::service::TeamMutationCaller::Unattributed
                     }
                 });
-            let result = tauri::async_runtime::block_on(svc.close_team(&team_id, caller)).map_err(
-                |message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                },
-            )?;
-            Ok(serde_json::json!({ "team": result.team, "inventory": result.inventory }))
+            let force_busy = params
+                .as_ref()
+                .and_then(|params| params.get("force_busy"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let result =
+                tauri::async_runtime::block_on(svc.close_team(&team_id, caller, force_busy))
+                    .map_err(|message| JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    })?;
+            Ok(serde_json::to_value(&result).unwrap_or_default())
         }
         "team.adopt_plan" => {
             let team_id = get_string_param(params, "team_id")?;
@@ -157,6 +176,34 @@ pub(super) fn dispatch(
     }
 }
 
+fn lifecycle_for_team(
+    team: &codeterm_types::team::Team,
+    plans: &[crate::plan::Plan],
+) -> codeterm_types::team::TeamLifecycle {
+    use codeterm_types::team::TeamLifecycle;
+    if team.lifecycle == TeamLifecycle::Closing {
+        return TeamLifecycle::Closing;
+    }
+    let has_execution = plans.iter().any(|plan| {
+        plan.team_id.as_deref() == Some(team.id.as_str())
+            && plan.status == crate::plan::PlanStatus::Active
+            && (matches!(
+                plan.mode,
+                crate::plan::PlanMode::Approved | crate::plan::PlanMode::Execution
+            ) || plan.tasks.iter().any(|task| {
+                matches!(
+                    task.status,
+                    crate::plan::TaskStatus::InProgress | crate::plan::TaskStatus::InReview
+                )
+            }))
+    });
+    if has_execution {
+        TeamLifecycle::Active
+    } else {
+        team.lifecycle
+    }
+}
+
 /// Member tabs of a Team, ordered by tab id so the listing is stable.
 fn team_members(mux: &crate::multiplexer::state::MultiplexerState, team_id: &str) -> Value {
     let mut members: Vec<Value> = mux
@@ -207,6 +254,27 @@ fn required_caller_tab(params: &Option<Value>, action: &str) -> Result<String, J
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn team_lifecycle_advances_after_plan_approval_and_retains_closing() {
+        let mut team = codeterm_types::team::Team::new("ws", 1);
+        let mut plan = crate::plan::Plan::new(
+            "Approved work".into(),
+            "/project".into(),
+            crate::plan::OrchestratorRef::from_tab("orch"),
+        );
+        plan.team_id = Some(team.id.clone());
+        plan.mode = crate::plan::PlanMode::Approved;
+        assert_eq!(
+            lifecycle_for_team(&team, &[plan.clone()]),
+            codeterm_types::team::TeamLifecycle::Active
+        );
+        team.lifecycle = codeterm_types::team::TeamLifecycle::Closing;
+        assert_eq!(
+            lifecycle_for_team(&team, &[plan]),
+            codeterm_types::team::TeamLifecycle::Closing
+        );
+    }
 
     #[test]
     fn team_members_reports_cartographer_as_a_manager_kind() {

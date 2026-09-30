@@ -22,10 +22,12 @@ import {
   ClaudeToolUseResult,
   claudeSessionFilePath,
   contentToText,
+  detectSessionModelAfterBoundary,
   editedTextFilePath,
   extractSetModelFamily,
   familyFromModelId,
   isValidClaudeSessionMessage,
+  sessionModelTranscriptBoundary,
   validateEntry,
 } from "./session";
 import { discoverAnthropicModels } from "./models";
@@ -347,7 +349,7 @@ const plugin: PluginModule = {
     const p = params || ({} as ResumeParams);
     const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
     if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -383,6 +385,9 @@ const plugin: PluginModule = {
     }
     return null;
   },
+
+  sessionModelTranscriptBoundary,
+  detectSessionModelAfterBoundary,
 
   detectSessionReasoningEffort(cwd: string, sessionId: string): string | null {
     const path = claudeSessionFilePath(cwd, sessionId);
@@ -1066,6 +1071,11 @@ function commandOutcome(value: unknown): Record<string, unknown> | undefined {
   const backgroundTaskId = exactSourceIdentity(result.backgroundTaskId);
   if (backgroundTaskId) outcome.tool_background_task_id = backgroundTaskId;
   return Object.keys(outcome).length > 0 ? outcome : undefined;
+}
+
+// Plain flag/value tokens stay bare; anything a shell could reinterpret is quoted.
+function quoteArg(arg: string): string {
+  return /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform());
 }
 
 // Task-file helpers: write to host temp files with provider-specific suffixes.

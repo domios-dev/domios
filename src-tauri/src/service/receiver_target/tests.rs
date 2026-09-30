@@ -74,19 +74,33 @@ fn pebble_receiver_target_store_forget_tab_clears_only_that_tab() {
 }
 
 #[test]
-fn pebble_receiver_target_store_unreadable_file_opens_empty() {
+fn pebble_receiver_target_store_unreadable_file_opens_empty_and_is_never_saved_over() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("receiver-targets.json"), "{").unwrap();
+    let path = dir.path().join("receiver-targets.json");
+    std::fs::write(&path, "{").unwrap();
     let store = store_at(&dir);
     assert!(store.bindings().is_empty());
-    assert!(store.set(RECEIVER, "tab-a").unwrap());
+    assert!(store.set(RECEIVER, "tab-a").is_err());
+    assert_eq!(store.get(RECEIVER), None);
+    assert!(!path.exists());
+    let copies = state_file(&path).corrupt_copies();
+    assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), "{");
+}
+
+#[test]
+fn pebble_receiver_target_store_recovers_bindings_from_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    store_at(&dir).set(RECEIVER, "tab-a").unwrap();
+    std::fs::write(dir.path().join("receiver-targets.json"), "{\"rec").unwrap();
     assert_eq!(store_at(&dir).get(RECEIVER).as_deref(), Some("tab-a"));
 }
 
 #[test]
 fn pebble_receiver_target_failed_write_keeps_the_previous_binding() {
     let dir = tempfile::tempdir().unwrap();
-    let store = ReceiverTargetStore::open(dir.path().join("missing").join("receiver-targets.json"));
+    let blocker = dir.path().join("blocker");
+    std::fs::write(&blocker, "a file, not a directory").unwrap();
+    let store = ReceiverTargetStore::open(blocker.join("receiver-targets.json"));
     assert!(store.set(RECEIVER, "tab-a").is_err());
     assert_eq!(
         store.get(RECEIVER),

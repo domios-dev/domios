@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 
 use crate::multiplexer::types::TabBacking;
+use crate::persisted_state::{Loaded, StateFile};
 use crate::plugin::tab_menu::TabMenuAction;
 use crate::service::ServiceContext;
 
@@ -75,31 +76,38 @@ impl ReceiverTargetStore {
     }
 }
 
+fn state_file(path: &Path) -> StateFile {
+    StateFile::new(path).with_validator(validate)
+}
+
+fn parse(raw: &str) -> Result<Bindings, String> {
+    serde_json::from_str(raw).map_err(|error| error.to_string())
+}
+
+fn validate(raw: &str) -> Result<(), String> {
+    parse(raw).map(|_| ())
+}
+
+/// A held file leaves every receiver on the General Agent path and refuses
+/// every binding change until it loads again.
 fn load(path: &Path) -> Bindings {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Bindings::new();
-    };
-    serde_json::from_str(&raw).unwrap_or_else(|error| {
-        log::warn!(
-            "[receiver-target] {} is unreadable ({error}); every receiver falls back to the General Agent",
-            path.display()
-        );
-        Bindings::new()
-    })
+    match state_file(path).load(parse) {
+        Loaded::Parsed(bindings)
+        | Loaded::Recovered {
+            value: bindings, ..
+        } => bindings,
+        Loaded::Missing | Loaded::Unrecoverable { .. } => Bindings::new(),
+    }
 }
 
 fn persist(path: &Path, bindings: &Bindings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(bindings).map_err(|error| error.to_string())?;
-    let staged = path.with_extension("json.tmp");
-    std::fs::write(&staged, json)
-        .and_then(|()| std::fs::rename(&staged, path))
-        .map_err(|error| {
-            let _ = std::fs::remove_file(&staged);
-            format!(
-                "could not record receiver targets at {}: {error}",
-                path.display()
-            )
-        })
+    state_file(path).save(&json).map_err(|error| {
+        format!(
+            "could not record receiver targets at {}: {error}",
+            path.display()
+        )
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

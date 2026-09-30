@@ -66,6 +66,15 @@ fn is_list_response(val: &Value) -> bool {
     val.get("plans").is_some() || val.get("tasks").is_some()
 }
 
+fn plan_list_line(item: &Value) -> String {
+    let id = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+    match item.get("orphaned").and_then(Value::as_str) {
+        Some(reason) => format!("{id}\t{title}\t[flagged: {reason}]"),
+        None => format!("{id}\t{title}"),
+    }
+}
+
 fn print_plan_body(val: &Value) {
     if is_list_response(val) {
         if let Some(arr) = val.get("plans").and_then(|v| v.as_array()) {
@@ -73,9 +82,7 @@ fn print_plan_body(val: &Value) {
                 println!("(no plans)");
             } else {
                 for item in arr {
-                    let id = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    println!("{id}\t{title}");
+                    println!("{}", plan_list_line(item));
                 }
             }
             return;
@@ -147,8 +154,8 @@ fn render_strategy_warning(val: &Value) -> Option<String> {
     ))
 }
 
-/// The one error envelope the whole CLI emits under `--json`. `code` carries the
-/// JSON-RPC code programmatically so no human-facing line has to leak it.
+/// The one error envelope the whole CLI emits under `--json`, built by the
+/// shared error contract.
 pub(crate) fn error_envelope(message: &str, code: Option<i32>) -> Value {
     error_envelope_with_data(message, code, None)
 }
@@ -158,15 +165,7 @@ pub(crate) fn error_envelope_with_data(
     code: Option<i32>,
     data: Option<&Value>,
 ) -> Value {
-    serde_json::json!({
-        "ok": false,
-        "kind": "error",
-        "id": null,
-        "data": data.cloned(),
-        "hints": [],
-        "error": message,
-        "code": code,
-    })
+    crate::cmd::error_contract::error_envelope(message, code, data)
 }
 
 fn plan_error_line(json: bool, message: &str) -> String {
@@ -311,14 +310,15 @@ mod tests {
     const PLAN_NOT_FOUND: &str = "✗ plan 'zzzzzzzz' not found.\nfix: codeterm plan list --active";
 
     #[test]
-    fn plan_json_error_line_is_the_shared_envelope_with_a_null_code() {
+    fn plan_json_error_line_is_the_shared_envelope_with_a_null_rpc_code() {
         let parsed: Value = serde_json::from_str(&plan_error_line(true, PLAN_NOT_FOUND))
             .expect("one JSON envelope");
 
         assert_eq!(parsed["ok"], Value::Bool(false));
         assert_eq!(parsed["kind"], "error");
-        assert_eq!(parsed["code"], Value::Null);
-        assert_eq!(parsed["error"], PLAN_NOT_FOUND);
+        assert_eq!(parsed["error"]["rpc_code"], Value::Null);
+        assert_eq!(parsed["error"]["code"], "not_found");
+        assert_eq!(parsed["error"]["message"], PLAN_NOT_FOUND);
     }
 
     #[test]
@@ -350,6 +350,21 @@ mod tests {
         assert_eq!(
             render_strategy_warning(&json!({ "task_id": "task_1" })),
             None
+        );
+    }
+
+    #[test]
+    fn plan_list_line_carries_the_orphan_flag() {
+        let flagged = plan_list_line(&json!({
+            "plan_id": "pl_1",
+            "title": "Plan",
+            "orphaned": "reason-token",
+        }));
+        assert!(flagged.starts_with("pl_1\tPlan\t"));
+        assert!(flagged.contains("reason-token"));
+        assert_eq!(
+            plan_list_line(&json!({ "plan_id": "pl_2", "title": "Plan" })),
+            "pl_2\tPlan"
         );
     }
 }

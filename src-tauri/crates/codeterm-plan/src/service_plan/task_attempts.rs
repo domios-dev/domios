@@ -962,6 +962,7 @@ impl PlanStore {
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let explicit_title = request.title.is_some();
+        let title = request.title.or_else(|| task.personality.clone());
         let cwd = source
             .worktree_path
             .clone()
@@ -991,7 +992,7 @@ impl PlanStore {
                 .or(source.parent_tab_id.clone())
                 .or(plan.owner.tab_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
-            title: request.title,
+            title,
             explicit_title,
             cwd,
             task_prompt,

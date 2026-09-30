@@ -29,6 +29,7 @@ pub struct OrchestrationPairParams {
     #[serde(default)]
     pub planner_reasoning_effort: Option<String>,
     pub workspace_id: Option<String>,
+    pub title: Option<String>,
     pub spawned_by_tab_id: Option<String>,
     /// Blank picker tab to claim for the Orchestrator in place, instead of
     /// spawning it as a brand-new tab (new-session picker confirm path).
@@ -193,6 +194,21 @@ fn validate_pair_provider(
         provider,
         model,
         reasoning_effort,
+    )?;
+    let full_access =
+        super::permission_policy::configured_permission_bypass(&service.agent_registry, provider)?
+            .is_some();
+    super::unattended_launch::preflight(
+        &service.agent_registry,
+        &super::unattended_launch::UnattendedLaunch {
+            provider_id: provider,
+            model,
+            role: Some(role),
+            role_profile,
+            has_task: true,
+            full_access,
+            ..Default::default()
+        },
     )
 }
 
@@ -619,13 +635,22 @@ impl ServiceContext {
         );
         let reserved = {
             let mut mux = self.mux.write();
-            reserve_pair_tabs(
+            let reserved = reserve_pair_tabs(
                 &mut mux,
                 &workspace_id,
                 params.existing_tab_id.as_deref(),
                 claimed_orchestrator_pad_existed,
                 &membership_shape,
-            )?
+            )?;
+            if let Some(title) = params
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                apply_team_title(&mut mux, &reserved.team.id, Some(title))?;
+            }
+            reserved
         };
         let orchestrator_label = self
             .mux
@@ -799,6 +824,17 @@ impl ServiceContext {
             }
         }
     }
+}
+
+fn apply_team_title(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    team_id: &str,
+    title: Option<&str>,
+) -> Result<(), String> {
+    if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+        mux.rename_team(team_id, title.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

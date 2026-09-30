@@ -668,6 +668,17 @@ impl WorkerAckRegistry {
         self.startup_supervisors.lock().get(tab_id).cloned()
     }
 
+    /// This tab's launch still owes its startup acknowledgement.
+    pub(crate) fn startup_handshake_owed(&self, tab_id: &str) -> bool {
+        let supervised = self.startup_supervisors.lock().contains_key(tab_id);
+        supervised || self.startup_waiters.lock().contains_key(tab_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn supervise_startup_for_test(&self, tab_id: &str, supervisor_tab_id: &str) {
+        self.register_startup_supervisor(tab_id, supervisor_tab_id, tab_id, None, None);
+    }
+
     fn clear_startup_supervisor(&self, authority: &StartupAuthority) {
         let mut supervisors = self.startup_supervisors.lock();
         if supervisors

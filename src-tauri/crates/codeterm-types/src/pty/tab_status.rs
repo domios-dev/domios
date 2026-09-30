@@ -7,7 +7,26 @@ pub enum TabStatus {
     Working,
     Waiting,
     Idle,
+    Error,
     Dead,
+}
+
+impl TabStatus {
+    /// The one status vocabulary every tab surface reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            TabStatus::Working => "working",
+            TabStatus::Waiting => "question",
+            TabStatus::Idle => "idle",
+            TabStatus::Error => "error",
+            TabStatus::Dead => "exited",
+        }
+    }
+
+    /// Only a turn in progress has anything to interrupt.
+    pub fn has_active_turn(self) -> bool {
+        matches!(self, TabStatus::Working | TabStatus::Waiting)
+    }
 }
 
 pub fn reconcile_status(
@@ -17,7 +36,7 @@ pub fn reconcile_status(
     deterministic_agent_state: bool,
     has_pending_prompt: bool,
 ) -> TabStatus {
-    if matches!(raw, TabStatus::Dead | TabStatus::Waiting) {
+    if matches!(raw, TabStatus::Dead | TabStatus::Waiting | TabStatus::Error) {
         return raw;
     }
     if has_pending_prompt {
@@ -120,7 +139,7 @@ mod tests {
 
     #[test]
     fn dead_waiting_and_pending_prompt_keep_raw_semantics() {
-        for raw in [TabStatus::Dead, TabStatus::Waiting] {
+        for raw in [TabStatus::Dead, TabStatus::Waiting, TabStatus::Error] {
             assert_eq!(
                 reconcile_status(
                     raw,
@@ -141,6 +160,20 @@ mod tests {
                 true,
             ),
             TabStatus::Waiting
+        );
+    }
+
+    #[test]
+    fn provider_error_survives_pending_prompt_projection() {
+        assert_eq!(
+            reconcile_status(
+                TabStatus::Error,
+                Some(BootStage::AgentReady),
+                Some(TimelineState::Idle),
+                true,
+                true,
+            ),
+            TabStatus::Error
         );
     }
 

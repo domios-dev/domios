@@ -53,6 +53,10 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ),
     ("describeSession", "none (sessions list without title/summary)"),
     ("parseSessionMessages", "native fallback (bundled drop-ins only), else empty"),
+    (
+        "readSessionContent",
+        "native fallback (bundled drop-ins only), else shared-store sessions stay unsearchable",
+    ),
     ("parseSessionDelta", "none — chat tailing yields no messages"),
     ("sessionJsonlPath", "native fallback (bundled drop-ins only); chat UI stays off without it"),
     ("sessionUsageSources", "native fallback (bundled drop-ins only), else none — KPI ingests only the main session log"),
@@ -108,8 +112,7 @@ pub fn run(json: bool, dir: &Path) {
             }
         }
         Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }

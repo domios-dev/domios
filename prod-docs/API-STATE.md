@@ -4,13 +4,13 @@ Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and upda
 
 #### Secrets
 
-Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (OS keychain, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
+Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (plaintext local file, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET  | `/api/secrets/status` | — | `{backend, status:{status: "logged_out"\|"locked"\|"unlocked"\|"unavailable", user?, transient?, endpoint?, reason?}, auto_unlock_capable, master_password_saved}`. `auto_unlock_capable` is the active backend's manifest declaration (`secretBackend.autoUnlock`); `master_password_saved` is true only when the capability is declared **and** the backend's own bucket holds its credential. See [SECRETS.md](SECRETS.md#the-auto-unlock-contract). |
 | POST | `/api/secrets/unlock` | `{master_password, email?, two_factor_token?, api_key_client_id?, api_key_client_secret?, persist_for_auto_unlock?}` | Unlock the active backend. Master password is consumed and dropped immediately. `persist_for_auto_unlock` (default `false`) is the explicit consent to remember the credential for headless unlock; it is refused with `400 bad_request` when the active backend declares no auto-unlock capability. See [SECRETS.md](SECRETS.md#the-auto-unlock-contract). |
-| POST | `/api/secrets/lock` | — | Drop in-process session; persisted creds (OS keychain) are kept. |
+| POST | `/api/secrets/lock` | — | Drop in-process session; persisted creds are kept. |
 | POST | `/api/secrets/logout` | — | Drop session AND every persisted credential. |
 | POST | `/api/secrets/auto-unlock` | — | Re-run the active backend's `init`, asking it to restore its own session from a credential it persisted itself. Returns `{ok: bool, backend, status}`; `ok=false` means the backend did not reach `unlocked`. No-op for a backend that declares no auto-unlock capability. |
 | POST | `/api/secrets/sync` | — | Pull latest from the remote vault. Bitwarden runs `bw sync`. No-op for `local` and `mock`. |
@@ -97,15 +97,19 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
+| GET | `/api/sessions/search` | `?q=...&provider=<id>\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search; returns `{hits, warnings}` |
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
 | POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` or no body | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
 Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
 
-**GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`) to scope. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
+**GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`, `opencode`) to scope, and an id no provider owns is refused with 400. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
 
-The scan is bounded, not exhaustive. Session metadata is enumerated first and ordered by recency; files are parsed in that order and the walk stops as soon as `limit` hits are collected, so a common query reads a handful of sessions rather than the whole corpus. Any single session file larger than 8 MiB is skipped rather than loaded — real corpora hold multi-gigabyte rollouts, and parsing one to answer a text query is unbounded work. Content in a skipped session is therefore not searchable; `sessions get`/`resume` still resolve it, since those read metadata only. The walk runs on the blocking pool, so it never occupies the async runtime.
+Where a session's text is read from is the provider's `session_content_source` capability. A `session_file` provider (Claude, Codex) owns one file per session; a `shared_store` provider (OpenCode, whose sessions all live in one `opencode.db`) answers per session through `read_session_content`, a read-only query of that session's messages bounded to its newest 8 MiB. Core never opens a shared store as a file.
+
+The scan is bounded, not exhaustive. Providers are scanned in parallel on the blocking pool; each orders its sessions by recency and stops at `limit` hits, and the merged result keeps the newest `limit`. Session files are prefiltered on raw bytes in parallel batches, so only files that contain every ASCII term are parsed, and a file larger than 8 MiB is skipped rather than loaded. `sessions get`/`resume` still resolve a skipped session, since those read metadata only. Each provider logs `[sessions-search] provider=… sessions=… scanned=… parsed=… elapsed_ms=…`.
+
+Nothing is skipped silently. `warnings` lists, per provider, the sessions it could not fully search: `{provider, reason, sessions, message}`, where `reason` is `no_content_source`, `over_byte_cap`, `unreadable`, `content_truncated` (a store session searched only in its newest 8 MiB), or `scan_failed`. The CLI prints each `message` after the hits, also when nothing matched.
 
 Response shape:
 ```json
@@ -216,4 +220,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

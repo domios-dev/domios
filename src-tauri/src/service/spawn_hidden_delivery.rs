@@ -19,3 +19,33 @@ pub(super) fn deliver_hidden_pty_task(
     }
     svc.send_text_to_pty(pty_id, task_text)
 }
+
+/// Model, reasoning-effort, and unattended-permission args for a hidden launch.
+pub(super) fn hidden_launch_args(
+    svc: &ServiceContext,
+    tab_id: &str,
+    agent: &super::AgentSpawnSpec,
+    launch_model: &Option<String>,
+    full_access: bool,
+) -> Vec<String> {
+    let launch_model = launch_model.as_deref();
+    let mut args = launch_model
+        .and_then(|model| {
+            svc.agent_registry
+                .with_provider(&agent.provider, |provider| {
+                    provider.model_launch_args(model)
+                })
+        })
+        .unwrap_or_default();
+    args.extend(svc.reasoning_effort_launch_args_or_notice(
+        tab_id,
+        &agent.provider,
+        launch_model,
+        agent.reasoning_effort.as_deref(),
+    ));
+    args.extend(crate::service::unattended_launch::grant_args(
+        &svc.agent_registry,
+        &agent.unattended_launch(&agent.provider, launch_model, full_access),
+    ));
+    args
+}

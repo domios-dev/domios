@@ -47,7 +47,15 @@ pub fn start(svc: ServiceState) {
 /// Gather the observable evidence for one tab. Returns `None` when the tab does
 /// not exist — a missing tab is not an agent state, it is a missing tab.
 fn evidence_for_tab(svc: &ServiceContext, tab_id: &str) -> Option<LivenessEvidence> {
-    let (declares_agent, pty_id, chat_bound, boot_stage, boot_in_flight, exit_observed) = {
+    let (
+        declares_agent,
+        pty_id,
+        chat_bound,
+        boot_stage,
+        boot_in_flight,
+        exit_observed,
+        pending_prompt,
+    ) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id)?;
         (
@@ -60,6 +68,7 @@ fn evidence_for_tab(svc: &ServiceContext, tab_id: &str) -> Option<LivenessEviden
             tab.boot_stage,
             tab.agent_booting,
             tab.exit_suspected_at.is_some(),
+            tab.pending_prompt.is_some(),
         )
     };
     let backing = if chat_bound {
@@ -77,6 +86,7 @@ fn evidence_for_tab(svc: &ServiceContext, tab_id: &str) -> Option<LivenessEviden
         boot_stage,
         boot_in_flight,
         provider_exit_observed: exit_observed,
+        pending_prompt,
     })
 }
 

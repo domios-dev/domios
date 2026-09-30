@@ -339,18 +339,14 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let closed = closed_tabs(records);
     let retained_agent_type_writes = retained_agent_type_write_sequences(records);
     let retained_permission_audits = retained_permission_auto_confirm_sequences(records);
-    let retained_verified_sessions = retained_verified_session_records(records);
     let mut compacted: Vec<JournalRecord> = checkpoints
         .iter()
         .cloned()
         .map(|checkpoint| JournalRecord::Checkpoint { checkpoint })
         .collect();
-    compacted.extend(
-        retained_verified_sessions
-            .iter()
-            .filter(|(tab_id, _)| !closed.contains(*tab_id))
-            .map(|(_, record)| (*record).clone()),
-    );
+    compacted.extend(retained_verified_session_records(
+        records, &covered, &closed,
+    ));
     for record in records {
         let JournalRecord::Transition { entry } = record else {
             continue;
@@ -385,17 +381,44 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     compacted
 }
 
-fn retained_verified_session_records(records: &[JournalRecord]) -> HashMap<&str, &JournalRecord> {
-    let mut latest = HashMap::<&str, &JournalRecord>::new();
+/// Each live tab's newest verified binding outside its emitted checkpoint. A
+/// rolled-back checkpoint may be the only proof left of its session.
+fn retained_verified_session_records(
+    records: &[JournalRecord],
+    covered: &HashMap<&str, JournalSeq>,
+    closed: &std::collections::HashSet<&str>,
+) -> Vec<JournalRecord> {
+    let mut bound = HashMap::<&str, &JournalRecord>::new();
+    let mut carried = HashMap::<&str, &JournalRecord>::new();
     for record in records {
-        let JournalRecord::Transition { entry } = record else {
-            continue;
-        };
-        if matches!(&entry.transition, LifecycleTransition::SessionBound { .. }) {
-            latest.insert(entry.key.tab_id.as_str(), record);
+        match record {
+            JournalRecord::Transition { entry }
+                if matches!(&entry.transition, LifecycleTransition::SessionBound { .. }) =>
+            {
+                bound.insert(record.tab_id(), record);
+            }
+            JournalRecord::Checkpoint { .. } => {
+                carried.insert(record.tab_id(), record);
+            }
+            JournalRecord::Transition { .. } => {}
         }
     }
-    latest
+    // A binding that sealed the emitted checkpoint shares its sequence, and a
+    // duplicate sequence would refuse the rest of the journal on replay.
+    let bindings = bound
+        .iter()
+        .filter(|(tab_id, record)| covered.get(**tab_id) != Some(&record.seq()));
+    let checkpoints = carried.iter().filter(|(tab_id, record)| {
+        !covered.contains_key(**tab_id)
+            && bound
+                .get(**tab_id)
+                .is_none_or(|binding| binding.seq() < record.seq())
+    });
+    bindings
+        .chain(checkpoints)
+        .filter(|(tab_id, _)| !closed.contains(**tab_id))
+        .map(|(_, record)| (*record).clone())
+        .collect()
 }
 
 /// Per-tab audit rows kept through compaction; older ones are telemetry only.

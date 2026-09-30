@@ -36,6 +36,21 @@ fn spawn_body_minimal() {
 }
 
 #[test]
+fn spawned_tab_owner_uses_authenticated_peer_identity() {
+    let forged = codeterm_types::pty::RemoteOwnership {
+        controller_title: "controller".into(),
+        controller_tab_id: None,
+        peer_id: "forged-peer".into(),
+        peer_name: "Forged".into(),
+        team: None,
+    };
+    let stamped = super::ownership_for_spawning_peer(Some(forged), "signed-peer", "Signed Peer");
+
+    assert_eq!(stamped.peer_id, "signed-peer");
+    assert_eq!(stamped.peer_name, "Signed Peer");
+}
+
+#[test]
 fn spawn_body_empty_object() {
     let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
     assert_eq!(body.agent, None);
@@ -118,6 +133,16 @@ fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
     );
 }
 
+#[test]
+fn mesh_refusal_classification_spawn_string_error_is_never_promised_transient() {
+    let rejection = SpawnRejection::from("Unknown agent provider: 'x'".to_string());
+    let error = rejection.body.get("error").expect("error object present");
+    assert_eq!(
+        error.get("class").and_then(|v| v.as_str()),
+        Some(super::spawn_rejection::SPAWN_REFUSAL_CLASS_UNCLASSIFIED)
+    );
+}
+
 #[tokio::test]
 async fn unknown_authoritative_model_returns_structured_422_without_retry_hint() {
     let provider = BinaryProvider::new("rest-catalogue", "rest-catalogue", None)
@@ -151,7 +176,7 @@ async fn unknown_authoritative_model_returns_structured_422_without_retry_hint()
         error["refresh_command"],
         "codeterm agent models rest-catalogue"
     );
-    assert!(error["closest_model_ids"]
+    assert!(error["valid_model_ids"]
         .as_array()
         .is_some_and(|ids| !ids.is_empty()));
     assert!(error.get("retry_hint").is_none());

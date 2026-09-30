@@ -59,7 +59,7 @@ function cronJob(): CronJob {
   };
 }
 
-function projectedCronService(): Service {
+function projectedCronService(lastRunStatus = "Success"): Service {
   return {
     id: `cron_${CRON_ID}`,
     name: "Nightly sync",
@@ -69,7 +69,7 @@ function projectedCronService(): Service {
     health: { status: "healthy" },
     push_enabled: false,
     schedule: "*/5 * * * *",
-    last_run_status: "Success",
+    last_run_status: lastRunStatus,
     registered_at: 1,
     updated_at: 1,
     enabled: true,
@@ -140,10 +140,10 @@ async function flushUntil(predicate: () => boolean, maxTicks = 50): Promise<void
   assert(predicate(), `condition observed within ${maxTicks} microtask ticks`);
 }
 
-async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[]): Promise<{ host: HTMLDivElement; root: Root }> {
+async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[], lastRunStatus = "Success"): Promise<{ host: HTMLDivElement; root: Root }> {
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_get") return cronJob() as T;
-    if (command === "mesh_inventory_list") return inventory([projectedCronService()]) as T;
+    if (command === "mesh_inventory_list") return inventory([projectedCronService(lastRunStatus)]) as T;
     throw new Error(`unexpected invoke: ${command}`);
   });
   __setListenForTest(async () => () => undefined);
@@ -177,6 +177,30 @@ test("a cron with no report_target_tab_id renders schedule, history and controls
   assert(pauseButton != null, "Pause/Resume control is present");
   assert(triggerButton.disabled === false, "Trigger control is not disabled");
   assert(pauseButton.disabled === false, "Pause/Resume control is not disabled");
+
+  await act(async () => root.unmount());
+});
+
+test("an owner prompt remains visible in history and exposes cancel while active", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(CRON_ID, adapter({
+    history: async () => {
+      calls.push("history");
+      return [{
+        run_id: "run-blocked",
+        started_at: 100,
+        finished_at: null,
+        status: "AwaitingOwnerPrompt",
+        tab_id: "cron-tab",
+      }];
+    },
+  }, calls), calls, "AwaitingOwnerPrompt");
+
+  assert(host.textContent?.includes("Awaiting owner"), "history labels the blocked run as awaiting its owner");
+  assert(host.textContent?.includes("!"), "history uses the owner-prompt status indicator");
+  const cancelButton = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.textContent?.includes("Cancel running"));
+  assert(cancelButton, "the blocked active run exposes its cancel control");
 
   await act(async () => root.unmount());
 });

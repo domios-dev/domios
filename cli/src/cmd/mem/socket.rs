@@ -52,8 +52,7 @@ fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json
         MemAction::Delete { id } => Some(("mem.delete", Some(serde_json::json!({ "id": id })))),
         MemAction::Forget { area, yes } => {
             if let Err(e) = item::validate_mem_forget_confirmation(area, *yes) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+                crate::cmd::print::fail(1, e.to_string());
             }
             Some(("mem.forget", Some(serde_json::json!({ "area": area }))))
         }
@@ -203,8 +202,10 @@ fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json
                 use std::io::Read;
                 let mut s = String::new();
                 if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
-                    eprintln!("Error: provide text as arg, --error/--feature, or pipe to stdin");
-                    std::process::exit(1);
+                    crate::cmd::print::fail(
+                        1,
+                        "provide text as arg, --error/--feature, or pipe to stdin",
+                    );
                 }
                 (s, kind.clone().unwrap_or_else(|| "insight".into()))
             };
@@ -245,15 +246,14 @@ fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json
                 Ok(None) => match item::read_path_or_stdin("-") {
                     Ok(s) if !s.trim().is_empty() => s,
                     _ => {
-                        eprintln!(
-                            "Error: no text provided (pass as arg, --file, or pipe to stdin)"
+                        crate::cmd::print::fail(
+                            1,
+                            "no text provided (pass as arg, --file, or pipe to stdin)",
                         );
-                        std::process::exit(1);
                     }
                 },
                 Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
+                    crate::cmd::print::fail(1, e.to_string());
                 }
             };
             Some((
@@ -280,8 +280,7 @@ fn resolve_or_exit(value: Option<String>, file: Option<String>) -> Option<String
     match item::resolve_text(value, file) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+            crate::cmd::print::fail(1, e.to_string());
         }
     }
 }

@@ -146,6 +146,7 @@ When a `spawn` block is present, `readinessStrategy`, `taskDelivery`, and
 | `supportsStructuredPrompts` | bool | false | Provider exposes a structured prompt source; host builds `pending_prompt` from it instead of scraping the PTY. **JS-only providers cannot serve this** — see caveats. |
 | `structuredPromptServer` | bool | false | The structured handle is a local server the provider must bind; host allocates `127.0.0.1:port` and passes it as `structuredPromptServer` at launch. Pull-handle providers leave this false. |
 | `usageProbeCommand` | string? | absent | TUI command that prints the usage screen (e.g. `/usage`, `/status`). Pairs with the `parseUsage` export; the usage poller skips providers without both. |
+| `launchPermissions` | object? | absent | Launch-scoped grants applied through launch args, never global settings files. `unattendedModeModels`: models whose default mode runs tools unattended without full access (empty ⇒ no claim). `commandRuleFormat` (`{command}`) + `allowRuleArgsFormat` (`{rule}`): how one CodeTerm command prefix is allowed. `denyToolArgsFormat` (`{tool}`) + `nativeSubagentTools`: how managing roles lose native subagent tools. Without full access, a model outside `unattendedModeModels` gets the role's CodeTerm command rules, and a managing role (Orchestrator, Planner) on such a model is refused before spawn. |
 
 ### `sessions`
 
@@ -157,6 +158,7 @@ Drives the manifest fallbacks for session discovery (`sessionFilePath`,
 | `rootDir` | string (required) | — | Filesystem root the provider writes session files into. `~/` expands to the home dir. E.g. `~/.claude/projects`. |
 | `cwdEncoding` | `"dash_encoded"` \| `"none"` | `dash_encoded` | How a cwd maps to a subdirectory name: `dash_encoded` turns `/Users/foo/code` into `-Users-foo-code`; `none` uses the path as-is. |
 | `fileExtension` | string | `"jsonl"` | Session file extension. |
+| `searchFiles` | object? | absent | Search-only filesystem enumeration. `rootSubdir` selects a path beneath `rootDir`, `directoryDepth` bounds the number of directories to descend (default 1, host maximum 8), and `fileStemRegex` optionally extracts the session id from capture group 1. Search reads file paths and timestamps in Rust, then asks the provider for descriptive fields only after the raw content prefilter selects a candidate. |
 
 ### `commands`
 
@@ -167,11 +169,13 @@ All fields optional.
 | `compact` | string? | In-agent compact command (e.g. `/compact`). |
 | `freshContext` | string? | In-agent fresh-context command. |
 | `exit` | string? | In-agent clean-exit command. |
-| `stopKey` | string? | Raw key bytes the host writes into the PTY to **interrupt** the current generation (not a clean exit). All four bundled providers declare Esc (`"\u001b"`) — see "The stop key" below. Absent ⇒ the UI hides the Stop affordance (`supports_stop` is derived from this field). |
-| `modelSwitchFormat` | string? | In-agent model-switch template with `{model}` placeholder (e.g. `/model {model}`). |
+| `stopKey` | string? | One raw key value for interrupting the current generation. |
+| `stopKeys` | string[]? | Ordered raw key values for a multi-key interrupt sequence. |
+| `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |
+| `modelSwitch` | `"restart_resume"` \| `"unsupported"` | How `agent model` changes a live tab's model. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`; confirmation waits for an assistant turn after the captured transcript boundary. Default `unsupported` refuses the switch without writing to the tab. Never declare an in-agent slash command: provider model pickers persist the choice as the machine-global default. |
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
-| `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`. Absent ⇒ provider has no scriptable effort flag even if it lists effort levels. |
+| `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`, checked against the installed CLI's own `--help`. Absent ⇒ no scriptable effort flag, and spawn refuses any `--reasoning-effort` for this provider; declare no `reasoningEfforts` then. |
 | `additionalWritableDirFlag` | string? | CLI flag accepting one extra writable directory. For a sandboxed linked worktree, core supplies the lane gitdir plus the canonical project's `objects`, `refs`, and `logs` directories; it never supplies the common `.git` directory. Applied on spawn, dispatch, restore, and resume after validating the worktree against its canonical project. |
 
 ### `integration`
@@ -250,6 +254,8 @@ instead.
 | `detectLaunchSession(evidence)` | `{cwd, launchMarker, launchedAtMs, processes: [{pid, depth, startToken}]}` for this tab's own launch; `processes` is its PTY tree with OS start times | `{sessionId, source: "pid_registry" \| "launch_marker"}` or `null` | `null`. Core asks only after a hooked provider missed its launch binding deadline, then binds through the same ownership validation as a hook report. Read only records keyed to this launch (a pid whose recorded start equals `startToken`, or text carrying `launchMarker`); never cwd or recency. |
 | `detectActiveSession(cwd, currentSid)` | cwd, current id | id or `null` | `null`. |
 | `detectSessionModel(cwd, sessionId)` | cwd, id | model id or `null` (resolved through the model catalog) | `null`. |
+| `sessionModelTranscriptBoundary(cwd, sessionId)` | cwd, id | `{lastEntryUuid, lastEntryTimestamp, lastEntryType, boundaryFound}` or `null` — cursor for the exact session transcript at relaunch; a UUID-less user/assistant cursor uses its type and timestamp | `null` records an unknown cursor; `restart_resume` proceeds and leaves model confirmation pending. |
+| `detectSessionModelAfterBoundary(cwd, sessionId, boundary)` | cwd, id, cursor | model id from an assistant entry after a known cursor or `null` | `null`; unknown cursors and old transcript entries never confirm a switch. |
 | `detectSessionReasoningEffort(cwd, sessionId)` | cwd, id | effort id or `null` | `null`. |
 | `sessionCreatedMs(cwd, sessionId)` | cwd, id | epoch ms or `null` | `null`. |
 | `enumerateSessions()` | — | `[{sessionId, provider?, projectPath?, title?, summary?, filePath, createdTs?, modifiedTs?}]` | manifest-driven walk of `rootDir` (one directory level, uuid-ish stems), calling `describeSession` per file. |
@@ -260,7 +266,8 @@ instead.
 
 | Export | Called with | Returns | When missing |
 |---|---|---|---|
-| `parseSessionMessages(chunk)` | line-aligned JSONL chunk (≤4 MB per call; the host chunks the file) | `[{role, text, ts?, isMeta?}]` | native fallback; else `[]`. |
+| `parseSessionMessages(chunk)` | line-aligned JSONL chunk (≤4 MB per call; the host chunks the file) | `[{role, text, ts?, isMeta?}]` | native fallback; else `[]`. Exporting it declares the `session_file` content source for `sessions search`. |
+| `readSessionContent(sessionId, {maxBytes, hintTerms})` | id, the newest-bytes budget, ASCII-lowercased terms a returned message must hold | `{messages: [{role, text, ts?, isMeta?}], truncated}` or `null` when the store is unreadable | native fallback; else the provider has no shared-store content. For providers whose sessions share one store (`filePath` is the store): exporting it declares the `shared_store` source, so search reads each session through it and never opens the store as a file. Read only that session, scan at most `maxBytes` newest bytes, and set `truncated` when older content went unscanned. |
 | `sessionJsonlPath(cwd, sessionId)` | cwd (pre-canonicalized when `cwdEncoding` is `dash_encoded`), id | path or `null` | native fallback. Exporting this is one of the signals that flips `supports_chat_ui` on. |
 | `parseSessionDelta(chunk)` | line-aligned chunk read by the host tailer (host owns all offset math) | `{messages: RichMessage[]}`; each row sets `recordIndex`, the chunk line it came from, which the host maps to the record start byte that names uuid-less rows (`rec-{start}-{row}`) | the window is skipped with a warning and the offset still advances — the tailer never retry-loops. |
 | `usesStructuredChat()` | — | bool | native fallback; else `false`. |
@@ -306,21 +313,16 @@ Transcribed limits a JS-only author must know:
   (no-ops) or the native provider.
 - **`checkRuleStatus` / `installRule` and `readUsage`** are likewise
   native/trait-default only.
-- **`detectEvents`** maps only `"permission_request"`; other event names are
-  silently dropped.
+- **`detectEvents`** maps `"permission_request"`, `"turn_error"`,
+  `"task_complete"`, and `"turn_started"`; other event names are silently
+  dropped.
 
 ## The stop key
 
-What CodeTerm sends to interrupt a generating agent is exactly
-`commands.stopKey` — `JsProvider::stop_keystroke()` returns the manifest value
-verbatim, and the descriptor's `supports_stop` is derived from its presence
-(two reads of one capability, guarded by
-`parity_test.rs::supports_stop_matches_stop_keystroke`). All four bundled
-provider manifests — claude, codex, opencode, **and cursor** — declare Esc
-(`"\u001b"`). Cursor has no native Rust provider, so its manifest is the sole
-operative source: no code path sends Ctrl+C to any bundled provider. The
-`AgentProvider` trait doc and the CLI help state the mechanism — the
-provider's declared stopKey — not a per-provider key table.
+The host sends `commands.stopKeys` in order, or the single `commands.stopKey`
+when no sequence is declared. `stopKeyWaitForOutput` inserts an event-driven
+screen-change wait between keys. `supports_stop` follows whether a valid key
+sequence exists. Provider choice and timing stay in the manifest.
 
 ## Fixture capture — the codex pattern
 

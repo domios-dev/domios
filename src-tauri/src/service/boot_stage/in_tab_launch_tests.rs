@@ -39,6 +39,7 @@ fn liveness(tab: &Tab) -> AgentLiveness {
         boot_stage: tab.boot_stage,
         boot_in_flight: tab.agent_booting,
         provider_exit_observed: tab.exit_suspected_at.is_some(),
+        pending_prompt: tab.pending_prompt.is_some(),
     })
 }
 

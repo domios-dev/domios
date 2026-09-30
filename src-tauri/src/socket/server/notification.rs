@@ -36,7 +36,19 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     match method {
         "notification.create" => {
-            let title = get_string_param(params, "title")?;
+            let invalid = |message: String| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            };
+            let title =
+                crate::api::notification_routes::vet_title(&get_string_param(params, "title")?)
+                    .map_err(invalid)?;
+            crate::api::notification_routes::vet_target_tab(
+                string_at(params, "target_tab_id").as_deref(),
+                |tab| svc.mux.read().resolve_tab_id(tab).is_some(),
+            )
+            .map_err(invalid)?;
             let body = params
                 .as_ref()
                 .and_then(|p| p.get("body"))

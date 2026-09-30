@@ -4,6 +4,40 @@
 
 use serde::{Deserialize, Serialize};
 
+const MAX_TYPED_FOLLOW_UP_CHARS: usize = 160;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PasteCapability {
+    pub untrusted_above_lines: usize,
+    pub typed_follow_up: String,
+}
+
+impl PasteCapability {
+    pub fn is_valid_typed_follow_up(follow_up: &str) -> bool {
+        !follow_up.trim().is_empty()
+            && follow_up.chars().count() <= MAX_TYPED_FOLLOW_UP_CHARS
+            && !follow_up.chars().any(|character| {
+                character.is_control() || matches!(character, '\u{2028}' | '\u{2029}')
+            })
+    }
+
+    pub fn typed_follow_up_for(&self, text: &str) -> Option<&str> {
+        let follow_up = self.typed_follow_up.as_str();
+        (text.lines().count() > self.untrusted_above_lines
+            && Self::is_valid_typed_follow_up(follow_up))
+        .then_some(follow_up)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub struct SandboxedLinuxLaunchCapability {
+    pub network_access_args: Vec<String>,
+    pub network_access_config_path: String,
+    pub network_access_setting: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCatalogueAuthority {
@@ -38,6 +72,17 @@ impl ModelCatalogueCapability {
             live_discovery_required: true,
         }
     }
+}
+
+/// How a live agent tab changes its model without touching the provider's
+/// machine-global default. `RestartResume` relaunches the same session with the
+/// model launch args and needs a session-start report naming the running model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchMode {
+    RestartResume,
+    #[default]
+    Unsupported,
 }
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
@@ -303,5 +348,31 @@ mod capability_denial_tests {
     fn a_success_is_never_rewritten_even_if_something_else_was_denied() {
         let out = attribute_capability_denial(Ok("weekly 7%".into()), 0, 9);
         assert_eq!(out.unwrap(), "weekly 7%");
+    }
+}
+
+#[cfg(test)]
+mod paste_capability_tests {
+    use super::*;
+
+    #[test]
+    fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
+        let capability = PasteCapability {
+            untrusted_above_lines: 4,
+            typed_follow_up: " ::marker::".into(),
+        };
+
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc\nd"), None);
+        assert_eq!(
+            capability.typed_follow_up_for("a\nb\nc\nd\ne"),
+            Some(" ::marker::")
+        );
+
+        let multiline = PasteCapability {
+            typed_follow_up: "marker\nmarker".into(),
+            ..capability
+        };
+        assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
     }
 }

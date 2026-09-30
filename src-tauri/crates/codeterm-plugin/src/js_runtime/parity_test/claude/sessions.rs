@@ -169,6 +169,187 @@ fn parse_session_delta_handles_polymorphic_content() {
     );
 }
 
+#[test]
+fn model_switch_transcript_boundary_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::AgentProvider;
+
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().join("project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let evidence = temp.path().join("evidence");
+    // Windows resolves the home directory without HOME, so both paths are rooted explicitly.
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence.to_str().unwrap(),
+    )]);
+    // The JS plugin encodes the cwd as given, so use the resolved path (macOS /var is a symlink).
+    let cwd = codeterm_paths::canonical_cwd(&cwd.to_string_lossy());
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js
+        .session_file_path(&cwd, &session_id)
+        .expect("Claude transcript path");
+    assert!(path.starts_with(temp.path()), "{}", path.display());
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let transcript = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/queued-mid-turn.jsonl"
+    ))
+    .replace("claude-opus-5", "claude-haiku-4-5");
+    std::fs::write(&path, &transcript).unwrap();
+    assert!(crate::session_evidence::record(
+        &session_id,
+        path.to_str().unwrap()
+    ));
+    assert_eq!(
+        native.session_file_path(&cwd, &session_id),
+        Some(path.clone())
+    );
+
+    let boundary = native
+        .session_model_transcript_boundary(&cwd, &session_id)
+        .expect("native captures the relaunch boundary");
+    assert_eq!(boundary.last_entry_uuid.as_deref(), Some("a-0014"));
+    assert!(boundary.boundary_found);
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        Some(boundary.clone())
+    );
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(
+        file,
+        r#"{{"type":"assistant","uuid":"after-relaunch","message":{{"model":"claude-sonnet-5-5"}}}}"#
+    )
+    .unwrap();
+    let native_model = native
+        .detect_session_model_after_boundary(&cwd, &session_id, &boundary)
+        .expect("native observes the appended assistant turn");
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        Some(native_model)
+    );
+}
+
+#[test]
+fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::AgentProvider;
+
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().join("project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence.to_str().unwrap(),
+    )]);
+    // The JS plugin encodes the cwd as given, so use the resolved path (macOS /var is a symlink).
+    let cwd = codeterm_paths::canonical_cwd(&cwd.to_string_lossy());
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js
+        .session_file_path(&cwd, &session_id)
+        .expect("Claude transcript path");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let transcript = concat!(
+        r#"{"type":"assistant","uuid":"before-uuidless-turn","timestamp":"2026-09-11T18:19:45.000Z","message":{"model":"claude-opus-5"}}"#,
+        "\n",
+        r#"{"type":"assistant","timestamp":"2026-09-11T18:19:46.000Z","message":{"model":"claude-haiku-4-5"}}"#,
+        "\n",
+        r#"{"type":"mode","mode":"normal","sessionId":"fixture-session"}"#,
+        "\n",
+    );
+    std::fs::write(&path, transcript).unwrap();
+    assert!(crate::session_evidence::record(
+        &session_id,
+        path.to_str().unwrap()
+    ));
+
+    let boundary = native
+        .session_model_transcript_boundary(&cwd, &session_id)
+        .expect("native captures a UUID-less conversation boundary");
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        Some(boundary.clone())
+    );
+    assert_eq!(boundary.last_entry_uuid, None);
+    assert_eq!(boundary.last_entry_type.as_deref(), Some("assistant"));
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        None
+    );
+    let unavailable = codeterm_types::agent::SessionModelTranscriptBoundary::default();
+    assert_eq!(
+        native.detect_session_model_after_boundary(&cwd, &session_id, &unavailable),
+        None
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &unavailable),
+        None
+    );
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(
+        file,
+        r#"{{"type":"assistant","uuid":"after-relaunch","message":{{"model":"claude-sonnet-5-5"}}}}"#
+    )
+    .unwrap();
+    // The resolved id depends on the process-wide model catalogue; parity is the contract.
+    let native_model = native
+        .detect_session_model_after_boundary(&cwd, &session_id, &boundary)
+        .expect("native observes the appended assistant turn");
+    assert!(
+        native_model.to_lowercase().contains("sonnet"),
+        "{native_model}"
+    );
+    assert_eq!(
+        js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
+        Some(native_model)
+    );
+
+    std::fs::write(
+        &path,
+        r#"{"type":"mode","mode":"normal","sessionId":"fixture-session"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        native.session_model_transcript_boundary(&cwd, &session_id),
+        None
+    );
+    assert_eq!(
+        js.session_model_transcript_boundary(&cwd, &session_id),
+        None
+    );
+}
+
 /// Eval: the host flatten path (real plugin.js `parseSessionDelta` →
 /// Rust `rich_to_chat_msgs`) must produce the SAME normalized `ChatMsg`
 /// shape the desktop TS parser (`parseJsonlSession`) produces, so the
