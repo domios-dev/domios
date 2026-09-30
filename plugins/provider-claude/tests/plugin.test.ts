@@ -152,11 +152,63 @@ console.log("\n--- session model detection ---\n");
   }));
   const boundary = p.sessionModelTranscriptBoundary("/fixture/project", "fixture-session");
 
+  eq(boundary?.lastEntryUuid, "a-0014", "metadata tail rows resolve to the last UUID entry");
+  eq(boundary?.boundaryFound, true, "the transcript boundary is confirmable");
   eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), null,
     "the transcript tail before the relaunch boundary is ignored");
   transcript += '{"type":"assistant","uuid":"after-relaunch","message":{"model":"claude-sonnet-5-5"}}\n';
   eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), "Sonnet",
     "the first assistant model after the boundary is observed");
+}
+
+{
+  let transcript = [
+    JSON.stringify({
+      type: "assistant",
+      uuid: "before-uuidless-turn",
+      timestamp: "2026-09-11T18:19:45.000Z",
+      message: { model: "claude-opus-5" },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-09-11T18:19:46.000Z",
+      message: { model: "claude-haiku-4-5" },
+    }),
+    JSON.stringify({ type: "mode", mode: "normal", sessionId: "fixture-session" }),
+  ].join("\n") + "\n";
+  const p = loadClaudeWithHost(baseHost({
+    fs: {
+      fileExists: () => true,
+      readFileTail: () => transcript,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+  }));
+  const boundary = p.sessionModelTranscriptBoundary("/fixture/project", "fixture-session");
+
+  eq(boundary, {
+    lastEntryUuid: null,
+    lastEntryTimestamp: "2026-09-11T18:19:46.000Z",
+    lastEntryType: "assistant",
+    boundaryFound: true,
+  }, "a trailing UUID-less conversation entry identifies the boundary");
+  eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), null,
+    "the UUID-less entry's model stays before the boundary");
+  transcript += JSON.stringify({
+    type: "assistant",
+    uuid: "after-relaunch",
+    message: { model: "claude-sonnet-5-5" },
+  }) + "\n";
+  eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", boundary), "Sonnet",
+    "the UUID-less boundary allows a later assistant model to be observed");
+  eq(p.detectSessionModelAfterBoundary("/fixture/project", "fixture-session", {
+    lastEntryUuid: null,
+    lastEntryTimestamp: null,
+    lastEntryType: null,
+    boundaryFound: false,
+  }), null, "an unknown boundary cannot confirm a transcript model");
 }
 
 console.log("\n--- meta ---\n");
