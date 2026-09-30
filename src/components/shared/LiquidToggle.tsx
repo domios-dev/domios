@@ -18,14 +18,8 @@ export interface LiquidTravel {
   to: boolean;
 }
 
-/** One control at two sizes. Compact is the same switch at roughly half the
- *  area, for a host that puts the switch beside the words it governs. */
-const KNOB_TRAVEL = {
-  standard: { off: "0rem", on: "1.55rem" },
-  compact: { off: "0px", on: "16px" },
-} as const;
-
-export type LiquidToggleSize = keyof typeof KNOB_TRAVEL;
+/** Knob travel is derived in CSS from each size's track, so the knob always fits its track. */
+const KNOB_TRAVEL = { off: "0px", on: "var(--ct-liquid-toggle-travel)" } as const;
 
 export function useLiquidTravel(checked: boolean, onCheckedChange: (checked: boolean) => void) {
   const nextKey = useRef(0);
@@ -41,14 +35,12 @@ export function useLiquidTravel(checked: boolean, onCheckedChange: (checked: boo
 
 function LiquidKnob({
   travel,
-  size,
   onTravelEnd,
 }: {
   travel: LiquidTravel | null;
-  size: LiquidToggleSize;
   onTravelEnd: () => void;
 }) {
-  const distance = KNOB_TRAVEL[size];
+  const distance = KNOB_TRAVEL;
   const style = travel
     ? ({
         "--kx-from": travel.from ? distance.on : distance.off,
@@ -84,7 +76,6 @@ export function LiquidToggle({
       <LiquidKnob
         key={travel?.key ?? 0}
         travel={travel}
-        size="standard"
         onTravelEnd={finishTravel}
       />
     </button>
@@ -107,7 +98,7 @@ export function LiquidToggleTrack({
 }) {
   return (
     <span aria-hidden className="ct-liquid-toggle ct-liquid-toggle--compact" data-checked={checked}>
-      <LiquidKnob key={travel?.key ?? 0} travel={travel} size="compact" onTravelEnd={onTravelEnd} />
+      <LiquidKnob key={travel?.key ?? 0} travel={travel} onTravelEnd={onTravelEnd} />
     </span>
   );
 }
