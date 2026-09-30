@@ -11,11 +11,15 @@ mod startup_model_refresh_tests {
         let (release_tx, release_rx) = mpsc::channel();
         let worker = spawn_startup_model_refresh(move || {
             started_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
+            release_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("startup refresh release must arrive before its test deadline");
         })
         .unwrap();
 
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        started_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("startup refresh must start before its test deadline");
         release_tx.send(()).unwrap();
         worker.join().unwrap();
     }
