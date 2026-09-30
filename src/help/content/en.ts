@@ -167,6 +167,57 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
+      id: "decision-rerank",
+      title: "Decision re-rank",
+      subtitle: "An optional second step for memory search",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Decision re-rank is an optional second step in memory search. A fast decision model reads the top memory candidates and moves the ones that answer your question toward the top. The decision-model interface can use different models; TypeSafe's Jev is the default.",
+        },
+        {
+          type: "paragraph",
+          text: "It never filters results out: you get the same number of results as before, re-ordered so the ones that actually answer come first. A low-confidence flag means nothing in the candidate pool looks like a good answer; it does not hide results. Agent and CLI searches keep the same commands and interface.",
+        },
+        {
+          type: "tip",
+          text: "Decision re-rank is off by default. Without a TypeSafe API token, or if the decision model times out after 1.5 seconds or returns an error, CodeTerm uses the normal search results.",
+        },
+        {
+          type: "paragraph",
+          text: "Optional candidate sources can add memories to the pool. Each source has its own setting and starts off:",
+        },
+        {
+          type: "list",
+          items: [
+            "Graph — adds related memories linked through the knowledge graph. Configure it with memory.decision_rerank.sources.graph; its default is 0 (off).",
+          ],
+        },
+        {
+          type: "list",
+          items: [
+            "In Memory > Settings, turn on Re-rank memory recall and enter your API token.",
+            "From a terminal, run codeterm mem secret get --name typesafe-jev-api-key | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true.",
+            "Run codeterm mem decision status to check the adapter and token status.",
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "Get a TypeSafe API key from https://docs.typesafe.ai or https://console.typesafe.ai/keys.",
+        },
+        {
+          type: "paragraph",
+          text: "When enabled, the text of candidate memories is sent to TypeSafe's decision API. The API token is stored locally with owner-only 0600 permissions and is never written to logs.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: should I enable decision re-rank?",
+          question:
+            "A user is reading the CodeTerm guide (decision re-rank section) and pressed 'Ask the agent'. Check whether decision re-rank is enabled in memory settings, whether its token is available with codeterm mem decision status, and whether the graph source is enabled. Explain what candidate text is sent when the feature is on. Keep it short and practical.",
+        },
+      ],
+    },
+    {
       id: "mesh",
       title: "Mesh",
       subtitle: "Your machines as one private network",
