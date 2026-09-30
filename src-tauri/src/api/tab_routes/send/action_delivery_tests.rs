@@ -181,7 +181,7 @@ fn service_with_provider_dialog(
     const PROVIDER_ID: &str = "send-dialog-fixture";
     let pty_id = "pty-send-dialog-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
-    mux.link_pty(&tab_id, pty_id);
+    mux.link_pty(&tab_id, pty_id.into());
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some(PROVIDER_ID.into());
     tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
