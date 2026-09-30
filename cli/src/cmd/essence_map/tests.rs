@@ -110,8 +110,8 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     assert_eq!(summary.capabilities, 37);
     assert_eq!(summary.core, 12);
     assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 67);
-    assert_eq!(summary.feeds, 50);
+    assert_eq!(summary.runs_on, 71);
+    assert_eq!(summary.feeds, 52);
     assert_eq!(summary.part_of, 11);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
