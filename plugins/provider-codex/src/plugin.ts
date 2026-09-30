@@ -113,6 +113,16 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
+function requireDirectResume(command: string): string {
+  const message = "CodeTerm cannot resume Codex: this shell's codex must support --no-daemon (Codex 0.156.0+). Update the resolved CLI with codex update, then retry.";
+  if (host.platform() === "windows") {
+    return "& { $ctCodexResumeSupported = $false; try { codex resume --no-daemon --help *> $null; "
+      + "$ctCodexResumeSupported = $LASTEXITCODE -eq 0 } catch {}; "
+      + `if ($ctCodexResumeSupported) { ${command} } else { throw '${message.replace(/'/g, "''")}' } }`;
+  }
+  return `if codex resume --no-daemon --help >/dev/null 2>&1; then ${command}; else printf '%s\\n' '${message.replace(/'/g, "'\\''")}' >&2; false; fi`;
+}
+
 function windowsProfileCommand(parts: string[], taskPath: string | null, instanceId: string): string {
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
   const taskSetup = taskPath
@@ -343,7 +353,7 @@ const plugin: PluginModule = {
     // session_id accepts UUID or rollout filename stem.
     const uuid = extractSessionUuid(sessionId) || sessionId;
     parts.push(host.shell.quoteFor(uuid, host.platform()), "--no-daemon");
-    return parts.join(" ");
+    return requireDirectResume(parts.join(" "));
   },
 
   buildResumeCommandWithContext(params: ResumeParams): string {
@@ -367,9 +377,9 @@ const plugin: PluginModule = {
         return "Write-Error 'CodeTerm refused the Codex resume: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
       }
       parts.push("--profile", "$ctProfileName");
-      return windowsProfileCommand(parts, null, instanceId);
+      return requireDirectResume(windowsProfileCommand(parts, null, instanceId));
     }
-    return parts.join(" ");
+    return requireDirectResume(parts.join(" "));
   },
 
   sessionFilePath(_cwd: string, sessionId: string): string | null {
