@@ -5,7 +5,6 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::agent::provider::AgentProvider;
 use crate::api::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]

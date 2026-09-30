@@ -147,8 +147,8 @@ pub fn classify_agent_liveness(evidence: LivenessEvidence) -> AgentLiveness {
 /// back to its caller or writes.
 ///
 /// The liveness of the process rides as a suffix, so a label can never claim a
-/// running agent that isn't there: live -> `sol`, unobserved -> `sol?`,
-/// absent -> `sol!`.
+/// running agent that isn't there: live -> `opus`, unobserved -> `opus?`,
+/// absent -> `opus!`.
 pub fn agent_bracket_label(
     provider: Option<&str>,
     model: Option<&str>,
@@ -365,19 +365,19 @@ mod tests {
                 Some("codex"),
                 Some("gpt-5.6-sol"),
                 AgentLiveness::Live,
-                Some("sol"),
+                Some("5.6-sol"),
             ),
             (
                 Some("codex"),
                 Some("gpt-5.6-luna"),
                 AgentLiveness::Unobserved,
-                Some("luna?"),
+                Some("5.6-luna?"),
             ),
             (
                 Some("codex"),
                 Some("gpt-5.3-codex-spark"),
                 AgentLiveness::Absent,
-                Some("spark!"),
+                Some("5.3-spark!"),
             ),
             (
                 Some("codex"),

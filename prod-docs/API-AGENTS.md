@@ -234,4 +234,4 @@ A failing command returns `{"error": "message", "method": "..."}`; later command
 
 Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

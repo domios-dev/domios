@@ -166,4 +166,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 177 -->
+<!-- revision: 178 -->
