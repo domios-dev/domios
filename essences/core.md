@@ -118,6 +118,25 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 - Part of: core:service-layer.
 - Invariants: persistent memory lives here and never in provider side stores; it is English and its bodies carry no dates; skills are registered here, never written into provider skill directories; conversations are searched as sessions, durable facts as memory.
 
+#### Decision recall
+
+Recall can add an optional second stage that judges how directly and usefully each candidate answers the query. The first stage retains ordinary hybrid retrieval; a registered decision model orders its candidate pool by absolute relevance. Core selects declared decision capabilities, never provider identities. TypeSafe Jev is the first adapter; the recall contract is independent of that adapter and its model.
+
+- Ordinary search callers keep their existing query, filters and limit. Instance configuration enables the stage; a caller may override it for one search. It is off by default, and when off the response is byte-identical to ordinary recall.
+- Relevance changes order, never eligibility: every pool candidate remains eligible for the returned list, cut only to the caller's limit. Every hit returned by an applied stage carries `relevance`. `low_confidence` flags that the maximum relevance is below the configured threshold; it never removes results.
+- The second stage is all-or-nothing under one bounded failure deadline, defaulting to 1.5 seconds. On unavailable or failed decision scoring, the hits are never worse than baseline: the caller receives exactly ordinary recall hits. An unregistered adapter id, unsupported decision capabilities, an adapter error, or expiry adds a fallback reason in the decision envelope. Missing credentials also fall back when the pool requires scoring. A partially judged pool is never returned.
+- Gathering and judging candidates record no access. Only memory hits actually returned record access, once per item, using ordinary memory access accounting. Additional candidates never inflate usage or evidence merely by entering the pool.
+- Adapter tokens are local to the instance and adapter, stored in owner-only files: 0600 on Unix; Windows relies on the per-user data-directory ACL. Values enter through CLI stdin or a masked UI field, never argv, and never appear in logs or status responses. They are kept outside the vault to meet the recall latency requirement.
+- The Memory > Settings card, decision CLI commands and decision API expose configuration, adapter availability and token presence; search reports whether the stage applied, fell back or was skipped. Explicitly requesting both decision recall and legacy reranking is refused; legacy reranking requested while decision recall is enabled only by configuration runs with a skipped reason.
+
+#### Optional candidate sources
+
+Optional sources can supply candidates beyond ordinary memory recall to the same decision pool. Each source is off by default, respects the search's applicable filters and contributes results only when the decision stage is applied. Its additions never appear in fallback. A failing optional source is skipped and never fails the search; decision-model errors follow the all-or-nothing fallback rule above. Gathering candidates never changes stored memory knowledge or access evidence; returned memory hits follow the accounting rule above.
+
+- Graph (`sources.graph`): adds memory items connected to query-relevant entities that ordinary recall did not already place in the pool.
+
+Source admission policy: the owner admits and retains sources only when measurements show better answers while keeping recall fast. This policy governs source selection; enabling a source does not certify its benefit.
+
 ## The routing spine: where messages and reports flow
 
 1. **A person at the tab.** A chat turn or keystroke goes from the UI through the service layer to the PTY and is delivered at most once.
