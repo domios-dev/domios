@@ -159,6 +159,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             get(agent_routes::list_agent_providers),
         )
         .route(
+            "/api/agents/providers/refresh",
+            post(super::agent_model_catalog_routes::refresh_agent_provider_models),
+        )
+        .route(
             "/api/remote-workers",
             get(agent_routes::remote_workers)
                 .post(agent_routes::record_remote_worker)

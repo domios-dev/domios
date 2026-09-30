@@ -109,6 +109,11 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
       { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: true },
       { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true, availability: "available" },
+      { id: "best", displayName: "Claude Best 5.1", description: "Claude Code's dynamic best-model alias.", available: true },
+      { id: "sonnet[1m]", displayName: "Claude Sonnet (1M context)", description: "Claude Code's Sonnet long-context alias.", available: true },
+      { id: "opus[1m]", displayName: "Claude Opus (1M context)", description: "Claude Code's Opus long-context alias.", available: true },
+      { id: "fable[1m]", displayName: "Claude Fable (1M context)", description: "Claude Code's Fable long-context alias.", available: true },
+      { id: "opusplan", displayName: "Claude Opus Plan 5", description: "Claude Code's Opus planning alias.", available: true },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
   );
@@ -124,12 +129,30 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
     }),
   }));
   const partial = p.discoverModels() as Array<{ id: string; displayName: string; available: boolean }>;
-  eq(partial.map((m) => m.id), ["opus", "sonnet", "haiku", "fable"], "partial discovery keeps alias ids stable");
-  eq(partial.map((m) => m.available), [false, false, false, true], "partial discovery publishes account availability");
+  eq(
+    partial.map((m) => m.id),
+    ["opus", "sonnet", "haiku", "fable", "best", "sonnet[1m]", "opus[1m]", "fable[1m]", "opusplan"],
+    "partial discovery keeps every CLI alias stable",
+  );
+  eq(
+    partial.map((m) => m.available),
+    [false, false, false, true, true, false, false, true, false],
+    "partial discovery publishes family availability for aliases",
+  );
   eq(
     partial.map((m) => m.displayName),
-    ["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable 5.1"],
-    "only the discovered alias receives its current concrete version",
+    [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Claude Haiku",
+      "Claude Fable 5.1",
+      "Claude Best 5.1",
+      "Claude Sonnet (1M context)",
+      "Claude Opus (1M context)",
+      "Claude Fable (1M context)",
+      "Claude Opus Plan",
+    ],
+    "family aliases receive their concrete version without rewriting context labels",
   );
 }
 
