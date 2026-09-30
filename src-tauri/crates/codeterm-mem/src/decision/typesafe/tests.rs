@@ -101,6 +101,60 @@ fn typesafe_parse_choice_answer() {
     );
 }
 #[test]
+fn typesafe_parse_score_answer_without_confidence() {
+    let mut response = fixture(ANSWER_SCORE);
+    response["answers"]["q"]
+        .as_object_mut()
+        .unwrap()
+        .remove("confidence");
+    response["answers"]["q"]["score"] = serde_json::json!(3.75);
+    assert_eq!(
+        TypeSafeAdapter::parse_answer(&question("score"), &response),
+        Ok(DecisionAnswer::Score {
+            score: 3.75,
+            confidence: None,
+            probabilities: BTreeMap::from([
+                ("0".into(), 0.1),
+                ("1".into(), 0.3),
+                ("2".into(), 0.6),
+            ]),
+        })
+    );
+}
+
+#[test]
+fn typesafe_parse_score_answer_partial_levels() {
+    let mut response = fixture(ANSWER_SCORE);
+    response["answers"]["q"]["probabilities"] = serde_json::json!({"2": 0.6});
+    assert_eq!(
+        TypeSafeAdapter::parse_answer(&question("score"), &response),
+        Ok(DecisionAnswer::Score {
+            score: 1.5,
+            confidence: Some(0.7),
+            probabilities: BTreeMap::from([("2".into(), 0.6)]),
+        })
+    );
+}
+
+#[test]
+fn typesafe_parse_choice_answer_partial_probabilities() {
+    let mut response = fixture(ANSWER_CHOICE);
+    response["answers"]["q"]["probabilities"] = serde_json::json!({"billing": 0.9});
+    response["answers"]["q"]
+        .as_object_mut()
+        .unwrap()
+        .remove("confidence");
+    assert_eq!(
+        TypeSafeAdapter::parse_answer(&question("choice"), &response),
+        Ok(DecisionAnswer::Choice {
+            choice: "billing".into(),
+            confidence: None,
+            probabilities: BTreeMap::from([("billing".into(), 0.9)]),
+        })
+    );
+}
+
+#[test]
 fn typesafe_malformed_answer_is_parse_error() {
     assert!(matches!(
         TypeSafeAdapter::parse_answer(&question("score"), &fixture(ANSWER_MALFORMED)),

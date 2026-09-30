@@ -72,7 +72,7 @@ impl TypeSafeAdapter {
                     return Err(parse_error());
                 }
                 let probabilities = probabilities(answer)?;
-                if probabilities.len() != options.len()
+                if probabilities.is_empty()
                     || !probabilities.keys().all(|key| options.contains_key(key))
                 {
                     return Err(parse_error());
@@ -80,7 +80,7 @@ impl TypeSafeAdapter {
                 Ok(DecisionAnswer::Choice {
                     choice: choice.to_owned(),
                     probabilities,
-                    confidence: Some(number(answer, "confidence")?),
+                    confidence: optional_number(answer, "confidence")?,
                 })
             }
             DecisionQuestion::Score { levels } if kind == "score" => {
@@ -89,23 +89,23 @@ impl TypeSafeAdapter {
                     .and_then(Value::as_f64)
                     .filter(|score| score.is_finite())
                     .ok_or_else(parse_error)?;
-                if !score.is_finite()
-                    || score < 0.0
-                    || score > (levels.len().saturating_sub(1)) as f64
-                {
+                let probabilities = probabilities(answer)?;
+                if probabilities.is_empty() {
                     return Err(parse_error());
                 }
-                let probabilities = probabilities(answer)?;
-                if probabilities.len() != levels.len()
-                    || !(0..levels.len())
-                        .all(|index| probabilities.contains_key(&index.to_string()))
-                {
-                    return Err(parse_error());
+                let mut indexed = BTreeMap::new();
+                for (key, probability) in probabilities {
+                    let index = key.parse::<usize>().map_err(|_| parse_error())?;
+                    if index >= levels.len()
+                        || indexed.insert(index.to_string(), probability).is_some()
+                    {
+                        return Err(parse_error());
+                    }
                 }
                 Ok(DecisionAnswer::Score {
                     score,
-                    probabilities,
-                    confidence: Some(number(answer, "confidence")?),
+                    probabilities: indexed,
+                    confidence: optional_number(answer, "confidence")?,
                 })
             }
             DecisionQuestion::Noul if kind == "noul" => {
@@ -131,6 +131,10 @@ fn number(value: &Value, key: &str) -> Result<f64, DecisionError> {
     } else {
         Err(parse_error())
     }
+}
+
+fn optional_number(value: &Value, key: &str) -> Result<Option<f64>, DecisionError> {
+    value.get(key).map(|_| number(value, key)).transpose()
 }
 
 fn probabilities(answer: &Value) -> Result<BTreeMap<String, f64>, DecisionError> {
