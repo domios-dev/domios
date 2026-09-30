@@ -132,6 +132,10 @@ full_run_passes_through() {
         printf 'full_run_passes_through: fixture did not exercise a populated binary\n' >&2
         exit 1
     }
+    grep -q '^\[test-capped\] test execution cap: 600s$' "$output" || {
+        printf 'full_run_passes_through: default focused-test cap was not enabled\n' >&2
+        exit 1
+    }
 }
 
 if [ "$#" -gt 0 ]; then
@@ -229,7 +233,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'printf "default path invoked timeout\\n" >&
     >"$no_timeout_bin/timeout"
 chmod +x "$no_timeout_bin/timeout"
 
-run_uncapped_case() {
+run_cap_disabled_case() {
     local name=$1
     local expected_exit=$2
     local command=$3
@@ -237,7 +241,7 @@ run_uncapped_case() {
     local actual_exit=0
     local output="$TMPDIR/$name.out"
 
-    if env -u TEST_CAP_SECS PATH="$no_timeout_bin:$PATH" CARGO_TEST_CMD="$command" \
+    if TEST_CAP_SECS=0 PATH="$no_timeout_bin:$PATH" CARGO_TEST_CMD="$command" \
         "$WRAPPER" "$@" >"$output" 2>&1; then
         actual_exit=0
     else
@@ -249,7 +253,7 @@ run_uncapped_case() {
         return 1
     }
     ! grep -q 'default path invoked timeout' "$output" || {
-        printf '%s: uncapped default invoked the timeout runner\n' "$name" >&2
+        printf '%s: disabled cap invoked the timeout runner\n' "$name" >&2
         return 1
     }
     ! grep -q 'DEADLOCK / HANG' "$output" || {
@@ -258,8 +262,8 @@ run_uncapped_case() {
     }
 }
 
-run_uncapped_case uncapped-success 0 true
-run_uncapped_case uncapped-exit-124 124 bash -c 'exit 124'
+run_cap_disabled_case disabled-cap-success 0 true
+run_cap_disabled_case disabled-cap-exit-124 124 bash -c 'exit 124'
 
 shared_home="$TMPDIR/shared-home"
 ephemeral_data="$TMPDIR/ephemeral-data"
@@ -347,12 +351,93 @@ grep -q '^cargo-test-ran$' "$explicit_target_output" || {
     exit 1
 }
 
+slow_build_command="$TMPDIR/slow-build-command"
+cat >"$slow_build_command" <<'SLOW_BUILD'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$BUILD_ARGS_FILE"
+TEST_CAP_SECS=5 "$BUILD_WRAPPER" --exec bash -c 'printf started > "$1"' bash "$BUILD_STARTED_FIFO" >/dev/null
+TEST_CAP_SECS=10 "$BUILD_WRAPPER" --exec cat "$BUILD_RELEASE_FIFO" >/dev/null
+printf 'slow-build-completed\n'
+SLOW_BUILD
+chmod +x "$slow_build_command"
+build_started_fifo="$TMPDIR/build-started"
+build_release_fifo="$TMPDIR/build-release"
+build_probe_fifo="$TMPDIR/build-probe"
+mkfifo "$build_started_fifo" "$build_release_fifo" "$build_probe_fifo"
+build_args_file="$TMPDIR/build-args"
+build_wrapper_output="$TMPDIR/slow-build-wrapper.out"
+build_started_output="$TMPDIR/build-started.out"
+TEST_CAP_SECS=5 "$WRAPPER" --exec cat "$build_started_fifo" >"$build_started_output" 2>&1 &
+build_started_reader_pid=$!
+TEST_CAP_SECS=1 CARGO_TEST_CMD=true CARGO_TEST_BUILD_CMD="$slow_build_command" \
+    BUILD_WRAPPER="$WRAPPER" BUILD_ARGS_FILE="$build_args_file" BUILD_STARTED_FIFO="$build_started_fifo" \
+    BUILD_RELEASE_FIFO="$build_release_fifo" "$WRAPPER" --lib \
+    >"$build_wrapper_output" 2>&1 &
+slow_build_wrapper_pid=$!
+if wait "$build_started_reader_pid"; then
+    build_started_exit=0
+else
+    build_started_exit=$?
+fi
+if TEST_CAP_SECS=2 "$WRAPPER" --exec cat "$build_probe_fifo" \
+    >"$TMPDIR/build-probe.out" 2>&1; then
+    build_probe_exit=0
+else
+    build_probe_exit=$?
+fi
+if TEST_CAP_SECS=5 "$WRAPPER" --exec bash -c 'printf release > "$1"' bash "$build_release_fifo" \
+    >"$TMPDIR/build-release.out" 2>&1; then
+    build_release_exit=0
+else
+    build_release_exit=$?
+fi
+if wait "$slow_build_wrapper_pid"; then
+    slow_build_exit=0
+else
+    slow_build_exit=$?
+fi
+[ "$build_started_exit" -eq 0 ] || {
+    printf 'slow-build: build phase did not signal its start, exit %s\n' "$build_started_exit" >&2
+    exit 1
+}
+[ "$build_probe_exit" -eq 124 ] || {
+    printf 'slow-build: bounded probe expected exit 124, got %s\n' "$build_probe_exit" >&2
+    exit 1
+}
+[ "$build_release_exit" -eq 0 ] || {
+    printf 'slow-build: could not release the build event, exit %s\n' "$build_release_exit" >&2
+    exit 1
+}
+[ "$slow_build_exit" -eq 0 ] || {
+    printf 'slow-build: build lasting beyond the execution cap failed with exit %s\n' "$slow_build_exit" >&2
+    exit 1
+}
+grep -Fxq -- '--no-run' "$build_args_file" || {
+    printf 'slow-build: preflight command did not receive --no-run\n' >&2
+    exit 1
+}
+grep -Fxq -- '--lib' "$build_args_file" || {
+    printf 'slow-build: preflight command did not receive the Cargo test arguments\n' >&2
+    exit 1
+}
+grep -q '^slow-build-completed$' "$build_wrapper_output" || {
+    printf 'slow-build: preflight output did not complete before test execution\n' >&2
+    exit 1
+}
+! grep -q 'DEADLOCK / HANG' "$build_wrapper_output" || {
+    printf 'slow-build: execution cap incorrectly included the build phase\n' >&2
+    exit 1
+}
+
 child_pid_file="$TMPDIR/child.pid"
 blocking_fifo="$TMPDIR/blocking-input"
 mkfifo "$blocking_fifo"
 timeout_exit=0
 timeout_output="$TMPDIR/timeout.out"
 if TEST_CAP_SECS=2 CARGO_TEST_CMD=bash "$WRAPPER" -c '
+    printf "running 1 test\n" >&2
+    printf "test service::pty_io::tests::provider_update_and_trust_frames_refuse_initial_submit has been running for over 60 seconds\n" >&2
     cat "$1" >/dev/null &
     child_pid=$!
     printf "%s" "$child_pid" > "$2"
@@ -369,6 +454,14 @@ fi
 }
 [ "$(grep -c 'DEADLOCK / HANG' "$timeout_output")" -eq 1 ] || {
     printf 'timeout: expected one timeout banner\n' >&2
+    exit 1
+}
+grep -q 'Tests still running at the cap:' "$timeout_output" || {
+    printf 'timeout: missing active-test summary\n' >&2
+    exit 1
+}
+grep -q 'service::pty_io::tests::provider_update_and_trust_frames_refuse_initial_submit (over 60 seconds)' "$timeout_output" || {
+    printf 'timeout: active test name was not echoed\n' >&2
     exit 1
 }
 [ -s "$child_pid_file" ] || {

@@ -8,10 +8,11 @@ use crate::multiplexer::types::{
 use crate::pty::screen_state::ScreenState;
 use crate::pty::write_queue::{GuardedInputGate, WriteQueue};
 use crate::service::delivery_error::DeliveryError;
+use crate::service::pty_io::test_support::{join, DeadlineBarrier};
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::io::Write;
-use std::sync::{Arc, Barrier, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 const QUOTA_SKIP: &str =
@@ -375,7 +376,7 @@ fn isolation(provider: &str) {
     let second_gate = Arc::new(GuardedInputGate::default());
     first_gate.rearm();
     second_gate.rearm();
-    let barrier = Arc::new(Barrier::new(3));
+    let barrier = Arc::new(DeadlineBarrier::new(3));
     let handles = [
         (
             first_queue.clone(),
@@ -393,16 +394,16 @@ fn isolation(provider: &str) {
     .into_iter()
     .map(|(queue, permit, barrier, payload)| {
         std::thread::spawn(move || {
-            barrier.wait();
+            barrier.wait("write queue isolation worker");
             queue
                 .send_and_wait_guarded(payload, permit, Duration::from_secs(1))
                 .unwrap();
         })
     })
     .collect::<Vec<_>>();
-    barrier.wait();
+    barrier.wait("write queue isolation caller");
     for handle in handles {
-        handle.join().unwrap();
+        join(handle, "write queue isolation attempt").unwrap();
     }
     assert_eq!(first.lock().unwrap().as_slice(), b"tab-a");
     assert_eq!(second.lock().unwrap().as_slice(), b"tab-b");
