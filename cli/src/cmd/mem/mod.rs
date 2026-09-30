@@ -109,6 +109,38 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
     }
     let mut out = String::new();
     for hit in hits {
+        if hit.get("source").and_then(serde_json::Value::as_str) == Some("session") {
+            let provider = hit
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let title = hit
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Untitled session");
+            let pointer = hit
+                .get("pointer")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("codeterm sessions get");
+            let excerpt = hit
+                .get("excerpt")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let normalized = excerpt.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut preview: String = normalized.chars().take(SEARCH_PREVIEW_CHARS).collect();
+            if normalized.chars().count() > SEARCH_PREVIEW_CHARS {
+                preview.push('…');
+            }
+            match decision_render::relevance_column(hit) {
+                Some(relevance) => out.push_str(&format!(
+                    "session [{provider}] {title} | {pointer} | {relevance} | {preview}\n"
+                )),
+                None => out.push_str(&format!(
+                    "session [{provider}] {title} | {pointer} | {preview}\n"
+                )),
+            }
+            continue;
+        }
         if hit.get("source").and_then(serde_json::Value::as_str) == Some("doc") {
             let doc = hit
                 .get("doc")

@@ -18,6 +18,7 @@ DECISION_MODE=off
 DECISION_DATA_DIR=""
 DECISION_GRAPH=0
 DECISION_DOCS=0
+DECISION_SESSIONS=0
 
 # Regression policy (derived from observed run-to-run variance on this machine).
 CHECK_MODE=0
@@ -30,7 +31,7 @@ TOTAL_TOL=2.0
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M] [--decision-docs M]
+  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M] [--decision-docs M] [--decision-sessions M]
 
 Options:
   --check           Compare latest mem-bench run against baseline.json.
@@ -39,6 +40,7 @@ Options:
   --decision-data-dir PATH  Data directory containing decision-models token.
   --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (needs stub or live).
   --decision-docs M  Add a re-rank+docs arm with up to M embedded sections (needs stub or live; max 10).
+  --decision-sessions M  Add a re-rank+sessions arm with up to M fixture snippets (needs stub or live; max 5).
   -h, --help       Show this help.
 
 Defaults:
@@ -78,6 +80,11 @@ while [[ $# -gt 0 ]]; do
       DECISION_DOCS="${1:?--decision-docs needs count}"
       shift
       ;;
+    --decision-sessions)
+      shift
+      DECISION_SESSIONS="${1:?--decision-sessions needs count}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -100,6 +107,11 @@ if [[ "$DECISION_DOCS" != 0 && "$DECISION_MODE" == off ]]; then
   exit 1
 fi
 
+if [[ "$DECISION_SESSIONS" != 0 && "$DECISION_MODE" == off ]]; then
+  echo "ERROR: --decision-sessions requires --decision-rerank stub or live"
+  exit 1
+fi
+
 run() {
   local decision_args=(--decision-rerank "$DECISION_MODE")
   if [[ -n "$DECISION_DATA_DIR" ]]; then
@@ -110,6 +122,9 @@ run() {
   fi
   if [[ "$DECISION_DOCS" != 0 ]]; then
     decision_args+=(--decision-docs "$DECISION_DOCS")
+  fi
+  if [[ "$DECISION_SESSIONS" != 0 ]]; then
+    decision_args+=(--decision-sessions "$DECISION_SESSIONS")
   fi
   (
     cd "$ROOT_DIR/src-tauri"

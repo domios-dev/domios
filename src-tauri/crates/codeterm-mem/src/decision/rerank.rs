@@ -97,6 +97,16 @@ pub fn run_stage(
     candidates: &[RerankCandidate],
     cfg: &StageConfig,
 ) -> StageOutcome {
+    run_stage_until(model, query, candidates, cfg, Instant::now() + cfg.deadline)
+}
+
+pub fn run_stage_until(
+    model: Arc<dyn DecisionModel>,
+    query: &str,
+    candidates: &[RerankCandidate],
+    cfg: &StageConfig,
+    deadline: Instant,
+) -> StageOutcome {
     if candidates.is_empty() {
         return StageOutcome::Applied {
             order: Vec::new(),
@@ -104,6 +114,9 @@ pub fn run_stage(
             low_confidence: true,
             max_relevance: 0.0,
         };
+    }
+    if Instant::now() >= deadline {
+        return fallback(FallbackReason::Deadline);
     }
     let primitives = model.primitives();
     let primitive = if primitives.noul {
@@ -114,7 +127,6 @@ pub fn run_stage(
         return fallback(FallbackReason::Unsupported);
     };
 
-    let deadline = Instant::now() + cfg.deadline;
     let n = candidates.len();
     let jobs: VecDeque<Job> = candidates
         .iter()

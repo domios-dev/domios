@@ -165,6 +165,15 @@ per-query docs entry records its memory-answer rank, candidates added, and
 whether docs ranked first. Docs with no matching sections leave that query's
 pool unchanged.
 
+`--decision-sessions M` (stub or live only, `0..=5`) adds matching session
+snippets from each test case's optional `session_candidates` fixture field.
+Every query term must occur in the same excerpt; matching entries are ordered
+by `modified_ts` before the top M are selected. The `decision.sessions` report
+records memory-answer ranking, candidate count, session top-one count, and
+session-only winners. Each per-query entry records its rank, candidates added,
+whether a session ranked first, and stage latency. Session fixtures use
+`session_id`, `provider`, `title`, `excerpt`, and optional `modified_ts` fields.
+
 `bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
 TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
 `--decision-data-dir PATH`. A missing or unreadable token fails before any

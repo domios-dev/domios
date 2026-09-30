@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use super::{
     candidate, decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched,
 };
+use super::sessions_source::SessionCandidate;
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
@@ -38,6 +39,7 @@ struct SeededBackend {
     ids: Vec<String>,
     plans: Vec<PlanSearchHit>,
     graph_calls: AtomicUsize,
+    sessions: Vec<SessionCandidate>,
 }
 
 impl RecallBackend for SeededBackend {
@@ -92,6 +94,16 @@ impl DecisionBackend for SeededBackend {
         self.mem.graph_candidates_untouched(q, m)
     }
 
+    fn session_candidates(
+        &self,
+        _query: &str,
+        _limit: usize,
+        _max_body_chars: usize,
+        _deadline: Instant,
+    ) -> Vec<SessionCandidate> {
+        self.sessions.clone()
+    }
+
     fn record_access(&self, ids: &[String]) -> Result<(), String> {
         self.mem.record_access(ids)
     }
@@ -123,6 +135,7 @@ fn seeded() -> SeededBackend {
         ids,
         plans: vec![plan_hit()],
         graph_calls: AtomicUsize::new(0),
+        sessions: Vec::new(),
     }
 }
 
@@ -628,3 +641,4 @@ fn decision_token_dir_is_outside_repo() {
 
 mod docs;
 mod graph;
+mod sessions;
