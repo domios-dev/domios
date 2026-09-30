@@ -104,7 +104,7 @@ if [[ ${#json_files[@]} -eq 0 ]]; then
   echo "ERROR: no results produced in $RESULT_DIR"
   exit 1
 fi
-LATEST_JSON="${json_files[-1]}"
+LATEST_JSON="${json_files[${#json_files[@]}-1]}"
 printf 'latest: %s\n' "$LATEST_JSON"
 
 if [[ "$CHECK_MODE" -ne 1 ]]; then
