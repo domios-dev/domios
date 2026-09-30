@@ -3,32 +3,112 @@
 //! stream, so the watcher records the exit code and closes the pseudo-terminal;
 //! the reader's EOF then drives the normal PTY death path.
 
-use std::sync::Weak;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
+use std::time::Duration;
 
 use super::manager::PtySession;
 
-pub(super) fn watch(child: &dyn portable_pty::Child, session: Weak<PtySession>, label: String) {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ExitState {
+    #[default]
+    Pending,
+    Unobservable,
+    Recorded(Option<i32>),
+}
+
+/// The child's exit, recorded once by the watcher and waitable by readers that
+/// saw the output stream end first.
+#[derive(Debug, Default)]
+pub struct ChildExit {
+    state: Mutex<ExitState>,
+    resolved: Condvar,
+}
+
+impl ChildExit {
+    fn state(&self) -> MutexGuard<'_, ExitState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn outcome(state: ExitState) -> Option<Option<i32>> {
+        match state {
+            ExitState::Pending => None,
+            ExitState::Unobservable => Some(None),
+            ExitState::Recorded(code) => Some(code),
+        }
+    }
+
+    /// Records the exit exactly once and wakes every waiter; later calls are refused.
+    pub fn record(&self, code: Option<i32>) -> bool {
+        let mut state = self.state();
+        if matches!(*state, ExitState::Recorded(_)) {
+            return false;
+        }
+        *state = ExitState::Recorded(code);
+        self.resolved.notify_all();
+        true
+    }
+
+    /// No watcher can report this child's exit, so nobody should wait for it.
+    pub fn mark_unobservable(&self) {
+        let mut state = self.state();
+        if *state == ExitState::Pending {
+            *state = ExitState::Unobservable;
+            self.resolved.notify_all();
+        }
+    }
+
+    /// `Some(code)` once the exit is recorded or known to be unobservable.
+    pub fn resolved(&self) -> Option<Option<i32>> {
+        Self::outcome(*self.state())
+    }
+
+    pub fn code(&self) -> Option<i32> {
+        self.resolved().flatten()
+    }
+
+    /// Waits for the exit to resolve; `None` when `deadline` elapsed first, never a success.
+    pub fn wait_resolved(&self, deadline: Duration) -> Option<Option<i32>> {
+        let state = self.state();
+        let (state, _) = self
+            .resolved
+            .wait_timeout_while(state, deadline, |state| *state == ExitState::Pending)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::outcome(*state)
+    }
+}
+
+pub(super) fn watch(
+    child: &dyn portable_pty::Child,
+    session: Weak<PtySession>,
+    child_exit: Arc<ChildExit>,
+    label: String,
+) {
     let Some(exit) = platform::ExitWait::for_child(child) else {
         log::warn!("[pty-exit] no exit handle for pty child {label}; exit stays unobserved");
+        child_exit.mark_unobservable();
         return;
     };
     let thread_label = label.clone();
+    let recorder = child_exit.clone();
     let spawned = std::thread::Builder::new()
         .name("pty-child-exit".into())
         .spawn(move || {
             let code = exit.wait();
-            let Some(session) = session.upgrade() else {
-                return;
-            };
-            if session.child_exit.set(code).is_err() {
+            if !recorder.record(code) {
                 return;
             }
             log::info!("[pty-exit] child of pty {thread_label} exited code={code:?}");
+            let Some(session) = session.upgrade() else {
+                return;
+            };
             let released = session.pair.lock().map(|mut pair| pair.take());
             drop(released);
         });
     if let Err(error) = spawned {
         log::warn!("[pty-exit] watcher spawn failed for pty child {label}: {error}");
+        child_exit.mark_unobservable();
     }
 }
 
