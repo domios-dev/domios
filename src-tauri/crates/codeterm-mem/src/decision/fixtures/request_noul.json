@@ -1,0 +1,10 @@
+{
+  "state": "A customer requests a refund.",
+  "model": "jev-latest",
+  "questions": {
+    "q": {
+      "type": "noul",
+      "instructions": "Classify the request."
+    }
+  }
+}
