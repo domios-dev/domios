@@ -671,10 +671,11 @@ fn composed_prompt_stays_within_size_bound() {
             GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI),
         ),
     ] {
+        // A CRLF checkout must measure the same authored bytes as an LF one.
+        let measured = rendered.replace("\r\n", "\n").len();
         assert!(
-            rendered.len() <= COMPOSED_ROLE_PROMPT_MAX_BYTES,
-            "{name} is {} bytes, over COMPOSED_ROLE_PROMPT_MAX_BYTES ({})",
-            rendered.len(),
+            measured <= COMPOSED_ROLE_PROMPT_MAX_BYTES,
+            "{name} is {measured} bytes, over COMPOSED_ROLE_PROMPT_MAX_BYTES ({})",
             COMPOSED_ROLE_PROMPT_MAX_BYTES
         );
     }

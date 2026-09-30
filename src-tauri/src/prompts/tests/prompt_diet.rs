@@ -32,13 +32,15 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the same cost of re-measuring deliberately.
 const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 17_950;
 const PLANNER_CONTRACT_MAX_BYTES: usize = 17_750;
-const WORKER_SUFFIX_MAX_BYTES: usize = 4_550;
+// Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
+// provider-native subagent rule (9d4ae23d1).
+const WORKER_SUFFIX_MAX_BYTES: usize = 4_700;
 const PRIMER_MAX_BYTES: usize = 2_250;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
 const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_200;
 const PLANNER_LAUNCH_MAX_BYTES: usize = 21_100;
-const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_100;
+const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_150;
 
 fn lf_len(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
