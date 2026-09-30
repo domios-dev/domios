@@ -301,7 +301,10 @@ if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$CARGO_EXIT" -eq 124 ]; then
             name = $0
             sub(/^test /, "", name)
             sub(/ has been running for over [0-9]+ seconds.*/, "", name)
-            running[name] = 1
+            secs = $0
+            sub(/.* has been running for over /, "", secs)
+            sub(/ seconds.*/, "", secs)
+            running[name] = secs
         }
         /^test .+ \.\.\. (ok|FAILED|ignored|bench)/ {
             name = $0
@@ -309,7 +312,7 @@ if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$CARGO_EXIT" -eq 124 ]; then
             sub(/ \.\.\. .*/, "", name)
             delete running[name]
         }
-        END { for (name in running) print name }
+        END { for (name in running) print name " (over " running[name] " seconds)" }
     ' "$TEST_LOG" | sort | sed 's/^/    /')
     if [ -n "$RUNNING_TESTS" ]; then
         printf '%s\n' "$RUNNING_TESTS"
