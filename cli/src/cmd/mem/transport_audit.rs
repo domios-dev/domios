@@ -50,7 +50,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
 
         MemAction::RunWorker { .. } | MemAction::Dream { .. } => ShortCircuitedInMain,
 
-        MemAction::Secret { .. } => SocketDedicated,
+        MemAction::Secret { .. } | MemAction::Decision { .. } => SocketDedicated,
     }
 }
 
