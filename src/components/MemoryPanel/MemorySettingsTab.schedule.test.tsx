@@ -85,7 +85,7 @@ async function main() {
   config.api = undefined as never;
 
   await act(async () => {
-    root.render(<MemorySettingsTab config={config} onUpdate={() => {}} />);
+    root.render(<MemorySettingsTab config={config} onUpdate={() => {}} onOpenGuide={() => {}} />);
   });
   await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
 

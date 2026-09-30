@@ -47,9 +47,17 @@ const config = {
 test("renders guide sections from content module", async () => {
   const { host } = await render(<HelpPanel config={config} />);
   const sections = host.querySelectorAll('[data-testid="help-section"]');
-  assert(sections.length === 8, `expected 8 sections, got ${sections.length}`);
+  assert(sections.length === 9, `expected 9 sections, got ${sections.length}`);
   const overview = host.querySelector('[data-help-section-id="overview"]');
   assert(overview?.textContent?.includes("What is CodeTerm"), "overview copy missing");
+});
+
+test("initialSection renders and selects decision re-rank", async () => {
+  const { host } = await render(<HelpPanel config={config} initialSection="decision-rerank" />);
+  const section = host.querySelector('[data-help-section-id="decision-rerank"]');
+  const nav = host.querySelector('[data-help-nav="decision-rerank"]');
+  assert(!!section, "decision re-rank section did not render");
+  assert(nav?.className.includes("accent"), "decision re-rank section was not selected");
 });
 
 test("renders inline SVG figures without raster images", async () => {

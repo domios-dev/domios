@@ -8,6 +8,7 @@ import {
   Lightbulb,
   Network,
   Plug,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { AppConfig } from "../lib/types";
@@ -21,6 +22,7 @@ const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   agents: Bot,
   plans: GitBranch,
   memory: Brain,
+  "decision-rerank": Sparkles,
   mesh: Network,
   integrations: Plug,
   tips: Lightbulb,
