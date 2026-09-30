@@ -886,6 +886,37 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
             ("GET".into(), "/api/agents/providers".into(), None)
         }
-        _ => ("GET".into(), "/api/tabs".into(), None),
+        crate::AgentAction::Restart {
+            tab: Some(tab),
+            force,
+            grace_secs,
+        } if !tab.trim().is_empty() => (
+            "POST".into(),
+            format!("/api/tabs/{}/agent/restart", urlencoding::encode(tab)),
+            Some(serde_json::json!({"force": force, "grace_secs": grace_secs}).to_string()),
+        ),
+        crate::AgentAction::Restart { .. } => unsupported(
+            "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
+        ),
+        crate::AgentAction::SetOrchestrator { .. } => unsupported_agent_action("set-orchestrator"),
+        crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
+        crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
+        crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),
+        crate::AgentAction::Report(_) => unsupported_agent_action("report"),
+        crate::AgentAction::Ack { .. } => unsupported_agent_action("ack"),
+        crate::AgentAction::StartupAck => unsupported_agent_action("startup-ack"),
+        crate::AgentAction::StartupHold { .. } => unsupported_agent_action("startup-hold"),
+        crate::AgentAction::Ledger { .. } => unsupported_agent_action("ledger"),
+        crate::AgentAction::Compact { .. } => unsupported_agent_action("compact"),
+        crate::AgentAction::Model { .. } => unsupported_agent_action("model"),
     }
 }
+
+fn unsupported_agent_action(action: &str) -> (String, String, Option<String>) {
+    unsupported(&format!(
+        "agent {action} is not supported over --mesh; run it on the target peer"
+    ))
+}
+
+#[cfg(test)]
+mod tests;
