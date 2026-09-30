@@ -34,6 +34,7 @@ const BRACKETED_PASTE_END: &str = "\x1b[201~";
 enum DeferredSubmitWait {
     Ready,
     Woken,
+    Deadline,
     Inactive,
 }
 
@@ -134,18 +135,18 @@ trait SubmitTransport {
         self.wait_retry_deadline(deadline);
         self.exact_user_turn_present(text)
     }
-    fn wait_for_submit_event(&self) -> bool {
+    fn wait_for_submit_event(&self, _deadline: Instant) -> bool {
         false
     }
     fn dialog_guard(&self) -> Result<(), InjectionError> {
         Ok(())
     }
     fn prepare_paste(&self, _text: &str, _enter: bool) {}
-    fn wait_for_deferred_submit_ready(&self) -> DeferredSubmitWait {
-        if self.wait_for_submit_event() {
+    fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
+        if self.wait_for_submit_event(deadline) {
             DeferredSubmitWait::Woken
         } else {
-            DeferredSubmitWait::Inactive
+            DeferredSubmitWait::Deadline
         }
     }
     fn retry_active(&self) -> bool {
@@ -381,7 +382,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             ) {
                 CycleWait::Event(_) => self.observe_deferred_readiness(),
                 CycleWait::Deadline | CycleWait::Inactive => return false,
-            }
+            };
             if self.require_exact_session_turn && self.exact_user_turn_present(text) {
                 return true;
             }
@@ -392,12 +393,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         false
     }
 
-    fn wait_for_submit_event(&self) -> bool {
-        self.wait_for_cycle_event()
+    fn wait_for_submit_event(&self, deadline: Instant) -> bool {
+        self.wait_for_cycle_event(deadline)
     }
 
-    fn wait_for_deferred_submit_ready(&self) -> DeferredSubmitWait {
-        self.wait_for_deferred_submit_event()
+    fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
+        self.wait_for_deferred_submit_event(deadline)
     }
 
     fn retry_active(&self) -> bool {
@@ -746,7 +747,8 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
             pty_id: pty_id.to_string(),
         });
     }
-    if !claim.wait_until_active() {
+    provider_dialog_guard(svc, pty_id)?;
+    if !claim.wait_until_active(Instant::now() + opts.submit_timeout) {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
