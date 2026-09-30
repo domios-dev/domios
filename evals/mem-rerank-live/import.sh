@@ -55,6 +55,10 @@ def dc(*args):
     return result.stdout.strip()
 
 
+# --skip-extract only covers the save itself; a later dev restart extracts pending items unless this is off.
+dc("config", "set", "memory.auto_extract", "false")
+
+
 def response_id(raw):
     value = json.loads(raw)
     if isinstance(value, dict) and isinstance(value.get("id"), str):
