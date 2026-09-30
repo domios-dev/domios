@@ -553,63 +553,7 @@ pub async fn send_text(
             let bytes_written = std::cell::Cell::new(false);
             let keys_only = raw_text.is_empty();
             let action_result = tokio::task::spawn_blocking(move || {
-                let provider_action_refusal = || {
-                    let target = {
-                        let mux = svc.mux.read();
-                        mux.get_tab(&action_tab).and_then(|tab| {
-                            let pty_id = tab.pty_id.as_deref()?;
-                            if mux.tab_id_for_pty(pty_id)? != action_tab.as_str() {
-                                return None;
-                            }
-                            Some((
-                                pty_id.to_string(),
-                                tab.agent_type.clone()?,
-                                tab.agent_session_id.clone(),
-                                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-                            ))
-                        })
-                    };
-                    target.and_then(|(pty_id, agent_type, session_id, cwd)| {
-                        let screen = svc.screen_state.lock().get_screen_text(&pty_id)?;
-                        svc.agent_registry
-                            .with_provider(&agent_type, |provider| {
-                                use codeterm_plugin::tab_state::TabState;
-
-                                let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-                                    tab_id: action_tab.clone(),
-                                    agent_type: agent_type.clone(),
-                                    session_id,
-                                    cwd,
-                                    screen_text: screen.clone(),
-                                };
-                                let classification = provider.classify_tab_state(&snapshot);
-                                let high_confidence =
-                                    classification.as_ref().is_some_and(|value| {
-                                        value.confidence
-                                            >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-                                    });
-                                let structured_choice = high_confidence
-                                    && classification.as_ref().is_some_and(|value| {
-                                        value.state == TabState::ClarifyingQuestion
-                                    })
-                                    && provider.parse_prompt(&screen).is_some();
-                                let update_dialog = high_confidence
-                                    && classification
-                                        .as_ref()
-                                        .is_some_and(|value| value.state == TabState::UpdatePrompt);
-                                if provider.directory_trust_prompt_response(&screen).is_some() {
-                                    Some("provider trust dialog is visible".to_string())
-                                } else if update_dialog {
-                                    Some("provider update dialog is visible".to_string())
-                                } else if structured_choice {
-                                    Some("provider structured-choice dialog is visible".to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .flatten()
-                    })
-                };
+                let provider_action_refusal = || svc.provider_action_refusal(&action_tab);
                 let action_refusal = || {
                     let detail = provider_action_refusal()?;
                     log::info!(

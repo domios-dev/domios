@@ -429,11 +429,13 @@ impl ServiceContext {
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
         }
-        self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
-            .map_err(|detail| DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail,
-            })?;
+        self.with_provider_action_preflight(tab_id, || {
+            self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
+                .map_err(|detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.to_string(),
+                    detail,
+                })
+        })?;
         let pty_id = match self.resolve_pty_id(tab_id) {
             Ok(pty_id) => pty_id,
             Err(_) => self.prepare_tab_pty_delivery(tab_id)?,
@@ -441,7 +443,82 @@ impl ServiceContext {
         let claim = claim
             .filter(|claim| claim.pty_id() == pty_id)
             .unwrap_or_else(|| super::submit_transaction::claim_submit_cycle(&pty_id));
-        self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
+        self.with_provider_action_preflight(tab_id, || {
+            self.deliver_pty_input_claimed(&pty_id, text, submit, claim)
+        })
+    }
+
+    pub(crate) fn with_provider_action_preflight<T>(
+        &self,
+        tab_id: &str,
+        deliver: impl FnOnce() -> Result<T, DeliveryError>,
+    ) -> Result<T, DeliveryError> {
+        if let Some(detail) = self.provider_action_refusal(tab_id) {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            });
+        }
+        deliver()
+    }
+
+    pub(crate) fn provider_action_refusal(&self, tab_id: &str) -> Option<String> {
+        let target = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id).and_then(|tab| {
+                let pty_id = tab.pty_id.as_deref()?;
+                if mux.tab_id_for_pty(pty_id)? != tab_id {
+                    return None;
+                }
+                Some((
+                    pty_id.to_string(),
+                    tab.agent_type.clone()?,
+                    tab.agent_session_id.clone(),
+                    tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                ))
+            })
+        };
+        target.and_then(|(pty_id, agent_type, session_id, cwd)| {
+            let screen = self.screen_state.lock().get_screen_text(&pty_id)?;
+            self.agent_registry
+                .with_provider(&agent_type, |provider| {
+                    use codeterm_plugin::tab_state::TabState;
+
+                    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+                        tab_id: tab_id.to_string(),
+                        agent_type: agent_type.clone(),
+                        session_id,
+                        cwd,
+                        screen_text: screen.clone(),
+                    };
+                    let classification = provider.classify_tab_state(&snapshot);
+                    let high_confidence = classification.as_ref().is_some_and(|value| {
+                        value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                    });
+                    let structured_choice = high_confidence
+                        && classification
+                            .as_ref()
+                            .is_some_and(|value| value.state == TabState::ClarifyingQuestion)
+                        && provider.parse_prompt(&screen).is_some();
+                    let update_dialog = high_confidence
+                        && classification
+                            .as_ref()
+                            .is_some_and(|value| value.state == TabState::UpdatePrompt);
+                    let hint = "answer it with `tab respond`, then resend";
+                    if provider.directory_trust_prompt_response(&screen).is_some() {
+                        Some(format!("provider trust dialog is visible; {hint}"))
+                    } else if update_dialog {
+                        Some(format!("provider update dialog is visible; {hint}"))
+                    } else if structured_choice {
+                        Some(format!(
+                            "provider structured-choice dialog is visible; {hint}"
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+        })
     }
 
     fn prepare_tab_pty_delivery(&self, tab_id: &str) -> Result<String, DeliveryError> {
@@ -660,6 +737,9 @@ impl ServiceContext {
             return Err(format!(
                 "Agent in Tab {tab_id} is still launching — input would be lost"
             ));
+        }
+        if let Some(detail) = self.provider_action_refusal(tab_id) {
+            return Err(detail);
         }
         // Owner exception: no definitive verdict arrived within the bounded wait.
         // Deliver anyway — a live PTY with an unconfirmed session isn't a dead one.
