@@ -24,7 +24,7 @@ fn opted_in_config() -> NotificationConfig {
 }
 
 #[test]
-fn notification_prompt_option_answer_routes_the_value_without_message_delivery() {
+fn explicit_prompt_notification_answer_routes_the_value_without_message_delivery() {
     use crate::notification::store::PromptOptionAnswer;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
     use std::cell::Cell;
@@ -33,11 +33,11 @@ fn notification_prompt_option_answer_routes_the_value_without_message_delivery()
         question: "opaque question".into(),
         options: vec![
             PromptOption {
-                label: "Trust and continue".into(),
+                label: "choice-a".into(),
                 value: "1".into(),
             },
             PromptOption {
-                label: "Quit".into(),
+                label: "choice-b".into(),
                 value: "2".into(),
             },
         ],
@@ -71,7 +71,7 @@ fn notification_prompt_option_answer_routes_the_value_without_message_delivery()
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
+fn explicit_prompt_notification_answer_refuses_a_stale_prompt_structurally() {
     use codeterm_types::notification::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 
@@ -81,11 +81,11 @@ fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
         question: "opaque question".into(),
         options: vec![
             PromptOption {
-                label: "Trust and continue".into(),
+                label: "choice-a".into(),
                 value: "1".into(),
             },
             PromptOption {
-                label: "Quit".into(),
+                label: "choice-b".into(),
                 value: "2".into(),
             },
         ],
@@ -105,8 +105,8 @@ fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
         })
         .collect();
     let id = fixture.service.create_prompt_notification_ext(
-        "Agent needs your response".into(),
-        Some("opaque question\nTrust and continue\nQuit".into()),
+        "opaque title".into(),
+        Some("opaque body".into()),
         Some("warning"),
         Some(actions),
         Some(true),
@@ -119,7 +119,7 @@ fn notification_prompt_option_answer_refuses_a_stale_prompt_structurally() {
 
     let result = fixture
         .service
-        .answer_notification(&id, "Trust and continue")
+        .answer_notification(&id, "choice-a")
         .expect("the choice was offered and recorded");
     assert_eq!(result["delivered"], false);
     assert_eq!(result["refusal"]["reason"], "stale_prompt");

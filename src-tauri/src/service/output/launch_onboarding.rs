@@ -8,7 +8,7 @@ impl ServiceContext {
         screen_text: Option<&str>,
         prompt_kind: codeterm_types::pty::PromptKind,
         require_user_confirmation: bool,
-        notify_owner: bool,
+        route_owner_prompt: bool,
     ) -> bool {
         if prompt_kind != codeterm_types::pty::PromptKind::Provider {
             return false;
@@ -55,7 +55,7 @@ impl ServiceContext {
                 Some(&screen),
                 prompt_kind,
                 require_user_confirmation,
-                notify_owner,
+                route_owner_prompt,
             );
         });
         true

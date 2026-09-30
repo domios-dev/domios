@@ -33,7 +33,7 @@ fn test_mark_read_nonexistent() {
 }
 
 #[test]
-fn resolving_a_prompt_disables_its_choices_and_spends_channel_posts() {
+fn resolving_a_stored_prompt_record_disables_its_choices_and_spends_channel_posts() {
     use codeterm_types::notification::NotificationAction;
     use codeterm_types::pty::{PendingPrompt, PromptIdentity, PromptKind, PromptOption};
 
@@ -66,7 +66,7 @@ fn resolving_a_prompt_disables_its_choices_and_spends_channel_posts() {
         .collect();
     let mut store = NotificationStore::new(10);
     let id = store.add_ext(
-        "Agent needs your response".into(),
+        "opaque title".into(),
         Some("opaque prompt".into()),
         NotificationSeverity::Warning,
         NotificationProvenance {
@@ -121,7 +121,7 @@ fn channel_placement_arriving_after_resolution_is_spent_immediately() {
     };
     let mut store = NotificationStore::new(10);
     let id = store.add_ext(
-        "Agent needs your response".into(),
+        "opaque title".into(),
         Some(prompt.question),
         NotificationSeverity::Warning,
         NotificationProvenance {
