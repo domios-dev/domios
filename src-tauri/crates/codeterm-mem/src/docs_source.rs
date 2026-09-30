@@ -204,14 +204,17 @@ fn chunks_for_document(doc_name: &'static str, body: &str) -> Vec<DocSection> {
 
 fn chunks_for_cli_reference(body: &str) -> Vec<DocSection> {
     let mut sections = chunks_for_headings("CLI", body, 4, 4, false, true);
-    let mut parent_titles = BTreeSet::new();
-    for section in &sections {
-        let words: Vec<_> = section.section_title.split_whitespace().collect();
-        for count in 2..words.len() {
-            parent_titles.insert(words[..count].join(" "));
-        }
-    }
-    sections.retain(|section| !parent_titles.contains(&section.section_title));
+    let titles: Vec<String> = sections
+        .iter()
+        .map(|section| section.section_title.clone())
+        .collect();
+    sections.retain(|section| {
+        !titles.iter().any(|title| {
+            title
+                .strip_prefix(&section.section_title)
+                .is_some_and(|suffix| suffix.starts_with(' '))
+        })
+    });
     sections
 }
 
@@ -360,6 +363,24 @@ mod tests {
         DOCS,
     };
 
+    fn command_prefix_pairs(sections: &[DocSection]) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
+        for parent in sections {
+            let prefix = format!("{} ", parent.section_title);
+            for child in sections {
+                if child.section_title.starts_with(&prefix) {
+                    pairs.push((parent.section_title.clone(), child.section_title.clone()));
+                }
+            }
+        }
+        pairs
+    }
+
+    fn generated_cli_heading_prefix_pairs() -> Vec<(String, String)> {
+        let sections = super::chunks_for_headings("CLI", CLI_REFERENCE, 4, 4, false, true);
+        command_prefix_pairs(&sections)
+    }
+
     #[test]
     fn headings_split_sections_deterministically_and_ignore_fences() {
         let text = "# Guide\nOverview text.\n## First section\nFirst body.\n```md\n## Not a section\n```\n### Nested section\nNested body.\n## First section\nLast body.";
@@ -426,20 +447,38 @@ mod tests {
     #[test]
     fn generated_cli_reference_is_an_extra_command_chunk_corpus() {
         assert!(DOCS.iter().all(|doc| doc.name != "CLI"));
+        let source_pairs = generated_cli_heading_prefix_pairs();
+        assert!(source_pairs.iter().any(|(parent, child)| {
+            parent == "codeterm plan task" && child == "codeterm plan task add"
+        }));
+        assert!(!source_pairs.iter().any(|(parent, child)| {
+            parent == "codeterm plan task add" && child == "codeterm plan task attach"
+        }));
+
         let sections = chunks_for_cli_reference(CLI_REFERENCE);
         assert!(!sections.is_empty());
         assert!(sections.iter().all(|section| section.doc_name == "CLI"));
         assert!(sections
             .iter()
             .all(|section| section.section_title.starts_with("codeterm")));
+        let offending_pairs = command_prefix_pairs(&sections);
+        if !offending_pairs.is_empty() {
+            println!("offending generated CLI heading pairs: {offending_pairs:#?}");
+        }
+        assert!(
+            offending_pairs.is_empty(),
+            "offending generated CLI heading pairs: {offending_pairs:#?}"
+        );
         let titles: BTreeSet<_> = sections
             .iter()
             .map(|section| section.section_title.clone())
             .collect();
-        assert!(sections.iter().all(|section| {
-            let prefix = format!("{} ", section.section_title);
-            !titles.iter().any(|title| title.starts_with(&prefix))
-        }));
+        assert!(!titles.contains("codeterm"));
+        assert!(!titles.contains("codeterm plan task"));
+        assert!(titles.contains("codeterm plan task add"));
+        assert!(titles.contains("codeterm plan task attach"));
+        assert!(titles.contains("codeterm sessions get"));
+        assert!(titles.contains("codeterm sessions search"));
 
         let result = Index::from_sections(sections).search("codeterm sessions search", 1);
 
