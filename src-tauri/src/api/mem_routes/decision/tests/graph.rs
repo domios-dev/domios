@@ -173,7 +173,11 @@ fn decision_graph_zero_keeps_applied_output_identical() {
     expected_hits.reverse();
     expected_hits.truncate(limit);
     for hit in &mut expected_hits {
-        let score = by_title.iter().find(|(t, _)| *t == hit_title(hit)).unwrap().1;
+        let score = by_title
+            .iter()
+            .find(|(t, _)| *t == hit_title(hit))
+            .unwrap()
+            .1;
         hit["relevance"] = json!(score);
     }
     let expected = json!({
@@ -230,7 +234,10 @@ fn decision_graph_fallback_has_no_graph_additions() {
             output["decision_rerank"],
             json!({ "status": "fallback", "reason": reason })
         );
-        assert!(!titles(&output).iter().any(|t| is_graph_title(t)), "{reason}");
+        assert!(
+            !titles(&output).iter().any(|t| is_graph_title(t)),
+            "{reason}"
+        );
         assert_eq!(
             normalized(without_envelope(output)),
             normalized(baseline),
@@ -244,7 +251,8 @@ fn decision_graph_fallback_has_no_graph_additions() {
     };
     let calls = backend.graph_calls.load(Ordering::SeqCst);
     let baseline = baseline_oracle(&backend, &off);
-    let output = resolve_search(&backend, &registry_with_graph_winner(), &graph_cfg(3), off).unwrap();
+    let output =
+        resolve_search(&backend, &registry_with_graph_winner(), &graph_cfg(3), off).unwrap();
     assert_eq!(normalized(output), normalized(baseline));
     assert_eq!(backend.graph_calls.load(Ordering::SeqCst), calls);
 }

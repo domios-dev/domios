@@ -215,7 +215,11 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     if let Some(object) = hit.as_object_mut() {
                         object.insert("relevance".into(), json!(score));
                         if graph_on {
-                            let via = if index < recall_count { "recall" } else { "graph" };
+                            let via = if index < recall_count {
+                                "recall"
+                            } else {
+                                "graph"
+                            };
                             object.insert("via".into(), json!(via));
                         }
                     }
