@@ -105,19 +105,31 @@ impl SubmitTransport for EventTransport {
         self.state.lock().unwrap().exact_turn_seen
     }
 
-    fn wait_for_submit_event(&self) -> bool {
+    fn wait_for_submit_event(&self, deadline: Instant) -> bool {
         let _ = self.event_wait_tx.send(());
-        self.event_rx.lock().unwrap().recv().is_ok()
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        self.event_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(remaining)
+            .is_ok()
     }
 
-    fn wait_for_deferred_submit_ready(&self) -> DeferredSubmitWait {
+    fn wait_for_deferred_submit_ready(&self, deadline: Instant) -> DeferredSubmitWait {
         if self.state.lock().unwrap().deferred_ready_seen {
             return DeferredSubmitWait::Ready;
         }
         let _ = self.deferred_wait_tx.send(());
         loop {
-            if self.event_rx.lock().unwrap().recv().is_err() {
-                return DeferredSubmitWait::Inactive;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if self
+                .event_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(remaining)
+                .is_err()
+            {
+                return DeferredSubmitWait::Deadline;
             }
             let mut state = self.state.lock().unwrap();
             if state.composer_ready {
@@ -135,6 +147,15 @@ impl SubmitTransport for EventTransport {
             .push(format!("paste:{text}"));
         let _ = self.paste_tx.send(());
         Ok(text.len())
+    }
+
+    fn write_typed_follow_up(&self, text: &str, _deadline: Instant) -> Result<(), InjectionError> {
+        self.state
+            .lock()
+            .unwrap()
+            .writes
+            .push(format!("follow_up:{text}"));
+        Ok(())
     }
 
     fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
@@ -173,11 +194,20 @@ fn run_with_readiness_guard(
     transport: &EventTransport,
     text: &str,
 ) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key(
+    run_with_readiness_guard_and_follow_up(transport, text, None)
+}
+
+fn run_with_readiness_guard_and_follow_up(
+    transport: &EventTransport,
+    text: &str,
+    typed_follow_up: Option<&str>,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key_and_follow_up(
         transport,
         text,
         true,
         b"\r",
+        typed_follow_up,
         tui_strategy(),
         opts(),
         |initial_key| {
@@ -200,13 +230,18 @@ fn run_with_readiness_guard(
 
 #[test]
 fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
-    let (transport, paste_rx, _, _) = EventTransport::new(true, 0);
+    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
     let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "first"));
+    let send = std::thread::spawn(move || {
+        run_with_readiness_guard_and_follow_up(&send_transport, "first", Some(" follow-up"))
+    });
 
     paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the payload reaches the composer before readiness");
+    event_wait_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the first key guard waits for turn end");
     assert_eq!(transport.state.lock().unwrap().writes, ["paste:first"]);
     {
         let mut state = transport.state.lock().unwrap();
@@ -219,8 +254,28 @@ fn paste_during_active_turn_defers_the_first_key_until_turn_end() {
     assert!(result.submit_observed);
     assert_eq!(
         transport.state.lock().unwrap().writes,
-        ["paste:first", "enter"]
+        ["paste:first", "follow_up: follow-up", "enter"]
     );
+}
+
+#[test]
+fn active_turn_wait_expires_without_an_idle_event() {
+    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    event_wait_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("busy readiness waits on an event with a failure deadline");
+
+    assert!(matches!(
+        send.join().unwrap(),
+        Err(InjectionError::SubmitNeverConfirmed { .. })
+    ));
+    assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
 }
 
 #[test]
@@ -228,7 +283,9 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
     let (transport, paste_rx, deferred_wait_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
     let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "slow-paste"));
+    let send = std::thread::spawn(move || {
+        run_with_readiness_guard_and_follow_up(&send_transport, "slow-paste", Some(" follow-up"))
+    });
 
     paste_rx
         .recv_timeout(Duration::from_secs(2))
@@ -263,6 +320,65 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
             .count(),
         1
     );
+    let follow_up = state
+        .writes
+        .iter()
+        .position(|write| write == "follow_up: follow-up")
+        .expect("follow-up precedes the first submit key");
+    let first_key = state
+        .writes
+        .iter()
+        .position(|write| write == "enter")
+        .expect("the submit schedule writes a key");
+    assert_eq!(
+        state
+            .writes
+            .iter()
+            .filter(|write| write.starts_with("follow_up:"))
+            .count(),
+        1,
+        "recovery and the deferred key do not repeat the typed line"
+    );
+    assert!(
+        state
+            .writes
+            .iter()
+            .position(|write| write == "paste:slow-paste")
+            .unwrap()
+            < follow_up
+    );
+    assert!(follow_up < first_key);
+}
+
+#[test]
+fn deferred_key_wait_expires_without_a_readiness_event() {
+    let (transport, paste_rx, deferred_wait_rx, _) =
+        EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
+    let send_transport = Arc::clone(&transport);
+    let send =
+        std::thread::spawn(move || run_with_readiness_guard(&send_transport, "readiness-timeout"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    deferred_wait_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the deferred event wait starts after bounded keys finish");
+
+    let result = send.join().unwrap().unwrap();
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
+    assert_eq!(
+        transport
+            .state
+            .lock()
+            .unwrap()
+            .writes
+            .iter()
+            .filter(|write| write.as_str() == "enter")
+            .count(),
+        MAX_SUBMIT_KEY_WRITES
+    );
 }
 
 fn start_claimed_send(
@@ -275,7 +391,7 @@ fn start_claimed_send(
         if let Some(started_tx) = started_tx {
             let _ = started_tx.send(());
         }
-        claim.wait_until_active();
+        claim.wait_until_active(Instant::now() + Duration::from_secs(2));
         let result = run_with_readiness_guard(&transport, text);
         drop(claim);
         result
@@ -341,7 +457,7 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
 
 #[test]
 fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
-    let (transport, paste_rx, deferred_wait_rx, event_wait_rx) =
+    let (transport, paste_rx, deferred_wait_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
     let send_transport = Arc::clone(&transport);
     let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "payload"));
@@ -357,9 +473,9 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
         state.composer_ready = true;
     }
     transport.signal();
-    event_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the dialog guard waits for a new screen event without writing a key");
+    let result = send.join().unwrap().unwrap();
+    assert!(!result.submit_observed);
+    assert!(result.submit_anomaly);
     assert_eq!(
         transport
             .state
@@ -371,47 +487,15 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
             .count(),
         MAX_SUBMIT_KEY_WRITES
     );
-    {
-        let mut state = transport.state.lock().unwrap();
-        state.dialog = false;
-    }
-    transport.signal();
-
-    assert!(send.join().unwrap().unwrap().submit_observed);
-    assert_eq!(
-        transport
-            .state
-            .lock()
-            .unwrap()
-            .writes
-            .iter()
-            .filter(|write| write.as_str() == "enter")
-            .count(),
-        MAX_SUBMIT_KEY_WRITES + 1
-    );
 }
 
 #[test]
-fn paste_and_first_key_wait_while_a_provider_dialog_is_detected() {
+fn provider_dialog_before_paste_is_refused_without_writing() {
     let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(false, 0);
     transport.state.lock().unwrap().dialog = true;
-    let send_transport = Arc::clone(&transport);
-    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "payload"));
-    event_wait_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the dialog blocks the payload paste until a screen event");
+    let error = run_with_readiness_guard(&transport, "payload").unwrap_err();
+    assert!(matches!(error, InjectionError::AgentTuiPresent { .. }));
     assert!(paste_rx.try_recv().is_err());
     assert!(transport.state.lock().unwrap().writes.is_empty());
-
-    transport.state.lock().unwrap().dialog = false;
-    transport.signal();
-
-    paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("the payload pastes only after the dialog closes");
-    assert!(send.join().unwrap().unwrap().submit_observed);
-    assert_eq!(
-        transport.state.lock().unwrap().writes,
-        ["paste:payload", "enter"]
-    );
+    assert!(event_wait_rx.try_recv().is_err());
 }

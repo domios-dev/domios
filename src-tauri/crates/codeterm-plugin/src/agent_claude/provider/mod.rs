@@ -28,10 +28,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::provider::{
-    AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
-    SessionContentSource, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
-    StarterPrompt, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, UsageSnapshot,
-    VerifySubmitStrategy,
+    AgentLaunchParams, AgentProvider, ModelInfo, PasteCapability, ReadinessStrategy,
+    ReasoningEffortInfo, SessionContentSource, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, StarterPrompt, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization,
+    UsageSnapshot, VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -81,6 +81,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn binary_name(&self) -> &str {
         "claude"
+    }
+
+    fn paste_capability(&self) -> Option<PasteCapability> {
+        Some(PasteCapability {
+            untrusted_above_lines: 4,
+            typed_follow_up: " Handle the pasted message above as my request.".into(),
+        })
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {

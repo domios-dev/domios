@@ -953,6 +953,17 @@ impl ServiceContext {
     }
 
     pub(crate) fn notify_surviving_shell_restart_required(&self, tab_id: &str, attempt_id: &str) {
+        let model_switch_pending = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.pending_model_switch_observation.is_some());
+        if model_switch_pending {
+            log::info!(
+                "[launch-recovery] tab={tab_id} launch={attempt_id} planned model-switch exit"
+            );
+            return;
+        }
         let command = recovery_command(tab_id);
         log::warn!(
             "[launch-recovery] tab={tab_id} launch={attempt_id} agent exited; shell survives"

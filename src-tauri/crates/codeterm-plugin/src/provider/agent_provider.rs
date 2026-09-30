@@ -24,6 +24,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn paste_capability(&self) -> Option<PasteCapability> {
+        None
+    }
+
     /// CLI flag accepting one extra writable directory in sandboxed worktree launches.
     fn additional_writable_dir_flag(&self) -> Option<String> {
         None

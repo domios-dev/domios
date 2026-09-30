@@ -364,12 +364,18 @@ fn commit_reported_session(
     }
     let previous = tab.agent_session_id.clone();
     let changed = previous.as_deref() != Some(session_id);
+    let pending_model_switch_matches_session = tab
+        .pending_model_switch_observation
+        .as_ref()
+        .is_some_and(|pending| pending.session_id == session_id);
     if changed {
         if let Some(previous_session_id) = previous.as_deref() {
             tab.archive_context_epoch(provider_id, previous_session_id);
         }
         tab.agent_session_id = Some(session_id.to_string());
-        crate::service::session_model::clear_runtime_model_evidence(tab);
+        if !pending_model_switch_matches_session {
+            crate::service::session_model::clear_runtime_model_evidence(tab);
+        }
     }
     tab.reported_session_binding_nonce = if nonce_verified {
         Some(report_nonce.unwrap_or_default().to_string())
