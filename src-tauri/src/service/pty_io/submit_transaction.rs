@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::agent::provider::{VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
+use crate::agent::provider::{PasteCapability, VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
 use crate::agent::status::TabStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
@@ -12,12 +12,18 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod evidence_watcher;
+mod runner;
 pub(crate) use cycle::{
     claim_submit_cycle, wake_submit_cycle, wake_submit_cycle_output, wake_submit_cycle_status,
     SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
+#[cfg(test)]
+use runner::run;
+#[cfg(test)]
+use runner::run_with_submit_key;
+use runner::run_with_submit_key_and_follow_up;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
@@ -147,6 +153,12 @@ trait SubmitTransport {
         true
     }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
+    fn write_typed_follow_up(&self, _text: &str, _deadline: Instant) -> Result<(), InjectionError> {
+        Err(InjectionError::SubmitNeverConfirmed {
+            waited: Duration::ZERO,
+            screen_tail: String::new(),
+        })
+    }
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
 
@@ -441,6 +453,36 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         Ok(paste.len())
     }
 
+    fn write_typed_follow_up(&self, text: &str, deadline: Instant) -> Result<(), InjectionError> {
+        let session = self
+            .svc
+            .pty
+            .lock()
+            .get_session(self.pty_id)
+            .ok_or_else(|| InjectionError::PtyClosed {
+                pty_id: self.pty_id.to_string(),
+            })?;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let bytes = text.as_bytes().to_vec();
+        let result = match self.permit.as_ref() {
+            Some(permit) => session.write_and_flush_guarded(bytes.clone(), permit.clone(), timeout),
+            None => self
+                .svc
+                .pty
+                .lock()
+                .write_and_flush(self.pty_id, &bytes, timeout),
+        };
+        result.map_err(|error| injection_write_error(self.pty_id, error))?;
+        if self.permit.is_some() {
+            crate::pty::capture::CaptureRegistry::global().tap_input(
+                self.pty_id,
+                "pty.write",
+                &bytes,
+            );
+        }
+        Ok(())
+    }
+
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
         let composer_generation = { self.svc.screen_state.lock().pty_generation(self.pty_id) };
         let session = self
@@ -588,312 +630,6 @@ fn provider_dialog_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), Injec
     }
 }
 
-fn draft_left_composer<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    baseline_evidence: usize,
-    echo_observed: bool,
-    armed: u64,
-) -> bool {
-    echo_observed
-        && transport.generation() != armed
-        && transport.draft_evidence_count(text) <= baseline_evidence
-}
-
-fn submission_acknowledged_now<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    baseline_evidence: usize,
-    echo_observed: bool,
-    turn_was_started: bool,
-    armed: u64,
-    strategy: &VerifySubmitStrategy,
-) -> bool {
-    let changed = transport.generation() != armed;
-    let fresh_turn = changed && !turn_was_started && transport.turn_started();
-    let drained = draft_left_composer(transport, text, baseline_evidence, echo_observed, armed);
-    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. }) {
-        return if transport.has_exact_user_turn_evidence() {
-            transport.exact_user_turn_present(text)
-        } else {
-            fresh_turn
-        };
-    }
-    drained || fresh_turn
-}
-
-#[cfg(test)]
-fn run<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    enter: bool,
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key(transport, text, enter, b"\r", strategy, opts, |_| Ok(()))
-}
-
-fn run_with_submit_key<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    enter: bool,
-    submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    mut key_guard: impl FnMut(bool) -> Result<(), InjectionError>,
-) -> Result<InjectionResult, InjectionError> {
-    if let Err(error) = transport.dialog_guard() {
-        return Err(error);
-    }
-    transport.prepare_paste(text, enter);
-    let started = Instant::now();
-    let turn_deadline = started + opts.submit_timeout;
-    let two_phase = enter && opts.verify_submit;
-    let exact_turn_evidence = matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
-        && transport.has_exact_user_turn_evidence();
-    let initial_key_delay = if enter && !text.is_empty() {
-        strategy.initial_key_delay()
-    } else {
-        Duration::ZERO
-    };
-
-    let baseline_evidence = transport.draft_evidence_count(text);
-    let turn_was_started = enter.then(|| transport.turn_started());
-    let bytes_written = transport.write_paste(text, turn_deadline)?;
-    let mut submit_key_writes = 0;
-    let mut paste_observed =
-        text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
-
-    if !enter {
-        return Ok(InjectionResult {
-            bytes_written,
-            echo_observed: paste_observed,
-            submit_observed: false,
-            submit_anomaly: false,
-            submit_key_writes: 0,
-            elapsed: started.elapsed(),
-        });
-    }
-
-    let turn_was_started = turn_was_started.unwrap_or(false);
-    let submit_started = Instant::now();
-    let mut first_submit_key_at = (submit_key_writes > 0).then_some(submit_started);
-    let mut submit_observed = !two_phase;
-    let mut dialog_blocked = false;
-    while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
-        if (submit_key_writes > 0 && submit_observed)
-            || (exact_turn_evidence && transport.exact_user_turn_present(text))
-        {
-            submit_observed = true;
-            break;
-        }
-        if submit_key_writes == 0 && !initial_key_delay.is_zero() {
-            let first_key_deadline = submit_started + initial_key_delay;
-            if transport.wait_retry_deadline_for_turn(first_key_deadline.min(turn_deadline), text) {
-                submit_observed = true;
-                break;
-            }
-            if !transport.retry_active()
-                || (submit_key_writes > 0 && Instant::now() >= turn_deadline)
-            {
-                break;
-            }
-        } else if submit_key_writes > 0 {
-            if !transport.retry_active() {
-                break;
-            }
-            let retry_offsets = strategy.retry_offsets();
-            let offset = retry_offsets
-                .get(submit_key_writes - 1)
-                .copied()
-                .unwrap_or(*retry_offsets.last().expect("non-empty"));
-            let retry_deadline = first_submit_key_at.unwrap_or(submit_started) + offset;
-            if transport.wait_retry_deadline_for_turn(retry_deadline.min(turn_deadline), text) {
-                submit_observed = true;
-                break;
-            }
-            if !transport.retry_active() || Instant::now() >= turn_deadline {
-                break;
-            }
-        }
-        if exact_turn_evidence && transport.exact_user_turn_present(text) {
-            submit_observed = true;
-            break;
-        }
-        let allow_initial_key = submit_key_writes == 0;
-        let mut key_error = None;
-        let key_ready = loop {
-            match key_guard(allow_initial_key) {
-                Ok(()) => break true,
-                Err(error @ InjectionError::AgentTuiPresent { .. }) if bytes_written > 0 => {
-                    dialog_blocked = true;
-                    key_error = Some(error);
-                    break false;
-                }
-                Err(error @ InjectionError::AgentInputUnavailable { .. }) if bytes_written > 0 => {
-                    if transport.wait_for_submit_event(turn_deadline) {
-                        continue;
-                    }
-                    key_error = Some(error);
-                    break false;
-                }
-                Err(error) => {
-                    key_error = Some(error);
-                    break false;
-                }
-            }
-        };
-        if !key_ready {
-            if submit_key_writes > 0 {
-                break;
-            }
-            if bytes_written == 0 {
-                return Err(key_error.expect("failed key guard retains its error"));
-            }
-            let screen_tail = transport
-                .observe()
-                .map(|state| state.tail)
-                .unwrap_or_default();
-            return Err(InjectionError::SubmitNeverConfirmed {
-                waited: started.elapsed(),
-                screen_tail,
-            });
-        }
-        if exact_turn_evidence && transport.exact_user_turn_present(text) {
-            submit_observed = true;
-            break;
-        }
-        let enter_armed = transport.generation();
-        // A prior payload or submit key makes this failure submission uncertainty.
-        let key_deadline = if Instant::now() < turn_deadline {
-            turn_deadline
-        } else {
-            Instant::now() + opts.submit_timeout
-        };
-        if let Err(error) = transport.write_submit_key(submit_key, key_deadline) {
-            if text.is_empty() && submit_key_writes == 0 {
-                return Err(error);
-            }
-            log::warn!(
-                "[submit-transaction] post-paste submit-key write failed ({error}); classified unconfirmed"
-            );
-            let screen_tail = transport
-                .observe()
-                .map(|state| state.tail)
-                .unwrap_or_default();
-            return Err(InjectionError::SubmitNeverConfirmed {
-                waited: started.elapsed(),
-                screen_tail,
-            });
-        }
-        submit_key_writes += 1;
-        first_submit_key_at.get_or_insert_with(Instant::now);
-        if !two_phase {
-            break;
-        }
-        paste_observed |= transport.draft_evidence_count(text) > baseline_evidence;
-        submit_observed |= submission_acknowledged_now(
-            transport,
-            text,
-            baseline_evidence,
-            paste_observed,
-            turn_was_started,
-            enter_armed,
-            &strategy,
-        );
-        submit_observed |= exact_turn_evidence && transport.exact_user_turn_present(text);
-        if submit_observed {
-            break;
-        }
-    }
-
-    if two_phase
-        && !submit_observed
-        && bytes_written > 0
-        && submit_key_writes > 0
-        && !dialog_blocked
-        && transport.retry_active()
-    {
-        let deferred_deadline = Instant::now() + opts.submit_timeout;
-        loop {
-            if exact_turn_evidence && transport.exact_user_turn_present(text) {
-                submit_observed = true;
-                break;
-            }
-            match transport.wait_for_deferred_submit_ready(deferred_deadline) {
-                DeferredSubmitWait::Ready => {}
-                DeferredSubmitWait::Woken => {
-                    if exact_turn_evidence && transport.exact_user_turn_present(text) {
-                        submit_observed = true;
-                        break;
-                    }
-                    continue;
-                }
-                DeferredSubmitWait::Deadline | DeferredSubmitWait::Inactive => break,
-            }
-            if exact_turn_evidence && transport.exact_user_turn_present(text) {
-                submit_observed = true;
-                break;
-            }
-            match key_guard(false) {
-                Ok(()) => {}
-                Err(InjectionError::AgentTuiPresent { .. }) => break,
-                Err(InjectionError::AgentInputUnavailable { .. }) => {
-                    if transport.wait_for_submit_event(deferred_deadline) {
-                        continue;
-                    }
-                    break;
-                }
-                Err(_) => break,
-            }
-            let enter_armed = transport.generation();
-            let key_deadline = Instant::now() + opts.submit_timeout;
-            if let Err(error) = transport.write_submit_key(submit_key, key_deadline) {
-                log::warn!(
-                    "[submit-transaction] deferred submit-key write failed ({error}); classified unconfirmed"
-                );
-                let screen_tail = transport
-                    .observe()
-                    .map(|state| state.tail)
-                    .unwrap_or_default();
-                return Err(InjectionError::SubmitNeverConfirmed {
-                    waited: started.elapsed(),
-                    screen_tail,
-                });
-            }
-            submit_key_writes += 1;
-            if exact_turn_evidence {
-                while !transport.exact_user_turn_present(text) {
-                    if !transport.wait_for_submit_event(deferred_deadline) {
-                        break;
-                    }
-                }
-                submit_observed = transport.exact_user_turn_present(text);
-            } else {
-                submit_observed = submission_acknowledged_now(
-                    transport,
-                    text,
-                    baseline_evidence,
-                    paste_observed,
-                    turn_was_started,
-                    enter_armed,
-                    &strategy,
-                );
-            }
-            break;
-        }
-    }
-
-    Ok(InjectionResult {
-        bytes_written,
-        echo_observed: paste_observed,
-        submit_observed,
-        submit_anomaly: two_phase && !submit_observed,
-        submit_key_writes,
-        elapsed: started.elapsed(),
-    })
-}
-
 pub(crate) fn submit_text(
     svc: &ServiceContext,
     pty_id: &str,
@@ -916,11 +652,38 @@ pub(crate) fn submit_text_with_key(
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
     track_exact_session_turn: bool,
 ) -> Result<InjectionResult, InjectionError> {
-    let claim = claim_submit_cycle(pty_id);
-    submit_text_with_key_claimed(
+    submit_text_with_key_and_follow_up(
         svc,
         pty_id,
         text,
+        None,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+    )
+}
+
+pub(crate) fn submit_text_with_key_and_follow_up(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_follow_up: Option<&str>,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+) -> Result<InjectionResult, InjectionError> {
+    let claim = claim_submit_cycle(pty_id);
+    submit_text_with_key_claimed_and_follow_up(
+        svc,
+        pty_id,
+        text,
+        typed_follow_up,
         enter,
         submit_key,
         strategy,
@@ -943,6 +706,34 @@ pub(crate) fn submit_text_with_key_claimed(
     svc: &ServiceContext,
     pty_id: &str,
     text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_follow_up(
+        svc,
+        pty_id,
+        text,
+        None,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed_and_follow_up(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -1090,11 +881,12 @@ pub(crate) fn submit_text_with_key_claimed(
             })
         }
     };
-    let mut result = run_with_submit_key(
+    let mut result = run_with_submit_key_and_follow_up(
         &transport,
         text,
         enter,
         submit_key,
+        typed_follow_up,
         strategy,
         opts,
         &mut key_guard,
@@ -1119,7 +911,15 @@ pub(crate) fn submit_text_with_key_claimed(
                 );
             }
         });
-    let exact_turn_present = track_exact_session_turn && transport.exact_user_turn_present(text);
+    let expected_user_turn = typed_follow_up
+        .filter(|follow_up| PasteCapability::is_valid_typed_follow_up(follow_up))
+        .filter(|_| enter && !text.is_empty())
+        .map_or_else(
+            || text.to_string(),
+            |follow_up| format!("{text}{follow_up}"),
+        );
+    let exact_turn_present =
+        track_exact_session_turn && transport.exact_user_turn_present(&expected_user_turn);
     if exact_turn_present {
         if let Ok(result) = &mut result {
             result.submit_observed = true;

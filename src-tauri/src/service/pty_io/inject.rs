@@ -45,6 +45,7 @@ impl ServiceContext {
         &self,
         pty_id: &str,
         text: &str,
+        typed_follow_up: Option<&str>,
         enter: bool,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
         permit: crate::pty::write_queue::GuardedInputPermit,
@@ -54,10 +55,11 @@ impl ServiceContext {
         crate::service::inject_verify::InjectionResult,
         crate::service::inject_verify::InjectionError,
     > {
-        super::submit_transaction::submit_text_with_key(
+        super::submit_transaction::submit_text_with_key_and_follow_up(
             self,
             pty_id,
             text,
+            typed_follow_up,
             enter,
             b"\r",
             submit_strategy,

@@ -403,11 +403,9 @@ mod model_refresh_tests {
             .lock()
             .unwrap()
             .insert("session-live".into(), "claude-sonnet-5-5".into());
-        fixture.service.record_post_launch_turn_model(
-            &tab_id,
-            observation,
-            "binding-switch",
-        );
+        fixture
+            .service
+            .record_post_launch_turn_model(&tab_id, observation, "binding-switch");
 
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
