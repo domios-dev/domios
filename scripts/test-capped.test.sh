@@ -132,7 +132,7 @@ full_run_passes_through() {
         printf 'full_run_passes_through: fixture did not exercise a populated binary\n' >&2
         exit 1
     }
-    grep -q '^\[test-capped\] process cap: 600s$' "$output" || {
+    grep -q '^\[test-capped\] test execution cap: 600s$' "$output" || {
         printf 'full_run_passes_through: default focused-test cap was not enabled\n' >&2
         exit 1
     }
@@ -348,6 +348,85 @@ grep -q '^cargo-test-ran$' "$explicit_target_output" || {
 }
 ! grep -q 'using isolated Windows test target' "$explicit_target_output" || {
     printf 'explicit-target: wrapper overrode the caller target directory\n' >&2
+    exit 1
+}
+
+slow_build_command="$TMPDIR/slow-build-command"
+cat >"$slow_build_command" <<'SLOW_BUILD'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$BUILD_ARGS_FILE"
+TEST_CAP_SECS=5 "$BUILD_WRAPPER" --exec bash -c 'printf started > "$1"' bash "$BUILD_STARTED_FIFO" >/dev/null
+TEST_CAP_SECS=10 "$BUILD_WRAPPER" --exec cat "$BUILD_RELEASE_FIFO" >/dev/null
+printf 'slow-build-completed\n'
+SLOW_BUILD
+chmod +x "$slow_build_command"
+build_started_fifo="$TMPDIR/build-started"
+build_release_fifo="$TMPDIR/build-release"
+build_probe_fifo="$TMPDIR/build-probe"
+mkfifo "$build_started_fifo" "$build_release_fifo" "$build_probe_fifo"
+build_args_file="$TMPDIR/build-args"
+build_wrapper_output="$TMPDIR/slow-build-wrapper.out"
+build_started_output="$TMPDIR/build-started.out"
+TEST_CAP_SECS=5 "$WRAPPER" --exec cat "$build_started_fifo" >"$build_started_output" 2>&1 &
+build_started_reader_pid=$!
+TEST_CAP_SECS=1 CARGO_TEST_CMD=true CARGO_TEST_BUILD_CMD="$slow_build_command" \
+    BUILD_WRAPPER="$WRAPPER" BUILD_ARGS_FILE="$build_args_file" BUILD_STARTED_FIFO="$build_started_fifo" \
+    BUILD_RELEASE_FIFO="$build_release_fifo" "$WRAPPER" --lib \
+    >"$build_wrapper_output" 2>&1 &
+slow_build_wrapper_pid=$!
+if wait "$build_started_reader_pid"; then
+    build_started_exit=0
+else
+    build_started_exit=$?
+fi
+if TEST_CAP_SECS=2 "$WRAPPER" --exec cat "$build_probe_fifo" \
+    >"$TMPDIR/build-probe.out" 2>&1; then
+    build_probe_exit=0
+else
+    build_probe_exit=$?
+fi
+if TEST_CAP_SECS=5 "$WRAPPER" --exec bash -c 'printf release > "$1"' bash "$build_release_fifo" \
+    >"$TMPDIR/build-release.out" 2>&1; then
+    build_release_exit=0
+else
+    build_release_exit=$?
+fi
+if wait "$slow_build_wrapper_pid"; then
+    slow_build_exit=0
+else
+    slow_build_exit=$?
+fi
+[ "$build_started_exit" -eq 0 ] || {
+    printf 'slow-build: build phase did not signal its start, exit %s\n' "$build_started_exit" >&2
+    exit 1
+}
+[ "$build_probe_exit" -eq 124 ] || {
+    printf 'slow-build: bounded probe expected exit 124, got %s\n' "$build_probe_exit" >&2
+    exit 1
+}
+[ "$build_release_exit" -eq 0 ] || {
+    printf 'slow-build: could not release the build event, exit %s\n' "$build_release_exit" >&2
+    exit 1
+}
+[ "$slow_build_exit" -eq 0 ] || {
+    printf 'slow-build: build lasting beyond the execution cap failed with exit %s\n' "$slow_build_exit" >&2
+    exit 1
+}
+grep -Fxq -- '--no-run' "$build_args_file" || {
+    printf 'slow-build: preflight command did not receive --no-run\n' >&2
+    exit 1
+}
+grep -Fxq -- '--lib' "$build_args_file" || {
+    printf 'slow-build: preflight command did not receive the Cargo test arguments\n' >&2
+    exit 1
+}
+grep -q '^slow-build-completed$' "$build_wrapper_output" || {
+    printf 'slow-build: preflight output did not complete before test execution\n' >&2
+    exit 1
+}
+! grep -q 'DEADLOCK / HANG' "$build_wrapper_output" || {
+    printf 'slow-build: execution cap incorrectly included the build phase\n' >&2
     exit 1
 }
 

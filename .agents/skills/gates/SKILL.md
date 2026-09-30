@@ -24,9 +24,10 @@ minutes and prints thousands of lines goes to a sub-agent: the transcript is
 the cost, not the wall time.
 
 Rust `test-one` calls default to a 600-second process-group cap. `test` and
-`verify` use 3600 seconds per Cargo test invocation; `TEST_CAP_SECS` overrides
-either value, and `TEST_CAP_SECS=0` disables the cap. Expiry exits 124 and prints
-active libtest case names captured from Cargo output.
+`verify` use 3600 seconds per Cargo test invocation; Cargo compiles targets with
+`--no-run` before each deadline starts. `TEST_CAP_SECS` overrides either value,
+and `TEST_CAP_SECS=0` disables the execution cap. Expiry exits 124 and prints
+active libtest case names captured from the execution output.
 
 ## Focused, run here
 

@@ -158,13 +158,15 @@ without losing the mode switch or identity labels.
 
 `scripts/test-capped.sh` is the required Rust-test wrapper. Focused invocations
 default to 600 seconds; `build.sh test` and `verify` set 3600 seconds for each
-Cargo test invocation. `TEST_CAP_SECS=<positive-seconds>` overrides either cap;
-`TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the process group,
-exits 124, and repeats libtest's active case names from its captured output.
-Stable Rust cannot use `--ensure-time`: it is nightly-only and reports a long
-test only after it finishes, so the process deadline owns hang recovery. In a
-fresh worktree, the wrapper also creates the ignored, zero-byte `bundled-embed`
-sidecar only when absent. The bundle script rejects empty sidecars.
+Cargo test invocation. Cargo first compiles the same targets with `--no-run`,
+outside the execution deadline. `TEST_CAP_SECS=<positive-seconds>` overrides
+either deadline; `TEST_CAP_SECS=0` disables it. On expiry the wrapper kills the
+execution process group, exits 124, and repeats libtest's active case names from
+its captured output. Stable Rust cannot use `--ensure-time`: it is nightly-only
+and reports a long test only after it finishes, so the process deadline owns hang
+recovery. In a fresh worktree, the wrapper also creates the ignored, zero-byte
+`bundled-embed` sidecar only when absent. The bundle script rejects empty
+sidecars.
 
 The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or

@@ -18,6 +18,7 @@
 # Overridable env:
 #   TEST_CAP_SECS   positive seconds before SIGTERM + banner, or 0 to disable
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
+#   CARGO_TEST_BUILD_CMD optional build-phase command used by this script's fixtures
 #   CODETERM_EMBED_CACHE_DIR shared machine cache for immutable embedding models
 #
 # Not overridable — always cleared/set before the test command runs:
@@ -41,6 +42,11 @@ TEST_CAP_SECS="${TEST_CAP_SECS:-600}"
 if [[ ! "$TEST_CAP_SECS" =~ ^[0-9]+$ ]]; then
     printf 'error: TEST_CAP_SECS must be a non-negative integer.\n' >&2
     exit 2
+fi
+if [ -n "${CARGO_TEST_CMD:-}" ]; then
+    CARGO_TEST_CMD_DEFAULT=0
+else
+    CARGO_TEST_CMD_DEFAULT=1
 fi
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -153,9 +159,9 @@ if [ "$EXEC_MODE" -eq 0 ]; then
 fi
 
 if [ "$TEST_CAP_SECS" -eq 0 ]; then
-    printf '[test-capped] process cap disabled (TEST_CAP_SECS=0).\n'
+    printf '[test-capped] test execution cap disabled (TEST_CAP_SECS=0).\n'
 else
-    printf '[test-capped] process cap: %ss\n' "$TEST_CAP_SECS"
+    printf '[test-capped] test execution cap: %ss\n' "$TEST_CAP_SECS"
 fi
 
 ZERO_MATCH_EXIT=97
@@ -248,8 +254,27 @@ run_test() {
     fi
 }
 
+run_build() {
+    [ "$EXEC_MODE" -eq 0 ] || return 0
+    if [ -n "${CARGO_TEST_BUILD_CMD:-}" ]; then
+        $CARGO_TEST_BUILD_CMD --no-run "$@"
+    elif [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
+        $CARGO_TEST_CMD --no-run "$@"
+    fi
+}
+
 if [ "$EXEC_MODE" -eq 0 ]; then
     detect_requested_filter "$@"
+    if [ -n "${CARGO_TEST_BUILD_CMD:-}" ] || [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
+        printf '[test-capped] compiling test targets before the execution cap.\n'
+        if run_build "$@"; then
+            :
+        else
+            BUILD_EXIT=$?
+            printf '[test-capped] test target compilation failed with exit %s.\n' "$BUILD_EXIT" >&2
+            exit "$BUILD_EXIT"
+        fi
+    fi
 fi
 
 TEST_LOG=$(mktemp)
@@ -269,7 +294,7 @@ fi
 if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$CARGO_EXIT" -eq 124 ]; then
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
-    printf '  DEADLOCK / HANG: test command exceeded %ss cap.\n' "$TEST_CAP_SECS"
+    printf '  DEADLOCK / HANG: test execution exceeded %ss cap.\n' "$TEST_CAP_SECS"
     printf '  Tests still running at the cap:\n'
     RUNNING_TESTS=$(awk '
         /^test .+ has been running for over [0-9]+ seconds/ {

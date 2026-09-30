@@ -105,8 +105,8 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
-- Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds.
-- `TEST_CAP_SECS` overrides the deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
+- Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts.
+- `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
 - `--ensure-time` is nightly-only and cannot stop a blocked test, so stable Rust suites rely on the process deadline.
 - Reclaim stale targets with `cargo sweep --time 2` between efforts.
 
