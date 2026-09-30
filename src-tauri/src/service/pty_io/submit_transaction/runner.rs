@@ -81,16 +81,8 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    loop {
-        match transport.dialog_guard() {
-            Ok(()) => break,
-            Err(error @ InjectionError::AgentTuiPresent { .. }) => {
-                if !transport.wait_for_submit_event() {
-                    return Err(error);
-                }
-            }
-            Err(error) => return Err(error),
-        }
+    if let Err(error) = transport.dialog_guard() {
+        return Err(error);
     }
     transport.prepare_paste(text, enter);
     let started = Instant::now();
@@ -138,6 +130,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     let submit_started = Instant::now();
     let mut first_submit_key_at = (submit_key_writes > 0).then_some(submit_started);
     let mut submit_observed = !two_phase;
+    let mut dialog_blocked = false;
     while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
         if (submit_key_writes > 0 && submit_observed)
             || (exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn))
@@ -189,15 +182,13 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         let key_ready = loop {
             match key_guard(allow_initial_key) {
                 Ok(()) => break true,
-                Err(error)
-                    if bytes_written > 0
-                        && matches!(
-                            &error,
-                            InjectionError::AgentInputUnavailable { .. }
-                                | InjectionError::AgentTuiPresent { .. }
-                        ) =>
-                {
-                    if transport.wait_for_submit_event() {
+                Err(error @ InjectionError::AgentTuiPresent { .. }) if bytes_written > 0 => {
+                    dialog_blocked = true;
+                    key_error = Some(error);
+                    break false;
+                }
+                Err(error @ InjectionError::AgentInputUnavailable { .. }) if bytes_written > 0 => {
+                    if transport.wait_for_submit_event(turn_deadline) {
                         continue;
                     }
                     key_error = Some(error);
@@ -297,14 +288,16 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         && !submit_observed
         && bytes_written > 0
         && submit_key_writes > 0
+        && !dialog_blocked
         && transport.retry_active()
     {
+        let deferred_deadline = Instant::now() + opts.submit_timeout;
         loop {
             if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
                 submit_observed = true;
                 break;
             }
-            match transport.wait_for_deferred_submit_ready() {
+            match transport.wait_for_deferred_submit_ready(deferred_deadline) {
                 DeferredSubmitWait::Ready => {}
                 DeferredSubmitWait::Woken => {
                     if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn)
@@ -314,7 +307,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                     }
                     continue;
                 }
-                DeferredSubmitWait::Inactive => break,
+                DeferredSubmitWait::Deadline | DeferredSubmitWait::Inactive => break,
             }
             if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
                 submit_observed = true;
@@ -322,14 +315,9 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
             }
             match key_guard(false) {
                 Ok(()) => {}
-                Err(error)
-                    if matches!(
-                        &error,
-                        InjectionError::AgentInputUnavailable { .. }
-                            | InjectionError::AgentTuiPresent { .. }
-                    ) =>
-                {
-                    if transport.wait_for_submit_event() {
+                Err(InjectionError::AgentTuiPresent { .. }) => break,
+                Err(InjectionError::AgentInputUnavailable { .. }) => {
+                    if transport.wait_for_submit_event(deferred_deadline) {
                         continue;
                     }
                     break;
@@ -354,7 +342,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
             submit_key_writes += 1;
             if exact_turn_evidence {
                 while !transport.exact_user_turn_present(&expected_user_turn) {
-                    if !transport.wait_for_submit_event() {
+                    if !transport.wait_for_submit_event(deferred_deadline) {
                         break;
                     }
                 }
