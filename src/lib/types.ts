@@ -759,6 +759,18 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
+export interface DecisionRerankConfig {
+  enabled: boolean;
+  adapter: string;
+  candidates: number;
+  max_concurrency: number;
+  deadline_ms: number;
+  low_confidence_threshold: number;
+  max_body_chars: number;
+  endpoint?: string;
+  model?: string;
+}
+
 export interface MemoryConfig {
   extraction_agent: string;
   extraction_model: string;
@@ -771,6 +783,7 @@ export interface MemoryConfig {
   file_sync_enabled: boolean;
   file_sync_interval_minutes: number;
   librarian_enabled?: boolean;
+  decision_rerank?: DecisionRerankConfig;
 }
 
 export interface UiConfig {
