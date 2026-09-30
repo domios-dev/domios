@@ -15,7 +15,7 @@ fn decision_rerank_defaults_off() {
     assert_eq!(cfg.max_concurrency, 8);
     assert_eq!(cfg.deadline_ms, 1500);
     assert_eq!(cfg.low_confidence_threshold, 0.15);
-    assert_eq!(cfg.max_body_chars, 8000);
+    assert_eq!(cfg.max_body_chars, 2000);
     assert!(cfg.endpoint.is_none());
     assert!(cfg.model.is_none());
     assert!(!AppConfig::default().memory.decision_rerank.enabled);

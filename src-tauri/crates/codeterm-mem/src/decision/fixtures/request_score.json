@@ -6,9 +6,10 @@
       "type": "score",
       "instructions": "Classify the request.",
       "criteria": [
-        "low",
-        "medium",
-        "high"
+        "Does not help answer the question.",
+        "On topic, but lacks an answer-bearing fact.",
+        "Contains a useful fact that partly answers the question.",
+        "Directly answers the question or gives the decisive fact."
       ]
     }
   }

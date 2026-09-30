@@ -25,7 +25,7 @@ impl Default for DecisionRerankConfig {
             max_concurrency: 8,
             deadline_ms: 1500,
             low_confidence_threshold: 0.15,
-            max_body_chars: 8000,
+            max_body_chars: 2000,
             endpoint: None,
             model: None,
         }

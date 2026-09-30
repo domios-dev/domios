@@ -7,7 +7,9 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
-use super::{decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched};
+use super::{
+    candidate, decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched,
+};
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
@@ -231,7 +233,12 @@ impl DecisionModel for StubModel {
             StubMode::Relevance(by_title) => {
                 let p = by_title
                     .iter()
-                    .find(|(title, _)| req.state.contains(title.as_str()))
+                    .find(|(title, _)| {
+                        req.state
+                            .as_str()
+                            .unwrap_or_default()
+                            .contains(title.as_str())
+                    })
                     .map_or(0.0, |(_, p)| *p);
                 Ok(DecisionAnswer::Noul { p })
             }
@@ -283,6 +290,21 @@ fn titles(output: &Value) -> Vec<String> {
 fn without_envelope(mut output: Value) -> Value {
     output.as_object_mut().unwrap().remove("decision_rerank");
     output
+}
+
+#[test]
+fn decision_candidate_carries_kind() {
+    let mem_hit = json!({
+        "item": {"id": "mem-1", "title": "Memory title", "kind": "fact", "body": "Memory body"}
+    });
+    let plan_hit = json!({
+        "id": "plan-1", "title": "Plan title", "kind": "task", "body": "Plan body"
+    });
+    let missing_kind_hit = json!({"id": "other", "title": "Other title", "body": "Other body"});
+
+    assert_eq!(candidate(0, &mem_hit).kind, "fact");
+    assert_eq!(candidate(1, &plan_hit).kind, "task");
+    assert_eq!(candidate(2, &missing_kind_hit).kind, "");
 }
 
 #[test]

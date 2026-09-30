@@ -6,20 +6,29 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
+use serde_json::Value;
 
-use super::{DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest};
+use super::{
+    DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest, NoulCriteria,
+};
 
-pub const NOUL_INSTRUCTIONS: &str =
-    "Decide whether the candidate memory is relevant to the query. \
-Answer with the probability that it is relevant.";
-pub const SCORE_INSTRUCTIONS: &str =
-    "Grade how relevant the candidate memory is to the query on the given scale.";
-pub const SCORE_LEVELS: [&str; 4] = ["irrelevant", "marginal", "relevant", "highly_relevant"];
+pub const NOUL_INSTRUCTIONS_TEMPLATE: &str =
+    "Does this memory directly and usefully answer: {query}?";
+pub const SCORE_INSTRUCTIONS_TEMPLATE: &str =
+    "How directly and usefully does this memory answer: {query}?";
+pub const SCORE_LEVELS: [&str; 4] = [
+    "Does not help answer the question.",
+    "On topic, but lacks an answer-bearing fact.",
+    "Contains a useful fact that partly answers the question.",
+    "Directly answers the question or gives the decisive fact.",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RerankCandidate {
     pub key: String,
-    pub text: String,
+    pub title: String,
+    pub kind: String,
+    pub body: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -115,7 +124,7 @@ pub fn run_stage(
         .map(|(i, c)| {
             (
                 i,
-                build_request(primitive, query, &c.text, cfg.max_body_chars),
+                build_request(primitive, query, c, cfg.max_body_chars),
             )
         })
         .collect();
@@ -192,17 +201,21 @@ fn spawn_worker(
 fn build_request(
     primitive: Primitive,
     query: &str,
-    text: &str,
+    candidate: &RerankCandidate,
     max_chars: usize,
 ) -> DecisionRequest {
-    let state = format!(
-        "Query:\n{query}\n\nCandidate:\n{}",
-        truncate_chars(text, max_chars)
-    );
+    let state = Value::String(format!(
+        "MEMORY:\n{}\n{}",
+        candidate.title,
+        truncate_chars(&candidate.body, max_chars)
+    ));
     let (instructions, question) = match primitive {
-        Primitive::Noul => (NOUL_INSTRUCTIONS, DecisionQuestion::Noul),
+        Primitive::Noul => (
+            NOUL_INSTRUCTIONS_TEMPLATE.replace("{query}", query),
+            DecisionQuestion::Noul { criteria: None },
+        ),
         Primitive::Score => (
-            SCORE_INSTRUCTIONS,
+            SCORE_INSTRUCTIONS_TEMPLATE.replace("{query}", query),
             DecisionQuestion::Score {
                 levels: SCORE_LEVELS.iter().map(|l| l.to_string()).collect(),
             },
@@ -210,7 +223,7 @@ fn build_request(
     };
     DecisionRequest {
         state,
-        instructions: instructions.to_string(),
+        instructions,
         question,
     }
 }
