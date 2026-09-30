@@ -27,6 +27,6 @@ jobs:
   check:
     runs-on: [self-hosted, linux-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail

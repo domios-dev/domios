@@ -12,7 +12,7 @@ jobs:
       matrix:
         directory: [src-tauri, cli, crates/mem-store]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
         run: cargo install cargo-audit
@@ -24,9 +24,9 @@ jobs:
   pnpm-audit:
     runs-on: [self-hosted, linux-build]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', package-manager-cache: false }
       - uses: pnpm/action-setup@v4
         with: { version: 10.32.1, run_install: false }
       - run: pnpm install --frozen-lockfile
