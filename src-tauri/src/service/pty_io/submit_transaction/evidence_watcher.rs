@@ -29,7 +29,7 @@ pub(super) fn watch_session_evidence(
             changed.parent() == Some(watched_parent.as_path())
                 && changed.file_name() == Some(watched_name.as_os_str())
         }) {
-            let _ = wake_sender.send(SubmitCycleSignal::SessionEvidence);
+            let _ = wake_sender.try_send(SubmitCycleSignal::SessionEvidence);
         }
     })
     .ok()?;

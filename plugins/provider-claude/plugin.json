@@ -14,6 +14,10 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
+    "paste": {
+      "untrustedAboveLines": 4,
+      "typedFollowUp": " Handle the pasted message above as my request."
+    },
     "systemPromptDelivery": {
       "kind": "cli_flag",
       "flag": "--append-system-prompt-file"
