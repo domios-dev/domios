@@ -131,9 +131,10 @@ Recall can add an optional second stage that judges how directly and usefully ea
 
 #### Optional candidate sources
 
-Optional sources can supply candidates beyond ordinary memory recall to the same decision pool. Each source is off by default, respects the search's applicable filters and contributes results only when the decision stage is applied. Its additions never appear in fallback. A failing optional source is skipped and never fails the search; decision-model errors follow the all-or-nothing fallback rule above. Gathering candidates never changes stored memory knowledge or access evidence; returned memory hits follow the accounting rule above.
+Optional sources can supply candidates beyond ordinary memory recall to the same decision pool. Each source is independently configurable, respects the search's applicable filters and contributes results only when the decision stage is applied. Setting its candidate count to zero disables it. Its additions never appear in fallback. A failing optional source is skipped and never fails the search; decision-model errors follow the all-or-nothing fallback rule above. Gathering candidates never changes stored memory knowledge or access evidence; returned memory hits follow the accounting rule above.
 
-- Graph (`sources.graph`): adds memory items connected to query-relevant entities that ordinary recall did not already place in the pool.
+- Graph (`sources.graph`, default 3): adds memory items connected to query-relevant entities that ordinary recall did not already place in the pool.
+- Docs (`sources.docs`, default 3): adds relevant sections of embedded product help and leaf command sections of the generated CLI reference (`CLI`), identified by document and section, with a pointer to the document or command help. It never reads or changes memory state.
 
 Source admission policy: the owner admits and retains sources only when measurements show better answers while keeping recall fast. This policy governs source selection; enabling a source does not certify its benefit.
 
