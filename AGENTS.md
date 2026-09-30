@@ -95,6 +95,8 @@ Gateway-backed build commands fail fast when the machine slot is busy. Report th
 
 Run builds and dev restarts in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --cmd "..."`), never inline in the agent's own call.
 
+For parent-routed dev and QA reports, see [utility-shell-reports](.agents/skills/utility-shell-reports/SKILL.md).
+
 If foreground dev owns the gateway, stop dev before canonical QA and restart it
 afterward. Never move the check into a lane, compose a private
 `CARGO_TARGET_DIR`, or wait behind dev.

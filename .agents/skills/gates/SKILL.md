@@ -5,6 +5,8 @@ description: Run CodeTerm's verification gates without burning a session on them
 
 # Gates
 
+For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
+
 Two shapes, and picking the wrong one is what costs hours.
 
 | What you are proving | How |
@@ -109,3 +111,5 @@ size check after any fmt.
 `.agents/skills/github-release/SKILL.md` owns the sequence. This skill only
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
+
+<!-- revision: 1 -->
