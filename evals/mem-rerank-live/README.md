@@ -53,7 +53,11 @@ synonyms and identifiers as well.
 The exporter reads the production instance; it does not save or update memory
 items. The import and run steps target only the named dev instance through
 `dc`. The dev instance must be available at its registered connection (the
-current `memrerank` instance uses port 7695).
+current `memrerank` instance uses port 7695). The importer checks dev node IDs
+through `dc` before saving. It adds a stable source-derived title suffix when a
+snapshot item would collide with another snapshot item or an existing dev item,
+records the ID returned by `mem save --json`, and keeps only snapshot items in
+the private source-to-dev map. Existing dev seeds remain outside that map.
 
 Run the pure metric tests offline with:
 
