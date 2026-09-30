@@ -38,8 +38,8 @@ The runner builds a `MemManager` via `MemManager::open_offline(...)`.
 Compared to normal `open()` this:
 
 - spawns **no** background threads (no embed queue worker)
-- calls **no** LLM (no rerank, no auto-extraction)
-- needs **no** API keys or model weights
+- calls **no** LLM in default and stub modes (no auto-extraction)
+- needs **no** API keys or model weights in default and stub modes
 - falls back to FTS5-only recall when sqlite-vec is unavailable
 
 Seeding uses `MemManager::insert_raw(...)` which bypasses the dedup and
@@ -119,3 +119,26 @@ wrapping a direct binary invocation. Run the bench via
 `cargo run --bin mem-bench` for now. If we ever want it behind
 `codeterm mem bench`, the subcommand would just shell out to the built
 binary at `target/release/mem-bench`.
+
+## Optional decision re-rank A/B
+
+Run `bash evals/mem-recall/run.sh --decision-rerank stub` for an offline,
+deterministic comparison. The bench recalls a pool of at least 10 items for
+each positive and answer-absent query, then sends those candidates through the
+real stage-2 re-ranker. The stub model scores normalized keyword overlap.
+The JSON gains a `decision` block with baseline and reranked Recall@1,
+Recall@K, MRR, fallback counts, per-query stage latency, and low-confidence
+scores. `decision_negatives.json` supplies answer-absent queries only in stub
+and live modes. Low-confidence precision is the fraction of all flagged
+queries that are answer-absent; the positive false-positive rate is the
+fraction of answer-present queries flagged low-confidence.
+
+`--decision-rerank off` is the default. It preserves the original metrics and
+JSON keys. `--check` accepts only off mode and compares only the original
+metrics with `baseline.json`.
+
+`bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
+TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
+`--decision-data-dir PATH`. A missing or unreadable token fails before any
+query. **Live mode makes paid API calls, is owner-run only, and must never be
+part of an automated gate.**

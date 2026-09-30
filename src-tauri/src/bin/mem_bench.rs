@@ -27,6 +27,10 @@ use codeterm_lib::mem::{
 };
 use serde::{Deserialize, Serialize};
 
+#[path = "mem_bench_decision.rs"]
+mod mem_bench_decision;
+use mem_bench_decision::{DecisionReport, Mode};
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -38,6 +42,8 @@ struct Args {
     baseline: Option<PathBuf>,
     save_baseline: bool,
     top_k: usize,
+    decision_rerank: Mode,
+    decision_data_dir: Option<PathBuf>,
 }
 
 impl Args {
@@ -50,6 +56,8 @@ impl Args {
         let mut baseline: Option<PathBuf> = None;
         let mut save_baseline = false;
         let mut top_k: usize = 10;
+        let mut decision_rerank = Mode::Off;
+        let mut decision_data_dir = None;
 
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -70,6 +78,12 @@ impl Args {
                 }
                 "--save-baseline" => {
                     save_baseline = true;
+                }
+                "--decision-rerank" => {
+                    decision_rerank = Mode::parse(&it.next().ok_or("--decision-rerank needs value")?)?;
+                }
+                "--decision-data-dir" => {
+                    decision_data_dir = Some(it.next().ok_or("--decision-data-dir needs value")?.into());
                 }
                 "--top-k" => {
                     top_k = it
@@ -94,6 +108,8 @@ impl Args {
             baseline,
             save_baseline,
             top_k,
+            decision_rerank,
+            decision_data_dir,
         })
     }
 }
@@ -110,6 +126,8 @@ fn print_help() {
            --baseline PATH     Baseline results JSON for diff\n  \
            --save-baseline     Also write baseline-<commit>.json to baselines/\n  \
            --top-k N           Top-K to fetch per query (default 10)\n  \
+           --decision-rerank MODE  off|stub|live (default off)\n  \
+           --decision-data-dir PATH  Data directory for live token\n  \
            -h, --help          Show this help\n"
     );
 }
@@ -213,6 +231,8 @@ struct BenchReport {
     top_k: usize,
     metrics: Metrics,
     per_query: Vec<QueryResult>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    decision: Option<DecisionReport>,
 }
 
 // ── Main ────────────────────────────────────────────────────────────
@@ -226,6 +246,8 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = Args::parse()?;
+
+    let decision_model = mem_bench_decision::prepare_model(args.decision_rerank, args.decision_data_dir.as_deref())?;
 
     let fixture_raw = fs::read_to_string(&args.fixture)
         .map_err(|e| format!("read fixture {}: {}", args.fixture.display(), e))?;
@@ -321,6 +343,10 @@ fn run() -> Result<(), String> {
 
     let commit = git_commit();
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let decision = match decision_model {
+        Some(model) => Some(mem_bench_decision::evaluate(args.decision_rerank, model, &fixture, &args.fixture, &mem, &id_map, args.top_k)?),
+        None => None,
+    };
     let report = BenchReport {
         commit: commit.clone(),
         timestamp: timestamp.clone(),
@@ -329,6 +355,7 @@ fn run() -> Result<(), String> {
         top_k: args.top_k,
         metrics: metrics.clone(),
         per_query: results.clone(),
+        decision,
     };
 
     fs::create_dir_all(&args.output_dir).map_err(|e| format!("create output dir: {}", e))?;
@@ -583,6 +610,13 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
     }
     out.push_str("</tbody></table></section>");
 
+    if let Some(d) = &report.decision {
+        out.push_str("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th></tr>");
+        for (label, before, after) in [("Recall@1", d.baseline.recall_at_1, d.reranked.recall_at_1), ("Recall@K", d.baseline.recall_at_k, d.reranked.recall_at_k), ("MRR", d.baseline.mrr, d.reranked.mrr)] {
+            out.push_str(&format!("<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td></tr>"));
+        }
+        out.push_str(&format!("</table><p>Negative low-confidence precision: {:.3}; positive false-positive rate: {:.3}</p></section>", d.negatives.low_confidence_precision, d.negatives.positive_low_confidence_false_positive_rate));
+    }
     if let Some(b) = baseline {
         out.push_str("<section><h2>vs baseline</h2>");
         out.push_str(&format!(
@@ -679,3 +713,14 @@ table.queries tr.miss { background: rgba(220, 80, 80, 0.08); }
 .down { color: #ff8080; }
 .zero { color: #6b7280; }
 "#;
+
+#[cfg(test)]
+mod decision_mode_tests {
+    use super::*;
+    #[test]
+    fn decision_mode_off_adds_no_keys() {
+        let report = BenchReport { commit: String::new(), timestamp: String::new(), fixture_path: String::new(), fixture_description: String::new(), top_k: 10, metrics: compute_metrics(&[], 0.0), per_query: vec![], decision: None };
+        let value = serde_json::to_value(report).unwrap();
+        assert!(value.get("decision").is_none());
+    }
+}
