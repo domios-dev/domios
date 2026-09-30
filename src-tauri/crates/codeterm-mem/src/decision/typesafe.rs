@@ -46,8 +46,7 @@ impl TypeSafeAdapter {
                 json!({"type": "choice", "instructions": request.instructions, "criteria": options})
             }
             DecisionQuestion::Noul { criteria } => {
-                let mut question =
-                    json!({"type": "noul", "instructions": request.instructions});
+                let mut question = json!({"type": "noul", "instructions": request.instructions});
                 if let Some(criteria) = criteria {
                     question["criteria"] = json!({
                         "true": criteria.true_def,
