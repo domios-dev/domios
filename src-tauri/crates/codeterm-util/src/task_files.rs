@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 struct Capture {
     owner: String,
+    root: Option<PathBuf>,
     paths: Vec<PathBuf>,
 }
 
@@ -12,9 +13,23 @@ thread_local! {
 }
 
 pub fn capture<T>(owner: &str, operation: impl FnOnce() -> T) -> (T, Vec<PathBuf>) {
+    scoped(owner, None, operation)
+}
+
+/// Like `capture`, but files land under `root` instead of the instance task directory.
+pub fn capture_in<T>(root: &Path, owner: &str, operation: impl FnOnce() -> T) -> (T, Vec<PathBuf>) {
+    scoped(owner, Some(root.to_path_buf()), operation)
+}
+
+fn scoped<T>(
+    owner: &str,
+    root: Option<PathBuf>,
+    operation: impl FnOnce() -> T,
+) -> (T, Vec<PathBuf>) {
     let previous = CAPTURE.with(|capture| {
         capture.replace(Some(Capture {
             owner: owner.to_string(),
+            root,
             paths: Vec::new(),
         }))
     });
@@ -25,14 +40,16 @@ pub fn capture<T>(owner: &str, operation: impl FnOnce() -> T) -> (T, Vec<PathBuf
 }
 
 pub fn write(contents: &str, suffix: Option<&str>) -> Option<String> {
-    let owner = CAPTURE.with(|capture| {
+    let (owner, root) = CAPTURE.with(|capture| {
         capture
             .borrow()
             .as_ref()
-            .map(|capture| capture.owner.clone())
-            .unwrap_or_else(|| "unscoped".to_string())
+            .map(|capture| (capture.owner.clone(), capture.root.clone()))
+            .unwrap_or_else(|| ("unscoped".to_string(), None))
     });
-    let path = write_at(&task_dir(), &instance_marker(), &owner, contents, suffix)?;
+    let root = root.unwrap_or_else(task_dir);
+    let marker = instance_marker_for_task_dir(&root);
+    let path = write_at(&root, &marker, &owner, contents, suffix)?;
     Some(path.to_string_lossy().into_owned())
 }
 
@@ -121,10 +138,6 @@ pub fn sweep(root: &Path, live_owners: &HashSet<String>) -> Vec<PathBuf> {
 
 fn file_prefix(marker: &str, owner: &str) -> String {
     format!("codeterm-plugin-{marker}-{}-", encode(owner.as_bytes()))
-}
-
-fn instance_marker() -> String {
-    instance_marker_for(&codeterm_paths::data_dir())
 }
 
 pub fn instance_marker_for(data_dir: &Path) -> String {

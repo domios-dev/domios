@@ -509,10 +509,7 @@ pub(super) fn install(
             log::warn!("[plugin] denied readFile outside sandbox: {path}");
             return Ok(None);
         }
-        match read_plugin_file(&path) {
-            Ok(contents) => Ok(Some(contents)),
-            Err(error) => Err(rquickjs::Exception::throw_range(&ctx, &error)),
-        }
+        read_plugin_file(&path).map_err(|error| rquickjs::Exception::throw_range(&ctx, &error))
     });
     let sb = sandbox.clone();
     bind!("readFileHead", move |path: String,
@@ -836,18 +833,27 @@ fn read_file_bounded(path: &str, max_bytes: u64, tail: bool) -> Option<String> {
     Some(utf8_trim_partial(&buf, cut_front))
 }
 
-pub(super) fn read_plugin_file(path: &str) -> Result<String, String> {
+/// An unreadable file is `Ok(None)`, the SDK's `string | null`; only the size cap throws.
+pub(super) fn read_plugin_file(path: &str) -> Result<Option<String>, String> {
     use std::io::Read;
-    let file = File::open(path).map_err(|error| error.to_string())?;
-    let size = file.metadata().map_err(|error| error.to_string())?.len();
+    let Ok(file) = File::open(path) else {
+        return Ok(None);
+    };
+    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
+        return Ok(None);
+    };
     if size > PLUGIN_READ_FILE_LIMIT {
         return Err(format!("readFile limit is {PLUGIN_READ_FILE_LIMIT} bytes"));
     }
     let mut bytes = Vec::with_capacity(size as usize);
-    file.take(PLUGIN_READ_FILE_LIMIT)
+    if file
+        .take(PLUGIN_READ_FILE_LIMIT)
         .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    String::from_utf8(bytes).map_err(|error| error.to_string())
+        .is_err()
+    {
+        return Ok(None);
+    }
+    Ok(String::from_utf8(bytes).ok())
 }
 
 /// Drop a partial UTF-8 sequence left dangling at a byte-cut boundary: leading
