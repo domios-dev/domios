@@ -89,6 +89,7 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
     integer("memory.l1_budget_tokens", 1.0, 100000.0),
     integer("memory.decision_rerank.sources.recall", 1.0, 50.0),
     integer("memory.decision_rerank.sources.graph", 0.0, 20.0),
+    integer("memory.decision_rerank.sources.docs", 0.0, 10.0),
     integer("memory.decision_rerank.max_concurrency", 1.0, 32.0),
     integer("memory.decision_rerank.deadline_ms", 100.0, 30000.0),
     number("memory.decision_rerank.low_confidence_threshold", 0.0, 1.0),

@@ -762,6 +762,7 @@ export interface ProviderConfig {
 export interface DecisionSources {
   recall: number;
   graph: number;
+  docs: number;
 }
 
 export interface DecisionRerankConfig {

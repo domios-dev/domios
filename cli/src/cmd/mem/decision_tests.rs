@@ -176,7 +176,7 @@ fn mem_decision_render_unchanged_without_envelope() {
 #[test]
 fn mem_decision_status_render_never_carries_a_token_value() {
     let status = json!({
-        "config": {"enabled": false, "adapter": "typesafe-jev", "sources": {"recall": 10, "graph": 2}, "max_concurrency": 8, "deadline_ms": 3000, "low_confidence_threshold": 0.15, "max_body_chars": 8000},
+        "config": {"enabled": false, "adapter": "typesafe-jev", "sources": {"recall": 10, "graph": 2, "docs": 0}, "max_concurrency": 8, "deadline_ms": 3000, "low_confidence_threshold": 0.15, "max_body_chars": 8000},
         "adapter_registered": true,
         "adapters": [{
             "id": "typesafe-jev",
@@ -186,7 +186,7 @@ fn mem_decision_status_render_never_carries_a_token_value() {
     });
     let out = super::decision_render::render_status(&status);
     assert!(out.contains("disabled"));
-    assert!(out.contains("sources recall 10 graph 2 |"));
+    assert!(out.contains("sources recall 10 graph 2 docs 0 |"));
     assert!(out.contains("typesafe-jev | primitives: choice, noul | token present | mode_ok=true"));
     assert!(out.contains("/data/decision-models/typesafe-jev"));
 

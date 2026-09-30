@@ -45,6 +45,7 @@ struct Args {
     decision_rerank: Mode,
     decision_data_dir: Option<PathBuf>,
     decision_graph: usize,
+    decision_docs: usize,
 }
 
 impl Args {
@@ -60,6 +61,7 @@ impl Args {
         let mut decision_rerank = Mode::Off;
         let mut decision_data_dir = None;
         let mut decision_graph = 0;
+        let mut decision_docs = 0;
 
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -96,6 +98,13 @@ impl Args {
                         .parse()
                         .map_err(|e| format!("--decision-graph: {}", e))?;
                 }
+                "--decision-docs" => {
+                    decision_docs = it
+                        .next()
+                        .ok_or("--decision-docs needs value")?
+                        .parse()
+                        .map_err(|e| format!("--decision-docs: {}", e))?;
+                }
                 "--top-k" => {
                     top_k = it
                         .next()
@@ -114,6 +123,12 @@ impl Args {
         if decision_graph > 0 && decision_rerank == Mode::Off {
             return Err("--decision-graph requires --decision-rerank stub|live".into());
         }
+        if decision_docs > 0 && decision_rerank == Mode::Off {
+            return Err("--decision-docs requires --decision-rerank stub|live".into());
+        }
+        if decision_docs > 10 {
+            return Err("--decision-docs must be 0..=10".into());
+        }
         Ok(Self {
             fixture,
             db,
@@ -125,6 +140,7 @@ impl Args {
             decision_rerank,
             decision_data_dir,
             decision_graph,
+            decision_docs,
         })
     }
 }
@@ -144,6 +160,7 @@ fn print_help() {
            --decision-rerank MODE  off|stub|live (default off)\n  \
            --decision-data-dir PATH  Data directory for live token\n  \
            --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (default 0)\n  \
+           --decision-docs M  Add a re-rank+docs arm with up to M prod-docs sections (default 0)\n  \
            -h, --help          Show this help\n"
     );
 }
@@ -377,6 +394,7 @@ fn run() -> Result<(), String> {
             &id_map,
             args.top_k,
             args.decision_graph,
+            args.decision_docs,
         )?),
         None => None,
     };
