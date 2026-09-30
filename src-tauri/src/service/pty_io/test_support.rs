@@ -1,16 +1,10 @@
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 pub(crate) const TEST_WAIT_DEADLINE: Duration = Duration::from_secs(10);
-
-pub(crate) fn recv<T>(receiver: &Receiver<T>, context: &'static str) -> T {
-    receiver
-        .recv_timeout(TEST_WAIT_DEADLINE)
-        .unwrap_or_else(|_| panic!("timed out waiting for {context}"))
-}
 
 pub(crate) fn join<T: Send + 'static>(
     handle: JoinHandle<T>,
