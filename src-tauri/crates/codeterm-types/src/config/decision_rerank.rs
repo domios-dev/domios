@@ -7,7 +7,7 @@ pub struct DecisionRerankConfig {
     pub enabled: bool,
     /// Registry id of the decision adapter resolved at search time.
     pub adapter: String,
-    pub candidates: usize,
+    pub sources: DecisionSources,
     pub max_concurrency: usize,
     pub deadline_ms: u64,
     pub low_confidence_threshold: f64,
@@ -21,13 +21,30 @@ impl Default for DecisionRerankConfig {
         Self {
             enabled: false,
             adapter: "typesafe-jev".into(),
-            candidates: 10,
+            sources: DecisionSources::default(),
             max_concurrency: 8,
             deadline_ms: 3000,
             low_confidence_threshold: 0.15,
             max_body_chars: 8000,
             endpoint: None,
             model: None,
+        }
+    }
+}
+
+/// Candidate sources pooled for stage 2: recall hits, plus graph-linked items when `graph > 0`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DecisionSources {
+    pub recall: usize,
+    pub graph: usize,
+}
+
+impl Default for DecisionSources {
+    fn default() -> Self {
+        Self {
+            recall: 10,
+            graph: 0,
         }
     }
 }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::notification::{NotifyDestination, NotifyLevel};
 
-pub use super::decision_rerank::DecisionRerankConfig;
+pub use super::decision_rerank::{DecisionRerankConfig, DecisionSources};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

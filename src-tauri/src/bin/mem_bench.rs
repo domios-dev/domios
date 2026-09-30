@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 #[path = "mem_bench/decision.rs"]
 mod mem_bench_decision;
-use mem_bench_decision::{DecisionReport, Mode};
+use mem_bench_decision::{DecisionReport, FixtureGraph, Mode, RankingMetrics};
 
 // ── CLI ─────────────────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ struct Args {
     top_k: usize,
     decision_rerank: Mode,
     decision_data_dir: Option<PathBuf>,
+    decision_graph: usize,
 }
 
 impl Args {
@@ -58,6 +59,7 @@ impl Args {
         let mut top_k: usize = 10;
         let mut decision_rerank = Mode::Off;
         let mut decision_data_dir = None;
+        let mut decision_graph = 0;
 
         while let Some(arg) = it.next() {
             match arg.as_str() {
@@ -87,6 +89,13 @@ impl Args {
                     decision_data_dir =
                         Some(it.next().ok_or("--decision-data-dir needs value")?.into());
                 }
+                "--decision-graph" => {
+                    decision_graph = it
+                        .next()
+                        .ok_or("--decision-graph needs value")?
+                        .parse()
+                        .map_err(|e| format!("--decision-graph: {}", e))?;
+                }
                 "--top-k" => {
                     top_k = it
                         .next()
@@ -102,6 +111,9 @@ impl Args {
             }
         }
 
+        if decision_graph > 0 && decision_rerank == Mode::Off {
+            return Err("--decision-graph requires --decision-rerank stub|live".into());
+        }
         Ok(Self {
             fixture,
             db,
@@ -112,6 +124,7 @@ impl Args {
             top_k,
             decision_rerank,
             decision_data_dir,
+            decision_graph,
         })
     }
 }
@@ -130,6 +143,7 @@ fn print_help() {
            --top-k N           Top-K to fetch per query (default 10)\n  \
            --decision-rerank MODE  off|stub|live (default off)\n  \
            --decision-data-dir PATH  Data directory for live token\n  \
+           --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (default 0)\n  \
            -h, --help          Show this help\n"
     );
 }
@@ -142,6 +156,8 @@ struct Fixture {
     description: String,
     seed_data: Vec<SeedItem>,
     test_cases: Vec<TestCase>,
+    #[serde(default)]
+    graph: FixtureGraph,
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,6 +307,11 @@ fn run() -> Result<(), String> {
             .map_err(|e| format!("seed insert {}: {}", seed.id, e))?;
         id_map.insert(generated, seed.id.clone());
     }
+    let engine_ids: HashMap<String, String> = id_map
+        .iter()
+        .map(|(engine, seed)| (seed.clone(), engine.clone()))
+        .collect();
+    mem_bench_decision::seed_graph(&mem, &fixture.graph, &engine_ids)?;
 
     println!(
         "seeded {} items into {} ({} test cases)",
@@ -355,6 +376,7 @@ fn run() -> Result<(), String> {
             &mem,
             &id_map,
             args.top_k,
+            args.decision_graph,
         )?),
         None => None,
     };
@@ -622,17 +644,35 @@ fn render_html(report: &BenchReport, baseline: Option<&BenchReport>) -> String {
     out.push_str("</tbody></table></section>");
 
     if let Some(d) = &report.decision {
-        out.push_str("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th></tr>");
-        for (label, before, after) in [
-            ("Recall@1", d.baseline.recall_at_1, d.reranked.recall_at_1),
-            ("Recall@K", d.baseline.recall_at_k, d.reranked.recall_at_k),
-            ("MRR", d.baseline.mrr, d.reranked.mrr),
-        ] {
+        let graph_head = if d.graph.is_some() {
+            "<th>re-rank+graph</th>"
+        } else {
+            ""
+        };
+        out.push_str(&format!("<section><h2>Decision re-rank A/B</h2><table><tr><th>metric</th><th>baseline</th><th>reranked</th>{graph_head}</tr>"));
+        let graph_metrics = d.graph.as_ref().map(|g| &g.metrics);
+        let rows: [(&str, fn(&RankingMetrics) -> f64); 3] = [
+            ("Recall@1", |m| m.recall_at_1),
+            ("Recall@K", |m| m.recall_at_k),
+            ("MRR", |m| m.mrr),
+        ];
+        for (label, pick) in rows {
+            let (before, after) = (pick(&d.baseline), pick(&d.reranked));
+            let graph_cell = graph_metrics
+                .map(|g| format!("<td>{:.3}</td>", pick(g)))
+                .unwrap_or_default();
             out.push_str(&format!(
-                "<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td></tr>"
+                "<tr><td>{label}</td><td>{before:.3}</td><td>{after:.3}</td>{graph_cell}</tr>"
             ));
         }
-        out.push_str(&format!("</table><p>Negative low-confidence precision: {:.3}; positive false-positive rate: {:.3}</p></section>", d.negatives.low_confidence_precision, d.negatives.positive_low_confidence_false_positive_rate));
+        out.push_str(&format!("</table><p>Negative low-confidence precision: {:.3}; positive false-positive rate: {:.3}</p>", d.negatives.low_confidence_precision, d.negatives.positive_low_confidence_false_positive_rate));
+        if let Some(g) = &d.graph {
+            out.push_str(&format!(
+                "<p>Graph source (M={}): {} candidates added; top-1 from graph {}; graph-only winners {}</p>",
+                g.sources_graph, g.added, g.graph_only_top1, g.graph_only_winners
+            ));
+        }
+        out.push_str("</section>");
     }
     if let Some(b) = baseline {
         out.push_str("<section><h2>vs baseline</h2>");

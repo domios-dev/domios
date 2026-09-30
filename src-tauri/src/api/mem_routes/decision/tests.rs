@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,6 +35,7 @@ struct SeededBackend {
     mem: Arc<MemManager>,
     ids: Vec<String>,
     plans: Vec<PlanSearchHit>,
+    graph_calls: AtomicUsize,
 }
 
 impl RecallBackend for SeededBackend {
@@ -80,6 +81,15 @@ impl DecisionBackend for SeededBackend {
         Ok(hits)
     }
 
+    fn graph_candidates_untouched(
+        &self,
+        q: &SearchQuery,
+        m: usize,
+    ) -> Result<Vec<SearchHit>, String> {
+        self.graph_calls.fetch_add(1, Ordering::SeqCst);
+        self.mem.graph_candidates_untouched(q, m)
+    }
+
     fn record_access(&self, ids: &[String]) -> Result<(), String> {
         self.mem.record_access(ids)
     }
@@ -110,6 +120,7 @@ fn seeded() -> SeededBackend {
         mem,
         ids,
         plans: vec![plan_hit()],
+        graph_calls: AtomicUsize::new(0),
     }
 }
 
@@ -313,7 +324,7 @@ fn decision_off_response_is_byte_identical() {
 fn decision_applied_reorders_and_annotates() {
     let backend = seeded();
     let cfg = enabled_cfg();
-    let pooled = baseline_oracle(&backend, &params(cfg.candidates));
+    let pooled = baseline_oracle(&backend, &params(cfg.sources.recall));
     let pool_titles = titles(&pooled);
     assert_eq!(pool_titles.len(), TITLES.len());
     let n = pool_titles.len() as f64;
@@ -586,3 +597,5 @@ fn decision_token_dir_is_outside_repo() {
     assert!(!dir.starts_with(repo_root), "{}", dir.display());
     assert!(token_store().path(STUB_ID).starts_with(&dir));
 }
+
+mod graph;

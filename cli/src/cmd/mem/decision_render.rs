@@ -79,7 +79,7 @@ pub(super) fn render_status(status: &Value) -> String {
     let config = status.get("config").unwrap_or(&Value::Null);
     let text = |key: &str| {
         config
-            .get(key)
+            .pointer(&format!("/{}", key.replace('.', "/")))
             .map(|value| match value.as_str() {
                 Some(text) => text.to_string(),
                 None => value.to_string(),
@@ -99,8 +99,9 @@ pub(super) fn render_status(status: &Value) -> String {
         },
     );
     out.push_str(&format!(
-        "candidates {} | max_concurrency {} | deadline_ms {} | low_confidence_threshold {} | max_body_chars {}\n",
-        text("candidates"),
+        "sources recall {} graph {} | max_concurrency {} | deadline_ms {} | low_confidence_threshold {} | max_body_chars {}\n",
+        text("sources.recall"),
+        text("sources.graph"),
         text("max_concurrency"),
         text("deadline_ms"),
         text("low_confidence_threshold"),
