@@ -466,6 +466,32 @@ fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
 }
 
 #[test]
+fn general_agent_reused_shell_reconciliation_requires_authenticated_binding() {
+    let mut mux = MultiplexerState::empty();
+    super::super::workspace::ensure_general_workspace(&mut mux, true);
+    let tab_id = mux
+        .resolve_tab_id(super::GENERAL_ALIAS)
+        .expect("general Tab");
+    mux.link_pty(&tab_id, "pty-reused".into());
+    let tab = mux.get_tab_mut(&tab_id).expect("general Tab");
+    tab.agent_type = Some("existing-agent-fixture".into());
+    tab.agent_session_id = Some("session-1".into());
+    tab.session_binding_nonce = Some("nonce-1".into());
+    tab.reported_session_binding_nonce = Some("nonce-1".into());
+    tab.agent_booting = false;
+    tab.boot_stage = Some(BootStage::ShellReady);
+
+    assert!(crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+
+    tab.reported_session_binding_nonce = Some("nonce-mismatch".into());
+    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+
+    tab.reported_session_binding_nonce = None;
+    assert!(!crate::service::boot_stage::binding_observes_in_tab_launch(tab));
+    assert_eq!(tab.boot_stage, Some(BootStage::ShellReady));
+}
+
+#[test]
 fn general_agent_env_uses_configured_api_port_not_parent_env() {
     let mut process_env = codeterm_util::test_env::EnvGuard::lock();
     process_env.set("CODETERM_API_PORT", "7685");
@@ -521,6 +547,70 @@ fn tab_scoped_retry_noops_while_launch_is_in_progress() {
     let should_restart = super::validate_general_agent_tab_retry(&general_id, &mux).unwrap();
 
     assert!(!should_restart);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn general_agent_existing_live_authenticated_binding_seals_agent_ready() {
+    let _serial = super::launch_lock::TEST_SERIAL.lock();
+    let provider_id = "existing-agent-fixture";
+    let pty_id = "pty-reused-general";
+    let mut mux = MultiplexerState::empty();
+    super::super::workspace::ensure_general_workspace(&mut mux, true);
+    let tab_id = mux
+        .resolve_tab_id(super::GENERAL_ALIAS)
+        .expect("general Tab");
+    mux.link_pty(&tab_id, pty_id.into());
+    {
+        let tab = mux.get_tab_mut(&tab_id).expect("general Tab");
+        tab.agent_type = Some(provider_id.into());
+        tab.agent_type_locked = true;
+        tab.agent_session_id = Some("session-1".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+        tab.reported_session_binding_nonce = Some("nonce-1".into());
+        tab.agent_booting = false;
+        tab.auto_approve = false;
+        tab.boot_stage = Some(BootStage::ShellReady);
+    }
+    let fixture = ServiceFixture::new(mux);
+    let service = Arc::new(fixture.service.clone());
+    service
+        .agent_registry
+        .register_provider(Box::new(MockProvider::new(provider_id)));
+    service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn live PTY");
+    service
+        .screen_state
+        .lock()
+        .process(pty_id, format!("{provider_id} is running").as_bytes());
+    let mut app_config = crate::config::schema::AppConfig::default();
+    app_config.general_agent.agent_provider = provider_id.into();
+    let config: crate::config::ConfigState = Arc::new(Mutex::new(app_config));
+
+    super::start_general_agent(
+        &service,
+        &service.mux,
+        &service.pty,
+        &service.screen_state,
+        &config,
+        fixture._app.handle(),
+    );
+
+    assert_eq!(
+        service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .expect("general Tab")
+            .boot_stage,
+        Some(BootStage::AgentReady)
+    );
 }
 
 /// The stuck protected `Main`: latched at a launch stage with no launch
