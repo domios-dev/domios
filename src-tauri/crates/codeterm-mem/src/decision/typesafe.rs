@@ -45,7 +45,17 @@ impl TypeSafeAdapter {
             DecisionQuestion::Choice { options } => {
                 json!({"type": "choice", "instructions": request.instructions, "criteria": options})
             }
-            DecisionQuestion::Noul => json!({"type": "noul", "instructions": request.instructions}),
+            DecisionQuestion::Noul { criteria } => {
+                let mut question =
+                    json!({"type": "noul", "instructions": request.instructions});
+                if let Some(criteria) = criteria {
+                    question["criteria"] = json!({
+                        "true": criteria.true_def,
+                        "false": criteria.false_def,
+                    });
+                }
+                question
+            }
             DecisionQuestion::Score { levels } => {
                 json!({"type": "score", "instructions": request.instructions, "criteria": levels})
             }
@@ -108,7 +118,7 @@ impl TypeSafeAdapter {
                     confidence: optional_number(answer, "confidence")?,
                 })
             }
-            DecisionQuestion::Noul if kind == "noul" => {
+            DecisionQuestion::Noul { .. } if kind == "noul" => {
                 let p = number(answer, "noul")?;
                 Ok(DecisionAnswer::Noul { p })
             }

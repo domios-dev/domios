@@ -310,7 +310,9 @@ fn candidate(index: usize, hit: &Value) -> RerankCandidate {
     };
     RerankCandidate {
         key,
-        text: format!("{}\n{}", text_of("title"), text_of("body")),
+        title: text_of("title").to_string(),
+        kind: text_of("kind").to_string(),
+        body: text_of("body").to_string(),
     }
 }
 

@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Instant;
 
+use serde_json::Value;
+
 /// A decision adapter. Callers branch only on [`DecisionModel::primitives`], never on `id`.
 pub trait DecisionModel: Send + Sync {
     fn id(&self) -> &str;
@@ -35,7 +37,9 @@ pub enum DecisionQuestion {
     Choice {
         options: BTreeMap<String, String>,
     },
-    Noul,
+    Noul {
+        criteria: Option<NoulCriteria>,
+    },
     /// `levels` are ordered low -> high.
     Score {
         levels: Vec<String>,
@@ -43,8 +47,14 @@ pub enum DecisionQuestion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoulCriteria {
+    pub true_def: String,
+    pub false_def: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct DecisionRequest {
-    pub state: String,
+    pub state: Value,
     pub instructions: String,
     pub question: DecisionQuestion,
 }
