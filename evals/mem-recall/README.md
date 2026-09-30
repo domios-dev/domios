@@ -137,6 +137,26 @@ fraction of answer-present queries flagged low-confidence.
 JSON keys. `--check` accepts only off mode and compares only the original
 metrics with `baseline.json`.
 
+`--decision-graph M` (stub or live only) adds a third arm, re-rank+graph:
+each query's pool gains up to M graph-linked items it lacks, fetched by the
+same SQL graph source `mem search` uses, and the pool is re-ranked again. The
+`decision` block gains `graph` with the arm's Recall@1, Recall@K and MRR, the
+total candidates added, `graph_only_top1` (queries whose first result came
+from the graph) and `graph_only_winners` (answer-present queries whose
+expected item ranked first through the graph alone); each per-query entry
+gains `graph`. The fixture may carry an optional graph that plain recall
+ignores:
+
+```json
+"graph": {
+  "entities": ["person_tima"],
+  "links": [{ "from": "seed_1", "to": "person_tima" }]
+}
+```
+
+Link ends are seed ids or entity ids. `benchmark.json` carries no graph
+yet, so on it the graph arm adds nothing and equals the reranked arm.
+
 `bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
 TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
 `--decision-data-dir PATH`. A missing or unreadable token fails before any

@@ -99,6 +99,8 @@ An optional second stage over `mem search`. Stage 1 is the unchanged hybrid reca
 
 - **Hits.** An applied search adds a `relevance` fraction (0..1) to each hit, shown as `rel 92%` next to the score in the human render.
 - **Envelope.** `--json` returns the response unchanged plus a `decision_rerank` object: `status` is `applied` (with `adapter`, `low_confidence`, `max_relevance`), `fallback` (an adapter failure, deadline or missing adapter; plain recall hits are returned with a `reason`), or `skipped` (`reason: legacy_rerank`). The human render prints one line for fallback/skipped with the reason. Without the key the output is exactly the plain recall render.
+- **Graph source.** `[memory.decision_rerank.sources]` sets the pool: `recall` hits (default 10) plus up to `graph` extra candidates (default 0, off). Graph candidates are live mem items linked by an active relation to an entity whose id contains a query keyword, ranked by how many matched entities they link to, then importance and recency; they are found by SQL alone, never by a model or embedding. Items already in the recall pool are not added twice. With `graph > 0` an applied search tags every hit `via: "recall"|"graph"` and the envelope adds `sources: {recall, graph}` (pool counts). With `graph = 0`, and on every fallback, the output carries neither key and matches the plain recall contract.
+- **Access.** Pool candidates, recall or graph, record no access while they are graded. Only the hits the search returns count as accessed, once each.
 - **Low confidence.** `low_confidence: true` means even the best hit scored below `low_confidence_threshold`: nothing relevant was found. The human render says so in one line; treat the hits as weak leads, not answers.
 - **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | codeterm mem decision token set --adapter typesafe-jev` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show presence, path and `mode_ok`, never the value. The token lives in `<data dir>/decision-models/<adapter>.json` (owner-only), so each instance keeps its own: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
 
@@ -190,4 +192,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

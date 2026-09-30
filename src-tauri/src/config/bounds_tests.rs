@@ -72,9 +72,9 @@ fn decision_rerank_bounds_reject_out_of_range() {
     type Set = fn(&mut AppConfig);
     let cases: [(&str, Set, Set); 5] = [
         (
-            "memory.decision_rerank.candidates",
-            |c| c.memory.decision_rerank.candidates = 0,
-            |c| c.memory.decision_rerank.candidates = 51,
+            "memory.decision_rerank.sources.recall",
+            |c| c.memory.decision_rerank.sources.recall = 0,
+            |c| c.memory.decision_rerank.sources.recall = 51,
         ),
         (
             "memory.decision_rerank.max_concurrency",
@@ -106,14 +106,22 @@ fn decision_rerank_bounds_reject_out_of_range() {
         }
     }
 
+    let mut config = AppConfig::default();
+    config.memory.decision_rerank.sources.graph = 21;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("memory.decision_rerank.sources.graph"), "{error}");
+
     let mut edges = AppConfig::default();
-    edges.memory.decision_rerank.candidates = 50;
+    edges.memory.decision_rerank.sources.recall = 50;
+    edges.memory.decision_rerank.sources.graph = 20;
     edges.memory.decision_rerank.max_concurrency = 1;
     edges.memory.decision_rerank.deadline_ms = 100;
     edges.memory.decision_rerank.low_confidence_threshold = 1.0;
     edges.memory.decision_rerank.max_body_chars = 256;
     validate_app_config(&edges).unwrap();
 
-    let error = validate_config_text("[memory.decision_rerank]\ncandidates = 0\n").unwrap_err();
-    assert!(error.contains("memory.decision_rerank.candidates"));
+    let error =
+        validate_config_text("[memory.decision_rerank.sources]\nrecall = 0\n").unwrap_err();
+    assert!(error.contains("memory.decision_rerank.sources.recall"));
+    validate_config_text("[memory.decision_rerank.sources]\ngraph = 0\n").unwrap();
 }

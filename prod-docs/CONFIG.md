@@ -180,7 +180,8 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `agent.poll_interval_ms` | integer from 100 to 60000 |
 | `agent.idle_timeout_s` | integer from 1 to 3600 |
 | `memory.workers_per_provider` | integer from 1 to 16; default 3 |
-| `memory.decision_rerank.candidates` | integer from 1 to 50; default 10 |
+| `memory.decision_rerank.sources.recall` | integer from 1 to 50; default 10 |
+| `memory.decision_rerank.sources.graph` | integer from 0 to 20; default 0 |
 | `memory.decision_rerank.max_concurrency` | integer from 1 to 32; default 8 |
 | `memory.decision_rerank.deadline_ms` | integer from 100 to 30000; default 3000 |
 | `memory.decision_rerank.low_confidence_threshold` | number from 0 to 1; default 0.15 |
@@ -219,4 +220,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 67 -->
+<!-- revision: 68 -->

@@ -1,5 +1,6 @@
 //! Stage-2 decision re-rank over mem recall, plus its bearer-only token and status routes.
 
+use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,7 +14,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::search::{baseline_search, RecallBackend, SearchError, SearchParams};
+use super::search::{
+    baseline_search, mem_hit_value, mem_query, RecallBackend, SearchError, SearchParams,
+};
 use crate::api::routes::AppState;
 use crate::config::schema::DecisionRerankConfig;
 use crate::mem::decision::rerank::{
@@ -66,6 +69,11 @@ pub(crate) trait DecisionBackend: RecallBackend {
         q: &SearchQuery,
         cfg: &RerankConfig,
     ) -> Result<Vec<SearchHit>, String>;
+    fn graph_candidates_untouched(
+        &self,
+        q: &SearchQuery,
+        m: usize,
+    ) -> Result<Vec<SearchHit>, String>;
     fn record_access(&self, ids: &[String]) -> Result<(), String>;
 }
 
@@ -84,6 +92,14 @@ impl DecisionBackend for ServiceContext {
         cfg: &RerankConfig,
     ) -> Result<Vec<SearchHit>, String> {
         self.mem.search_with_rerank_untouched(q, cfg)
+    }
+
+    fn graph_candidates_untouched(
+        &self,
+        q: &SearchQuery,
+        m: usize,
+    ) -> Result<Vec<SearchHit>, String> {
+        self.mem.graph_candidates_untouched(q, m)
     }
 
     fn record_access(&self, ids: &[String]) -> Result<(), String> {
@@ -163,14 +179,21 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     };
     let limit = p.limit.unwrap_or(DEFAULT_RECALL_LIMIT);
     let pooled = SearchParams {
-        limit: Some(limit.max(cfg.candidates).min(MAX_POOL)),
+        limit: Some(limit.max(cfg.sources.recall).min(MAX_POOL)),
         ..p.clone()
     };
     let mut output = baseline_search(&Untouched(backend), &pooled)?;
-    let hits = match output.get_mut("hits").and_then(Value::as_array_mut) {
+    let mut hits = match output.get_mut("hits").and_then(Value::as_array_mut) {
         Some(hits) => std::mem::take(hits),
         None => Vec::new(),
     };
+    let graph_on = cfg.sources.graph > 0;
+    let recall_count = hits.len();
+    if graph_on {
+        let additions = graph_additions(backend, p, &hits, cfg.sources.graph);
+        hits.extend(additions);
+    }
+    let graph_count = hits.len() - recall_count;
     let candidates: Vec<RerankCandidate> = hits
         .iter()
         .enumerate()
@@ -191,6 +214,10 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     let mut hit = slots.get_mut(index)?.take()?;
                     if let Some(object) = hit.as_object_mut() {
                         object.insert("relevance".into(), json!(score));
+                        if graph_on {
+                            let via = if index < recall_count { "recall" } else { "graph" };
+                            object.insert("via".into(), json!(via));
+                        }
                     }
                     Some(hit)
                 })
@@ -198,18 +225,50 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                 .collect();
             output["hits"] = Value::Array(ranked);
             record_returned(backend, &output);
-            insert_envelope(
-                &mut output,
-                json!({
-                    "status": "applied",
-                    "adapter": cfg.adapter,
-                    "low_confidence": low_confidence,
-                    "max_relevance": max_relevance,
-                }),
-            );
+            let mut envelope = json!({
+                "status": "applied",
+                "adapter": cfg.adapter,
+                "low_confidence": low_confidence,
+                "max_relevance": max_relevance,
+            });
+            if graph_on {
+                envelope["sources"] = json!({ "recall": recall_count, "graph": graph_count });
+            }
+            insert_envelope(&mut output, envelope);
             Ok(output)
         }
         StageOutcome::Fallback { reason } => fallback(backend, p, reason),
+    }
+}
+
+/// At most `m` graph-linked mem items the recall pool lacks, shaped exactly like recall mem hits.
+/// Over-fetching by the pool size keeps dedup from starving the graph slots.
+fn graph_additions<B: DecisionBackend + ?Sized>(
+    backend: &B,
+    p: &SearchParams,
+    pool: &[Value],
+    m: usize,
+) -> Vec<Value> {
+    let pooled: HashSet<&str> = pool
+        .iter()
+        .filter(|hit| hit.get("source").and_then(Value::as_str) == Some("mem"))
+        .filter_map(|hit| hit.pointer("/item/id").and_then(Value::as_str))
+        .collect();
+    let q = SearchQuery {
+        limit: None,
+        ..mem_query(p)
+    };
+    match backend.graph_candidates_untouched(&q, m + pooled.len()) {
+        Ok(hits) => hits
+            .into_iter()
+            .filter(|hit| !pooled.contains(hit.item.id.as_str()))
+            .take(m)
+            .map(mem_hit_value)
+            .collect(),
+        Err(error) => {
+            log::warn!("[mem.decision] graph source failed: {error}");
+            Vec::new()
+        }
     }
 }
 
