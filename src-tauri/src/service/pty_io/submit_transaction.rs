@@ -702,6 +702,7 @@ pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
     result.submit_key_writes > 1
 }
 
+#[cfg(test)]
 pub(crate) fn submit_text_with_key_claimed(
     svc: &ServiceContext,
     pty_id: &str,
