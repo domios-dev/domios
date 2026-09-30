@@ -106,8 +106,7 @@ pub fn with_target(
     chat_message: Option<&str>,
 ) -> serde_json::Value {
     if let Err(e) = vet_target_tab(target_tab) {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+        crate::cmd::print::fail(1, e);
     }
     if let Some(tab) = target_tab {
         params["target_tab_id"] = serde_json::Value::String(tab.to_string());
