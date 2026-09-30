@@ -749,11 +749,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        let first_launch = match launch
-            .write_if_current(|| {
-                svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
-            })
-        {
+        let first_launch = match launch.write_if_current(|| {
+            svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+        }) {
             Some(result) => result,
             None => return,
         };

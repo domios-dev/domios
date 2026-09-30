@@ -320,13 +320,17 @@ fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
         r#"{{"type":"assistant","uuid":"after-relaunch","message":{{"model":"claude-sonnet-5-5"}}}}"#
     )
     .unwrap();
-    assert_eq!(
-        native.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
-        Some("Sonnet".into())
+    // The resolved id depends on the process-wide model catalogue; parity is the contract.
+    let native_model = native
+        .detect_session_model_after_boundary(&cwd, &session_id, &boundary)
+        .expect("native observes the appended assistant turn");
+    assert!(
+        native_model.to_lowercase().contains("sonnet"),
+        "{native_model}"
     );
     assert_eq!(
         js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
-        Some("Sonnet".into())
+        Some(native_model)
     );
 
     std::fs::write(

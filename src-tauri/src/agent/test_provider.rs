@@ -529,13 +529,14 @@ impl AgentProvider for MockProvider {
         _cwd: &str,
         _session_id: &str,
     ) -> Option<codeterm_types::agent::SessionModelTranscriptBoundary> {
-        self.session_model_boundary_available
-            .then_some(codeterm_types::agent::SessionModelTranscriptBoundary {
+        self.session_model_boundary_available.then_some(
+            codeterm_types::agent::SessionModelTranscriptBoundary {
                 last_entry_uuid: None,
                 last_entry_timestamp: None,
                 last_entry_type: None,
                 boundary_found: true,
-            })
+            },
+        )
     }
 
     fn detect_session_model_after_boundary(

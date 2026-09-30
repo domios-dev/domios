@@ -47,11 +47,15 @@ impl ServiceContext {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
+        crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();
         self.run_watcher.feed(self, pty_id, data);
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);
+        if statuses.0 != statuses.1 && statuses.1 == TabStatus::Idle {
+            crate::service::pty_io::submit_transaction::wake_submit_cycle_status(pty_id);
+        }
         let status_us = stage.elapsed().as_micros();
         if trace && data.len() > 16 {
             log::info!(
@@ -125,6 +129,9 @@ impl ServiceContext {
             (previous, tracker.get_status(&pty_id))
         };
         self.emit_tab_status_if_changed(&pty_id, previous, current);
+        if status == TabStatus::Idle {
+            crate::service::pty_io::submit_transaction::wake_submit_cycle_status(&pty_id);
+        }
         self.emit_state_changed();
         true
     }
