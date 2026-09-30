@@ -41,6 +41,8 @@ Run it in the **background** so you can keep working:
 | `./build.sh webdriver` | dev with WebDriver enabled for UI tests |
 | `./build.sh e2e` | run E2E suite against a running dev |
 
+For dev readiness reports routed to the calling agent tab, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
+
 ## Verifying the running binary matches your code
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
@@ -243,4 +245,4 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
