@@ -68,6 +68,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.paste_limit_bytes
     }
 
+    fn paste_capability(&self) -> Option<provider::PasteCapability> {
+        self.manifest.spawn.paste.clone()
+    }
+
     fn additional_writable_dir_flag(&self) -> Option<String> {
         self.manifest.commands.additional_writable_dir_flag.clone()
     }

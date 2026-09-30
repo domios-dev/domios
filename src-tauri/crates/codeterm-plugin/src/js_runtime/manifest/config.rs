@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
-    ModelAvailability, ModelInfo, ProviderReadinessStrategy, ProviderStateVerdict,
+    ModelAvailability, ModelInfo, PasteCapability, ProviderReadinessStrategy, ProviderStateVerdict,
     ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability, SessionIdInjection,
     SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
 };
@@ -33,6 +33,8 @@ pub struct SpawnConfig {
     pub launch_permissions: Option<crate::provider::LaunchPermissionCapability>,
     #[serde(default)]
     pub paste_limit_bytes: Option<usize>,
+    #[serde(default)]
+    pub paste: Option<PasteCapability>,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
