@@ -120,11 +120,19 @@ fn decision_rerank_bounds_reject_out_of_range() {
         error.contains("memory.decision_rerank.sources.docs"),
         "{error}"
     );
+    config = AppConfig::default();
+    config.memory.decision_rerank.sources.sessions = 6;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("memory.decision_rerank.sources.sessions"),
+        "{error}"
+    );
 
     let mut edges = AppConfig::default();
     edges.memory.decision_rerank.sources.recall = 50;
     edges.memory.decision_rerank.sources.graph = 20;
     edges.memory.decision_rerank.sources.docs = 10;
+    edges.memory.decision_rerank.sources.sessions = 5;
     edges.memory.decision_rerank.max_concurrency = 1;
     edges.memory.decision_rerank.deadline_ms = 100;
     edges.memory.decision_rerank.low_confidence_threshold = 1.0;
@@ -135,4 +143,6 @@ fn decision_rerank_bounds_reject_out_of_range() {
     assert!(error.contains("memory.decision_rerank.sources.recall"));
     validate_config_text("[memory.decision_rerank.sources]\ngraph = 0\n").unwrap();
     validate_config_text("[memory.decision_rerank.sources]\ndocs = 0\n").unwrap();
+    validate_config_text("[memory.decision_rerank.sources]\nsessions = 0\n").unwrap();
+    validate_config_text("[memory.decision_rerank.sources]\nsessions = 5\n").unwrap();
 }

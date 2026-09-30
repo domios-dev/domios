@@ -38,6 +38,25 @@ fn mem_search_human_output_renders_doc_pointer() {
     );
 }
 
+#[test]
+fn mem_search_human_output_renders_session_pointer_and_excerpt() {
+    let value = json!({"hits": [{
+        "source": "session",
+        "session_id": "sess-42",
+        "provider": "claude",
+        "title": "Release command",
+        "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
+        "pointer": "codeterm sessions get sess-42",
+        "relevance": 0.93,
+        "via": "sessions"
+    }]});
+
+    assert_eq!(
+        super::render_search_hits(&value),
+        "session [claude] Release command | codeterm sessions get sess-42 | rel 93% | Use codeterm sessions get sess-42 to inspect the prior run.\n"
+    );
+}
+
 /// codeterm-releases#60: `mem skill list` renders one row per skill in
 /// columns, not the raw `{"..."` dump the array-of-objects fallback produced.
 #[test]

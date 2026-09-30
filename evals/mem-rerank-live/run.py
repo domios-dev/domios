@@ -28,6 +28,7 @@ POSITIVE_KINDS = {"answerable", "decoy_buried"}
 ABSENT_KINDS = {"absent", "decoy_absent"}
 DC_SHELL = 'source "$1"; shift; dc "$@"'
 DOCS_CONFIG_KEY = "memory.decision_rerank.sources.docs"
+SESSIONS_CONFIG_KEY = "memory.decision_rerank.sources.sessions"
 
 
 def private_root() -> Path:
@@ -74,13 +75,20 @@ def load_questions() -> list[dict[str, Any]]:
         required = {"id", "category", "query", "answer_ids", "kind", "note"}
         if not required <= question.keys():
             raise RuntimeError(f"question {question.get('id', '<unknown>')} is missing fields")
+        session_answers = question.get("session_answer_ids", [])
+        if not isinstance(session_answers, list) or not all(
+            isinstance(session_id, str) for session_id in session_answers
+        ):
+            raise RuntimeError(f"question {question['id']} has invalid session_answer_ids")
         if question["id"] in seen:
             raise RuntimeError(f"duplicate question id: {question['id']}")
         if question["kind"] not in POSITIVE_KINDS | ABSENT_KINDS:
             raise RuntimeError(f"unsupported question kind: {question['kind']}")
-        if question["kind"] in POSITIVE_KINDS and not question["answer_ids"]:
+        if question["kind"] in POSITIVE_KINDS and not (
+            question["answer_ids"] or session_answers
+        ):
             raise RuntimeError(f"positive question has no ground-truth ids: {question['id']}")
-        if question["kind"] in ABSENT_KINDS and question["answer_ids"]:
+        if question["kind"] in ABSENT_KINDS and (question["answer_ids"] or session_answers):
             raise RuntimeError(f"absent question has ground-truth ids: {question['id']}")
         seen.add(question["id"])
     return questions
@@ -126,6 +134,18 @@ def read_docs_config(lib_path: Path, instance: str) -> int:
     return value
 
 
+def read_sessions_config(lib_path: Path, instance: str) -> int:
+    output = run_dc_command(
+        lib_path,
+        instance,
+        ["config", "get", SESSIONS_CONFIG_KEY, "--json"],
+    )
+    value = json.loads(output).get("value", 0)
+    if type(value) is not int or not 0 <= value <= 5:
+        raise RuntimeError(f"unexpected sessions config value: {value!r}")
+    return value
+
+
 def write_docs_config(lib_path: Path, instance: str, docs: int) -> None:
     run_dc_command(
         lib_path,
@@ -134,18 +154,43 @@ def write_docs_config(lib_path: Path, instance: str, docs: int) -> None:
     )
 
 
+def write_sessions_config(lib_path: Path, instance: str, sessions: int) -> None:
+    run_dc_command(
+        lib_path,
+        instance,
+        ["config", "set", SESSIONS_CONFIG_KEY, str(sessions), "--json"],
+    )
+
+
 def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> dict[str, Any]:
     hits = []
     ids = []
     docs = []
+    sessions = []
     for rank, hit in enumerate(value.get("hits", []), start=1):
         if hit.get("source") == "doc":
+            ids.append("")
             docs.append(
                 {
                     "rank": rank,
                     "doc": hit.get("doc"),
                     "section": hit.get("section"),
                     "anchor": hit.get("anchor"),
+                    "pointer": hit.get("pointer"),
+                    "relevance": hit.get("relevance"),
+                }
+            )
+            continue
+        if hit.get("source") == "session":
+            session_id = hit.get("session_id")
+            ids.append(session_id if isinstance(session_id, str) else "")
+            sessions.append(
+                {
+                    "rank": rank,
+                    "session_id": hit.get("session_id"),
+                    "provider": hit.get("provider"),
+                    "title": hit.get("title"),
+                    "excerpt": hit.get("excerpt"),
                     "pointer": hit.get("pointer"),
                     "relevance": hit.get("relevance"),
                 }
@@ -170,6 +215,7 @@ def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> d
         "reciprocal_rank_at_10": reciprocal_rank(rank, 10),
         "hits": hits,
         "docs": docs,
+        "sessions": sessions,
         "decision_rerank": value.get("decision_rerank"),
         "latency_ms": latency_ms,
     }
@@ -289,6 +335,24 @@ def docs_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def sessions_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    returned = [hit for row in rows for hit in row["rerank"]["sessions"]]
+    absent = [row for row in rows if row["kind"] in ABSENT_KINDS]
+    by_provider = Counter(
+        hit["provider"] for hit in returned if isinstance(hit.get("provider"), str)
+    )
+    return {
+        "queries_with_session_hits": sum(
+            bool(row["rerank"]["sessions"]) for row in rows
+        ),
+        "absent_queries_with_session_hits": sum(
+            bool(row["rerank"]["sessions"]) for row in absent
+        ),
+        "returned_session_hits": len(returned),
+        "by_provider": dict(sorted(by_provider.items())),
+    }
+
+
 def markdown_summary(
     timestamp: str,
     rows: list[dict[str, Any]],
@@ -298,11 +362,12 @@ def markdown_summary(
     comparisons: dict[str, int],
     fallbacks: dict[str, int],
     docs: dict[str, Any],
+    sessions: dict[str, Any],
 ) -> str:
     lines = [
         f"# Live memory decision re-rank evaluation: {timestamp}",
         "",
-        f"Queries: {len(rows)}. Rank metrics use ground-truth IDs after import mapping.",
+        f"Queries: {len(rows)}. Rank metrics use mapped memory IDs and optional provider session IDs.",
         "Latency is end-to-end CLI wall time through the dev-pinned `dc` wrapper.",
         "",
         "| Arm | Positive N | R@1 | R@3 | MRR@10 | p50 ms | p95 ms |",
@@ -321,9 +386,10 @@ def markdown_summary(
             f"Better / worse / tie on {comparisons['queries_compared']} positive queries by per-query MRR: {comparisons['better']} / "
             f"{comparisons['worse']} / {comparisons['tie']}.",
             "",
-            "## Docs candidates",
+            "## Optional candidates",
             "",
             f"Queries returning docs: {docs['queries_with_doc_hits']}; absent probes returning docs: {docs['absent_queries_with_doc_hits']}; doc hits: {docs['returned_doc_hits']}.",
+            f"Queries returning sessions: {sessions['queries_with_session_hits']}; absent probes returning sessions: {sessions['absent_queries_with_session_hits']}; session hits: {sessions['returned_session_hits']}.",
             "",
             "## Per category",
             "",
@@ -379,6 +445,7 @@ def evaluate_records(
     records = []
     for question in questions:
         mapped_answers = {item_map[item_id] for item_id in question["answer_ids"]}
+        mapped_answers.update(question.get("session_answer_ids", []))
         arms = {}
         for arm_name, mode in (("cosine", "off"), ("rerank", "on")):
             value, latency_ms = run_dc(
@@ -406,13 +473,15 @@ def evaluate_records(
     return records
 
 
-def parse_docs_count(value: str) -> int:
+def parse_source_count(value: str, label: str, maximum: int) -> int:
     try:
         count = int(value)
     except ValueError as error:
-        raise argparse.ArgumentTypeError("must be an integer from 0 to 10") from error
-    if not 0 <= count <= 10:
-        raise argparse.ArgumentTypeError("must be an integer from 0 to 10")
+        raise argparse.ArgumentTypeError(
+            f"{label} must be an integer from 0 to {maximum}"
+        ) from error
+    if not 0 <= count <= maximum:
+        raise argparse.ArgumentTypeError(f"{label} must be an integer from 0 to {maximum}")
     return count
 
 
@@ -427,15 +496,30 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         raise RuntimeError(f"ground-truth ids missing from import map: {len(missing)}")
 
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
-    if args.docs is None:
+    if args.docs is None and args.sessions is None:
         records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
     else:
-        previous_docs = read_docs_config(lib_path, args.dev_instance)
+        previous_docs = (
+            read_docs_config(lib_path, args.dev_instance) if args.docs is not None else None
+        )
+        previous_sessions = (
+            read_sessions_config(lib_path, args.dev_instance)
+            if args.sessions is not None
+            else None
+        )
         try:
-            write_docs_config(lib_path, args.dev_instance, args.docs)
+            if args.docs is not None:
+                write_docs_config(lib_path, args.dev_instance, args.docs)
+            if args.sessions is not None:
+                write_sessions_config(lib_path, args.dev_instance, args.sessions)
             records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
         finally:
-            write_docs_config(lib_path, args.dev_instance, previous_docs)
+            try:
+                if previous_docs is not None:
+                    write_docs_config(lib_path, args.dev_instance, previous_docs)
+            finally:
+                if previous_sessions is not None:
+                    write_sessions_config(lib_path, args.dev_instance, previous_sessions)
 
     overall = {
         "cosine": arm_metrics(records, "cosine"),
@@ -446,6 +530,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     comparisons = comparison_counts(records)
     fallbacks = fallback_counts(records)
     docs = docs_metrics(records)
+    sessions = sessions_metrics(records)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result_dir = RESULTS_ROOT / timestamp
     result_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
@@ -453,16 +538,26 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     result_path = result_dir / "results.json"
     summary_path = result_dir / "summary.md"
     summary = markdown_summary(
-        timestamp, records, overall, by_category, gates, comparisons, fallbacks, docs
+        timestamp,
+        records,
+        overall,
+        by_category,
+        gates,
+        comparisons,
+        fallbacks,
+        docs,
+        sessions,
     )
     payload = {
         "timestamp_utc": timestamp,
         "dev_instance": args.dev_instance,
         "decision_docs": args.docs,
+        "decision_sessions": args.sessions,
         "docs": docs,
+        "sessions": sessions,
         "question_count": len(records),
         "rank_metrics_include": sorted(POSITIVE_KINDS),
-        "rank_source": "mapped ground-truth IDs, never titles",
+        "rank_source": "mapped memory IDs and optional provider session IDs, never titles",
         "overall": overall,
         "per_category": by_category,
         "better_worse_tie": comparisons,
@@ -491,7 +586,8 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev-instance", default="memrerank")
-    parser.add_argument("--docs", type=parse_docs_count)
+    parser.add_argument("--docs", type=lambda value: parse_source_count(value, "docs", 10))
+    parser.add_argument("--sessions", type=lambda value: parse_source_count(value, "sessions", 5))
     return parser.parse_args()
 
 
