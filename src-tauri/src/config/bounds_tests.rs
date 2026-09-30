@@ -116,7 +116,10 @@ fn decision_rerank_bounds_reject_out_of_range() {
     config = AppConfig::default();
     config.memory.decision_rerank.sources.docs = 11;
     let error = validate_app_config(&config).unwrap_err();
-    assert!(error.contains("memory.decision_rerank.sources.docs"), "{error}");
+    assert!(
+        error.contains("memory.decision_rerank.sources.docs"),
+        "{error}"
+    );
 
     let mut edges = AppConfig::default();
     edges.memory.decision_rerank.sources.recall = 50;
