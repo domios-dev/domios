@@ -324,7 +324,10 @@ fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
     let native_model = native
         .detect_session_model_after_boundary(&cwd, &session_id, &boundary)
         .expect("native observes the appended assistant turn");
-    assert!(native_model.to_lowercase().contains("sonnet"), "{native_model}");
+    assert!(
+        native_model.to_lowercase().contains("sonnet"),
+        "{native_model}"
+    );
     assert_eq!(
         js.detect_session_model_after_boundary(&cwd, &session_id, &boundary),
         Some(native_model)
