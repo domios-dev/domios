@@ -111,6 +111,7 @@ pub async fn search_sessions_api(
             .collect();
     let opts = crate::agent::registry::SessionSearchOpts {
         terms,
+        match_mode: crate::agent::registry::SessionMatchMode::AllTerms,
         provider: q.provider.filter(|p| p != "all" && !p.is_empty()),
         project_path: q.project,
         limit: q.limit.unwrap_or(10),
