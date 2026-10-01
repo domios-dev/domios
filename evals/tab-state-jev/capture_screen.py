@@ -80,6 +80,15 @@ def provider_descriptor(payload: Any, provider_id: str) -> dict[str, str]:
     )
 
 
+def provider_id_for_tab(tab: dict[str, Any], override: str | None) -> str:
+    provider_id = tab.get("agent_type")
+    if isinstance(provider_id, str) and provider_id:
+        return provider_id
+    if isinstance(override, str) and override:
+        return override
+    raise SystemExit("tab has no provider identity; pass --provider for a provider CLI shell")
+
+
 def first_value(payload: Any, keys: tuple[str, ...]) -> Any:
     for item in nested_objects(payload):
         for key in keys:
@@ -147,9 +156,7 @@ def capture(args: argparse.Namespace) -> int:
         raise SystemExit(f"tab {args.tab} returned no screen text")
     inspected = dc_json("tab", "inspect", "--tab", args.tab)
     tab = tab_record(inspected, args.tab)
-    provider_id = tab.get("agent_type")
-    if not isinstance(provider_id, str) or not provider_id:
-        raise SystemExit(f"tab {args.tab} has no provider identity in tab inspect")
+    provider_id = provider_id_for_tab(tab, args.provider)
     capability = provider_descriptor(dc_json("agent", "providers"), provider_id)
     context = read_context(args.context_file)
     screen = "\n".join(regex_scrub(text.replace("\r\n", "\n").replace("\r", "\n")).rstrip().splitlines()[-40:])
@@ -238,6 +245,7 @@ def parse_args() -> argparse.Namespace:
     take = commands.add_parser("capture", help="read one dev tab into the unlabelled set")
     take.add_argument("--tab", required=True)
     take.add_argument("--context-file", type=Path, required=True)
+    take.add_argument("--provider", help="capability lookup for a provider CLI in a plain shell tab")
     take.add_argument("--note", help="reproduction and what the capturer saw")
     take.set_defaults(run=capture)
     commands.add_parser("pending", help="list captures awaiting human labels").set_defaults(run=pending)

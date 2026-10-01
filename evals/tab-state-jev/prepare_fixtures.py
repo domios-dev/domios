@@ -12,6 +12,7 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
 OUT = HERE / "screens.jsonl"
 LIVE_INPUT = HERE / "live-captures.jsonl"
 LABELS = {
@@ -39,6 +40,7 @@ CONTEXT_FIELDS = {
     "pending_prompt_kind",
     "screen_changed",
 }
+CONTEXT_ID_FIELDS = {"plan_id", "task_id", "spawned_by_tab"}
 
 
 def regex_scrub(value: str) -> str:
@@ -68,7 +70,10 @@ def scrub_context(value: Any) -> Any:
     if isinstance(value, list):
         return [scrub_context(item) for item in value]
     if isinstance(value, dict):
-        return {key: scrub_context(item) for key, item in value.items()}
+        return {
+            key: "<id>" if key in CONTEXT_ID_FIELDS and isinstance(item, str) and item else scrub_context(item)
+            for key, item in value.items()
+        }
     return value
 
 
