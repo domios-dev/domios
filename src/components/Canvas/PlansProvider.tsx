@@ -10,6 +10,7 @@ import { useResilientQuery } from "../../lib/useResilientQuery";
 import type { ApiConfig } from "../../lib/types";
 import { fetchPlanIndex, type PlanIndexEntry } from "./plansApi";
 import { usePlans, type UsePlansResult } from "./usePlans";
+import { usePlanPeerContext } from "./usePlanPeerContext";
 
 const EMPTY_INDEX: PlanIndexEntry[] = [];
 const EMPTY_FULL: UsePlansResult = {
@@ -21,6 +22,7 @@ const EMPTY_FULL: UsePlansResult = {
 };
 
 interface PlansContextValue {
+  contextKey: number;
   index: PlanIndexEntry[];
   indexLoading: boolean;
   indexReconnecting: boolean;
@@ -40,7 +42,9 @@ export function PlansProvider({
   enabled?: boolean;
   children: ReactNode;
 }) {
-  const full = usePlans(api, { enabled });
+  const peerContext = usePlanPeerContext();
+  const queriesEnabled = enabled && peerContext.ready;
+  const full = usePlans(api, { enabled: queriesEnabled, contextKey: peerContext.generation });
 
   const {
     data: index,
@@ -49,11 +53,12 @@ export function PlansProvider({
     error: indexError,
     refetch: refetchIndex,
   } = useResilientQuery((signal) => fetchPlanIndex(api, signal), EMPTY_INDEX, {
-    enabled,
-    deps: [api.host, api.port, api.token],
+    enabled: queriesEnabled,
+    deps: [api.host, api.port, api.token, peerContext.generation],
   });
 
   useEffect(() => {
+    if (!queriesEnabled) return;
     let active = true;
     let unlistenPlanChanged: (() => void) | null = null;
     let unlistenPlansLoaded: (() => void) | null = null;
@@ -80,18 +85,21 @@ export function PlansProvider({
       unlistenPlanChanged?.();
       unlistenPlansLoaded?.();
     };
-  }, [refetchIndex]);
+  }, [queriesEnabled, refetchIndex]);
 
   const value = useMemo<PlansContextValue>(
     () => ({
-      index,
-      indexLoading,
-      indexReconnecting,
-      indexError,
+      contextKey: peerContext.generation,
+      index: queriesEnabled ? index : EMPTY_INDEX,
+      indexLoading: queriesEnabled && indexLoading,
+      indexReconnecting: queriesEnabled && indexReconnecting,
+      indexError: queriesEnabled ? indexError : null,
       refetchIndex,
-      full,
+      full: queriesEnabled ? full : EMPTY_FULL,
     }),
     [
+      peerContext.generation,
+      queriesEnabled,
       index,
       indexLoading,
       indexReconnecting,
@@ -108,6 +116,10 @@ function usePlansContext(): PlansContextValue {
   const ctx = useContext(PlansContext);
   if (!ctx) throw new Error("usePlansContext must be used within <PlansProvider>");
   return ctx;
+}
+
+export function usePlanDataContextKey(): number {
+  return useContext(PlansContext)?.contextKey ?? 0;
 }
 
 export interface PlanIndexResult {
