@@ -44,8 +44,8 @@ impl DecisionModel for JsDecisionModel {
         }
         let encoded = serde_json::to_value(request)
             .map_err(|_| DecisionError::Parse("invalid_request".into()))?;
-        let answer: DecisionAnswer = call_json(&self.vm, "decide", &[json!(encoded)])
-            .map_err(map_vm_error)?;
+        let answer: DecisionAnswer =
+            call_json(&self.vm, "decide", &[json!(encoded)]).map_err(map_vm_error)?;
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
@@ -146,8 +146,7 @@ mod tests {
 
     #[test]
     fn js_decision_model_decides_noul_choice_score() {
-        let vm = vm(
-            r#"module.exports.default = {
+        let vm = vm(r#"module.exports.default = {
                 primitives() { return { choice: true, noul: true, score: true }; },
                 decide(request) {
                     if (request.question.type === "noul") return { type: "noul", p: 0.8 };
@@ -158,8 +157,7 @@ mod tests {
                         type: "score", score: 2, probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 }, confidence: 0.7
                     };
                 }
-            }"#,
-        );
+            }"#);
         let model = JsDecisionModel::new(vm, "decision-fixture");
         assert_eq!(
             model.primitives(),
@@ -171,7 +169,10 @@ mod tests {
         );
         assert_eq!(
             model
-                .decide(&request(DecisionQuestion::Noul { criteria: None }), deadline())
+                .decide(
+                    &request(DecisionQuestion::Noul { criteria: None }),
+                    deadline()
+                )
                 .unwrap(),
             DecisionAnswer::Noul { p: 0.8 }
         );
@@ -217,11 +218,9 @@ mod tests {
     #[test]
     fn js_decision_model_models() {
         let model = JsDecisionModel::new(
-            vm(
-                r#"module.exports.default = {
+            vm(r#"module.exports.default = {
                     models() { return [{ id: "loaded", display_name: "Loaded model" }]; }
-                };"#,
-            ),
+                };"#),
             "decision-models",
         );
         assert_eq!(

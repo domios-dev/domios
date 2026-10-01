@@ -65,7 +65,9 @@ pub enum DecisionAnswer {
         probabilities: BTreeMap<String, f64>,
         confidence: Option<f64>,
     },
-    Noul { p: f64 },
+    Noul {
+        p: f64,
+    },
     Score {
         score: f64,
         probabilities: BTreeMap<String, f64>,

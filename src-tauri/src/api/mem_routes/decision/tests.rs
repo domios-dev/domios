@@ -4,12 +4,12 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use parking_lot::Mutex;
-use serde_json::{json, Value};
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionRequest,
 };
+use parking_lot::Mutex;
+use serde_json::{json, Value};
 
 use super::sessions_source::SessionCandidate;
 use super::{

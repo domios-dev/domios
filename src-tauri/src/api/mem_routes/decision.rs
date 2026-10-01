@@ -11,9 +11,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use codeterm_types::decision::{DecisionModel, DecisionModelInfo};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use codeterm_types::decision::{DecisionModel, DecisionModelInfo};
 
 use super::search::{
     baseline_search, mem_hit_value, mem_query, RecallBackend, SearchError, SearchParams,
