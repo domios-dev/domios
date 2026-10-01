@@ -23,6 +23,10 @@ on:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'
 
+concurrency:
+  group: file-sizes-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: [self-hosted, linux-build]
