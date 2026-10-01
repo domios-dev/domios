@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod deadline;
+
 /// Why a worker's execution ended. Says nothing about its artifact.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -62,6 +64,8 @@ pub struct DiaryEvidence {
     pub placeholder_insight: bool,
     /// Log field names whose value is still a pending / not-run / timeout marker.
     pub pending_fields: Vec<String>,
+    /// The host finalized this diary because the run hit its deadline.
+    pub cut_at_deadline: bool,
 }
 
 impl DiaryEvidence {
@@ -102,10 +106,13 @@ pub fn diary_evidence(diary_id: &str, body: &str) -> DiaryEvidence {
         diary_id: diary_id.to_string(),
         placeholder_insight: insight_is_placeholder(body),
         pending_fields: pending_log_fields(body),
+        cut_at_deadline: log_fields(body)
+            .iter()
+            .any(|(name, value)| name == deadline::DEADLINE_FIELD && !is_unfilled_value(value)),
     }
 }
 
-fn tagged_block(body: &str, tag: &str) -> Option<String> {
+pub(crate) fn tagged_block(body: &str, tag: &str) -> Option<String> {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
     let start = body.find(&open)? + open.len();
@@ -119,38 +126,50 @@ fn insight_is_placeholder(body: &str) -> bool {
         // body reads as a placeholder.
         return body.trim().is_empty();
     };
-    let text = insight.trim();
-    if text.is_empty() {
-        return true;
-    }
-    // Only a leading WIP token marks the skeleton; prose that merely mentions
-    // dreaming is a real insight.
+    is_placeholder_text(&insight)
+}
+
+/// Empty text, or text whose first word is the skeleton WIP token. Prose that
+/// merely mentions dreaming is real content.
+pub(crate) fn is_placeholder_text(text: &str) -> bool {
     text.split_whitespace()
         .next()
         .map(|token| token.trim_end_matches([':', '-', '.']).to_ascii_lowercase())
-        .is_some_and(|token| token == PLACEHOLDER_INSIGHT_TOKEN)
+        .is_none_or(|token| token == PLACEHOLDER_INSIGHT_TOKEN)
 }
 
-fn pending_log_fields(body: &str) -> Vec<String> {
+/// A log field value that records no verified result.
+pub(crate) fn is_unfilled_value(value: &str) -> bool {
+    let value = value.trim();
+    let lowered = value.to_ascii_lowercase();
+    value.is_empty()
+        || value.starts_with('<')
+        || PENDING_FIELD_VALUES.iter().any(|marker| lowered == *marker)
+}
+
+/// `NAME: value` lines of the log block, in order, where NAME is an
+/// upper-case field label.
+pub(crate) fn log_fields(body: &str) -> Vec<(String, String)> {
     let Some(log) = tagged_block(body, "log") else {
         return Vec::new();
     };
-    let mut pending = Vec::new();
-    for line in log.lines() {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        let name = name.trim();
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-            continue;
-        }
-        let value = value.trim();
-        let lowered = value.to_ascii_lowercase();
-        let unfilled = value.is_empty()
-            || value.starts_with('<')
-            || PENDING_FIELD_VALUES.iter().any(|marker| &lowered == marker);
-        if unfilled && !pending.iter().any(|existing| existing == name) {
-            pending.push(name.to_string());
+    log.lines().filter_map(log_field).collect()
+}
+
+pub(crate) fn log_field(line: &str) -> Option<(String, String)> {
+    let (name, value) = line.split_once(':')?;
+    let name = name.trim();
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+        return None;
+    }
+    Some((name.to_string(), value.trim().to_string()))
+}
+
+fn pending_log_fields(body: &str) -> Vec<String> {
+    let mut pending: Vec<String> = Vec::new();
+    for (name, value) in log_fields(body) {
+        if is_unfilled_value(&value) && !pending.contains(&name) {
+            pending.push(name);
         }
     }
     pending
@@ -223,6 +242,12 @@ pub fn reconcile_finalization(
         (Some(FinalizationClaim::Failed), evidence) => DiaryFinalization::Failed {
             diary_id: evidence.map(|e| e.diary_id.clone()),
             reason: with_evidence(&claimed("worker reported finalization failed"), evidence),
+        },
+        // The host already closed this diary at the deadline; a later claim
+        // cannot turn that cut-short record into a verified completion.
+        (_, Some(evidence)) if evidence.cut_at_deadline => DiaryFinalization::Partial {
+            diary_id: Some(evidence.diary_id.clone()),
+            reason: deadline::DEADLINE_REASON.to_string(),
         },
         (claim, Some(evidence)) if !evidence.is_complete() => DiaryFinalization::Partial {
             diary_id: Some(evidence.diary_id.clone()),
@@ -346,3 +371,6 @@ pub fn classify_diary_record(
         },
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -5,7 +5,7 @@ Optimizer (REM phase) prompt that runs as a periodic background worker
 to clean up the mem graph (decompose hub-and-spoke nodes, bridge
 disconnected islands, dedup entities).
 
-## What's covered (5 cases)
+## What's covered (6 cases)
 
 Stage A.1 — Hub decomposition:
 
@@ -21,6 +21,14 @@ Stage A.1 — Hub decomposition:
 - **#4 homogeneous-low-degree-skip-ok** — a low-degree hub whose only
   edges are `extracted_from` provenance pointers is a valid SKIP, with
   reason "popular source, not a structural hub".
+
+- **#6 hub-clusters-drive-introduce-topic-no-scripts** — given the real
+  `mem graph hubs --limit` shape, the agent turns each `clusters` entry into
+  one `introduce-topic` call (suggested topic, type and members verbatim),
+  leaves the `excluded` dreams anchor alone, and processes the JSON without
+  any script, pipe or temp file. Real failure: five nights timed out at
+  1800 s because an ad-hoc `python3`/heredoc hub analysis sat on an approval
+  prompt nobody could answer in the hidden tab.
 
 Stage A.2 — Island bridging:
 
@@ -61,8 +69,8 @@ python .agents/skills/prompt-evaluator/runner.py \
   --only-id 1 --runs 1 --verbose
 ```
 
-A full 5-case × 3-run × 1-prompt sweep is ~75 LLM calls (15 sonnet +
-~60 haiku judges).
+A full 6-case × 3-run × 1-prompt sweep is ~90 LLM calls (18 sonnet +
+~72 haiku judges).
 
 ## Sandbox model
 

@@ -186,6 +186,18 @@ The Dreamer cleans historical pollution (duplicate relations, near-duplicate ent
 
 Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injection a compile-time impossibility — the Dreamer cannot pass arbitrary WHERE clauses. See `src-tauri/prompts/dreaming_rem.md` Stage A.4 for how the Dreamer chains these.
 
+### Hub report
+
+`mem graph hubs [--threshold 20] [--limit 5] [--sample 0]` is read-only and local. It returns at most `limit` nodes whose active degree is at or above `threshold`, highest degree first, as `{threshold, limit, sample, total_hubs, hubs, excluded, existing_anchors}`. `total_hubs` counts every hub before the limit; `excluded` lists the dreams anchor `project_dreams` (`{id, degree, reason}`), which is never a hub to decompose. Each hub is `{id, degree, rel_dist, popular_source, sub_anchors, outbound_only, unclustered, clusters, neighbors}`:
+
+- `clusters` groups the hub's inbound neighbours (the edges `introduce-topic` can re-route) by shared area, then title keyword, then kind. A group must split the remaining neighbours and must not just repeat the hub's own name; existing `topic_*`/`role_*` neighbours count as `sub_anchors` instead. Each cluster is `{suggested_topic, entity_type, existing, basis, key, members}`: `suggested_topic` reuses an existing `topic_<key>` (`existing: true`) or names `topic_<hub-name>_<key>`, and the cluster feeds `introduce-topic --topic-id <suggested_topic> --type <entity_type> --sources <members> --anchor <hub>` directly.
+- `popular_source` is true when every edge is `extracted_from` (provenance, no clusters).
+- `neighbors` is the raw `{id, rel, dir, title}` sample, empty unless `--sample N`.
+
+### Deadline finalization
+
+A dreaming worker that hits its hard deadline is finalized by the host, not the agent: the run's diary (the bound `diary_id`, else the newest `dream-diary` daily created since the run spawned) gets a deterministic insight naming the last logged stage, every still-pending log field becomes `cut_short`, a `DEADLINE:` log field is appended, and the run records finalization `partial` with reason `deadline`. A complete diary is never rewritten and a finalization the agent already recorded is kept; a later success claim over a deadline-cut diary still reconciles to `partial`.
+
 ## Auto-flush from agent hooks
 
 The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
