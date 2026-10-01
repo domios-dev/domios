@@ -16,7 +16,7 @@ import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 import { hasRenderableDreamInsight } from "./dreamVisuals";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
-import { diaryRecordState, dreamRunLabel } from "./dreamRunStatus";
+import { diaryRecordState, dreamRunLabel, dreamRunReport } from "./dreamRunStatus";
 
 interface Props {
   api: ApiConfig;
@@ -403,7 +403,11 @@ function MemoryDreamsTabImpl({ api }: Props) {
           <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
         ))}
       {openDream && (
-        <DreamDetailModal entry={openDream} onClose={() => setOpenDream(null)} />
+        <DreamDetailModal
+          entry={openDream}
+          report={dreamRunReport(openDream.id, dreamWorkers)}
+          onClose={() => setOpenDream(null)}
+        />
       )}
     </div>
   );
