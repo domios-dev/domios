@@ -1006,6 +1006,11 @@ impl ServiceContext {
                         Some(session_id),
                     )
             });
+            service.observe_tab_state(
+                &worker_tab_id,
+                crate::service::supporter_tab_state::ObservationTrigger::StartupEscalation,
+                "worker_ack_startup_deadline",
+            );
             service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
             if !reminder_allowed {
                 let _ = service.plan_store.mark_worker_startup_deadline(

@@ -96,7 +96,7 @@ fn publish_weak_hint(
     episode: u64,
 ) {
     let line = format!(
-        "{WEAK_HINT_PREFIX}: tab={tab_id} label={label} confidence={confidence:.2} episode={episode}"
+        "{WEAK_HINT_PREFIX}: actionable=false tab={tab_id} label={label} confidence={confidence:.2} episode={episode}"
     );
     service.events.publish_generic(
         "tab-state-signal",
@@ -105,6 +105,7 @@ fn publish_weak_hint(
             "label": label,
             "confidence": confidence,
             "band": "weak",
+            "actionable": false,
             "episode": episode,
         }),
     );
