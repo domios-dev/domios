@@ -169,53 +169,122 @@ export const enHelpContent: HelpLocaleContent = {
     {
       id: "supporter-agent",
       title: "Supporter Agent",
-      subtitle: "A fast decision model that helps CodeTerm choose",
+      subtitle: "A small helper that picks the best answers for your agents",
       blocks: [
         {
           type: "paragraph",
-          text: "The Supporter Agent is a small, fast decision model. It does not run tasks or write code: it answers quick judgement questions for CodeTerm, such as which memory best answers a search. The decision interface can use different models; TypeSafe's Jev is the default.",
+          text: "The Supporter Agent is a small, fast helper model. It makes quick choices for CodeTerm, like which saved memory best answers a question. It never runs tasks, types into your tabs or writes code.",
         },
+        { type: "heading", text: "What it does for you" },
+        {
+          type: "paragraph",
+          text: "Better memory answers. When an agent searches memory, the Supporter puts the most useful results first. If nothing fits well, it raises a flag, so the agent knows not to lean on a weak match.",
+        },
+        { type: "figure", figureId: "supporter-recall" },
+        {
+          type: "paragraph",
+          text: "A second look at starting tabs, off by default. It reads a new tab's screen and notes whether it looks fine or seems stuck, for example on a sign-in prompt.",
+        },
+        { type: "figure", figureId: "supporter-tab-state" },
+        { type: "heading", text: "What it costs" },
+        {
+          type: "paragraph",
+          text: "About $0.0007 per memory search, so roughly 70 cents for a thousand searches. It is charged to your TypeSafe account.",
+        },
+        { type: "heading", text: "Turn it on or off" },
         {
           type: "list",
+          ordered: true,
           items: [
-            "Memory re-rank — it reads the top memory candidates and re-orders them so the ones that answer come first. It never removes results, and a low-confidence flag means nothing in the pool looks like a good answer. Agent and CLI searches keep the same commands.",
-            "Tab state — shadow logging only. When enabled, it reads a starting tab's recent screen and writes one log line beside CodeTerm's own verdict. It changes nothing yet and is off by default.",
+            "Get a token at https://console.typesafe.ai/keys.",
+            "Open the Supporter Agent settings, paste the token and press Save token.",
+            "Turn on Re-rank memory recall in Memory > Settings. Switch it off there any time.",
           ],
         },
-        {
-          type: "paragraph",
-          text: "Optional candidate sources add more to the re-rank pool. Each source has its own setting:",
-        },
-        {
-          type: "list",
-          items: [
-            "Graph — related memories linked through the knowledge graph. memory.decision_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
-            "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. memory.decision_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
-            "Sessions — matching snippets from past agent sessions. memory.decision_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
-          ],
-        },
-        {
-          type: "paragraph",
-          text: "It only needs an API token. Set it up in one of two ways:",
-        },
-        {
-          type: "list",
-          items: [
-            "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
-            "From a terminal, pipe it in: pbpaste | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true. Run codeterm mem decision status to check it.",
-          ],
-        },
-        {
-          type: "paragraph",
-          text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at memory.decision_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
-        },
-        {
-          type: "paragraph",
-          text: "Cost is about $0.0007 per search. The whole step runs under one deadline, memory.decision_rerank.deadline_ms (3000 ms by default).",
-        },
+        { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
         {
           type: "tip",
-          text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set memory.decision_rerank.enabled false; one search can skip it with --decision-rerank off. Clear token removes the token entirely.",
+          text: "If the Supporter is slow, down or has no token, CodeTerm quietly uses its normal search. Nothing breaks.",
+        },
+        { type: "heading", text: "Which model it uses" },
+        {
+          type: "paragraph",
+          text: "It works best with a model built for decisions, such as TypeSafe Jev (https://typesafe.ai), the default. Other models can stand in, with rougher answers.",
+        },
+        {
+          type: "details",
+          summary: "How it works: what is sent, timing and fallback",
+          blocks: [
+            {
+              type: "list",
+              items: [
+                "Memory re-rank — it reads the top memory candidates and re-orders them so the ones that answer come first. It never removes results, and a low-confidence flag means nothing in the pool looks like a good answer. Agent and CLI searches keep the same commands.",
+                "Tab state — shadow logging only. When enabled, it reads a starting tab's recent screen and writes one log line beside CodeTerm's own verdict. It changes nothing yet and is off by default.",
+              ],
+            },
+            {
+              type: "paragraph",
+              text: "Optional candidate sources add more to the re-rank pool. Each source has its own setting:",
+            },
+            {
+              type: "list",
+              items: [
+                "Graph — related memories linked through the knowledge graph. memory.decision_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
+                "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. memory.decision_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
+                "Sessions — matching snippets from past agent sessions. memory.decision_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
+              ],
+            },
+            {
+              type: "paragraph",
+              text: "It only needs an API token. Set it up in one of two ways:",
+            },
+            {
+              type: "list",
+              items: [
+                "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
+                "From a terminal, pipe it in: pbpaste | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true. Run codeterm mem decision status to check it.",
+              ],
+            },
+            {
+              type: "paragraph",
+              text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at memory.decision_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
+            },
+            {
+              type: "paragraph",
+              text: "Cost is about $0.0007 per search. The whole step runs under one deadline, memory.decision_rerank.deadline_ms (3000 ms by default).",
+            },
+            {
+              type: "tip",
+              text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set memory.decision_rerank.enabled false; one search can skip it with --decision-rerank off. Clear token removes the token entirely.",
+            },
+          ],
+        },
+        {
+          type: "details",
+          summary: "Decision models compared: Jev and the alternatives",
+          blocks: [
+            {
+              type: "paragraph",
+              text: "The Supporter Agent is designed for deterministic decision models such as TypeSafe Jev. Asked a pick-one (choice) or yes/no (noul) question, Jev returns a calibrated probability for each answer, and the same question always gets the same answer.",
+            },
+            {
+              type: "list",
+              items: [
+                "TypeSafe Jev: built for this, with calibrated choice and noul probabilities.",
+                "A Jev-style fine-tune: works approximately. Accuracy depends on how it was trained.",
+                "A general LLM read through logprobs: works approximately. Less accurate, and latency depends on the model and the machine.",
+              ],
+            },
+            {
+              type: "paragraph",
+              text: "Why the gap: a general model writes text. CodeTerm reads how likely it was to write each answer, but that likelihood comes from sampling text, not from a model trained to judge. So the scores are less well calibrated, and the ranking is usually less accurate.",
+            },
+            {
+              type: "measurement",
+              label: "Measured on a local model",
+              text: "Numbers from the LM Studio comparison will appear here.",
+            },
+          ],
         },
         {
           type: "paragraph",
