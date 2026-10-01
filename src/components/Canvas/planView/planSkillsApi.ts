@@ -1,4 +1,5 @@
-import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import { daemonFetch } from "../../../lib/webApi";
+import { authHeaders } from "../../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../../lib/types";
 
 export interface PlanSkillSummary {
@@ -28,7 +29,7 @@ export async function fetchPlanSkills(
   planId: string,
   signal?: AbortSignal,
 ): Promise<PlanSkillSummary[]> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/skills`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/skills`, {
     headers: authHeaders(api),
     signal,
   });
@@ -43,8 +44,9 @@ export async function fetchPlanSkill(
   slug: string,
   signal?: AbortSignal,
 ): Promise<PlanSkillDetail> {
-  const res = await fetch(
-    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/skills/${encodeURIComponent(slug)}`,
+  const res = await daemonFetch(
+    api,
+    `/api/plans/${encodeURIComponent(planId)}/skills/${encodeURIComponent(slug)}`,
     { headers: authHeaders(api), signal },
   );
   if (!res.ok) throw new Error(`plan skill show failed: ${res.status}`);
