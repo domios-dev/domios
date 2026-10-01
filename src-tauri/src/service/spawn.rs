@@ -37,7 +37,7 @@ pub(crate) use spawn_model_catalogue::{
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
 use crate::multiplexer::types::TabCloseReason;
-pub(super) use spawn_hidden_delivery::deliver_hidden_pty_task;
+pub(in crate::service) use spawn_hidden_delivery::deliver_hidden_pty_task;
 use spawn_hidden_delivery::hidden_launch_args;
 
 #[path = "spawn_identity.rs"]

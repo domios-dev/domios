@@ -28,11 +28,8 @@ impl ServiceContext {
         let Some(tab_id) = tab_id else {
             return;
         };
-        let launch_attempt = crate::service::launch_readiness::LaunchAttempt::current(
-            &self.mux,
-            tab_id,
-            pty_id,
-        );
+        let launch_attempt =
+            crate::service::launch_readiness::LaunchAttempt::current(&self.mux, tab_id, pty_id);
         let cron_launch_pending = launch_attempt
             .as_ref()
             .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
@@ -44,13 +41,11 @@ impl ServiceContext {
                 exit_code, ..
             } = event
             {
-                let cron_launch_pending = self
-                    .run_watcher
-                    .cron_launch_exit_eligibility(self, pty_id)
-                    == Some(false)
-                    || launch_attempt
-                        .as_ref()
-                        .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
+                let cron_launch_pending =
+                    self.run_watcher.cron_launch_exit_eligibility(self, pty_id) == Some(false)
+                        || launch_attempt
+                            .as_ref()
+                            .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
                 let tree = tree_observation.as_ref();
                 let proof = if cron_launch_pending {
                     None

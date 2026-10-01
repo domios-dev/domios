@@ -419,9 +419,7 @@ fn cron_run_not_failed_before_own_launch_issued() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "cron-prelaunch-pty".to_string();
     mux.link_pty(&tab_id, pty_id.clone());
-    mux.get_tab_mut(&tab_id)
-        .unwrap()
-        .session_binding_nonce = Some("cron-prelaunch-nonce".into());
+    mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some("cron-prelaunch-nonce".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let attempt = LaunchAttempt::current(&fixture.service.mux, &tab_id, &pty_id)
         .expect("the cron tab already owns its launch PTY");
@@ -432,10 +430,8 @@ fn cron_run_not_failed_before_own_launch_issued() {
         binding_nonce: Some(attempt.binding_nonce.clone()),
         executable_name: "provider-binary".into(),
     };
-    let absence = ProviderTreeWitnesses::default().record_for_test(
-        &key,
-        ProviderProcessTreeSnapshot::Absent,
-    );
+    let absence =
+        ProviderTreeWitnesses::default().record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
     assert_eq!(absence.state(), ProviderTreeState::AbsentBeforeSeen);
     assert!(
         LaunchExitProof::from_finished_marker(&attempt, &absence, Some(1), true, None).is_some()
@@ -540,9 +536,8 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
     mux.link_pty(&tab_id, pty_id.clone());
-    mux.get_tab_mut(&tab_id)
-        .unwrap()
-        .session_binding_nonce = Some("cron-process-exit-nonce".into());
+    mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce =
+        Some("cron-process-exit-nonce".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let attempt = crate::service::launch_readiness::LaunchAttempt::current(
         &fixture.service.mux,
@@ -551,7 +546,9 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     )
     .expect("the cron tab owns its PTY");
     crate::service::launch_readiness::arm_cron_run(attempt.clone());
-    assert!(crate::service::launch_readiness::mark_launch_issued(&attempt));
+    assert!(crate::service::launch_readiness::mark_launch_issued(
+        &attempt
+    ));
     let cron = std::sync::Arc::new(parking_lot::Mutex::new(
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
