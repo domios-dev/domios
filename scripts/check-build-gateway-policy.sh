@@ -134,7 +134,7 @@ check_tests_flow="$(sed -n '/^  check-tests)/,/^    ;;/p' build.sh)"
 expect_log 'prepare_exceptional_worktree_target' <<< "$check_tests_flow"
 expect_log 'prepare_dev_frontend_dist "$(pwd -P)"' <<< "$check_tests_flow"
 expect_log 'prepare_bundle_stubs' <<< "$check_tests_flow"
-expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --all-targets' <<< "$check_tests_flow"
+expect_log 'cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets' <<< "$check_tests_flow"
 expect_log 'cargo check --manifest-path cli/Cargo.toml --all-targets' <<< "$check_tests_flow"
 if grep -q 'enter_build_gateway' <<< "$check_tests_flow"; then
   echo "check-tests must compile test profiles without waiting behind the shared dev gateway" >&2
