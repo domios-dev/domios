@@ -163,8 +163,11 @@ export function MemorySnapshotCanvas({
         if (!sel || !egoSetRef.current) return data;
         const g = graphRef.current;
         if (!g) return data;
-        const touches = g.extremities(edge).includes(sel);
-        return touches ? { ...data, zIndex: 1 } : { ...data, hidden: true };
+        if (!g.extremities(edge).includes(sel)) return { ...data, hidden: true };
+        const palette = paletteRef.current;
+        if (!palette) return { ...data, zIndex: 1 };
+        const size = Math.max(data.size ?? 0, 0.4);
+        return { ...data, zIndex: 1, size, color: palette.edgeColor(palette.egoEdgeAlpha) };
       },
     });
     sigmaRef.current = sigma;
@@ -596,7 +599,7 @@ function buildClusterView(graph: Graph, idx: NodeIndex, palette: MemoryGraphPale
     try {
       graph.addEdgeWithKey(key, from, to, {
         size: Math.min(2, 0.3 + Math.log10(e.weight + 1) * 0.6),
-        color: `rgba(${palette.edgeRgb},${palette.clusterEdgeAlpha})`,
+        color: palette.edgeColor(palette.clusterEdgeAlpha),
       });
     } catch {
       /* dup */
@@ -652,7 +655,7 @@ function applyRealEdges(
         const conf = e.confidence ?? 0.5;
         graph.addEdgeWithKey(key, e.from, e.to, {
           size: 0.005 + conf * 0.01,
-          color: `rgba(${palette.edgeRgb},${palette.realEdgeAlpha(conf)})`,
+          color: palette.edgeColor(palette.realEdgeAlpha(conf)),
         });
       } catch {
         /* dup */
@@ -675,7 +678,7 @@ function applyEgoEdges(
     try {
       graph.addEdgeWithKey(key, e.from, e.to, {
         size: 0.4,
-        color: `rgba(${palette.edgeRgb},${palette.egoEdgeAlpha})`,
+        color: palette.edgeColor(palette.egoEdgeAlpha),
       });
     } catch {
       /* dup */
