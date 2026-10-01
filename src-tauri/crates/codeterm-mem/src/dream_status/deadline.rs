@@ -12,6 +12,7 @@ use crate::workers::GraphWorkerRegistry;
 use crate::MemManager;
 
 pub const DEADLINE_REASON: &str = "deadline";
+pub const APPROVAL_PROMPT_REASON: &str = "approval_prompt";
 /// Log field the host appends; its presence marks the diary as cut short.
 pub const DEADLINE_FIELD: &str = "DEADLINE";
 pub const DREAM_DIARY_TAG: &str = "dream-diary";
@@ -112,6 +113,17 @@ pub fn finalize_at_deadline(
     worker_id: &str,
     detail: &str,
 ) -> Result<DeadlineOutcome, String> {
+    finalize_at_deadline_with_reason(mem, workers, worker_id, detail, DEADLINE_REASON)
+}
+
+/// Finalize a cut-short diary and persist the supplied partial reason.
+pub fn finalize_at_deadline_with_reason(
+    mem: &MemManager,
+    workers: &GraphWorkerRegistry,
+    worker_id: &str,
+    detail: &str,
+    reason: &str,
+) -> Result<DeadlineOutcome, String> {
     let worker = workers
         .get(worker_id)
         .ok_or_else(|| format!("worker not found: {worker_id}"))?;
@@ -146,7 +158,7 @@ pub fn finalize_at_deadline(
         diary_id.clone(),
         DiaryFinalization::Partial {
             diary_id: diary_id.clone(),
-            reason: DEADLINE_REASON.to_string(),
+            reason: reason.to_string(),
         },
     )?;
     Ok(DeadlineOutcome {
