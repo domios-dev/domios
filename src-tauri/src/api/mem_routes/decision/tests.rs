@@ -6,6 +6,10 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use codeterm_types::decision::{
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionRequest,
+};
 
 use super::sessions_source::SessionCandidate;
 use super::{
@@ -18,10 +22,6 @@ use crate::api::mem_routes::search::{
 };
 use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
 use crate::mem::decision::token_store::TokenStatus;
-use crate::mem::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionRequest,
-};
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
 use crate::mem::{MemKind, MemManager, MemScope, NewMemItem, SearchHit};

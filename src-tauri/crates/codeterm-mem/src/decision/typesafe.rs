@@ -5,12 +5,12 @@ use std::sync::RwLock;
 use std::time::Instant;
 
 use serde_json::{json, Value};
-
-use super::token_store::TokenStore;
-use super::{
+use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionQuestion, DecisionRequest,
 };
+
+use super::token_store::TokenStore;
 
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_MODEL: &str = "jev-latest";
