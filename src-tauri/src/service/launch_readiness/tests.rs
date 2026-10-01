@@ -34,6 +34,34 @@ fn attempt_of(tab: &Tab) -> LaunchAttempt {
     }
 }
 
+#[test]
+fn launch_issue_is_recorded_only_for_the_armed_attempt() {
+    let attempt = LaunchAttempt {
+        tab_id: "cron-launch-tab".into(),
+        pty_id: "cron-launch-pty".into(),
+        binding_nonce: "cron-launch-nonce".into(),
+    };
+    assert!(!attempt_is_armed(&attempt));
+    assert!(!launch_was_issued(&attempt));
+
+    arm_cron_run(attempt.clone());
+    assert!(attempt_is_armed(&attempt));
+    assert!(cron_launch_is_pending(&attempt));
+    assert!(!launch_was_issued(&attempt));
+    assert!(mark_launch_issued(&attempt));
+    assert!(!cron_launch_is_pending(&attempt));
+    assert!(launch_was_issued(&attempt));
+
+    let superseded = LaunchAttempt {
+        binding_nonce: "cron-launch-next".into(),
+        ..attempt.clone()
+    };
+    assert!(!mark_launch_issued(&superseded));
+    assert!(!launch_was_issued(&superseded));
+    assert!(retire_attempt(&attempt));
+    assert!(!attempt_is_armed(&attempt));
+}
+
 fn exit_proof(attempt: &LaunchAttempt) -> LaunchExitProof {
     use crate::service::process_tree::{
         ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeWitnesses,
