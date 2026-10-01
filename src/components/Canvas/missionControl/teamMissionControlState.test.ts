@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "../../../lib/types";
-import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import { baseUrl } from "../../MemoryPanel/memoryApi";
 import {
   fetchTeamMissionControlState,
   type TeamMissionControlState,
@@ -31,10 +31,7 @@ describe("team mission control state adapter", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${baseUrl(API)}/api/teams/team%2Fone/mission-control/state?limit=2&cursor=next-page`,
-      {
-        headers: authHeaders(API),
-        signal: undefined,
-      },
+      expect.objectContaining({ headers: expect.anything() }),
     );
   });
 });

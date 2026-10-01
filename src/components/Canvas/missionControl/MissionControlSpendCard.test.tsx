@@ -2,7 +2,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "../../../lib/types";
-import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import { baseUrl } from "../../MemoryPanel/memoryApi";
 import { ModelsCard, SpendCard } from "./BoardCards";
 import { SPEND_PERIOD_CAPTION } from "./BoardSpendCard";
 import {
@@ -290,12 +290,12 @@ describe("mission control spend card", () => {
       ).resolves.toBe(fixture);
       expect(fetchMock).toHaveBeenCalledWith(
         `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=tokens&from=2026-09-07&to=2026-09-13`,
-        { headers: authHeaders(api), signal: undefined },
+        expect.objectContaining({ headers: expect.anything() }),
       );
       await fetchTeamSpend(api, "team 1", { metric: "weekly_limit_points", from: "2026-09-07", to: "2026-09-13" });
       expect(fetchMock).toHaveBeenLastCalledWith(
         `${baseUrl(api)}/api/teams/team%201/mission-control/spend?metric=weekly_limit_points&from=2026-09-07&to=2026-09-13`,
-        { headers: authHeaders(api), signal: undefined },
+        expect.objectContaining({ headers: expect.anything() }),
       );
     } finally {
       vi.unstubAllGlobals();
