@@ -132,3 +132,32 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
         Err(PlanError::InvalidPlanText(_))
     ));
 }
+
+#[test]
+fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
+    let (store, plan_id, task_id) = store_with_task(&["status_update"]);
+    {
+        let plans = store.plans.read();
+        let mut plan = plans.get(&plan_id).unwrap().lock();
+        let template = plan.tasks[0].clone();
+        for index in 0..80 {
+            let mut task = template.clone();
+            task.id = format!("task_bulk{index}");
+            task.tags = (0..1000).map(|tag| format!("t{tag}")).collect();
+            plan.tasks.push(task);
+        }
+    }
+
+    store
+        .add_milestone(
+            &plan_id,
+            &task_id,
+            "status_update",
+            "plain text",
+            AgentRef::default(),
+            false,
+            3,
+        )
+        .unwrap();
+    assert_eq!(store.get(&plan_id).unwrap().tasks.len(), 81);
+}
