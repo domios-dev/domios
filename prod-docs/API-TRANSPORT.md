@@ -51,7 +51,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/send" -H "Content-Type: application
 # Register webhook for agent events
 curl -X POST http://host:7685/api/webhooks -H "Content-Type: application/json" -d '{"url": "https://my-orchestrator/hook", "events": ["agent.permission_request"]}'
 
-# One-shot webhook (fires once, then auto-deletes — like a Promise)
+# One-shot webhook (fires once, then deletes itself)
 curl -X POST http://host:7685/api/webhooks -H "Content-Type: application/json" -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
 ```
 The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
@@ -132,8 +132,8 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
 | `mem.pinned` | `{limit?}` | List pinned items |
 | `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive) |
-| `mem.restore` | `{id, version?, changed_by?}` | Restore from the audit history: an archived or merged item gets its prior kind back and its merge link invalidated; otherwise a prior body. |
-| `mem.merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Reversible merge: archive the lesser and link it to the keeper; never deletes (`codeterm docs API-MEMORY`). |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body, or an archived or merged item's kind (`codeterm docs API-MEMORY`). |
+| `mem.merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Archive the lesser into the keeper; reversible. |
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
@@ -146,7 +146,7 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
 | `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
 | `mem.calibration.sweep` | `{force?}` | Trigger the dreamer's importance/archive sweep. |
-| `mem.calibration.stale` | `{dry_run?, limit?}` | Staleness archive, or list its ids and reasons with `dry_run`. |
+| `mem.calibration.stale` | `{dry_run?, limit?}` | Stale archive; `dry_run` lists ids and reasons. |
 | `mem.worker.spawn` | `{intent, task, agent?, parent?}` | Spawn a hidden graph worker. |
 | `mem.worker.list` | — | List all graph workers. |
 | `mem.worker.get` | `{id}` | Fetch one graph worker by id. |
@@ -174,8 +174,8 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.graph.repair.prune_dream_hub_edges` | `{dry_run?, actor?}` | Invalidate dream-diary backlinks into hubs. |
 | `mem.graph.repair.orphan_blobs` | `{dry_run?, actor?}` | Find/delete unreferenced blob files. |
 
-`codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync/skill/worker/calibration/graph surface over these socket methods, never HTTP, so a live socket with a dead HTTP API does not break `mem`. Some `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) are local-only: the CLI opens `knowledge.db` directly. `mem secret` is the deliberate holdout: `mem.secret.*` gets an explicit `-32004` socket rejection (`secret_socket_rejection` in `socket/server/mem/mod.rs`) because it alone can return plaintext credentials and the socket has no auth gate, so it stays on the bearer-token-gated `/api/secrets/*` HTTP API by design.
-| `notification.create` | `{title, body?, severity?, caller_tab_id?, tab_id?, level?, event_key?}` | Create notification. Both ids are hints: the daemon resolves the caller first, falls back to `tab_id`, and stores navigation provenance (`tab_id`, `tab_title`, `workspace_id`) only for a live tab; an unresolvable or closed tab is dropped and the notification lands without a Show Tab target. `workspace_id` is derived, never accepted. `level` is `verbose`, `action_needed`, or `failure` (else `-32602`); omitted means local-only (no Telegram push). `severity` (`info`/`warning`/`error`) is toast styling only. `event_key` is a coalescing hint, derived when absent. Result `{id}`, plus `unseen: {closed:[{surface,reason}]}` when NO surface will show the record (bell hidden by `notifications.show_bell = false`, no toast admitted, no push channel). That is information, not an error; the key is absent whenever any surface is open. |
+`codeterm mem` routes its whole surface over these socket methods, never HTTP, so a dead HTTP API does not break `mem`. Some `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) open `knowledge.db` directly. `mem secret` is the holdout: `mem.secret.*` is rejected on the socket with `-32004`, because only it can return plaintext credentials and the socket has no auth gate; it stays on the bearer-token-gated `/api/secrets/*` HTTP API.
+| `notification.create` | `{title, body?, severity?, caller_tab_id?, tab_id?, level?, event_key?}` | Create notification. Both ids are hints: the daemon resolves the caller first, falls back to `tab_id`, and stores navigation provenance (`tab_id`, `tab_title`, `workspace_id`) only for a live tab; an unresolvable or closed tab is dropped, leaving no Show Tab target. `workspace_id` is derived, never accepted. `level` is `verbose`, `action_needed`, or `failure` (else `-32602`); omitted means local-only (no Telegram push). `severity` (`info`/`warning`/`error`) is toast styling only. `event_key` is a coalescing hint, derived when absent. Result `{id}`, plus `unseen: {closed:[{surface,reason}]}` when NO surface will show the record (bell hidden by `notifications.show_bell = false`, no toast admitted, no push channel). It is information, not an error, and absent while any surface is open. |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
 | `agent.list` | — | List all tabs with roles |
@@ -236,4 +236,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->
