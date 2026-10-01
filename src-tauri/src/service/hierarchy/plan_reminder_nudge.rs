@@ -2,7 +2,8 @@ use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
 use codeterm_plan::service_plan::state::{
-    plan_needs_orchestrator_action, task_projection, DependencyWait, TaskPresentation,
+    orchestrator_actionable_task_ids, plan_needs_orchestrator_action, task_projection,
+    DependencyWait, TaskPresentation,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -157,7 +158,7 @@ impl ServiceContext {
         }
     }
 
-    fn deliver_plan_reminder_target(
+    pub(super) fn deliver_plan_reminder_target(
         &self,
         tab_id: &str,
         target: &PlanReminderTarget,
@@ -173,9 +174,10 @@ impl ServiceContext {
             PlanReminderTarget::Worker => format!("worker:{tab_id}:{kind:?}"),
         };
         let now = current_epoch_secs();
-        if !self
-            .plan_turn_counter
-            .reminder_content_due(tab_id, &state_key, now)
+        if kind != crate::service::plan::reminders::NudgeKind::StalledTeam
+            && !self
+                .plan_turn_counter
+                .reminder_content_due(tab_id, &state_key, now)
         {
             return Ok(());
         }
@@ -183,7 +185,14 @@ impl ServiceContext {
             PlanReminderTarget::Owner { plan_id } => self
                 .plan_store
                 .get(plan_id)
-                .map(|plan| crate::service::plan::reminders::orchestrator_nudge_text(&plan))
+                .map(|plan| match kind {
+                    crate::service::plan::reminders::NudgeKind::StalledTeam => {
+                        let actionable = orchestrator_actionable_task_ids(&plan).join(", ");
+                        crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER
+                            .replace("{actionable}", &actionable)
+                    }
+                    _ => crate::service::plan::reminders::orchestrator_nudge_text(&plan),
+                })
                 .ok_or_else(|| format!("plan {plan_id} not found; retry on next scheduler tick"))?,
             PlanReminderTarget::Worker => crate::service::plan::reminders::worker_nudge_text(),
         };

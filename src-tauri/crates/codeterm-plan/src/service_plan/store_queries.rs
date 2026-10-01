@@ -368,6 +368,28 @@ impl PlanStore {
             .collect()
     }
 
+    pub fn list_full_reminder_candidates_for_owner(&self, owner_tab_id: &str) -> Vec<Plan> {
+        if owner_tab_id.trim().is_empty() {
+            return Vec::new();
+        }
+        let candidate_ids: Vec<String> = self
+            .index
+            .read()
+            .values()
+            .filter(|entry| {
+                entry.status == PlanStatus::Active
+                    && entry.task_count > 0
+                    && entry.owner.tab_id.as_deref() == Some(owner_tab_id)
+            })
+            .map(|entry| entry.plan_id.clone())
+            .collect();
+        let plans = self.plans.read();
+        candidate_ids
+            .iter()
+            .filter_map(|id| plans.get(id).map(|plan| plan.lock().clone()))
+            .collect()
+    }
+
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
         let _writer_turn = self.mutation_writer.enter();
         let indexed_plan = self.get(id);
