@@ -53,6 +53,14 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     removeNode,
   } = useGraphData(api);
   const snapshot = useSnapshotGraph(api);
+  const graphVisible = activeTab === "inspect" && inspectView === "graph";
+  const refreshSnapshot = snapshot.refresh;
+  const graphWasVisible = useRef(graphVisible);
+  useEffect(() => {
+    // Mount already fetches fresh; only a return to the graph needs another pull.
+    if (graphVisible && !graphWasVisible.current) void refreshSnapshot();
+    graphWasVisible.current = graphVisible;
+  }, [graphVisible, refreshSnapshot]);
   const { pulses } = useActivityPulses(api);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
@@ -219,6 +227,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             <MemorySnapshotCanvas
               api={api}
               index={snapshot.index}
+              epoch={snapshot.epoch}
               pulses={pulses}
               registerFit={registerFit}
               registerRecenter={registerRecenter}
