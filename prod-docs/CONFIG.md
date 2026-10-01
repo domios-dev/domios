@@ -77,9 +77,16 @@ idle_timeout_s = 2
 resume_sessions = true
 full_access = true
 
-[agent.tab_state_shadow]
-# Observe-only: on each startup nudge, log a decision-model label of the tab's
-# screen beside the structural verdict. It never changes a nudge or delivery.
+[supporter]
+adapter = "typesafe-jev"
+model = "jev-latest"
+deadline_ms = 3000
+
+[supporter.memory_rerank]
+enabled = false
+docs_hybrid = false
+
+[supporter.tab_state]
 enabled = false
 
 [api]
@@ -183,17 +190,21 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `agent.poll_interval_ms` | integer from 100 to 60000 |
 | `agent.idle_timeout_s` | integer from 1 to 3600 |
 | `memory.workers_per_provider` | integer from 1 to 16; default 3 |
-| `memory.decision_rerank.sources.recall` | integer from 1 to 50; default 30 |
-| `memory.decision_rerank.sources.graph` | integer from 0 to 20; default 3 |
-| `memory.decision_rerank.sources.docs` | integer from 0 to 10; default 3 |
-| `memory.decision_rerank.sources.sessions` | integer from 0 to 5; default 0 |
-| `memory.decision_rerank.max_concurrency` | integer from 1 to 32; default 16 |
-| `memory.decision_rerank.deadline_ms` | integer from 100 to 30000; default 3000 |
-| `memory.decision_rerank.low_confidence_threshold` | number from 0 to 1; default 0.15 |
-| `memory.decision_rerank.max_body_chars` | integer from 256 to 100000; default 2000 |
+| `supporter.memory_rerank.sources.recall` | integer from 1 to 50; default 30 |
+| `supporter.memory_rerank.sources.graph` | integer from 0 to 20; default 3 |
+| `supporter.memory_rerank.sources.docs` | integer from 0 to 10; default 3 |
+| `supporter.memory_rerank.sources.sessions` | integer from 0 to 5; default 0 |
+| `supporter.memory_rerank.max_concurrency` | integer from 1 to 32; default 16 |
+| `supporter.deadline_ms` | integer from 100 to 30000; default 3000 |
+| `supporter.memory_rerank.candidates` | integer from 1 to 50; default 50 |
+| `supporter.memory_rerank.low_confidence_threshold` | number from 0 to 1; default 0.15 |
+| `supporter.memory_rerank.max_body_chars` | integer from 256 to 100000; default 2000 |
+| `supporter.memory_rerank.enabled` | boolean; default false |
+| `supporter.memory_rerank.docs_hybrid` | boolean; default false |
 
-`memory.decision_rerank.enabled` (default `false`), `.adapter`, `.endpoint` and `.model` complete the section; see `codeterm docs MEMORY` for the behaviour and the runtime settings reference below.
-`memory.decision_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for decision-rerank documentation candidates.
+`supporter.adapter`, `.endpoint`, and `.model` select the registered adapter and discovered model; `.deadline_ms` sets the stage deadline. `supporter.memory_rerank.enabled` defaults to `false`. The token is write-only in Settings > Agents > Supporter Agent, or through `codeterm supporter token set` with stdin; it is never stored in `config.toml`.
+`supporter.memory_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for supporter documentation candidates.
+`supporter.tab_state.enabled` (default `false`) enables the tab-state signal.
 
 | Key | Bounds |
 |-----|--------|
@@ -202,7 +213,7 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 
 `memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. The caps count archives and Dreamer merges per UTC day.
 
-The user-facing name of this model is the Supporter Agent; its token is set in Settings > Agents or with `codeterm mem decision token set`, never in `config.toml`.
+The Supporter Agent's token is set in Settings > Agents > Supporter Agent or with `codeterm supporter token set`, never in `config.toml`.
 
 Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
 
@@ -235,4 +246,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->

@@ -9,15 +9,18 @@ use serde_json::{json, Value};
 
 use super::sessions_source::SessionCandidate;
 use super::{
-    candidate, decision_token_dir, token_store, DecisionBackend, DecisionRegistry, Untouched,
+    candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
+    token_store, DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
     RERANK_EXCLUSIVE,
 };
-use crate::config::schema::DecisionRerankConfig;
+use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
+use crate::mem::decision::token_store::TokenStatus;
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionRequest,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionRequest,
 };
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
@@ -205,16 +208,19 @@ fn params(limit: usize) -> SearchParams {
 }
 
 /// Recall-only pool: the shipped defaults add graph candidates, which these tests do not cover.
-fn enabled_cfg() -> DecisionRerankConfig {
-    DecisionRerankConfig {
-        enabled: true,
+fn enabled_cfg() -> SupporterConfig {
+    SupporterConfig {
         adapter: STUB_ID.into(),
-        sources: crate::config::schema::DecisionSources {
-            graph: 0,
-            docs: 0,
-            ..crate::config::schema::DecisionSources::default()
+        memory_rerank: MemoryRerankConfig {
+            enabled: true,
+            sources: crate::config::schema::SupporterSources {
+                graph: 0,
+                docs: 0,
+                ..crate::config::schema::SupporterSources::default()
+            },
+            ..MemoryRerankConfig::default()
         },
-        ..DecisionRerankConfig::default()
+        ..SupporterConfig::default()
     }
 }
 
@@ -241,6 +247,13 @@ impl DecisionModel for StubModel {
             noul: true,
             ..DecisionPrimitives::default()
         }
+    }
+
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        vec![DecisionModelInfo {
+            id: "stub-model".into(),
+            display_name: "Stub Model".into(),
+        }]
     }
 
     fn decide(
@@ -276,13 +289,13 @@ impl DecisionModel for StubModel {
     }
 }
 
-fn registry_with(mode: StubMode) -> DecisionRegistry {
-    let registry = DecisionRegistry::new();
+fn registry_with(mode: StubMode) -> SupporterRegistry {
+    let registry = SupporterRegistry::new();
     registry.register(STUB_ID, Arc::new(StubModel { mode }));
     registry
 }
 
-fn relevance_registry(by_title: &[(&str, f64)]) -> DecisionRegistry {
+fn relevance_registry(by_title: &[(&str, f64)]) -> SupporterRegistry {
     registry_with(StubMode::Relevance(
         by_title.iter().map(|(t, p)| (t.to_string(), *p)).collect(),
     ))
@@ -307,8 +320,66 @@ fn titles(output: &Value) -> Vec<String> {
 }
 
 fn without_envelope(mut output: Value) -> Value {
-    output.as_object_mut().unwrap().remove("decision_rerank");
+    output.as_object_mut().unwrap().remove("supporter");
     output
+}
+
+#[test]
+fn supporter_status_distinguishes_missing_token_token_only_and_active() {
+    let missing = TokenStatus {
+        present: false,
+        path: "token.json".into(),
+        mode_ok: None,
+    };
+    let set = TokenStatus {
+        present: true,
+        path: "token.json".into(),
+        mode_ok: Some(true),
+    };
+    let unusable = TokenStatus {
+        present: true,
+        path: "token.json".into(),
+        mode_ok: Some(false),
+    };
+
+    assert_eq!(supporter_state(false, &missing, true), "no_token");
+    assert_eq!(supporter_state(false, &set, true), "token_only");
+    assert_eq!(supporter_state(true, &set, true), "active");
+    assert_eq!(supporter_state(false, &unusable, true), "token_unusable");
+    assert_eq!(supporter_state(false, &set, false), "adapter_unavailable");
+}
+
+#[test]
+fn supporter_models_lists_registered_models() {
+    let registry = registry_with(StubMode::Relevance(HashMap::new()));
+
+    assert_eq!(
+        registered_adapters(&registry),
+        vec![json!({
+            "id": STUB_ID,
+            "primitives": { "choice": false, "noul": true, "score": false },
+            "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
+        })]
+    );
+}
+
+#[test]
+fn supporter_models_and_use_refuse_unlisted_models() {
+    let models = vec![DecisionModelInfo {
+        id: "jev-current".into(),
+        display_name: "Jev current".into(),
+    }];
+
+    assert_eq!(
+        select_model_id("stub", &models, Some("jev-current".into()), false, None).unwrap(),
+        Some("jev-current".into())
+    );
+    assert_eq!(
+        select_model_id("stub", &models, None, true, Some("jev-current".into())).unwrap(),
+        Some("jev-current".into())
+    );
+    let error = select_model_id("stub", &models, Some("unknown".into()), false, None).unwrap_err();
+    assert!(error.contains("jev-current"));
 }
 
 #[test]
@@ -332,12 +403,12 @@ fn decision_off_response_is_byte_identical() {
     let registry = relevance_registry(&[(TITLES[3], 0.9)]);
     let mut request = params(3);
     request.project = Some("/seeded/project".into());
-    let off = DecisionRerankConfig {
+    let off = SupporterConfig {
         adapter: STUB_ID.into(),
-        ..DecisionRerankConfig::default()
+        ..SupporterConfig::default()
     };
     let overridden = SearchParams {
-        decision_rerank: Some(false),
+        supporter: Some(false),
         ..request.clone()
     };
     for (cfg, request) in [(off, request.clone()), (enabled_cfg(), overridden)] {
@@ -352,7 +423,7 @@ fn decision_off_response_is_byte_identical() {
         assert!(returned_mem_ids(&output)
             .iter()
             .all(|id| after[id] > before[id]));
-        assert!(output.get("decision_rerank").is_none());
+        assert!(output.get("supporter").is_none());
         assert!(output["hits"]
             .as_array()
             .unwrap()
@@ -365,7 +436,7 @@ fn decision_off_response_is_byte_identical() {
 fn decision_applied_reorders_and_annotates() {
     let backend = seeded();
     let cfg = enabled_cfg();
-    let pooled = baseline_oracle(&backend, &params(cfg.sources.recall));
+    let pooled = baseline_oracle(&backend, &params(cfg.memory_rerank.sources.recall));
     let pool_titles = titles(&pooled);
     assert_eq!(pool_titles.len(), TITLES.len());
     let n = pool_titles.len() as f64;
@@ -378,7 +449,7 @@ fn decision_applied_reorders_and_annotates() {
 
     let limit = 2;
     let request = SearchParams {
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..params(limit)
     };
     let output = resolve_search(&backend, &registry, &cfg, request).unwrap();
@@ -398,7 +469,7 @@ fn decision_applied_reorders_and_annotates() {
         assert_eq!(hit["relevance"].as_f64().unwrap(), wanted);
     }
     assert_eq!(
-        output["decision_rerank"],
+        output["supporter"],
         json!({
             "status": "applied",
             "adapter": STUB_ID,
@@ -418,21 +489,21 @@ fn decision_applied_low_confidence_envelope() {
         (TITLES[3], 0.01),
     ]);
     let request = SearchParams {
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..params(3)
     };
     let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
 
     assert_eq!(titles(&output), vec![TITLES[1], TITLES[2], TITLES[0]]);
-    assert_eq!(output["decision_rerank"]["status"], "applied");
-    assert_eq!(output["decision_rerank"]["low_confidence"], true);
-    assert_eq!(output["decision_rerank"]["max_relevance"], 0.10);
+    assert_eq!(output["supporter"]["status"], "applied");
+    assert_eq!(output["supporter"]["low_confidence"], true);
+    assert_eq!(output["supporter"]["max_relevance"], 0.10);
 }
 
 #[test]
 fn decision_fallback_hits_equal_baseline() {
     let (_held_sender, never_signalled) = mpsc::channel::<()>();
-    let cases: Vec<(&str, DecisionRegistry, DecisionRerankConfig)> = vec![
+    let cases: Vec<(&str, SupporterRegistry, SupporterConfig)> = vec![
         (
             "adapter_error",
             registry_with(StubMode::Fail(DecisionError::Http(500))),
@@ -449,12 +520,12 @@ fn decision_fallback_hits_equal_baseline() {
                 signal: Mutex::new(never_signalled),
                 released: AtomicBool::new(false),
             }),
-            DecisionRerankConfig {
+            SupporterConfig {
                 deadline_ms: 100,
                 ..enabled_cfg()
             },
         ),
-        ("no_adapter", DecisionRegistry::new(), enabled_cfg()),
+        ("no_adapter", SupporterRegistry::new(), enabled_cfg()),
         (
             "unavailable",
             registry_with(StubMode::Fail(DecisionError::Unavailable(
@@ -473,7 +544,7 @@ fn decision_fallback_hits_equal_baseline() {
             &registry,
             &cfg,
             SearchParams {
-                decision_rerank: Some(true),
+                supporter: Some(true),
                 ..request.clone()
             },
         )
@@ -484,7 +555,7 @@ fn decision_fallback_hits_equal_baseline() {
             "{reason}"
         );
         assert_eq!(
-            output["decision_rerank"],
+            output["supporter"],
             json!({ "status": "fallback", "reason": reason })
         );
         assert_eq!(
@@ -501,10 +572,10 @@ fn decision_legacy_and_decision_both_explicit_rejected() {
     let registry = relevance_registry(&[]);
     let request = SearchParams {
         rerank: Some(true),
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..params(2)
     };
-    for cfg in [DecisionRerankConfig::default(), enabled_cfg()] {
+    for cfg in [SupporterConfig::default(), enabled_cfg()] {
         let error = resolve_search(&backend, &registry, &cfg, request.clone()).unwrap_err();
         assert_eq!(error, SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
         assert_eq!(error.into_http().0, axum::http::StatusCode::BAD_REQUEST);
@@ -523,7 +594,7 @@ fn decision_legacy_with_config_enabled_reports_skipped() {
     let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
 
     assert_eq!(
-        output["decision_rerank"],
+        output["supporter"],
         json!({ "status": "skipped", "reason": "legacy_rerank" })
     );
     assert!(output["hits"]
@@ -545,12 +616,12 @@ fn decision_access_delta_matches_returned_hits() {
         .enumerate()
         .map(|(i, t)| (t.as_str(), (i as f64 + 1.0) / 10.0))
         .collect();
-    let cases: Vec<(&str, DecisionRegistry, SearchParams)> = vec![
+    let cases: Vec<(&str, SupporterRegistry, SearchParams)> = vec![
         (
             "applied",
             relevance_registry(&by_title),
             SearchParams {
-                decision_rerank: Some(true),
+                supporter: Some(true),
                 ..request.clone()
             },
         ),
@@ -558,7 +629,7 @@ fn decision_access_delta_matches_returned_hits() {
             "fallback",
             registry_with(StubMode::Fail(DecisionError::Http(500))),
             SearchParams {
-                decision_rerank: Some(true),
+                supporter: Some(true),
                 ..request.clone()
             },
         ),
@@ -576,7 +647,7 @@ fn decision_access_delta_matches_returned_hits() {
         let before = access_counts(&backend);
         let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
         let after = access_counts(&backend);
-        assert_eq!(output["decision_rerank"]["status"], status);
+        assert_eq!(output["supporter"]["status"], status);
 
         let returned = returned_mem_ids(&output);
         assert!(!returned.is_empty(), "{status}");
@@ -602,12 +673,12 @@ fn decision_http_search_does_not_block_runtime() {
         signal: Mutex::new(signal),
         released: AtomicBool::new(false),
     }));
-    let cfg = DecisionRerankConfig {
+    let cfg = SupporterConfig {
         deadline_ms: 10_000,
         ..enabled_cfg()
     };
     let request = SearchParams {
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..params(2)
     };
 
@@ -623,15 +694,15 @@ fn decision_http_search_does_not_block_runtime() {
         })
         .unwrap();
 
-    assert_eq!(output["decision_rerank"]["status"], "applied");
+    assert_eq!(output["supporter"]["status"], "applied");
     assert_eq!(output["hits"].as_array().unwrap().len(), 2);
 }
 
 #[test]
-fn decision_token_dir_is_outside_repo() {
-    let dir = decision_token_dir();
+fn supporter_token_dir_is_under_data_dir() {
+    let dir = supporter_token_dir();
     assert!(dir.starts_with(codeterm_paths::data_dir()));
-    assert!(dir.ends_with("decision-models"));
+    assert!(dir.ends_with("supporter"));
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();

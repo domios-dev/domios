@@ -321,3 +321,20 @@ fn typesafe_missing_token_is_unavailable_without_network() {
     );
     assert!(matches!(listener.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
 }
+
+#[test]
+fn typesafe_models_returns_configured_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = TypeSafeAdapter::new(
+        TokenStore::new(dir.path().join("tokens")),
+        None,
+        Some("fixture-model".into()),
+    );
+    assert_eq!(
+        adapter.models(),
+        vec![DecisionModelInfo {
+            id: "fixture-model".into(),
+            display_name: "fixture-model".into(),
+        }]
+    );
+}

@@ -188,7 +188,7 @@ fn spawn_worker(
     deadline: Instant,
 ) {
     let spawned = std::thread::Builder::new()
-        .name("mem-decision-rerank".into())
+        .name("mem-supporter-rerank".into())
         .spawn(move || loop {
             if Instant::now() >= deadline {
                 break;

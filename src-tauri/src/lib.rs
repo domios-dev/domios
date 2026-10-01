@@ -860,7 +860,7 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
-                decision_models: decision_model_registry,
+                supporter_models: decision_model_registry,
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
                 repo_watch,
