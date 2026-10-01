@@ -39,6 +39,7 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         if changed {
+            self.nudge_stalled_teams_for_idle_orchestrator(tab_id);
             crate::service::folder_trust_carryover::tab_became_idle(self.clone(), tab_id);
             self.emit_state_changed();
             self.schedule_planner_replay(tab_id);
