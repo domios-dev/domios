@@ -807,7 +807,9 @@ impl ServiceContext {
     /// a provider dialog gets that dialog answered instead, and a terminal with
     /// no agent behind it gets nothing.
     pub(crate) fn nudge_unacknowledged_startup(&self, tab_id: &str, attempt_id: &str) {
-        if !self.classify_startup_nudge(tab_id).delivers() {
+        let structural = self.classify_startup_nudge(tab_id);
+        self.shadow_tab_state(tab_id, structural);
+        if !structural.delivers() {
             return;
         }
         if let Err(error) = self.deliver_worker_ack_reminder(tab_id, attempt_id) {

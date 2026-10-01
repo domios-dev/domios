@@ -541,6 +541,7 @@ pub struct AgentConfig {
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
     pub full_access: Option<bool>,
+    pub tab_state_shadow: super::TabStateShadowConfig,
 }
 
 impl Default for AgentConfig {
@@ -550,6 +551,7 @@ impl Default for AgentConfig {
             idle_timeout_s: 2,
             resume_sessions: true,
             full_access: None,
+            tab_state_shadow: super::TabStateShadowConfig::default(),
         }
     }
 }

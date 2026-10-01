@@ -79,6 +79,11 @@ idle_timeout_s = 2
 resume_sessions = true
 full_access = true
 
+[agent.tab_state_shadow]
+# Observe-only: on each startup nudge, log a decision-model label of the tab's
+# screen beside the structural verdict. It never changes a nudge or delivery.
+enabled = false
+
 [api]
 enabled = true
 host = "127.0.0.1"
@@ -222,4 +227,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

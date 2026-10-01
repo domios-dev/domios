@@ -138,6 +138,7 @@ pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
+mod tab_state_shadow;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
