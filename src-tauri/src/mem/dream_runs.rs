@@ -91,11 +91,17 @@ pub fn finalize_dream_at_deadline(svc: &ServiceContext, worker_id: &str, detail:
     if !dreaming {
         return;
     }
-    match codeterm_mem::dream_status::deadline::finalize_at_deadline(
+    let reason = if detail == codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON {
+        codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON
+    } else {
+        codeterm_mem::dream_status::deadline::DEADLINE_REASON
+    };
+    match codeterm_mem::dream_status::deadline::finalize_at_deadline_with_reason(
         &svc.mem,
         &svc.workers,
         worker_id,
         detail,
+        reason,
     ) {
         Ok(outcome) => log::info!(
             "[dreaming] deadline finalization for {}: diary={:?} rewritten={} recorded={}",

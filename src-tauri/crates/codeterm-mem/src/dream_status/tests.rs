@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use super::deadline::{
-    deadline_body, finalize_at_deadline, last_logged_stage, DEADLINE_REASON, DREAMS_AREA,
-    DREAM_DIARY_TAG,
+    deadline_body, finalize_at_deadline, finalize_at_deadline_with_reason, last_logged_stage,
+    APPROVAL_PROMPT_REASON, DEADLINE_REASON, DREAMS_AREA, DREAM_DIARY_TAG,
 };
 use super::*;
 use crate::store::{MemKind, MemScope};
@@ -123,6 +123,44 @@ fn dream_deadline_finalizes_wip_diary_as_partial() {
         worker.dream_run_status(),
         DreamRunStatus::PartiallyFinalized {
             reason: DEADLINE_REASON.into()
+        }
+    );
+}
+
+#[test]
+fn dream_blocking_prompt_finalizes_wip_diary_with_approval_reason() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let registry = registry();
+    rem_worker(&registry);
+    let diary = save_diary(&mem, "dream: approval prompt", SKELETON, "codeterm");
+    time_out(&registry);
+
+    let outcome = finalize_at_deadline_with_reason(
+        &mem,
+        &registry,
+        WORKER,
+        APPROVAL_PROMPT_REASON,
+        APPROVAL_PROMPT_REASON,
+    )
+    .unwrap();
+
+    assert!(outcome.diary_rewritten && outcome.finalization_recorded);
+    let stored = mem.get(&diary).unwrap().unwrap();
+    let evidence = diary_evidence(&diary, &stored.body);
+    assert!(evidence.is_complete() && evidence.cut_at_deadline);
+    let worker = registry.get(WORKER).unwrap();
+    assert_eq!(worker.diary_id.as_deref(), Some(diary.as_str()));
+    assert_eq!(
+        worker.finalization,
+        DiaryFinalization::Partial {
+            diary_id: Some(diary),
+            reason: APPROVAL_PROMPT_REASON.into(),
+        }
+    );
+    assert_eq!(
+        worker.dream_run_status(),
+        DreamRunStatus::PartiallyFinalized {
+            reason: APPROVAL_PROMPT_REASON.into(),
         }
     );
 }

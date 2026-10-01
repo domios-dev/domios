@@ -9,7 +9,11 @@ use serde::Deserialize;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
+mod blocking_prompt;
 mod cron_end;
+use blocking_prompt::{
+    claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
+};
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
 // `memory.worker_timeout_seconds` can lower/higher this at runtime.
@@ -360,6 +364,23 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
         let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
             && surface_idle_provider_prompt(&svc, &state.tab_id, &state.pty_id);
+        let pending_prompt_kind =
+            if provider_prompt_pending && matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
+                tab_pending_prompt_kind(&svc, &state.tab_id)
+            } else {
+                None
+            };
+        if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
+        {
+            if claim_run_end(&state) {
+                let (svc_end, state_end) = (svc.clone(), state.clone());
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    end_on_blocking_prompt(&svc_end, &state_end)
+                })
+                .await;
+            }
+            return;
+        }
 
         // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
         if elapsed_total >= RESTART_GRACE_SECS
@@ -463,7 +484,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if elapsed_total >= timeout_secs {
-            if state.completed.swap(true, Ordering::AcqRel) {
+            if !claim_run_end(&state) {
                 return;
             }
             let (svc_end, state_end) = (svc.clone(), state.clone());
