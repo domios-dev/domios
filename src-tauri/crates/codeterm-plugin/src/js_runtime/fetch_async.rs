@@ -90,24 +90,30 @@ async fn fetch_async_releases_vm_during_request() {
         .expect("vm"),
     );
     let model = Arc::new(JsDecisionModel::new(vm, "decision-fetch-concurrency"));
+    let test_lock = super::PROCESS_TEST_LOCK.lock();
     let (result_tx, result_rx) = std::sync::mpsc::channel();
+    let start = Arc::new(std::sync::Barrier::new(3));
     for _ in 0..2 {
         let model = model.clone();
         let result_tx = result_tx.clone();
+        let start = start.clone();
         let request = DecisionRequest {
             state: json!({ "url": format!("http://{address}/decision") }),
             instructions: "parallel fixture".into(),
             question: DecisionQuestion::Noul { criteria: None },
         };
         std::thread::spawn(move || {
+            start.wait();
             let result = model.decide(&request, Instant::now() + Duration::from_secs(7));
             let _ = result_tx.send(result);
         });
     }
     drop(result_tx);
+    start.wait();
 
     let first = result_rx.recv_timeout(Duration::from_secs(8));
     let second = result_rx.recv_timeout(Duration::from_secs(8));
+    drop(test_lock);
     let _ = shutdown_tx.send(());
     let _ = server.await;
 
@@ -118,5 +124,68 @@ async fn fetch_async_releases_vm_during_request() {
     assert_eq!(
         second.expect("second decision"),
         Ok(DecisionAnswer::Noul { p: 0.65 })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn js_decision_model_models_resolves_fetch_continuation() {
+    let app = Router::new().route(
+        "/models",
+        get(|| async {
+            Json(json!([{ "id": "loaded", "display_name": "Loaded model" }]))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let address = listener.local_addr().expect("listener address");
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    let vm = Arc::new(
+        PluginVm::from_source(
+            "decision-models-fetch",
+            format!(
+                r#"module.exports.default = {{
+                    models() {{
+                        return host.fetch.async(
+                            {{ url: "http://{address}/models", timeoutMs: 3000 }},
+                            result => {{
+                                if (result.error || result.status !== 200) throw new Error("fetch failed");
+                                return JSON.parse(result.body);
+                            }}
+                        );
+                    }}
+                }};"#
+            ),
+        )
+        .expect("vm"),
+    );
+    let model = Arc::new(JsDecisionModel::new(vm, "decision-models-fetch"));
+
+    let models = tokio::time::timeout(
+        Duration::from_secs(7),
+        tokio::task::spawn_blocking(move || {
+            let _test_lock = super::PROCESS_TEST_LOCK.lock();
+            model.models()
+        }),
+    )
+    .await
+    .expect("models continuation deadline")
+    .expect("models call");
+    let _ = shutdown_tx.send(());
+    let _ = server.await;
+
+    assert_eq!(
+        models,
+        vec![codeterm_types::decision::DecisionModelInfo {
+            id: "loaded".into(),
+            display_name: "Loaded model".into(),
+        }]
     );
 }
