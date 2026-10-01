@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::super::NoulCriteria;
+use codeterm_types::decision::NoulCriteria;
 use super::*;
 
 const TOKEN: &str = "local-test-secret";

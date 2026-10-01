@@ -12,7 +12,9 @@ use serde::Deserialize;
 
 const MAX_STREAM_JOBS: usize = 128;
 const MAX_STREAM_JOB_BUFFERED_BYTES: usize = 4 * 1024 * 1024;
+const MAX_FETCH_BODY_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_FETCH_TIMEOUT_MS: u64 = 5_000;
+const MAX_FETCH_TIMEOUT_MS: u64 = 30_000;
 const FETCH_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const FETCH_CLIENT_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 
@@ -71,6 +73,17 @@ pub(super) fn run(opts_json: &str) -> String {
     match std::thread::spawn(move || run_sync(&owned)).join() {
         Ok(s) => s,
         Err(_) => err("fetch worker panicked"),
+    }
+}
+
+pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
+    if let Err(error) = serde_json::from_str::<FetchOpts>(opts_json) {
+        return err(&format!("bad fetch opts: {error}"));
+    }
+    let owned = opts_json.to_string();
+    match super::host_exec::start_json_job(plugin_id, move || run_sync(&owned)) {
+        Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
+        Err(error) => err(&error),
     }
 }
 
@@ -165,7 +178,11 @@ fn fetch_client() -> Result<&'static reqwest::Client, String> {
 }
 
 fn fetch_timeout(opts: &FetchOpts) -> Duration {
-    Duration::from_millis(opts.timeout_ms.unwrap_or(DEFAULT_FETCH_TIMEOUT_MS).max(1))
+    Duration::from_millis(
+        opts.timeout_ms
+            .unwrap_or(DEFAULT_FETCH_TIMEOUT_MS)
+            .clamp(1, MAX_FETCH_TIMEOUT_MS),
+    )
 }
 
 fn request_builder(client: &reqwest::Client, opts: &FetchOpts) -> reqwest::RequestBuilder {
@@ -219,7 +236,19 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            let body = resp.text().await.unwrap_or_default();
+            let mut body = Vec::new();
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = match chunk {
+                    Ok(chunk) => chunk,
+                    Err(error) => return Ok(err(&format!("response read failed: {error}"))),
+                };
+                if body.len().saturating_add(chunk.len()) > MAX_FETCH_BODY_BYTES {
+                    return Ok(err("fetch response exceeds the 4 MiB limit"));
+                }
+                body.extend_from_slice(&chunk);
+            }
+            let body = String::from_utf8_lossy(&body).into_owned();
             Ok(
                 serde_json::json!({ "status": status, "headers": headers, "body": body })
                     .to_string(),
@@ -398,6 +427,21 @@ mod tests {
     use std::time::Instant;
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    #[test]
+    fn fetch_timeout_is_bounded() {
+        let opts = FetchOpts {
+            url: "http://localhost".into(),
+            method: None,
+            headers: HashMap::new(),
+            body: None,
+            timeout_ms: Some(u64::MAX),
+        };
+        assert_eq!(
+            fetch_timeout(&opts),
+            Duration::from_millis(MAX_FETCH_TIMEOUT_MS)
+        );
+    }
 
     fn serve_chunked(chunks: Vec<&'static str>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

@@ -13,6 +13,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use codeterm_types::decision::{DecisionModel, DecisionModelInfo};
 
 use super::search::{
     baseline_search, mem_hit_value, mem_query, RecallBackend, SearchError, SearchParams,
@@ -24,7 +25,6 @@ use crate::mem::decision::rerank::{
 };
 use crate::mem::decision::token_store::{TokenStatus, TokenStore};
 use crate::mem::decision::typesafe::TypeSafeAdapter;
-use crate::mem::decision::{DecisionModel, DecisionModelInfo};
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
 use crate::mem::SearchHit;

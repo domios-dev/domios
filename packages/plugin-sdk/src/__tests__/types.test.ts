@@ -4,6 +4,9 @@
 import type {
   ChatBackend,
   ChatPreprocessor,
+  DecisionAnswer,
+  DecisionModelCapability,
+  DecisionModelInfo,
   AgentProvider,
   AgentCommandHandler,
   AgentCommandCtx,
@@ -158,6 +161,46 @@ const brokenProvider: AgentProvider = { discoverModels: () => [{ id: "x", displa
 void brokenProvider;
 
 declare const host: Host;
+
+const decisionModel: DecisionModelCapability = {
+  primitives: () => ({ choice: true, noul: true, score: true }),
+  models: () => [{ id: "loaded", display_name: "Loaded model" }],
+  decide(request) {
+    if (request.question.type === "noul") return { type: "noul", p: 0.8 };
+    if (request.question.type === "choice") {
+      return {
+        type: "choice",
+        choice: "yes",
+        probabilities: { yes: 0.8, no: 0.2 },
+        confidence: 0.8,
+      };
+    }
+    return {
+      type: "score",
+      score: 2,
+      probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 },
+      confidence: 0.7,
+    };
+  },
+};
+const decisionModelInfo: DecisionModelInfo = {
+  id: "loaded",
+  display_name: "Loaded model",
+};
+const decisionPlugin: PluginModule = { ...decisionModel };
+const decisionAnswer: DecisionAnswer = {
+  type: "noul",
+  p: 0.6,
+};
+void decisionPlugin;
+void decisionModelInfo;
+void decisionAnswer;
+
+const asyncFetchResult: string = host.fetch.async(
+  { url: "http://127.0.0.1/decision" },
+  (result) => result.body ?? result.error ?? String(result.status),
+);
+void asyncFetchResult;
 
 async function exercise() {
   // worker: non-blocking start → poll (F4), not blocking run.

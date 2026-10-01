@@ -371,6 +371,49 @@ export interface Transcriber {
   transcribeStatus?(): unknown;
 }
 
+export type DecisionQuestion =
+  | { type: "choice"; options: Record<string, string> }
+  | { type: "noul"; criteria?: { true: string; false: string } | null }
+  | { type: "score"; levels: string[] };
+
+export interface DecisionRequest {
+  state: unknown;
+  instructions: string;
+  question: DecisionQuestion;
+}
+
+export interface DecisionPrimitives {
+  choice: boolean;
+  noul: boolean;
+  score: boolean;
+}
+
+export interface DecisionModelInfo {
+  id: string;
+  display_name: string;
+}
+
+export type DecisionAnswer =
+  | {
+      type: "choice";
+      choice: string;
+      probabilities: Record<string, number>;
+      confidence: number | null;
+    }
+  | { type: "noul"; p: number }
+  | {
+      type: "score";
+      score: number;
+      probabilities: Record<string, number>;
+      confidence: number | null;
+    };
+
+export interface DecisionModelCapability {
+  decide(request: DecisionRequest): DecisionAnswer;
+  models(): DecisionModelInfo[];
+  primitives(): DecisionPrimitives;
+}
+
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
 export type ToolEventKind =
@@ -685,6 +728,7 @@ export interface PluginModule
   extends Partial<AgentProvider>,
     Partial<SecretBackend>,
     Partial<Transcriber>,
+    Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,

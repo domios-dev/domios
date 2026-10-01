@@ -439,6 +439,7 @@ pub fn run() {
             // Capability registries — populated as JS plugins load, then handed to ServiceContext.
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            let decision_model_registry = crate::api::mem_routes::decision::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =
@@ -461,6 +462,7 @@ pub fn run() {
                 Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
+                decision_model: decision_model_registry.clone(),
                 secret: Some(std::sync::Arc::new(
                     crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
                 )),
@@ -858,7 +860,7 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
-                supporter_models: crate::api::mem_routes::decision::default_registry(),
+                supporter_models: decision_model_registry,
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
                 repo_watch,
