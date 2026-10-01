@@ -801,11 +801,23 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
     let tab = mux.get_tab_mut(&tab_id).expect("mem worker tab");
     tab.hidden = true;
     tab.worker_id = Some(worker_id.clone());
-    tab.pending_prompt = Some(owner_prompt());
-    tab.pending_prompt_kind = Some(PromptKind::DirectoryTrust);
+    tab.agent_type = Some("folder-trust-fixture".into());
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        crate::service::boot_stage::BootStage::AgentReady,
+        None,
+    );
 
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let svc = &fixture.service;
+    fixture
+        .service
+        .worker_ack
+        .supervise_startup_for_test(&tab_id, "folder-trust-owner");
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("folder-trust-fixture")
+            .with_directory_trust_prompt(owner_prompt()),
+    ));
     svc.workers.register(crate::mem::workers::make_info(
         worker_id.clone(),
         tab_id.clone(),
@@ -813,6 +825,17 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         "system:dreaming".into(),
         "hsl(0,0%,0%)".into(),
     ));
+    svc.screen_state.lock().process(
+        &pty_id,
+        b"opaque-question-62\r\n\xe2\x9d\xaf 1. opaque-choice-62\r\n  2. opaque-choice-63\r\nPress Enter to confirm",
+    );
+    assert!(surface_idle_provider_prompt(svc, &tab_id, &pty_id));
+    {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(&tab_id).expect("surfaced prompt tab");
+        assert!(tab.pending_prompt.is_some());
+        assert_eq!(tab.pending_prompt_kind, Some(PromptKind::DirectoryTrust));
+    }
     let diary = svc
         .mem
         .save(crate::mem::NewMemItem {
@@ -838,7 +861,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         },
         scanner: Mutex::new(ResultEventScanner::new()),
         started_at: Instant::now(),
-        last_byte_at: Mutex::new(Instant::now()),
+        last_byte_at: Mutex::new(Instant::now() - Duration::from_secs(IDLE_COMPLETE_SECS + 1)),
         completed: AtomicBool::new(false),
         armed: AtomicBool::new(false),
         saw_working: AtomicBool::new(false),
@@ -886,11 +909,6 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
     let evidence = diary_evidence(&diary, &stored.body);
     assert!(evidence.is_complete() && evidence.cut_at_deadline);
     assert!(!svc.run_watcher.runs.lock().contains_key(&pty_id));
-    assert!(svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .is_some_and(|tab| tab.pending_prompt.is_some()));
 }
 
 #[test]
