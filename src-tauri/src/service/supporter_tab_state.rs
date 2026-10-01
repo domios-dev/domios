@@ -18,7 +18,7 @@ mod state;
 
 pub(crate) use state::{
     apply_observed_verdict, claim_observation, confidence_band, note_output, permit_is_current,
-    ConfidenceBand, ObservationEvent, PermitError, SignalAction, CALL_CAP_PER_EPISODE,
+    ConfidenceBand, ObservationEvent, SignalAction, CALL_CAP_PER_EPISODE,
 };
 
 pub(crate) const SCREEN_LINES: usize = 40;
@@ -357,7 +357,9 @@ impl ServiceContext {
                 return;
             }
             (
-                tab.parent_tab_id.clone().or_else(|| tab.spawned_by_tab_id.clone()),
+                tab.parent_tab_id
+                    .clone()
+                    .or_else(|| tab.spawned_by_tab_id.clone()),
                 tab.task_binding
                     .as_ref()
                     .and_then(|binding| binding.plan_id.clone()),
@@ -402,6 +404,7 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
     let structural_verdict = structural_verdict.to_owned();
     let options = config.clone();
     let adapter_id = adapter_id.to_owned();
+    let failed_tab = tab_id.clone();
     std::thread::Builder::new()
         .name("tab-state-observer".into())
         .spawn(move || {
@@ -416,7 +419,7 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
             )
         })
         .map_err(|error| {
-            log::debug!("[tab-state] observer thread failed tab={tab_id}: {error}");
+            log::debug!("[tab-state] observer thread failed tab={failed_tab}: {error}");
         })
         .ok()
 }
@@ -439,21 +442,16 @@ fn observe_guarded<H: ShadowHost>(
         log::debug!("[tab-state] no choice adapter; tab={tab_id} observation skipped");
         return None;
     };
-    let deadline = Instant::now()
-        + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
-    let (request, metadata) = match prepare_observation(
-        host,
-        adapter_id,
-        tab_id,
-        trigger,
-        structural_verdict,
-    ) {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
-            return None;
-        }
-    };
+    let deadline =
+        Instant::now() + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
+    let (request, metadata) =
+        match prepare_observation(host, adapter_id, tab_id, trigger, structural_verdict) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
+                return None;
+            }
+        };
     let permit = match claim_observation(tab_id, &metadata.session_key, trigger.event()) {
         Ok(permit) => permit,
         Err(reason) => {
@@ -462,16 +460,7 @@ fn observe_guarded<H: ShadowHost>(
         }
     };
     observe(
-        host,
-        &model,
-        config,
-        adapter_id,
-        tab_id,
-        trigger,
-        deadline,
-        request,
-        metadata,
-        permit,
+        host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
     )
 }
 

@@ -19,18 +19,17 @@ fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_strong_trust_emits_orchestrator_event_with_options() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    mux.get_tab_mut(&tab_id).unwrap().pending_prompt =
-        Some(codeterm_types::pty::PendingPrompt {
-            question: "opaque prompt".into(),
-            options: vec![codeterm_types::pty::PromptOption {
-                label: "Allow once".into(),
-                value: "2".into(),
-            }],
-            sections: None,
-            multi_select: None,
-            submit_available: None,
-            selected_values: None,
-        });
+    mux.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![codeterm_types::pty::PromptOption {
+            label: "Allow once".into(),
+            value: "2".into(),
+        }],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    });
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let mut events = fixture.service.events.subscribe();
     let options = vec![NumberedPromptOption {
@@ -85,5 +84,8 @@ fn tab_state_strong_auth_notifies_owner_action_needed() {
     let records = store.list(false);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].level, Some(NotifyLevel::ActionNeeded));
-    assert!(records[0].body.as_deref().is_some_and(|body| body.contains(&tab_id)));
+    assert!(records[0]
+        .body
+        .as_deref()
+        .is_some_and(|body| body.contains(&tab_id)));
 }

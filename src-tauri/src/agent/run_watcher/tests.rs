@@ -789,7 +789,9 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
-    use codeterm_mem::dream_status::{diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd};
+    use codeterm_mem::dream_status::{
+        diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,
+    };
     use codeterm_types::pty::PromptKind;
 
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

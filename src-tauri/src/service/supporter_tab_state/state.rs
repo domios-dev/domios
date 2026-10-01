@@ -107,7 +107,10 @@ pub(crate) fn claim_observation(
 ) -> Result<ObservationPermit, PermitError> {
     let mut all = episodes().lock();
     let state = state_for_session(&mut all, tab_id, session_key);
-    if matches!(event, ObservationEvent::SpawnReady | ObservationEvent::SpawnDeadline) {
+    if matches!(
+        event,
+        ObservationEvent::SpawnReady | ObservationEvent::SpawnDeadline
+    ) {
         if state.spawn_observed {
             return Err(PermitError::SpawnAlreadyObserved);
         }
@@ -190,6 +193,7 @@ pub(crate) fn screen_changed(tab_id: &str, session_key: &str, hash: u64) -> bool
     changed
 }
 
+#[cfg(test)]
 pub(crate) fn apply_verdict(
     tab_id: &str,
     session_key: &str,

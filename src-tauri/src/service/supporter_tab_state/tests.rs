@@ -24,7 +24,10 @@ struct StubHost {
 }
 
 impl StubHost {
-    fn new(screen: &str, model: StubModel) -> (Self, Arc<AtomicUsize>, Arc<Mutex<Option<DecisionRequest>>>) {
+    fn new(
+        screen: &str,
+        model: StubModel,
+    ) -> (Self, Arc<AtomicUsize>, Arc<Mutex<Option<DecisionRequest>>>) {
         let calls = model.calls.clone();
         let seen = model.seen.clone();
         let registry = SupporterRegistry::new();
@@ -266,7 +269,10 @@ fn tab_state_context_envelope_contains_all_runtime_fields() {
     let tab_id = tab();
     run(&host, &tab_id, ObservationTrigger::WorkerIdle).expect("a valid verdict");
 
-    let request = seen.lock().clone().expect("choice adapter received request");
+    let request = seen
+        .lock()
+        .clone()
+        .expect("choice adapter received request");
     assert_eq!(request.state["screen"], "transcript response");
     for key in [
         "provider_capability",
@@ -294,7 +300,10 @@ fn tab_state_mock_transport_uses_chat_backend_transcript() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.95)));
     let (host, _, seen) = StubHost::new("assistant: transcript", model);
     run(&host, &tab(), ObservationTrigger::SpawnReady).expect("transcript was classified");
-    let request = seen.lock().clone().expect("choice adapter received request");
+    let request = seen
+        .lock()
+        .clone()
+        .expect("choice adapter received request");
     assert_eq!(request.state["screen"], "assistant: transcript");
     assert_eq!(
         request.state["context"]["provider_capability"]["transport"],
@@ -306,8 +315,8 @@ fn tab_state_mock_transport_uses_chat_backend_transcript() {
 fn tab_state_healthy_spawn_is_spawn_ok_without_action() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.95)));
     let (host, calls, _) = StubHost::new("ready composer", model);
-    let verdict = run(&host, &tab(), ObservationTrigger::SpawnReady)
-        .expect("healthy spawn was classified");
+    let verdict =
+        run(&host, &tab(), ObservationTrigger::SpawnReady).expect("healthy spawn was classified");
 
     assert_eq!(verdict.action, SignalAction::None);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -363,7 +372,11 @@ fn tab_state_still_starting_is_suppressed_before_deadline() {
     let tab_id = tab();
     run(&host, &tab_id, ObservationTrigger::SpawnReady).expect("valid classification");
     assert!(host.deliveries.lock().is_empty());
-    assert!(host.records.lock().iter().any(|line| line.contains("suppressed")));
+    assert!(host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("suppressed")));
 }
 
 #[test]
@@ -474,7 +487,8 @@ impl crate::chatbackend::ChatBackendProvider for TranscriptBackend {
         &self,
         _session_id: &str,
         _cursor: Option<&str>,
-    ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError> {
+    ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError>
+    {
         Ok(crate::agent::chat_types::StructuredChat {
             messages: vec![crate::agent::chat_types::ChatMsg {
                 id: "assistant-message".into(),
@@ -490,7 +504,9 @@ impl crate::chatbackend::ChatBackendProvider for TranscriptBackend {
         Ok(())
     }
 
-    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError> {
+    fn list_models(
+        &self,
+    ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError> {
         Ok(Vec::new())
     }
 }
@@ -543,18 +559,19 @@ fn tab_state_chat_backend_reads_transcript_by_capability() {
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_never_answers_prompt() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    mux.get_tab_mut(&tab_id).expect("fixture tab").pending_prompt =
-        Some(codeterm_types::pty::PendingPrompt {
-            question: "opaque prompt".into(),
-            options: vec![codeterm_types::pty::PromptOption {
-                label: "Opaque option".into(),
-                value: "1".into(),
-            }],
-            sections: None,
-            multi_select: None,
-            submit_available: None,
-            selected_values: None,
-        });
+    mux.get_tab_mut(&tab_id)
+        .expect("fixture tab")
+        .pending_prompt = Some(codeterm_types::pty::PendingPrompt {
+        question: "opaque prompt".into(),
+        options: vec![codeterm_types::pty::PromptOption {
+            label: "Opaque option".into(),
+            value: "1".into(),
+        }],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    });
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     delivery::deliver(
         &fixture.service,

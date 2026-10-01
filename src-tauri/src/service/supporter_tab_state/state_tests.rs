@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_TAB: AtomicU64 = AtomicU64::new(0);
 
 fn tab() -> String {
-    format!("tab-state-pure-{}", NEXT_TAB.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "tab-state-pure-{}",
+        NEXT_TAB.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 #[test]
@@ -88,43 +91,19 @@ fn tab_state_stale_observation_cannot_signal_a_new_episode() {
     let tab = tab();
     let first = claim_observation(&tab, "launch-1", ObservationEvent::WorkerIdle).unwrap();
     assert_eq!(
-        apply_observed_verdict(
-            &tab,
-            "launch-1",
-            &first,
-            "error_loop",
-            0.9,
-            true,
-            true,
-        ),
+        apply_observed_verdict(&tab, "launch-1", &first, "error_loop", 0.9, true, true,),
         Some(SignalAction::WeakHint)
     );
     note_output(&tab);
     assert_eq!(
-        apply_observed_verdict(
-            &tab,
-            "launch-1",
-            &first,
-            "error_loop",
-            0.9,
-            true,
-            true,
-        ),
+        apply_observed_verdict(&tab, "launch-1", &first, "error_loop", 0.9, true, true,),
         None
     );
 
     let next = claim_observation(&tab, "launch-1", ObservationEvent::TabExit).unwrap();
     assert_ne!(first.episode, next.episode);
     assert_eq!(
-        apply_observed_verdict(
-            &tab,
-            "launch-1",
-            &next,
-            "error_loop",
-            0.9,
-            true,
-            true,
-        ),
+        apply_observed_verdict(&tab, "launch-1", &next, "error_loop", 0.9, true, true,),
         Some(SignalAction::WeakHint)
     );
 }
