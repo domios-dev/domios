@@ -261,7 +261,7 @@ impl PlanStore {
                 task.handle = Some(handle.into());
             }
             task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
             Ok(())
         });
         let verified = self.verify_task_updated(
@@ -336,7 +336,7 @@ impl PlanStore {
                 task.role_guidance = guidance.map(str::to_string);
             }
             task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
             Ok(())
         })
     }
@@ -369,7 +369,7 @@ impl PlanStore {
                 task.personality_provenance = provenance;
             }
             task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
             Ok(())
         })
     }
@@ -500,7 +500,7 @@ impl PlanStore {
                 task.assigned_tab_id = task.lane.tab_id.clone();
             }
             task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
             Ok(())
         });
         pending_after_verified(
@@ -572,7 +572,7 @@ impl PlanStore {
                 task.correctness = vector.map(str::to_string);
             }
             task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_task_text(task)?;
+            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
             Ok(criteria_counts)
         })
     }
