@@ -38,6 +38,7 @@
   "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
   "src/components/Extensions/PluginView.activation.test.tsx",
   "src/components/Titlebar/AnalyticsTray.test.tsx",
+  "src/components/Titlebar/Titlebar.peerPicker.test.tsx",
   "src/store/multiplexer/reloadHydration.test.tsx",
   "src/components/Titlebar/ExtensionsTray.test.tsx",
   "plugins/analytics/tests/plugin.test.ts",
