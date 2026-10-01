@@ -178,6 +178,7 @@ struct StubModel {
     answer: Result<DecisionAnswer, DecisionError>,
     calls: Arc<AtomicUsize>,
     seen: Arc<Mutex<Option<DecisionRequest>>>,
+    on_decide: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl StubModel {
@@ -186,6 +187,17 @@ impl StubModel {
             answer,
             calls: Arc::default(),
             seen: Arc::default(),
+            on_decide: None,
+        }
+    }
+
+    fn answering_with_hook(
+        answer: Result<DecisionAnswer, DecisionError>,
+        on_decide: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            on_decide: Some(Arc::new(on_decide)),
+            ..Self::answering(answer)
         }
     }
 }
@@ -210,6 +222,9 @@ impl DecisionModel for StubModel {
     ) -> Result<DecisionAnswer, DecisionError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.seen.lock() = Some(request.clone());
+        if let Some(on_decide) = &self.on_decide {
+            on_decide();
+        }
         self.answer.clone()
     }
 }
@@ -344,6 +359,88 @@ fn tab_state_healthy_spawn_is_spawn_ok_without_action() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn tab_state_spawn_observation_survives_session_binding() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = format!("tab-state-binding-{}", uuid::Uuid::new_v4().simple());
+    mux.link_pty(&tab_id, pty_id);
+    {
+        let tab = mux.get_tab_mut(&tab_id).expect("fixture tab");
+        tab.agent_type = Some("tab-state-provider".into());
+        tab.agent_set_at = Some(Instant::now());
+        tab.session_binding_nonce = None;
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("tab-state-provider"),
+    ));
+    let post_binding_metadata = Arc::new(AtomicUsize::new(0));
+    let transition_service = fixture.service.clone();
+    let transition_tab = tab_id.clone();
+    let observed = post_binding_metadata.clone();
+    let model = StubModel::answering_with_hook(Ok(choice(READY_IDLE, 0.95)), move || {
+        {
+            let mut mux = transition_service.mux.write();
+            let tab = mux
+                .get_tab_mut(&transition_tab)
+                .expect("tab remains live during binding");
+            tab.agent_set_at = Some(Instant::now());
+            tab.agent_session_id = Some("provider-session".into());
+            tab.session_binding_nonce = Some("post-binding-nonce".into());
+            tab.reported_session_binding_nonce = Some("post-binding-nonce".into());
+        }
+        if <ServiceContext as ShadowHost>::metadata(
+            &transition_service,
+            &transition_tab,
+            ObservationTrigger::SpawnReady,
+            "ready",
+            "ready screen",
+        )
+        .is_ok()
+        {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let (mut host, calls, _) = StubHost::new("ready screen", model);
+    host.metadata_service = Some(fixture.service.clone());
+
+    let verdict = run(&host, &tab_id, ObservationTrigger::SpawnReady)
+        .expect("the pre-binding observation returns after binding");
+
+    assert_eq!(verdict.label, READY_IDLE);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(post_binding_metadata.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.deliveries.lock().as_slice(),
+        &[(
+            ObservationTrigger::SpawnReady,
+            READY_IDLE.to_owned(),
+            SignalAction::SpawnOk,
+        )]
+    );
+}
+
+#[test]
+fn tab_state_one_spawn_ok_per_launch() {
+    let model = StubModel::answering(Ok(choice(READY_IDLE, 0.95)));
+    let (host, calls, _) = StubHost::new("ready screen", model);
+    let tab_id = tab();
+
+    assert!(run(&host, &tab_id, ObservationTrigger::SpawnReady).is_some());
+    assert!(run(&host, &tab_id, ObservationTrigger::SpawnDeadline).is_none());
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.deliveries
+            .lock()
+            .iter()
+            .filter(|(_, _, action)| *action == SignalAction::SpawnOk)
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn tab_state_strong_actions_require_two_observations_and_never_write() {
     let model = StubModel::answering(Ok(choice(ERROR_LOOP, 0.94)));
     let (host, calls, _) = StubHost::new("repeating error", model);
@@ -362,6 +459,59 @@ fn tab_state_strong_actions_require_two_observations_and_never_write() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn tab_state_second_agreeing_strong_acts() {
+    let tab_id = tab();
+    let launch_key = state::launch_episode_key(&tab_id, Some("pty-launch"), None);
+
+    assert_eq!(
+        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94, true, true),
+        SignalAction::WeakHint
+    );
+    assert_eq!(
+        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94, true, true),
+        SignalAction::StrongAction
+    );
+}
+
+#[test]
+fn tab_state_stuck_prompt_gets_second_observation_from_existing_event() {
+    let model = StubModel::answering(Ok(choice(TRUST_OR_PERMISSION_PROMPT, 0.93)));
+    let (host, calls, _) = StubHost::new("permission prompt", model);
+    let tab_id = tab();
+
+    assert_eq!(
+        run(&host, &tab_id, ObservationTrigger::SpawnReady)
+            .expect("first prompt observation")
+            .action,
+        SignalAction::WeakHint
+    );
+    assert_eq!(
+        run(&host, &tab_id, ObservationTrigger::StartupEscalation)
+            .expect("existing startup escalation supplies the follow-up")
+            .action,
+        SignalAction::StrongAction
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn tab_state_proxy_and_bad_model_reach_observation() {
+    for (screen, label) in [
+        ("connection refused; retrying", ERROR_LOOP),
+        ("HTTP 400: unsupported model", MODEL_UNAVAILABLE_OR_QUOTA),
+    ] {
+        let model = StubModel::answering(Ok(choice(label, 0.94)));
+        let (host, calls, _) = StubHost::new(screen, model);
+        let verdict = run(&host, &tab(), ObservationTrigger::WorkerIdle)
+            .expect("idle-without-report supplies an observation");
+
+        assert_eq!(verdict.label, label);
+        assert_eq!(verdict.action, SignalAction::WeakHint);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[test]

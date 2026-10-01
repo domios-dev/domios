@@ -91,3 +91,39 @@ fn tab_state_strong_auth_emits_orchestrator_event() {
     assert_eq!(data["tab_id"], tab_id);
     assert_eq!(data["label"], LOGIN_OR_AUTH_REQUIRED);
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn tab_state_single_strong_hint_is_marked_non_actionable() {
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut events = fixture.service.events.subscribe();
+    let launch_key = super::super::state::launch_episode_key(&tab_id, Some("pty-launch"), None);
+    let action = super::super::state::apply_verdict(
+        &tab_id,
+        &launch_key,
+        LOGIN_OR_AUTH_REQUIRED,
+        0.92,
+        true,
+        true,
+    );
+    assert_eq!(action, SignalAction::WeakHint);
+
+    deliver(
+        &fixture.service,
+        &tab_id,
+        &metadata(Vec::new()),
+        4,
+        ObservationTrigger::WorkerIdle,
+        LOGIN_OR_AUTH_REQUIRED,
+        0.92,
+        action,
+    );
+
+    let event = events.try_recv().expect("informational hint is published");
+    let SystemEvent::Generic { event_type, data } = event.event else {
+        panic!("tab-state hint is a generic event");
+    };
+    assert_eq!(event_type, "tab-state-signal");
+    assert_eq!(data["actionable"], false);
+}

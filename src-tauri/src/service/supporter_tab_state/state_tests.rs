@@ -119,6 +119,22 @@ fn tab_state_spawn_health_fires_once_ready_or_deadline() {
 }
 
 #[test]
+fn tab_state_launch_key_is_stable_across_binding() {
+    let tab_id = tab();
+    let before_binding = launch_episode_key(&tab_id, Some("pty-launch"), None);
+    let after_binding =
+        launch_episode_key(&tab_id, Some("pty-launch"), Some(std::time::Instant::now()));
+    let permit = claim_observation(&tab_id, &before_binding, ObservationEvent::SpawnReady).unwrap();
+
+    assert_eq!(before_binding, after_binding);
+    assert!(permit_is_current(&tab_id, &after_binding, &permit));
+    assert_ne!(
+        after_binding,
+        launch_episode_key(&tab_id, Some("next-pty-launch"), None)
+    );
+}
+
+#[test]
 fn tab_state_busy_event_is_once_until_new_output() {
     let tab = tab();
     assert!(claim_observation(&tab, "launch-1", ObservationEvent::BusyNoOutput).is_ok());
