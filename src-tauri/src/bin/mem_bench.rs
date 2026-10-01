@@ -27,7 +27,7 @@ use codeterm_lib::mem::{
 };
 use serde::{Deserialize, Serialize};
 
-#[path = "mem_bench/decision.rs"]
+#[path = "../bin_support/mem_bench_decision.rs"]
 mod mem_bench_decision;
 use mem_bench_decision::{DecisionReport, FixtureGraph, Mode, RankingMetrics};
 
