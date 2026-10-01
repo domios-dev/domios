@@ -7,20 +7,20 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.12.1",
-      "minCodeterm": "1.12.1"
+      "version": "1.12.2",
+      "minCodeterm": "1.12.2"
     },
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.12.1",
-      "minCodeterm": "1.12.1"
+      "version": "1.12.2",
+      "minCodeterm": "1.12.2"
     },
     {
       "id": "opencode",
       "path": "provider-opencode",
-      "version": "1.12.1",
-      "minCodeterm": "1.12.1"
+      "version": "1.12.2",
+      "minCodeterm": "1.12.2"
     },
     {
       "id": "cursor",
