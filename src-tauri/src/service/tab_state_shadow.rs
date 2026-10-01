@@ -10,7 +10,7 @@ use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::DecisionRegistry;
-use crate::mem::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
 use codeterm_types::config::TabStateShadowConfig;
 
 pub(crate) const SCREEN_LINES: usize = 40;

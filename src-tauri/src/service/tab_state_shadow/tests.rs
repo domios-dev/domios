@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 
-use crate::mem::decision::{DecisionError, DecisionPrimitives};
+use codeterm_types::decision::{DecisionError, DecisionPrimitives};
 use crate::service::pty_io::SendBatchItem;
 use parking_lot::Mutex;
 

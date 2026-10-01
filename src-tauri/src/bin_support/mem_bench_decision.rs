@@ -12,6 +12,8 @@ use codeterm_lib::mem::decision::{
     rerank::{run_stage, RerankCandidate, StageConfig, StageOutcome, NOUL_INSTRUCTIONS_TEMPLATE},
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
+};
+use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest,
 };

@@ -49,6 +49,13 @@ impl PluginManifest {
     pub fn from_json_str(text: &str) -> Result<Self, String> {
         let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
+        for capability in manifest.capabilities.unknown_capabilities() {
+            log::debug!(
+                "[plugin] {} ignores unknown capability {}",
+                manifest.id,
+                capability
+            );
+        }
         Ok(manifest)
     }
 

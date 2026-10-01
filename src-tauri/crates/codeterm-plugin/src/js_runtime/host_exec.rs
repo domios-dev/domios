@@ -460,6 +460,7 @@ struct ExecJob {
     stdout: Option<String>,
     stderr: Option<String>,
     error: Option<String>,
+    result: Option<serde_json::Value>,
 }
 
 static EXEC_JOBS: LazyLock<Mutex<HashMap<String, ExecJob>>> =
@@ -531,6 +532,10 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
     if !job.done {
         return serde_json::json!({ "done": false }).to_string();
     }
+    if let Some(result) = job.result.clone() {
+        jobs.remove(job_id);
+        return result.to_string();
+    }
 
     let mut out = serde_json::Map::new();
     out.insert("done".to_string(), serde_json::json!(true));
@@ -596,6 +601,20 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
         return WaitResult::TimedOut;
     }
     WaitResult::Completed(poll(&plugin_id, job_id))
+}
+
+pub(super) fn start_json_job<F>(plugin_id: &str, work: F) -> Result<String, String>
+where
+    F: FnOnce() -> String + Send + 'static,
+{
+    let job_id = start_exec_job(plugin_id)?;
+    let worker_job_id = job_id.clone();
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+            .unwrap_or_else(|_| serde_json::json!({ "error": "host job panicked" }).to_string());
+        finish_json_job(&worker_job_id, &result);
+    });
+    Ok(job_id)
 }
 
 /// Test-only job whose completion is driven by `gate` instead of a subprocess,
@@ -664,6 +683,17 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
             .get("error")
             .and_then(|v| v.as_str())
             .map(String::from);
+        job.done_event.signal();
+    }
+}
+
+fn finish_json_job(job_id: &str, result: &str) {
+    let result = serde_json::from_str::<serde_json::Value>(result)
+        .unwrap_or_else(|_| serde_json::json!({ "error": "host job returned invalid json" }));
+    let mut jobs = EXEC_JOBS.lock();
+    if let Some(job) = jobs.get_mut(job_id) {
+        job.done = true;
+        job.result = Some(result);
         job.done_event.signal();
     }
 }

@@ -16,7 +16,7 @@ use crate::api::mem_routes::search::{
     RERANK_EXCLUSIVE,
 };
 use crate::config::schema::DecisionRerankConfig;
-use crate::mem::decision::{
+use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionRequest,
 };
 use crate::mem::rerank::RerankConfig;

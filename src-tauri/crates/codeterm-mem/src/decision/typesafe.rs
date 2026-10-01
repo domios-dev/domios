@@ -6,7 +6,7 @@ use std::time::Instant;
 use serde_json::{json, Value};
 
 use super::token_store::TokenStore;
-use super::{
+use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest,
 };

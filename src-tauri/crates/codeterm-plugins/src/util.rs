@@ -173,9 +173,11 @@ pub(super) fn run_git(args: Vec<String>) -> Result<(), String> {
     let out = command
         .args(&args)
         .output()
-        .map_err(|e| format!("run git: {e}"))?;
+        .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        return Err(git_non_interactive_error(
+            &String::from_utf8_lossy(&out.stderr),
+        ));
     }
     Ok(())
 }
@@ -186,22 +188,38 @@ pub(super) fn run_git_in(cwd: &Path, args: Vec<String>) -> Result<(), String> {
         .current_dir(cwd)
         .args(&args)
         .output()
-        .map_err(|e| format!("run git: {e}"))?;
+        .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
     if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        return Err(git_non_interactive_error(
+            &String::from_utf8_lossy(&out.stderr),
+        ));
     }
     Ok(())
 }
 
-fn git_command() -> Command {
+pub(super) fn git_command() -> Command {
     #[cfg(test)]
     let program = std::env::var("CODETERM_TEST_GIT_BIN").unwrap_or_else(|_| "git".to_string());
     #[cfg(not(test))]
     let program = "git";
 
     let mut command = Command::new(program);
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .stdin(std::process::Stdio::null());
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() {
+        command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+    }
     no_window(&mut command);
     command
+}
+
+fn git_non_interactive_error(stderr: &str) -> String {
+    format!(
+        "git_non_interactive: git ran non-interactively with credential prompts disabled: {}",
+        stderr.trim()
+    )
 }
 
 #[cfg(windows)]
@@ -214,6 +232,9 @@ fn no_window(command: &mut Command) {
 
 #[cfg(not(windows))]
 fn no_window(_command: &mut Command) {}
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn system_channel_url() -> String {
     std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL")

@@ -34,6 +34,9 @@ struct LoadFingerprint {
 
 #[derive(Clone)]
 pub struct CapabilityRegistries {
+    pub decision_model: Arc<
+        crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>,
+    >,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
@@ -60,6 +63,12 @@ impl CapabilityRegistries {
             self.transcribe.register(
                 id.clone(),
                 Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.decision_model {
+            self.decision_model.register(
+                id.clone(),
+                Arc::new(super::JsDecisionModel::new(vm.clone(), id.clone())),
             );
         }
         if caps.secret_backend.enabled() {
@@ -152,6 +161,7 @@ impl CapabilityRegistries {
     }
 
     fn deregister_common(&self, id: &str) {
+        self.decision_model.unregister(id);
         self.transcribe.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
