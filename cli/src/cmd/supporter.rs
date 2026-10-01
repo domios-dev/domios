@@ -149,8 +149,19 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
         SupporterAction::Token {
             action: SupporterTokenAction::Set { .. },
         } => Some(
-            read_token(std::io::stdin(), std::io::stdin().is_terminal())
-                .unwrap_or_else(|message| fail(2, message)),
+            read_token(std::io::stdin(), std::io::stdin().is_terminal()).unwrap_or_else(
+                |message| {
+                    // A missing or terminal stdin is a usage error, so --json reports invalid_argument.
+                    fail_with(
+                        2,
+                        &CliError {
+                            message,
+                            code: Some(-32602),
+                            data: None,
+                        },
+                    )
+                },
+            ),
         ),
         _ => None,
     };
