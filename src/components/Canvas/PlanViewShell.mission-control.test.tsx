@@ -82,21 +82,31 @@ describe("team plan view shell", () => {
     await unmount();
   });
 
-  it("disables the plan views and stays on Board while the team has no active plan", async () => {
+  it("keeps every plan view selectable and opens the stored one while the team has no active plan", async () => {
     localStorage.setItem("codeterm.planViewMode", "spec");
     const archived = { ...FIXTURE_PLAN, id: "plan-old", team_id: "team-1", status: "archived" as const };
     const { host, unmount } = await render(<PlanViewShell {...props} plans={[archived]} teamId="team-1" />);
 
-    expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("board");
-    expect(host.querySelector('[data-group="plan"]')?.getAttribute("data-disabled")).toBe("true");
+    expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("spec");
     const tabs = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
     expect(tabs.map((tab) => [tab.textContent, tab.disabled])).toEqual([
       ["Board", false],
-      ["Spec", true],
-      ["Plan", true],
-      ["Tasks", true],
+      ["Spec", false],
+      ["Plan", false],
+      ["Tasks", false],
     ]);
-    expect(localStorage.getItem("codeterm.planViewMode")).toBe("spec");
+    await clickMode(host, "Tasks");
+    expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("tasks");
+    await unmount();
+    localStorage.removeItem("codeterm.planViewMode");
+  });
+
+  it("keeps the plan views selectable for a plan whose team id differs from the shell team", async () => {
+    const otherTeam = { ...FIXTURE_PLAN, id: "plan-other", team_id: "team-2" };
+    const { host, unmount } = await render(<PlanViewShell {...props} plans={[otherTeam]} teamId="team-1" />);
+
+    await clickMode(host, "Plan");
+    expect(host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode")).toBe("plan");
     await unmount();
     localStorage.removeItem("codeterm.planViewMode");
   });
