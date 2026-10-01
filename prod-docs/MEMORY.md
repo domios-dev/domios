@@ -108,6 +108,17 @@ An optional second stage over `mem search`. Stage 1 is the unchanged hybrid reca
 
 Keys and bounds: `codeterm docs RUNTIME-CONFIG`. Routes: `codeterm docs API-MEMORY`.
 
+### Supporter Agent
+
+The user-facing name of the decision model behind decision re-rank. It grades, it never acts; the default adapter is TypeSafe's Jev (`typesafe-jev`).
+
+- **Where it works.** Memory re-rank (above): it re-orders recall and flags `low_confidence`. Tab state: shadow logging only, off by default; at the startup check it reads the tab's recent screen and writes one log line beside the structural verdict, changing no nudge or delivery.
+- **Setup.** It needs only a token: Settings > Agents > Supporter Agent (a write-only password field; the status shows set / not set and warns when the file is not owner-only), or `pbpaste | codeterm mem decision token set`. Both use `/api/mem/decision/token` and the same `decision-models/` store. Re-rank itself is the toggle in Memory > Settings or `memory.decision_rerank.enabled`.
+- **What is sent.** The query plus each candidate's title and body, bodies capped at `memory.decision_rerank.max_body_chars` (default 2000); for tab state, the tab's recent screen text.
+- **Cost and latency.** About $0.0007 per search. The stage runs under `memory.decision_rerank.deadline_ms` (default 3000); a timeout, an adapter error or a missing token returns the plain recall hits with a `fallback` envelope.
+- **Off.** `memory.decision_rerank.enabled = false`, `--decision-rerank off` for one search, or `codeterm mem decision token clear` to remove the token.
+- **Links.** https://docs.typesafe.ai and https://console.typesafe.ai/keys.
+
 ### L1 selection (`src-tauri/src/mem/layers/`)
 
 Two-pass selector. L0 identity always loads first; L1 then runs:
@@ -194,4 +205,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

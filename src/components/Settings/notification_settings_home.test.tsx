@@ -631,12 +631,16 @@ async function theNavExposesNotificationsAndTheMatrixLivesThere() {
 
 /** 7. Moved, not copied: the surfaces are absent from the Agents surface. */
 async function theMovedSurfacesRenderInExactlyOnePlace() {
+  const realFetch = globalThis.fetch;
+  // The Supporter Agent card reads its token status over HTTP; keep it off the network.
+  globalThis.fetch = (async () => ({ ok: false, status: 503, json: async () => ({}) })) as unknown as typeof fetch;
   await withDaemonStubs(async () => {
     const view = await mount(
       <AgentsOverview
         config={configWith(DAEMON_ROWS)}
         onUpdate={() => {}}
         onOpenProvider={() => {}}
+        onOpenGuide={() => {}}
       />,
     );
     assert(
@@ -652,6 +656,8 @@ async function theMovedSurfacesRenderInExactlyOnePlace() {
       "the Telegram notification surface is gone from Agents",
     );
     await view.done();
+  }).finally(() => {
+    globalThis.fetch = realFetch;
   });
 
   const agents = source("./AgentsTab.tsx");
