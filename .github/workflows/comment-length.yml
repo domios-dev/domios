@@ -23,7 +23,7 @@ on:
       - '.github/workflows/release*.yml'
 
 concurrency:
-  group: comment-length-${{ github.event.pull_request.head.sha || github.sha }}
+  group: comment-length-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
