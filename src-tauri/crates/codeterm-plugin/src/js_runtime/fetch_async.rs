@@ -131,9 +131,7 @@ async fn fetch_async_releases_vm_during_request() {
 async fn js_decision_model_models_resolves_fetch_continuation() {
     let app = Router::new().route(
         "/models",
-        get(|| async {
-            Json(json!([{ "id": "loaded", "display_name": "Loaded model" }]))
-        }),
+        get(|| async { Json(json!([{ "id": "loaded", "display_name": "Loaded model" }])) }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
