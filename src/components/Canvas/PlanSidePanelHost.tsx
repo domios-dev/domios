@@ -116,5 +116,13 @@ export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
   const [mounted, setMounted] = useState(open);
   if (open && !mounted) setMounted(true);
   const onExited = useCallback(() => setMounted(false), []);
+  useEffect(() => {
+    const reset = () => {
+      planSidePanelStore.close();
+      setMounted(false);
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    return () => window.removeEventListener("codeterm-peer-switch-reset", reset);
+  }, []);
   return mounted ? <OpenPlanSidePanel api={api} onExited={onExited} /> : null;
 }
