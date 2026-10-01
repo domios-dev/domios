@@ -72,3 +72,63 @@ fn task_body_cap_and_control_bytes() {
     ));
     assert_eq!(store.get(&plan_id).unwrap().sections[0].body, "body");
 }
+
+#[test]
+fn stored_legacy_control_bytes_do_not_block_later_writes() {
+    let (store, plan_id, task_id) = store_with_task(&["status_update"]);
+    store.plans.read().get(&plan_id).unwrap().lock().tasks[0].test_plan =
+        Some("\u{8}ash scripts/check".into());
+
+    store
+        .update_task(
+            &plan_id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Some("legacy-group")),
+            &[],
+            None,
+            None,
+            3,
+        )
+        .unwrap();
+    store
+        .add_milestone(
+            &plan_id,
+            &task_id,
+            "status_update",
+            "plain text",
+            AgentRef::default(),
+            false,
+            4,
+        )
+        .unwrap();
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.tasks[0].group.as_deref(), Some("legacy-group"));
+    assert_eq!(
+        plan.tasks[0].test_plan.as_deref(),
+        Some("\u{8}ash scripts/check")
+    );
+    assert!(matches!(
+        store.add_milestone(
+            &plan_id,
+            &task_id,
+            "status_update",
+            "bell\u{7}text",
+            AgentRef::default(),
+            false,
+            5
+        ),
+        Err(PlanError::InvalidPlanText(_))
+    ));
+}
