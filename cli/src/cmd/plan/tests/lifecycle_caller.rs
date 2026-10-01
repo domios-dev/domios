@@ -55,6 +55,7 @@ impl RpcClient for Recorder {
 
 fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
     vec![
+        ("plan.resume", PlanAction::Resume { plan_id: "pl_recovered".into() }),
         (
             "plan.update",
             PlanAction::Update {
@@ -75,7 +76,6 @@ fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
                 reason: "owner decision".into(),
             },
         ),
-        ("plan.resume", PlanAction::Resume { plan_id: "pl_recovered".into() }),
         ("plan.unarchive", PlanAction::Unarchive { plan_id: "pl_recovered".into() }),
         ("plan.disown", PlanAction::Disown { plan_id: "pl_recovered".into() }),
         ("plan.claim", PlanAction::Claim { plan_id: "pl_recovered".into() }),
@@ -84,7 +84,7 @@ fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
 
 #[test]
 fn lifecycle_rpcs_forward_the_callers_binding_with_optional_session() {
-    let _lock = crate::test_env_lock().lock().unwrap();
+    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
     for (tab, nonce) in [("recovered-owner", "owner-nonce"), ("foreign-tab", "foreign-nonce")] {
         for session in [None, Some("caller-session")] {
             let _env = CallerEnv::set(Some(tab), session, Some(nonce));
@@ -113,7 +113,7 @@ fn lifecycle_rpcs_forward_the_callers_binding_with_optional_session() {
 
 #[test]
 fn lifecycle_rpcs_do_not_invent_identity_or_human_confirmation() {
-    let _lock = crate::test_env_lock().lock().unwrap();
+    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
     let _env = CallerEnv::set(None, None, None);
     for (_, action) in lifecycle_actions() {
         let mut recorder = Recorder::default();
@@ -127,7 +127,7 @@ fn lifecycle_rpcs_do_not_invent_identity_or_human_confirmation() {
 
 #[test]
 fn plan_reads_keep_their_request_free_of_caller_authority() {
-    let _lock = crate::test_env_lock().lock().unwrap();
+    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
     let _env = CallerEnv::set(Some("owner"), Some("session"), Some("nonce"));
     let mut recorder = Recorder::default();
     run_plan(
