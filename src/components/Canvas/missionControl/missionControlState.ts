@@ -1,7 +1,8 @@
+import { daemonFetch } from "../../../lib/webApi";
 // Mirrors the Rust projection in codeterm-plan service_plan/state/mission_control.rs;
 // field names match its JSON wire shape.
 
-import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import { authHeaders } from "../../MemoryPanel/memoryApi";
 import type { ApiConfig, Team } from "../../../lib/types";
 import type { GateStatus, Plan } from "../types";
 
@@ -202,7 +203,7 @@ export async function fetchPlanBoardState(
   planId: string,
   signal?: AbortSignal,
 ): Promise<PlanBoardState> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/state`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/state`, {
     headers: authHeaders(api),
     signal,
   });
@@ -221,8 +222,9 @@ export async function fetchTeamMissionControlState(
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.cursor !== undefined) params.set("cursor", query.cursor);
   const suffix = params.toString();
-  const res = await fetch(
-    `${baseUrl(api)}/api/teams/${encodeURIComponent(teamId)}/mission-control/state${suffix ? `?${suffix}` : ""}`,
+  const res = await daemonFetch(
+    api,
+    `/api/teams/${encodeURIComponent(teamId)}/mission-control/state${suffix ? `?${suffix}` : ""}`,
     { headers: authHeaders(api), signal },
   );
   if (!res.ok) throw new Error(`team mission control state failed: ${res.status} ${await res.text()}`);

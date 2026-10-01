@@ -71,6 +71,8 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/stateCache.ts", anchor: "if (!IS_WEB) return null;", ordinal: 1, cls: "capability-gate", note: "boot snapshot cache only meaningful where a network round-trip exists (web)" },
   { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return apiHost();", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
   { file: "src/lib/webApi.ts", anchor: "return (IS_WEB ? currentToken() : api?.token) ?? \"\";", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
+  { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return webFetch(path, init);", ordinal: 1, cls: "transport-shim", note: "daemon REST fetch routes selected web peers through the authenticated relay and native callers directly" },
+  { file: "src/components/Canvas/usePlanPeerContext.ts", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "transport-shim", note: "web peer reset cancels and clears plan queries before the selected machine rebinds" },
   { file: "src/lib/lifecycle.ts", anchor: "if (!IS_WEB) return () => {};", ordinal: 1, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
   { file: "src/lib/webEvents.ts", anchor: "if (started || !IS_WEB) return;", ordinal: 1, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
   { file: "src/lib/outputStream.ts", anchor: "return IS_WEB && outputStreamEnabled();", ordinal: 1, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
