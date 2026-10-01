@@ -129,6 +129,7 @@ pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
+mod supporter_tab_state;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
@@ -138,7 +139,6 @@ pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
-mod tab_state_shadow;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
@@ -310,7 +310,7 @@ pub struct ServiceContext {
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
-    pub decision_models: Arc<crate::api::mem_routes::decision::DecisionRegistry>,
+    pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
     /// Registry of glance-view providers (plugins with `glanceView`). Plugin
     /// bubbles render their popovers from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,

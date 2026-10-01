@@ -18,13 +18,13 @@ use super::search::{
     baseline_search, mem_hit_value, mem_query, RecallBackend, SearchError, SearchParams,
 };
 use crate::api::routes::AppState;
-use crate::config::schema::DecisionRerankConfig;
+use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
 use crate::mem::decision::rerank::{
     run_stage, run_stage_until, FallbackReason, RerankCandidate, StageConfig, StageOutcome,
 };
 use crate::mem::decision::token_store::{TokenStatus, TokenStore};
 use crate::mem::decision::typesafe::TypeSafeAdapter;
-use crate::mem::decision::DecisionModel;
+use crate::mem::decision::{DecisionModel, DecisionModelInfo};
 use crate::mem::rerank::RerankConfig;
 use crate::mem::search::{SearchConfig, SearchQuery};
 use crate::mem::SearchHit;
@@ -34,24 +34,99 @@ use crate::service::ServiceContext;
 
 pub(crate) mod sessions_source;
 
-pub type DecisionRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
+pub type SupporterRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn DecisionModel>;
 
 /// Mirrors the `codeterm-mem` recall default for a request that names no limit.
 const DEFAULT_RECALL_LIMIT: usize = 5;
 const MAX_POOL: usize = 50;
-const ENVELOPE_KEY: &str = "decision_rerank";
+const ENVELOPE_KEY: &str = "supporter";
 
-pub(crate) fn decision_token_dir() -> PathBuf {
-    codeterm_paths::data_dir().join("decision-models")
+pub(crate) fn supporter_token_dir() -> PathBuf {
+    codeterm_paths::data_dir().join("supporter")
+}
+
+fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
+    let mut ids = models.ids();
+    ids.sort();
+    ids.into_iter()
+        .filter_map(|id| {
+            let model = models.get(&id)?;
+            let primitives = model.primitives();
+            Some(json!({
+                "id": id,
+                "primitives": {
+                    "choice": primitives.choice,
+                    "noul": primitives.noul,
+                    "score": primitives.score,
+                },
+                "models": model.models(),
+            }))
+        })
+        .collect()
+}
+
+fn supporter_state(
+    features_on: bool,
+    token: &TokenStatus,
+    adapter_registered: bool,
+) -> &'static str {
+    if !token.present {
+        return if features_on {
+            "feature_without_token"
+        } else {
+            "no_token"
+        };
+    }
+    if token.mode_ok == Some(false) {
+        return "token_unusable";
+    }
+    if !adapter_registered {
+        return "adapter_unavailable";
+    }
+    if features_on {
+        "active"
+    } else {
+        "token_only"
+    }
+}
+
+fn select_model_id(
+    adapter: &str,
+    available: &[DecisionModelInfo],
+    requested: Option<String>,
+    current_adapter: bool,
+    current_model: Option<String>,
+) -> Result<Option<String>, String> {
+    match requested {
+        Some(id) if available.iter().any(|model| model.id == id) => Ok(Some(id)),
+        Some(id) => {
+            let listed = available
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(format!(
+                "model {id} is not listed by adapter {adapter}; listed models: {listed}"
+            ))
+        }
+        None if current_adapter
+            && current_model
+                .as_ref()
+                .is_some_and(|id| available.iter().any(|model| &model.id == id)) =>
+        {
+            Ok(current_model)
+        }
+        None => Ok(available.first().map(|model| model.id.clone())),
+    }
 }
 
 fn token_store() -> TokenStore {
-    TokenStore::new(decision_token_dir())
+    TokenStore::new(supporter_token_dir())
 }
 
-pub(crate) fn default_registry() -> Arc<DecisionRegistry> {
-    let cfg = crate::config::memory_config().decision_rerank;
-    let registry = DecisionRegistry::new();
+pub(crate) fn default_registry() -> Arc<SupporterRegistry> {
+    let cfg = crate::config::load_config().supporter;
+    let registry = SupporterRegistry::new();
     registry.register(
         TypeSafeAdapter::ID,
         Arc::new(TypeSafeAdapter::new(token_store(), cfg.endpoint, cfg.model)),
@@ -175,7 +250,7 @@ fn record_returned<B: DecisionBackend + ?Sized>(backend: &B, output: &Value) {
         return;
     }
     if let Err(error) = backend.record_access(&ids) {
-        log::warn!("[mem.decision] access record failed: {error}");
+        log::warn!("[mem.supporter] access record failed: {error}");
     }
 }
 
@@ -200,16 +275,22 @@ pub(crate) fn skipped_search<B: DecisionBackend + ?Sized>(
 /// Every mem lock is released when `baseline_search` returns, so stage 2 runs lock-free.
 pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     backend: &B,
-    models: &DecisionRegistry,
-    cfg: &DecisionRerankConfig,
+    models: &SupporterRegistry,
+    supporter: &SupporterConfig,
     p: &SearchParams,
 ) -> Result<Value, SearchError> {
-    let Some(model) = models.get(&cfg.adapter) else {
+    let cfg = &supporter.memory_rerank;
+    let Some(model) = models.get(&supporter.adapter) else {
         return fallback(backend, p, FallbackReason::NoAdapter);
     };
     let limit = p.limit.unwrap_or(DEFAULT_RECALL_LIMIT);
     let pooled = SearchParams {
-        limit: Some(limit.max(cfg.sources.recall).min(MAX_POOL)),
+        limit: Some(
+            limit
+                .max(cfg.sources.recall)
+                .min(cfg.candidates)
+                .min(MAX_POOL),
+        ),
         ..p.clone()
     };
     let mut output = baseline_search(&Untouched(backend), &pooled)?;
@@ -241,10 +322,10 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(doc_hit_value(&doc));
         candidates.push(doc_candidate(&doc));
     }
-    let stage_config = stage_config(cfg);
+    let stage_config = stage_config(cfg, supporter.deadline_ms);
     let stage_deadline = sessions_on.then(|| Instant::now() + stage_config.deadline);
     let sessions = if let Some(deadline) = stage_deadline {
-        let source_budget = Duration::from_millis((cfg.deadline_ms / 4).min(250));
+        let source_budget = Duration::from_millis((supporter.deadline_ms / 4).min(250));
         backend.session_candidates(
             &p.q,
             cfg.sources.sessions,
@@ -299,7 +380,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
             record_returned(backend, &output);
             let mut envelope = json!({
                 "status": "applied",
-                "adapter": cfg.adapter,
+                "adapter": supporter.adapter,
                 "low_confidence": low_confidence,
                 "max_relevance": max_relevance,
             });
@@ -351,7 +432,7 @@ fn graph_additions<B: DecisionBackend + ?Sized>(
             .map(mem_hit_value)
             .collect(),
         Err(error) => {
-            log::warn!("[mem.decision] graph source failed: {error}");
+            log::warn!("[mem.supporter] graph source failed: {error}");
             Vec::new()
         }
     }
@@ -372,10 +453,10 @@ fn fallback<B: DecisionBackend + ?Sized>(
     Ok(output)
 }
 
-fn stage_config(cfg: &DecisionRerankConfig) -> StageConfig {
+fn stage_config(cfg: &MemoryRerankConfig, deadline_ms: u64) -> StageConfig {
     StageConfig {
         max_concurrency: cfg.max_concurrency,
-        deadline: Duration::from_millis(cfg.deadline_ms),
+        deadline: Duration::from_millis(deadline_ms),
         low_confidence_threshold: cfg.low_confidence_threshold,
         max_body_chars: cfg.max_body_chars,
     }
@@ -423,25 +504,40 @@ fn doc_candidate(doc: &crate::mem::docs_source::DocCandidate) -> RerankCandidate
 
 #[derive(Deserialize)]
 pub struct TokenSetBody {
-    adapter: String,
+    adapter: Option<String>,
     token: String,
 }
 
 #[derive(Deserialize)]
 pub struct AdapterQuery {
+    adapter: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SupporterUseBody {
     adapter: String,
+    model: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SupporterFeaturesBody {
+    memory_rerank: Option<bool>,
+    tab_state: Option<bool>,
 }
 
 type RouteResult = Result<Json<Value>, (StatusCode, String)>;
 
-pub async fn decision_token_set(
+pub async fn supporter_token_set(
     AxumState(state): AxumState<AppState>,
     Json(body): Json<TokenSetBody>,
 ) -> RouteResult {
-    if !state.svc.decision_models.contains(&body.adapter) {
-        return Err(unknown_adapter(&body.adapter));
+    let adapter = body
+        .adapter
+        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
+    if !state.svc.supporter_models.contains(&adapter) {
+        return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
     }
-    let TokenSetBody { adapter, token } = body;
+    let token = body.token;
     let status = token_io(move || {
         let store = token_store();
         store.set(&adapter, &token)?;
@@ -451,8 +547,13 @@ pub async fn decision_token_set(
     Ok(Json(token_status_json(&status.0, &status.1)))
 }
 
-pub async fn decision_token_clear(Query(query): Query<AdapterQuery>) -> RouteResult {
-    let adapter = query.adapter;
+pub async fn supporter_token_clear(
+    AxumState(state): AxumState<AppState>,
+    Query(query): Query<AdapterQuery>,
+) -> RouteResult {
+    let adapter = query
+        .adapter
+        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
     let (adapter, removed) = token_io(move || {
         let removed = token_store().clear(&adapter)?;
         Ok((adapter, removed))
@@ -461,8 +562,13 @@ pub async fn decision_token_clear(Query(query): Query<AdapterQuery>) -> RouteRes
     Ok(Json(json!({ "adapter": adapter, "removed": removed })))
 }
 
-pub async fn decision_token_status(Query(query): Query<AdapterQuery>) -> RouteResult {
-    let adapter = query.adapter;
+pub async fn supporter_token_status(
+    AxumState(state): AxumState<AppState>,
+    Query(query): Query<AdapterQuery>,
+) -> RouteResult {
+    let adapter = query
+        .adapter
+        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
     let (adapter, status) = token_io(move || {
         let status = token_store().status(&adapter)?;
         Ok((adapter, status))
@@ -471,38 +577,124 @@ pub async fn decision_token_status(Query(query): Query<AdapterQuery>) -> RouteRe
     Ok(Json(token_status_json(&adapter, &status)))
 }
 
-pub async fn decision_status(AxumState(state): AxumState<AppState>) -> RouteResult {
-    let models = state.svc.decision_models.clone();
+pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
+    let models = state.svc.supporter_models.clone();
+    let cfg = state.config.lock().supporter.clone();
     token_io(move || {
-        let cfg = crate::config::memory_config().decision_rerank;
         let store = token_store();
-        let mut ids = models.ids();
-        ids.sort();
-        let mut adapters = Vec::with_capacity(ids.len());
-        for id in ids {
-            let Some(model) = models.get(&id) else {
-                continue;
-            };
-            let primitives = model.primitives();
-            let status = store.status(&id)?;
-            adapters.push(json!({
-                "id": id,
-                "primitives": {
-                    "choice": primitives.choice,
-                    "noul": primitives.noul,
-                    "score": primitives.score,
-                },
-                "token": token_status_json(&id, &status),
-            }));
+        let mut adapters = registered_adapters(&models);
+        for adapter in &mut adapters {
+            if let Some(id) = adapter.get("id").and_then(Value::as_str) {
+                let status = store.status(id)?;
+                adapter["token"] = token_status_json(id, &status);
+            }
         }
+        let selected_token = store.status(&cfg.adapter)?;
+        let features_on = cfg.memory_rerank.enabled || cfg.tab_state.enabled;
+        let adapter_registered = models.contains(&cfg.adapter);
+        let state = supporter_state(features_on, &selected_token, adapter_registered);
+        let model = cfg.model.clone().or_else(|| {
+            models
+                .get(&cfg.adapter)
+                .and_then(|model| model.models().first().map(|entry| entry.id.clone()))
+        });
         Ok(json!({
-            "config": cfg,
-            "adapter_registered": models.contains(&cfg.adapter),
+            "state": state,
+            "adapter": cfg.adapter,
+            "model": model,
+            "deadline_ms": cfg.deadline_ms,
+            "features": {
+                "memory_rerank": cfg.memory_rerank.enabled,
+                "tab_state": cfg.tab_state.enabled,
+            },
+            "token": token_status_json(&cfg.adapter, &selected_token),
+            "adapter_registered": adapter_registered,
             "adapters": adapters,
         }))
     })
     .await
     .map(Json)
+}
+
+pub async fn supporter_models(AxumState(state): AxumState<AppState>) -> RouteResult {
+    let cfg = state.config.lock().supporter.clone();
+    let models = state.svc.supporter_models.clone();
+    let adapters = registered_adapters(&models);
+    Ok(Json(json!({
+        "adapter": cfg.adapter,
+        "model": cfg.model,
+        "adapters": adapters,
+    })))
+}
+
+pub async fn supporter_use(
+    AxumState(state): AxumState<AppState>,
+    Json(body): Json<SupporterUseBody>,
+) -> RouteResult {
+    let Some(adapter) = state.svc.supporter_models.get(&body.adapter) else {
+        return Err(unknown_adapter(&state.svc.supporter_models, &body.adapter));
+    };
+    let available = adapter.models();
+    let current = state.config.lock().supporter.clone();
+    let selected_model = select_model_id(
+        &body.adapter,
+        &available,
+        body.model,
+        current.adapter == body.adapter,
+        current.model,
+    )
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    if let Some(model_id) = selected_model.as_deref() {
+        if !adapter.select_model(model_id) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("adapter {} cannot select model {model_id}", body.adapter),
+            ));
+        }
+    }
+    let adapter_id = body.adapter;
+    let cfg = update_supporter_config(state, move |cfg| {
+        cfg.adapter = adapter_id;
+        cfg.model = selected_model;
+    })
+    .await?;
+    Ok(Json(json!({ "adapter": cfg.adapter, "model": cfg.model })))
+}
+
+pub async fn supporter_features(
+    AxumState(state): AxumState<AppState>,
+    Json(body): Json<SupporterFeaturesBody>,
+) -> RouteResult {
+    if body.memory_rerank.is_none() && body.tab_state.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "set memory_rerank or tab_state".into(),
+        ));
+    }
+    if body.memory_rerank == Some(true) || body.tab_state == Some(true) {
+        let adapter = state.config.lock().supporter.adapter.clone();
+        let token_adapter = adapter.clone();
+        let status = token_io(move || token_store().status(&token_adapter)).await?;
+        if !status.present || status.mode_ok == Some(false) {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("no usable supporter token is stored for adapter {adapter}"),
+            ));
+        }
+    }
+    let cfg = update_supporter_config(state, move |cfg| {
+        if let Some(enabled) = body.memory_rerank {
+            cfg.memory_rerank.enabled = enabled;
+        }
+        if let Some(enabled) = body.tab_state {
+            cfg.tab_state.enabled = enabled;
+        }
+    })
+    .await?;
+    Ok(Json(json!({
+        "memory_rerank": cfg.memory_rerank.enabled,
+        "tab_state": cfg.tab_state.enabled,
+    })))
 }
 
 fn token_status_json(adapter: &str, status: &TokenStatus) -> Value {
@@ -514,11 +706,55 @@ fn token_status_json(adapter: &str, status: &TokenStatus) -> Value {
     })
 }
 
-fn unknown_adapter(adapter: &str) -> (StatusCode, String) {
+fn unknown_adapter(models: &SupporterRegistry, adapter: &str) -> (StatusCode, String) {
+    let mut registered = models.ids();
+    registered.sort();
     (
         StatusCode::NOT_FOUND,
-        format!("decision adapter is not registered: {adapter}"),
+        format!(
+            "supporter adapter is not registered: {adapter}; registered adapters: {}",
+            if registered.is_empty() {
+                "none".to_owned()
+            } else {
+                registered.join(", ")
+            }
+        ),
     )
+}
+
+async fn update_supporter_config<F>(
+    state: AppState,
+    update: F,
+) -> Result<crate::config::schema::SupporterConfig, (StatusCode, String)>
+where
+    F: FnOnce(&mut crate::config::schema::SupporterConfig) + Send + 'static,
+{
+    let config_state = state.config.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut config = config_state.lock().clone();
+        update(&mut config.supporter);
+        crate::config::bounds::validate_app_config(&config)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let supporter = config.supporter.clone();
+        crate::config::save_config_and_apply(&config_state, config)
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+        Ok::<_, io::Error>(supporter)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("supporter config task failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        let status = if error.kind() == io::ErrorKind::InvalidInput {
+            StatusCode::BAD_REQUEST
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, format!("supporter config update failed: {error}"))
+    })
 }
 
 /// Token file IO stays off the async runtime; io errors never carry the token value.
@@ -532,7 +768,7 @@ where
         .map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("decision token task failed: {error}"),
+                format!("supporter token task failed: {error}"),
             )
         })?
         .map_err(|error| {
@@ -541,7 +777,7 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, format!("decision token store: {error}"))
+            (status, format!("supporter token store: {error}"))
         })
 }
 

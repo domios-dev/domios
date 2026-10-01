@@ -31,13 +31,13 @@ TOTAL_TOL=2.0
 usage() {
   cat <<'EOF'
 Usage:
-  ./run.sh [--check] [--baseline PATH] [--decision-rerank off|stub|live] [--decision-data-dir PATH] [--decision-graph M] [--decision-docs M] [--decision-sessions M]
+  ./run.sh [--check] [--baseline PATH] [--supporter off|stub|live] [--decision-data-dir PATH] [--decision-graph M] [--decision-docs M] [--decision-sessions M]
 
 Options:
   --check           Compare latest mem-bench run against baseline.json.
   --baseline PATH   Baseline file for --check (default: baseline.json)
-  --decision-rerank MODE  Optional A/B mode: off, stub, or live.
-  --decision-data-dir PATH  Data directory containing decision-models token.
+  --supporter MODE  Optional A/B mode: off, stub, or live.
+  --decision-data-dir PATH  Data directory containing supporter token.
   --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (needs stub or live).
   --decision-docs M  Add a re-rank+docs arm with up to M embedded sections (needs stub or live; max 10).
   --decision-sessions M  Add a re-rank+sessions arm with up to M fixture snippets (needs stub or live; max 5).
@@ -60,9 +60,9 @@ while [[ $# -gt 0 ]]; do
       BASELINE_PATH="${1:?--baseline needs path}"
       shift
       ;;
-    --decision-rerank)
+    --supporter)
       shift
-      DECISION_MODE="${1:?--decision-rerank needs mode}"
+      DECISION_MODE="${1:?--supporter needs mode}"
       shift
       ;;
     --decision-data-dir)
@@ -98,22 +98,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$CHECK_MODE" -eq 1 && "$DECISION_MODE" != off ]]; then
-  echo "ERROR: --check requires --decision-rerank off"
+  echo "ERROR: --check requires --supporter off"
   exit 1
 fi
 
 if [[ "$DECISION_DOCS" != 0 && "$DECISION_MODE" == off ]]; then
-  echo "ERROR: --decision-docs requires --decision-rerank stub or live"
+  echo "ERROR: --decision-docs requires --supporter stub or live"
   exit 1
 fi
 
 if [[ "$DECISION_SESSIONS" != 0 && "$DECISION_MODE" == off ]]; then
-  echo "ERROR: --decision-sessions requires --decision-rerank stub or live"
+  echo "ERROR: --decision-sessions requires --supporter stub or live"
   exit 1
 fi
 
 run() {
-  local decision_args=(--decision-rerank "$DECISION_MODE")
+  local decision_args=(--supporter "$DECISION_MODE")
   if [[ -n "$DECISION_DATA_DIR" ]]; then
     decision_args+=(--decision-data-dir "$DECISION_DATA_DIR")
   fi

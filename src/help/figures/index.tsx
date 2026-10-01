@@ -1,58 +1,7 @@
 import type { ReactElement } from "react";
 import type { HelpFigureId } from "../types";
-
-const stroke = "var(--ct-border)";
-const accent = "var(--ct-accent)";
-const fg = "var(--ct-fg)";
-const muted = "var(--ct-muted-fg)";
-const fill = "color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg))";
-
-function Box({
-  x,
-  y,
-  w,
-  h,
-  label,
-  sub,
-  emphasis,
-}: {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  label: string;
-  sub?: string;
-  emphasis?: boolean;
-}) {
-  return (
-    <g>
-      <rect
-        x={x}
-        y={y}
-        width={w}
-        height={h}
-        rx={8}
-        fill={emphasis ? fill : "var(--ct-bg)"}
-        stroke={emphasis ? accent : stroke}
-        strokeWidth={1.5}
-      />
-      <text x={x + w / 2} y={y + (sub ? 22 : 28)} textAnchor="middle" fill={fg} fontSize={12} fontWeight={600}>
-        {label}
-      </text>
-      {sub && (
-        <text x={x + w / 2} y={y + 38} textAnchor="middle" fill={muted} fontSize={10}>
-          {sub}
-        </text>
-      )}
-    </g>
-  );
-}
-
-function Arrow({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
-  return (
-    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={accent} strokeWidth={1.5} markerEnd="url(#help-arrow)" />
-  );
-}
+import { Arrow, Box, accent, muted } from "./primitives";
+import { SupporterRecallFigure, SupporterTabStateFigure } from "./supporter";
 
 function AgentHierarchyFigure() {
   return (
@@ -154,6 +103,8 @@ const FIGURES: Record<HelpFigureId, () => ReactElement> = {
   "agent-hierarchy": AgentHierarchyFigure,
   "plan-pipeline": PlanPipelineFigure,
   "task-status-flow": TaskStatusFlowFigure,
+  "supporter-recall": SupporterRecallFigure,
+  "supporter-tab-state": SupporterTabStateFigure,
 };
 
 export function HelpFigure({ figureId }: { figureId: HelpFigureId }) {

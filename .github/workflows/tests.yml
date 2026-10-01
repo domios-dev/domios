@@ -14,16 +14,21 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
+  # Nightly full matrix on master while the farm is idle, so parallel-test races
+  # and flakes surface days before a release instead of on release day.
+  schedule:
+    - cron: '0 1 * * *'
 
 # A branch is tested through its pull request, never through its own pushes:
 # release/feat/lane pushes duplicated the matrix the PR already ran, and the
 # single self-hosted Linux runner they contend for is the one a release needs.
 # master stays because a real three-way merge produces a tree neither side tested.
 #
-# The key is the commit under test rather than the ref, so the push and
-# pull_request events for one commit collapse into one group.
+# One group per pull request and per pushed ref: a new push to a PR, or a newer
+# master commit, cancels the run it supersedes instead of queueing behind it on
+# the shared runners. The nightly schedule shares master's group.
 concurrency:
-  group: tests-${{ github.event.pull_request.head.sha || github.sha }}
+  group: tests-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { AppConfig } from "../lib/types";
 import { getHelpContent } from "./content";
-import { HelpBlockView } from "./HelpBlockView";
+import { HelpBlockView, type OpenSettingsTarget } from "./HelpBlockView";
 import type { HelpSectionContent, HelpSectionId } from "./types";
 
 const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
@@ -32,9 +32,10 @@ interface HelpPanelProps {
   config: AppConfig;
   locale?: string;
   initialSection?: HelpSectionId;
+  onOpenSettings?: OpenSettingsTarget;
 }
 
-export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelProps) {
+export function HelpPanel({ config, locale = "en", initialSection, onOpenSettings }: HelpPanelProps) {
   const content = getHelpContent(locale);
   const [activeId, setActiveId] = useState<HelpSectionId>(
     initialSection ?? content.sections[0]?.id ?? "overview",
@@ -105,7 +106,12 @@ export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelPr
             </header>
             <div className="space-y-3">
               {section.blocks.map((block, i) => (
-                <HelpBlockView key={`${section.id}-${i}`} block={block} config={config} />
+                <HelpBlockView
+                  key={`${section.id}-${i}`}
+                  block={block}
+                  config={config}
+                  onOpenSettings={onOpenSettings}
+                />
               ))}
             </div>
           </section>
