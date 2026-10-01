@@ -194,8 +194,7 @@ impl ShadowHost for ServiceContext {
             .agent_set_at
             .map(|started| now.saturating_duration_since(started).as_secs())
             .unwrap_or_default();
-        let session_key =
-            launch_episode_key(&tab.id, tab.pty_id.as_deref(), tab.agent_set_at);
+        let session_key = launch_episode_key(&tab.id, tab.pty_id.as_deref(), tab.agent_set_at);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         screen.hash(&mut hasher);
         let changed = state::screen_changed(&tab.id, &session_key, hasher.finish());
