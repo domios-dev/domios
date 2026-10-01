@@ -202,18 +202,9 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `supporter.memory_rerank.enabled` | boolean; default false |
 | `supporter.memory_rerank.docs_hybrid` | boolean; default false |
 
-`supporter.adapter`, `.endpoint`, and `.model` select the registered adapter and discovered model; `.deadline_ms` sets the stage deadline. `supporter.memory_rerank.enabled` defaults to `false`. The token is write-only in Settings > Agents > Supporter Agent, or through `codeterm supporter token set` with stdin; it is never stored in `config.toml`.
-`supporter.memory_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for supporter documentation candidates.
-`supporter.tab_state.enabled` (default `false`) enables the tab-state signal.
+`supporter.adapter`, `.endpoint`, and `.model` select the registered adapter and discovered model; `.deadline_ms` sets the stage deadline. `supporter.memory_rerank.enabled` defaults to `false`; `supporter.memory_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for documentation candidates; `supporter.tab_state.enabled` (default `false`) enables the observe-only tab-state signal. The token is write-only in Settings > Agents > Supporter Agent, or through `codeterm supporter token set` with stdin; it is never stored in `config.toml`.
 
-| Key | Bounds |
-|-----|--------|
-| `memory.dream_hygiene.stale_archive_cap` | integer from 0 to 500; default 20 |
-| `memory.dream_hygiene.merge_cap` | integer from 0 to 100; default 10 |
-
-`memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. The caps count archives and Dreamer merges per UTC day.
-
-The Supporter Agent's token is set in Settings > Agents > Supporter Agent or with `codeterm supporter token set`, never in `config.toml`.
+`memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. Per UTC day, `memory.dream_hygiene.stale_archive_cap` (0 to 500, default 20) caps archives and `memory.dream_hygiene.merge_cap` (0 to 100, default 10) caps Dreamer merges.
 
 Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
 
@@ -246,4 +237,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->
