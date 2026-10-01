@@ -88,8 +88,7 @@ impl Args {
                     save_baseline = true;
                 }
                 "--supporter" => {
-                    supporter =
-                        Mode::parse(&it.next().ok_or("--supporter needs value")?)?;
+                    supporter = Mode::parse(&it.next().ok_or("--supporter needs value")?)?;
                 }
                 "--decision-data-dir" => {
                     decision_data_dir =

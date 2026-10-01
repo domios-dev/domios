@@ -166,7 +166,10 @@ fn model_names(value: Option<&Value>) -> String {
         .flatten()
         .map(|model| {
             let id = model.get("id").and_then(Value::as_str).unwrap_or("?");
-            let name = model.get("display_name").and_then(Value::as_str).unwrap_or(id);
+            let name = model
+                .get("display_name")
+                .and_then(Value::as_str)
+                .unwrap_or(id);
             if name == id {
                 id.to_string()
             } else {

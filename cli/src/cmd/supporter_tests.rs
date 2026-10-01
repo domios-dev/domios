@@ -12,7 +12,9 @@ fn parse(argv: &[&str]) -> Result<Commands, clap::Error> {
 }
 
 fn parse_mem(argv: &[&str]) -> Result<MemAction, clap::Error> {
-    match parse(argv)? {
+    let mut full = vec!["mem"];
+    full.extend_from_slice(argv);
+    match parse(&full)? {
         Commands::Mem { action } => Ok(action),
         _ => panic!("expected mem command"),
     }
@@ -50,7 +52,15 @@ fn supporter_parse_enable_disable_status_use_features() {
             if adapter == "fixture" && model.as_deref() == Some("listed")
     ));
     assert!(matches!(
-        parse(&["supporter", "features", "--memory-rerank", "on", "--tab-state", "off"]).unwrap(),
+        parse(&[
+            "supporter",
+            "features",
+            "--memory-rerank",
+            "on",
+            "--tab-state",
+            "off"
+        ])
+        .unwrap(),
         Commands::Supporter {
             action: SupporterAction::Features {
                 memory_rerank: Some(SupporterMode::On),
@@ -84,7 +94,10 @@ fn supporter_token_set_refuses_tty() {
     assert!(!terminal.contains("secret"));
     assert!(read_token("".as_bytes(), false).is_err());
     assert!(read_token("  \r\n".as_bytes(), false).is_err());
-    assert_eq!(read_token("secret\r\n".as_bytes(), false).unwrap(), "secret");
+    assert_eq!(
+        read_token("secret\r\n".as_bytes(), false).unwrap(),
+        "secret"
+    );
 }
 
 #[test]
@@ -108,7 +121,10 @@ fn mem_search_supporter_flag_on_off() {
     }
     assert!(matches!(
         parse_mem(&["search", "q"]).unwrap(),
-        MemAction::Search { supporter: None, .. }
+        MemAction::Search {
+            supporter: None,
+            ..
+        }
     ));
 }
 

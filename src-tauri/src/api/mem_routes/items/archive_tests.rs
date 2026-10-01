@@ -23,8 +23,10 @@ fn insert(conn: &Connection, id: &str, kind: &str, pinned: bool) {
 }
 
 fn kind(conn: &Connection, id: &str) -> String {
-    conn.query_row("SELECT kind FROM mem_items WHERE id = ?1", [id], |row| row.get(0))
-        .unwrap()
+    conn.query_row("SELECT kind FROM mem_items WHERE id = ?1", [id], |row| {
+        row.get(0)
+    })
+    .unwrap()
 }
 
 #[test]
@@ -39,7 +41,15 @@ fn mem_archive_is_reversible_via_restore() {
     assert_eq!(history.last().unwrap().change_type, "archive");
 
     let restore = pick_restore_kind(&history).unwrap();
-    apply_kind_restore(&conn, blobs.path(), "fact_archive", &restore, None, "restore").unwrap();
+    apply_kind_restore(
+        &conn,
+        blobs.path(),
+        "fact_archive",
+        &restore,
+        None,
+        "restore",
+    )
+    .unwrap();
     assert_eq!(kind(&conn, "fact_archive"), "fact");
 }
 
@@ -49,14 +59,18 @@ fn mem_archive_refuses_protected_kinds() {
     for protected in ["skill", "rule", "preference"] {
         insert(&conn, protected, protected, false);
         assert_eq!(
-            archive_mem_item_conn(&conn, protected, "test", "test").unwrap_err().0,
+            archive_mem_item_conn(&conn, protected, "test", "test")
+                .unwrap_err()
+                .0,
             StatusCode::CONFLICT,
         );
         assert_eq!(kind(&conn, protected), protected);
     }
     insert(&conn, "pinned_fact", "fact", true);
     assert_eq!(
-        archive_mem_item_conn(&conn, "pinned_fact", "test", "test").unwrap_err().0,
+        archive_mem_item_conn(&conn, "pinned_fact", "test", "test")
+            .unwrap_err()
+            .0,
         StatusCode::CONFLICT,
     );
     assert_eq!(kind(&conn, "pinned_fact"), "fact");

@@ -64,7 +64,7 @@ fn graph_cfg(graph: usize) -> SupporterConfig {
     SupporterConfig {
         memory_rerank: MemoryRerankConfig {
             sources: SupporterSources {
-            graph,
+                graph,
                 ..enabled_cfg().memory_rerank.sources
             },
             ..enabled_cfg().memory_rerank
@@ -279,10 +279,7 @@ fn decision_graph_access_delta_only_for_returned() {
 
     let after = access_counts(&backend);
     assert_eq!(titles(&output), vec![GRAPH_TITLES[1], TITLES[2]]);
-    assert_eq!(
-        output["supporter"]["sources"]["graph"],
-        GRAPH_TITLES.len()
-    );
+    assert_eq!(output["supporter"]["sources"]["graph"], GRAPH_TITLES.len());
     let returned = returned_mem_ids(&output);
     assert_eq!(returned.len(), 2);
     for id in &backend.ids {

@@ -719,7 +719,7 @@ mod tests {
     }
 
     #[test]
-fn supporter_socket_refuses_token_methods() {
+    fn supporter_socket_refuses_token_methods() {
         let secret = secret_socket_rejection("mem.secret.get").unwrap();
         for method in [
             "mem.supporter.token.set",

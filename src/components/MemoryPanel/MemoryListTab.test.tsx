@@ -84,8 +84,8 @@ describe("MemoryListTab", () => {
       "supporter browse",
     );
     await act(async () => {
-      search.dispatchEvent(new testWindow.Event("input", { bubbles: true }));
-      search.dispatchEvent(new testWindow.Event("change", { bubbles: true }));
+      search.dispatchEvent(new testWindow.Event("input", { bubbles: true }) as unknown as Event);
+      search.dispatchEvent(new testWindow.Event("change", { bubbles: true }) as unknown as Event);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);

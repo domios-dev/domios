@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::RwLock;
 use std::sync::OnceLock;
+use std::sync::RwLock;
 use std::time::Instant;
 
 use serde_json::{json, Value};
@@ -178,7 +178,11 @@ impl DecisionModel for TypeSafeAdapter {
     }
 
     fn models(&self) -> Vec<DecisionModelInfo> {
-        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let model = self
+            .model
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         vec![DecisionModelInfo {
             id: model.clone(),
             display_name: model,
@@ -186,7 +190,10 @@ impl DecisionModel for TypeSafeAdapter {
     }
 
     fn select_model(&self, id: &str) -> bool {
-        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let model = self
+            .model
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         model.as_str() == id
     }
 
@@ -205,7 +212,11 @@ impl DecisionModel for TypeSafeAdapter {
             return Err(DecisionError::Deadline);
         }
         let client = CLIENT.get_or_init(reqwest::blocking::Client::new);
-        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let model = self
+            .model
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let body = Self::build_request_body(&model, request);
         let response = client
             .post(&self.endpoint)

@@ -36,11 +36,10 @@ pub async fn mem_archive(
         .unwrap_or_else(|| changed_by_from_headers(&headers));
     let svc = state.svc.clone();
     let target = id.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        archive_mem_item(&svc, &target, &reason, &actor)
-    })
-    .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
+    let output =
+        tokio::task::spawn_blocking(move || archive_mem_item(&svc, &target, &reason, &actor))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
     emit_activity(&state, &headers, "update", vec![id]);
     Ok(Json(output))
 }
@@ -51,7 +50,8 @@ pub(crate) fn archive_mem_item(
     reason: &str,
     actor: &str,
 ) -> Result<Value, (StatusCode, String)> {
-    svc.mem.with_conn(|conn| archive_mem_item_conn(conn, id, reason, actor))
+    svc.mem
+        .with_conn(|conn| archive_mem_item_conn(conn, id, reason, actor))
 }
 
 pub(crate) fn validate_archive_reason(reason: &str) -> Result<String, (StatusCode, String)> {
@@ -86,10 +86,16 @@ pub(crate) fn archive_mem_item_conn(
             return Err((StatusCode::NOT_FOUND, format!("mem item {id} not found")));
         };
         if pinned {
-            return Err((StatusCode::CONFLICT, "pinned items cannot be archived".into()));
+            return Err((
+                StatusCode::CONFLICT,
+                "pinned items cannot be archived".into(),
+            ));
         }
         if matches!(kind.as_str(), "skill" | "rule" | "preference") {
-            return Err((StatusCode::CONFLICT, format!("{kind} items cannot be archived")));
+            return Err((
+                StatusCode::CONFLICT,
+                format!("{kind} items cannot be archived"),
+            ));
         }
         if kind == "archived" {
             return Err((StatusCode::CONFLICT, "item is already archived".into()));

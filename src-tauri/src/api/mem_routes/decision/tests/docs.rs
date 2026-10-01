@@ -5,7 +5,7 @@ fn docs_cfg(docs: usize) -> SupporterConfig {
     SupporterConfig {
         memory_rerank: MemoryRerankConfig {
             sources: SupporterSources {
-            docs,
+                docs,
                 ..enabled_cfg().memory_rerank.sources
             },
             ..enabled_cfg().memory_rerank
