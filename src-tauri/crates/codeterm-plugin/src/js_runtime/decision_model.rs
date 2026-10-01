@@ -27,11 +27,11 @@ impl DecisionModel for JsDecisionModel {
     }
 
     fn primitives(&self) -> DecisionPrimitives {
-        call_json(&self.vm, "primitives", &[]).unwrap_or_default()
+        call_json_or_default(&self.vm, &self.id, "primitives")
     }
 
     fn models(&self) -> Vec<DecisionModelInfo> {
-        call_json(&self.vm, "models", &[]).unwrap_or_default()
+        call_json_or_default(&self.vm, &self.id, "models")
     }
 
     fn decide(
@@ -52,6 +52,16 @@ impl DecisionModel for JsDecisionModel {
         validate_answer(request, &answer)?;
         Ok(answer)
     }
+}
+
+fn call_json_or_default<T>(vm: &PluginVm, model_id: &str, method: &str) -> T
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    call_json(vm, method, &[]).unwrap_or_else(|error| {
+        log::debug!("decision model {model_id}.{method} failed: {error}");
+        T::default()
+    })
 }
 
 fn map_vm_error(error: VmError) -> DecisionError {
