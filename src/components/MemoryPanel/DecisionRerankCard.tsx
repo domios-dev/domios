@@ -1,14 +1,14 @@
 import { Sparkles } from "lucide-react";
-import type { AppConfig, DecisionRerankConfig, MemoryConfig } from "../../lib/types";
+import type { AppConfig, SupporterConfig } from "../../lib/types";
 import { InlineLinkButton, SettingsCard, Toggle } from "../Settings/shared";
 
 interface Props {
-  mem: MemoryConfig;
+  supporter: SupporterConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenAgentsSettings: () => void;
 }
 
-export function DecisionRerankCard({ mem, onUpdate, onOpenAgentsSettings }: Props) {
+export function DecisionRerankCard({ supporter, onUpdate, onOpenAgentsSettings }: Props) {
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
@@ -17,11 +17,11 @@ export function DecisionRerankCard({ mem, onUpdate, onOpenAgentsSettings }: Prop
     >
       <Toggle
         label="Re-rank memory recall"
-        checked={mem.decision_rerank?.enabled ?? false}
+        checked={supporter.memory_rerank.enabled}
         onChange={(v) =>
-          onUpdate("memory", {
-            ...mem,
-            decision_rerank: { ...(mem.decision_rerank ?? {}), enabled: v } as DecisionRerankConfig,
+          onUpdate("supporter", {
+            ...supporter,
+            memory_rerank: { ...supporter.memory_rerank, enabled: v },
           })
         }
       />

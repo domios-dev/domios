@@ -34,7 +34,7 @@ impl Mode {
             "stub" => Ok(Self::Stub),
             "live" => Ok(Self::Live),
             _ => Err(format!(
-                "invalid --decision-rerank mode: {value} (expected off|stub|live)"
+                "invalid --supporter mode: {value} (expected off|stub|live)"
             )),
         }
     }
@@ -269,14 +269,14 @@ pub(super) fn prepare_model(
             let root = data_dir
                 .map(Path::to_path_buf)
                 .unwrap_or_else(codeterm_lib::paths::data_dir);
-            let store = TokenStore::new(root.join("decision-models"));
+            let store = TokenStore::new(root.join("supporter"));
             let present = store
                 .load(TypeSafeAdapter::ID)
                 .map_err(|_| "decision live token unreadable or invalid".to_string())?
                 .is_some();
             if !present {
                 return Err(
-                    "decision live token missing; store it before running --decision-rerank live"
+                    "decision live token missing; store it before running --supporter live"
                         .into(),
                 );
             }

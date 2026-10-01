@@ -12,17 +12,30 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Instant;
 
+use serde::Serialize;
 use serde_json::Value;
 
 /// A decision adapter. Callers branch only on [`DecisionModel::primitives`], never on `id`.
 pub trait DecisionModel: Send + Sync {
     fn id(&self) -> &str;
     fn primitives(&self) -> DecisionPrimitives;
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        Vec::new()
+    }
+    fn select_model(&self, id: &str) -> bool {
+        self.models().iter().any(|model| model.id == id)
+    }
     fn decide(
         &self,
         req: &DecisionRequest,
         deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DecisionModelInfo {
+    pub id: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

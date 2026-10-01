@@ -5,9 +5,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::decision::{self, DecisionBackend, DecisionRegistry};
+use super::decision::{self, DecisionBackend, SupporterRegistry};
 use crate::api::routes::{check_auth, AppState};
-use crate::config::schema::DecisionRerankConfig;
+use crate::config::schema::SupporterConfig;
 use crate::mem::{
     rerank::RerankConfig,
     search::{SearchConfig, SearchMode, SearchQuery},
@@ -17,7 +17,7 @@ use crate::service::plan::ports::PlanIndexQuery;
 use crate::service::plan::search_index::PlanSearchHit;
 use crate::service::{ServiceContext, ServiceState};
 
-pub(crate) const RERANK_EXCLUSIVE: &str = "rerank and decision_rerank are mutually exclusive";
+pub(crate) const RERANK_EXCLUSIVE: &str = "rerank and supporter are mutually exclusive";
 
 #[derive(Deserialize, Clone, Default)]
 pub(crate) struct SearchParams {
@@ -33,7 +33,7 @@ pub(crate) struct SearchParams {
     #[serde(default)]
     pub rerank: Option<bool>,
     #[serde(default)]
-    pub decision_rerank: Option<bool>,
+    pub supporter: Option<bool>,
     #[serde(default)]
     pub project: Option<String>,
     #[serde(default)]
@@ -127,21 +127,21 @@ pub(crate) fn execute_search(
     svc: &ServiceState,
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {
-    let cfg = crate::config::memory_config().decision_rerank;
-    resolve_search(&**svc, &svc.decision_models, &cfg, p)
+    let cfg = crate::config::load_config().supporter;
+    resolve_search(&**svc, &svc.supporter_models, &cfg, p)
 }
 
 pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
     backend: &B,
-    models: &DecisionRegistry,
-    cfg: &DecisionRerankConfig,
+    models: &SupporterRegistry,
+    cfg: &SupporterConfig,
     p: SearchParams,
 ) -> Result<serde_json::Value, SearchError> {
     let legacy = p.rerank == Some(true);
-    if legacy && p.decision_rerank == Some(true) {
+    if legacy && p.supporter == Some(true) {
         return Err(SearchError::InvalidParams(RERANK_EXCLUSIVE.into()));
     }
-    if !p.decision_rerank.unwrap_or(cfg.enabled) {
+    if !p.supporter.unwrap_or(cfg.memory_rerank.enabled) {
         return Ok(baseline_search(backend, &p)?);
     }
     if legacy {

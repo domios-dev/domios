@@ -7,7 +7,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
-import { DEFAULT_DECISION_ADAPTER, SupporterAgentCard } from "./SupporterAgentCard";
+import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
@@ -49,7 +49,6 @@ export function AgentsOverview({
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
         <SupporterAgentCard
-          adapter={config.memory?.decision_rerank?.adapter ?? DEFAULT_DECISION_ADAPTER}
           apiBase={daemonHttpBase(config.api)}
           apiHeaders={apiHeaders}
           onOpenGuide={onOpenGuide}

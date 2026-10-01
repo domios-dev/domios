@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::schema::DecisionSources;
+use crate::config::schema::SupporterSources;
 use crate::mem::Relation;
 
 const ENTITY: &str = "tech_lighthouse";
@@ -60,11 +60,14 @@ fn graph_seeded() -> SeededBackend {
     backend
 }
 
-fn graph_cfg(graph: usize) -> DecisionRerankConfig {
-    DecisionRerankConfig {
-        sources: DecisionSources {
+fn graph_cfg(graph: usize) -> SupporterConfig {
+    SupporterConfig {
+        memory_rerank: MemoryRerankConfig {
+            sources: SupporterSources {
             graph,
-            ..enabled_cfg().sources
+                ..enabled_cfg().memory_rerank.sources
+            },
+            ..enabled_cfg().memory_rerank
         },
         ..enabled_cfg()
     }
@@ -72,7 +75,7 @@ fn graph_cfg(graph: usize) -> DecisionRerankConfig {
 
 fn applied(limit: usize) -> SearchParams {
     SearchParams {
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..params(limit)
     }
 }
@@ -116,9 +119,9 @@ fn decision_graph_only_item_can_win() {
         (keys, hit.as_object().unwrap().len())
     };
     assert_eq!(keys(&returned[0]), keys(&returned[1]));
-    assert_eq!(output["decision_rerank"]["status"], "applied");
+    assert_eq!(output["supporter"]["status"], "applied");
     assert_eq!(
-        output["decision_rerank"]["sources"],
+        output["supporter"]["sources"],
         json!({ "recall": TITLES.len(), "graph": GRAPH_TITLES.len() })
     );
 }
@@ -145,7 +148,7 @@ fn decision_graph_counts_and_dedup_respected() {
             .filter(|hit| hit["via"] == "graph")
             .all(|hit| is_graph_title(&hit_title(hit))));
         assert_eq!(
-            output["decision_rerank"]["sources"],
+            output["supporter"]["sources"],
             json!({ "recall": TITLES.len(), "graph": expected }),
             "graph={graph}"
         );
@@ -156,9 +159,9 @@ fn decision_graph_counts_and_dedup_respected() {
 fn decision_graph_zero_keeps_applied_output_identical() {
     let backend = graph_seeded();
     let cfg = enabled_cfg();
-    assert_eq!(cfg.sources.graph, 0);
+    assert_eq!(cfg.memory_rerank.sources.graph, 0);
     let limit = 3;
-    let pooled = baseline_oracle(&backend, &params(cfg.sources.recall));
+    let pooled = baseline_oracle(&backend, &params(cfg.memory_rerank.sources.recall));
     let pool_titles = titles(&pooled);
     let n = pool_titles.len() as f64;
     let mut by_title: Vec<(&str, f64)> = pool_titles
@@ -182,7 +185,7 @@ fn decision_graph_zero_keeps_applied_output_identical() {
     }
     let expected = json!({
         "hits": expected_hits,
-        "decision_rerank": {
+        "supporter": {
             "status": "applied",
             "adapter": STUB_ID,
             "low_confidence": false,
@@ -201,7 +204,7 @@ fn decision_graph_fallback_has_no_graph_additions() {
     let backend = graph_seeded();
     let mut request = params(2);
     request.project = Some("/seeded/project".into());
-    let cases: Vec<(&str, DecisionRegistry)> = vec![
+    let cases: Vec<(&str, SupporterRegistry)> = vec![
         (
             "adapter_error",
             registry_with(StubMode::Fail(DecisionError::Http(500))),
@@ -210,7 +213,7 @@ fn decision_graph_fallback_has_no_graph_additions() {
             "deadline",
             registry_with(StubMode::Fail(DecisionError::Deadline)),
         ),
-        ("no_adapter", DecisionRegistry::new()),
+        ("no_adapter", SupporterRegistry::new()),
         (
             "unavailable",
             registry_with(StubMode::Fail(DecisionError::Unavailable(
@@ -225,13 +228,13 @@ fn decision_graph_fallback_has_no_graph_additions() {
             &registry,
             &graph_cfg(3),
             SearchParams {
-                decision_rerank: Some(true),
+                supporter: Some(true),
                 ..request.clone()
             },
         )
         .unwrap();
         assert_eq!(
-            output["decision_rerank"],
+            output["supporter"],
             json!({ "status": "fallback", "reason": reason })
         );
         assert!(
@@ -246,7 +249,7 @@ fn decision_graph_fallback_has_no_graph_additions() {
     }
 
     let off = SearchParams {
-        decision_rerank: Some(false),
+        supporter: Some(false),
         ..request.clone()
     };
     let calls = backend.graph_calls.load(Ordering::SeqCst);
@@ -257,7 +260,7 @@ fn decision_graph_fallback_has_no_graph_additions() {
     assert_eq!(backend.graph_calls.load(Ordering::SeqCst), calls);
 }
 
-fn registry_with_graph_winner() -> DecisionRegistry {
+fn registry_with_graph_winner() -> SupporterRegistry {
     relevance_registry(&[(GRAPH_TITLES[0], 0.99)])
 }
 
@@ -277,7 +280,7 @@ fn decision_graph_access_delta_only_for_returned() {
     let after = access_counts(&backend);
     assert_eq!(titles(&output), vec![GRAPH_TITLES[1], TITLES[2]]);
     assert_eq!(
-        output["decision_rerank"]["sources"]["graph"],
+        output["supporter"]["sources"]["graph"],
         GRAPH_TITLES.len()
     );
     let returned = returned_mem_ids(&output);
