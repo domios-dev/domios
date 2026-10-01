@@ -643,9 +643,7 @@ impl ServiceContext {
             // Tell the run-watcher this tab is already done so the idle / hard timeout watchdog does NOT fire later and overwrite our Success status with Failed.
             if let Some(ref pid) = pty_id {
                 if let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
-                    &self.mux,
-                    &tab_id,
-                    pid,
+                    &self.mux, &tab_id, pid,
                 ) {
                     crate::service::launch_readiness::retire_attempt(&attempt);
                 }

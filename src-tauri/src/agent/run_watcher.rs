@@ -174,11 +174,7 @@ impl RunWatcherRegistry {
         true
     }
 
-    pub fn cron_launch_exit_eligibility(
-        &self,
-        svc: &ServiceContext,
-        pty_id: &str,
-    ) -> Option<bool> {
+    pub fn cron_launch_exit_eligibility(&self, svc: &ServiceContext, pty_id: &str) -> Option<bool> {
         let state = self.runs.lock().get(pty_id).cloned()?;
         matches!(&state.kind, AgentRunKind::Cron { .. })
             .then(|| cron_provider_launch_is_issued(svc, &state))
