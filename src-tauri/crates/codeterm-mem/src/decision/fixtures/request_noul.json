@@ -1,0 +1,21 @@
+{
+  "state": {
+    "query": "A customer requests a refund.",
+    "memory": {
+      "title": "Refund request",
+      "kind": "fact",
+      "body": "The refund was requested yesterday."
+    }
+  },
+  "model": "jev-latest",
+  "questions": {
+    "q": {
+      "type": "noul",
+      "instructions": "Can this record answer the question?",
+      "criteria": {
+        "true": "The memory states the answer, or a specific fact/procedure/decision without which the question cannot be answered.",
+        "false": "The memory is only on the same topic, shares keywords, is a digest/summary/stub/overview, describes a related-but-different issue, or would leave the question unanswered."
+      }
+    }
+  }
+}

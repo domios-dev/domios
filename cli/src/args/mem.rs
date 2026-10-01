@@ -1,3 +1,4 @@
+use super::mem_decision::{DecisionRerankMode, MemDecisionAction};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -22,9 +23,14 @@ pub enum MemAction {
         /// Max results (default 5)
         #[arg(long, default_value = "5")]
         limit: usize,
-        /// Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)
+        /// Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY).
+        /// Exclusive with `--decision-rerank on`.
         #[arg(long)]
         rerank: bool,
+        /// Force the decision re-rank stage on or off for this search;
+        /// omitted, `[memory.decision_rerank].enabled` decides.
+        #[arg(long, value_enum, value_name = "on|off")]
+        decision_rerank: Option<DecisionRerankMode>,
     },
     /// Print one item by id
     Get {
@@ -330,6 +336,11 @@ pub enum MemAction {
     Secret {
         #[command(subcommand)]
         action: MemSecretAction,
+    },
+    /// Decision re-rank adapters: API token (stdin only) and status.
+    Decision {
+        #[command(subcommand)]
+        action: MemDecisionAction,
     },
     /// Dreamer review/apply: run a daemon-routed dream phase, or apply a
     /// reviewed re-cluster plan against the local mem DB.

@@ -408,7 +408,7 @@ fn cron_reap_requires_a_seen_then_absent_provider_tree() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn idle_poll_classifies_provider_dialog_as_prompt() {
+fn idle_poll_stores_provider_prompt_without_notification() {
     let (fixture, tab_id, pty_id) = owner_prompt_fixture();
 
     assert!(surface_idle_provider_prompt(
@@ -435,15 +435,7 @@ fn idle_poll_classifies_provider_dialog_as_prompt() {
     );
     drop(mux);
 
-    let open_notices = fixture
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .into_iter()
-        .filter(|record| record.tab_id.as_deref() == Some(&tab_id) && !record.resolved)
-        .count();
-    assert_eq!(open_notices, 1);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 
     fixture
         .service
@@ -452,15 +444,7 @@ fn idle_poll_classifies_provider_dialog_as_prompt() {
             crate::multiplexer::types::TabCloseReason::AgentRunEnded,
         )
         .unwrap();
-    let open_notices_after_close = fixture
-        .service
-        .notif
-        .lock()
-        .list(false)
-        .into_iter()
-        .filter(|record| record.tab_id.as_deref() == Some(&tab_id) && !record.resolved)
-        .count();
-    assert_eq!(open_notices_after_close, 0);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 }
 
 #[test]

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
+import type { HelpSectionId } from "../../help/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
+import { DecisionRerankCard } from "./DecisionRerankCard";
 import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
 
 type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
@@ -61,7 +63,13 @@ function relativeFromNow(target: number): string {
   return `about ${days} day${days === 1 ? "" : "s"} from now`;
 }
 
-export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+interface MemorySettingsTabProps {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onOpenGuide: (section: HelpSectionId) => void;
+}
+
+export function MemorySettingsTab({ config, onUpdate, onOpenGuide }: MemorySettingsTabProps) {
   const { providers, loading: modelCatalogLoading } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
@@ -418,6 +426,8 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           </Label>
         </div>
       </SettingsCard>
+
+      <DecisionRerankCard mem={mem} onUpdate={onUpdate} onOpenGuide={onOpenGuide} apiBase={apiBase} apiHeaders={apiHeaders} />
     </SettingsPage>
   );
 }

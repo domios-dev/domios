@@ -41,6 +41,8 @@ Run it in the **background** so you can keep working:
 | `./build.sh webdriver` | dev with WebDriver enabled for UI tests |
 | `./build.sh e2e` | run E2E suite against a running dev |
 
+For dev readiness reports routed to the calling agent tab, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
+
 ## Verifying the running binary matches your code
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
@@ -207,6 +209,7 @@ well as the immediate environment before declaring recovery complete.
 - **Health endpoint returns empty after `kill && dev`** — Rust is still linking. Poll the health endpoint for up to 40s before concluding the restart failed.
 - **`caffeinate` stays running after dev crashes** — if a session used `codeterm keepawake start`, the caffeinate child is owned by the dev process and should die with it. If it doesn't: `pkill -x caffeinate` (safe — targets only the literal binary name).
 - **Port 7686 already in use but no dev window** — stale process from a previous crash. `./build.sh kill` then start. If still occupied, `lsof -nP -iTCP:7686 -sTCP:LISTEN -t | xargs kill` and retry.
+- **2026-09-30: first named `dev --wait` exits 1 silently after "codeterm-embed bundled"** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.codeterm-dev-<name>/target/debug` and rerun.
 - **`~/.codeterm-dev/mem/` corrupted / mem commands 500** — back it up and restart: `mv ~/.codeterm-dev ~/.codeterm-dev.bak-$(date +%s) && ./build.sh dev`.
 
 ### Windows
@@ -242,4 +245,4 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

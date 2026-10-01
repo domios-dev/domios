@@ -61,6 +61,20 @@ fn classified_prompt_fixture(
     (fixture, service, tab_id, pty_id)
 }
 
+fn assert_pending_prompt_without_notification(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+    tab_id: &str,
+    prompt: &PendingPrompt,
+    kind: codeterm_types::pty::PromptKind,
+) {
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(tab_id).expect("tab remains available");
+    assert_eq!(tab.pending_prompt.as_ref(), Some(prompt));
+    assert_eq!(tab.pending_prompt_kind, Some(kind));
+    drop(mux);
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+}
+
 fn reactor_test_prompt() -> PendingPrompt {
     PendingPrompt {
         question: "opaque question token?".into(),
@@ -83,7 +97,7 @@ fn reactor_test_prompt() -> PendingPrompt {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn delivered_goal_text_never_raises_needs_response_notification() {
+fn delivered_goal_text_is_not_stored_as_a_pending_prompt() {
     let mut prompt = reactor_test_prompt();
     prompt.selected_values = Some(vec!["1".into()]);
     let screen = include_str!("fixtures/codex_transcript_with_composer.txt");
@@ -103,36 +117,24 @@ fn delivered_goal_text_never_raises_needs_response_notification() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn needs_response_notification_requires_a_real_pending_prompt() {
+fn state_reactor_stores_a_detected_prompt_without_notification() {
     let prompt = reactor_test_prompt();
     let screen = "opaque question token?\n❯ 1. opaque option alpha\n  2. opaque option beta\nEnter to confirm";
     let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
 
     react(&service, &pty_id, TabStatus::Waiting);
 
-    let notif_guard = fixture.service.notif.lock();
-    let notifications = notif_guard.list(false);
-    assert_eq!(notifications.len(), 1);
-    assert_eq!(notifications[0].tab_id.as_deref(), Some(tab_id.as_str()));
-    assert_eq!(
-        notifications[0].body.as_deref(),
-        Some("opaque question token?\nopaque option alpha\nopaque option beta")
-    );
-    assert_eq!(
-        notifications[0]
-            .actions
-            .as_ref()
-            .expect("prompt options are answerable")
-            .iter()
-            .filter_map(|action| action.answer_label())
-            .collect::<Vec<_>>(),
-        vec!["opaque option alpha", "opaque option beta"]
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &prompt,
+        codeterm_types::pty::PromptKind::Provider,
     );
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn classified_terminal_dialogs_keep_their_single_pending_notification() {
+fn classified_terminal_dialogs_are_stored_without_notifications() {
     let dialogs = [
         (
             include_str!("../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
@@ -149,11 +151,16 @@ fn classified_terminal_dialogs_keep_their_single_pending_notification() {
         for (option, label) in prompt.options.iter_mut().zip(labels) {
             option.label = label.into();
         }
-        let (fixture, service, _tab_id, pty_id) = classified_prompt_fixture(screen, prompt);
+        let (fixture, service, tab_id, pty_id) = classified_prompt_fixture(screen, prompt.clone());
 
         react(&service, &pty_id, TabStatus::Waiting);
 
-        assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
+        assert_pending_prompt_without_notification(
+            &fixture,
+            &tab_id,
+            &prompt,
+            codeterm_types::pty::PromptKind::Provider,
+        );
     }
 }
 
@@ -444,93 +451,54 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     );
 
-    let tab_notifications = || {
-        fixture
-            .service
-            .notif
-            .lock()
-            .list(false)
-            .into_iter()
-            .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    let notifications = tab_notifications();
-    assert_eq!(notifications.len(), 1);
-    let notification = &notifications[0];
-    let expected_body = std::iter::once(prompt.question.as_str())
-        .chain(prompt.options.iter().map(|option| option.label.trim()))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(notification.body.as_deref(), Some(expected_body.as_str()));
-    assert_eq!(
-        notification.level,
-        Some(crate::notification::push::NotifyLevel::ActionNeeded)
-    );
-    assert_eq!(
-        notification
-            .actions
-            .as_ref()
-            .expect("choice actions are offered")
-            .iter()
-            .filter_map(|action| action.answer_label())
-            .collect::<Vec<_>>(),
-        prompt
-            .options
-            .iter()
-            .map(|option| option.label.trim())
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        notification
-            .actions
-            .as_ref()
-            .expect("choice actions are offered")
-            .iter()
-            .filter_map(|action| match action {
-                codeterm_types::notification::NotificationAction::RespondPromptOption {
-                    value,
-                    ..
-                } => Some(value.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>(),
-        vec!["1", "2"]
-    );
-    assert_eq!(
-        notification
-            .answer
-            .as_ref()
-            .and_then(|answer| answer.asked_from_tab.as_deref()),
-        Some(tab_id.as_str())
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
     );
 
     react(&service, pty_id, TabStatus::Waiting);
-    assert_eq!(tab_notifications().len(), 1);
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+    );
     let mut wrapped_prompt = prompt.clone();
     wrapped_prompt.question = "wrapped screen tail question".into();
     fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
-            prompt: wrapped_prompt,
+            prompt: wrapped_prompt.clone(),
         },
         Some(&screen),
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_eq!(tab_notifications().len(), 1);
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &wrapped_prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+    );
     let mut selected_prompt = prompt.clone();
     selected_prompt.selected_values = Some(vec!["2".into()]);
     fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::PromptUpdated {
             tab_id: tab_id.clone(),
-            prompt: selected_prompt,
+            prompt: selected_prompt.clone(),
         },
         Some(&screen),
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_eq!(tab_notifications().len(), 1);
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &selected_prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+    );
 
     let mut next_prompt = prompt.clone();
     next_prompt.question = "next folder access choice".into();
@@ -571,12 +539,12 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .with_directory_trust_prompt(next_prompt.clone()),
     ));
     react(&service, pty_id, TabStatus::Waiting);
-    let notifications = tab_notifications();
-    assert_eq!(notifications.len(), 2);
-    assert!(notifications.iter().any(|notification| notification
-        .body
-        .as_deref()
-        .is_some_and(|body| body.contains(&next_prompt.question))));
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &next_prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+    );
 }
 
 #[test]
@@ -662,48 +630,30 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
             .collect::<Vec<_>>(),
         vec!["1", "2", "3"]
     );
-    let tab_notifications = || {
-        fixture
-            .service
-            .notif
-            .lock()
-            .list(false)
-            .into_iter()
-            .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    let notifications = tab_notifications();
-    assert_eq!(notifications.len(), 1);
-    assert_eq!(
-        notifications[0]
-            .actions
-            .as_ref()
-            .expect("pending command choices are answerable")
-            .iter()
-            .filter_map(|action| match action {
-                codeterm_types::notification::NotificationAction::RespondPromptOption {
-                    value,
-                    ..
-                } => Some(value.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>(),
-        vec!["1", "2", "3"]
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &prompt,
+        codeterm_types::pty::PromptKind::Provider,
     );
 
-    let mut output_prompt = prompt;
+    let mut output_prompt = prompt.clone();
     output_prompt.question = "wrapped command detail from output".into();
     fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::PromptUpdated {
             tab_id: tab_id.clone(),
-            prompt: output_prompt,
+            prompt: output_prompt.clone(),
         },
         Some(&screen),
         codeterm_types::pty::PromptKind::Provider,
         false,
     );
-    assert_eq!(tab_notifications().len(), 1);
+    assert_pending_prompt_without_notification(
+        &fixture,
+        &tab_id,
+        &output_prompt,
+        codeterm_types::pty::PromptKind::Provider,
+    );
 }
 
 #[test]

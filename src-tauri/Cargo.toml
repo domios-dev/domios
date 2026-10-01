@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.11.11"
+version = "1.12.1"
 edition = "2021"
 default-run = "codeterm"
 
@@ -144,8 +144,8 @@ name = "main"
 path = "tests/main.rs"
 
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
-# lib crate directly (no tokio background tasks, no LLM, no embeddings
-# required) so evals compile fast and run offline.
+# lib crate directly. Default and stub modes run offline without an LLM
+# or embeddings; live decision mode is an explicit owner-run option.
 [[bin]]
 name = "mem-bench"
 path = "src/bin/mem_bench.rs"

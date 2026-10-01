@@ -207,7 +207,7 @@ fn codex_update_dialog_is_a_respondable_structured_prompt() {
         .service
         .agent_registry
         .register_provider(Box::new(provider));
-    fixture.service.apply_prompt_decision_with_kind_and_notice(
+    fixture.service.apply_prompt_decision_with_kind_and_routing(
         &PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
             prompt: prompt.clone(),

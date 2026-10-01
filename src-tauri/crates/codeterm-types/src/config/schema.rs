@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::notification::{NotifyDestination, NotifyLevel};
 
+pub use super::decision_rerank::{DecisionRerankConfig, DecisionSources};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -869,6 +871,8 @@ pub struct MemoryConfig {
     /// durable record either way.
     #[serde(default = "default_true")]
     pub dreaming_telegram_notify: bool,
+    #[serde(default)]
+    pub decision_rerank: DecisionRerankConfig,
 }
 
 impl Default for MemoryConfig {
@@ -889,6 +893,7 @@ impl Default for MemoryConfig {
             librarian_enabled: true,
             l1_budget_tokens: default_l1_budget_tokens(),
             dreaming_telegram_notify: true,
+            decision_rerank: DecisionRerankConfig::default(),
         }
     }
 }

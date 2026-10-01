@@ -77,7 +77,7 @@ jobs:
       GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
@@ -132,8 +132,9 @@ jobs:
           rustup target list --installed | Select-String 'pc-windows-msvc'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm

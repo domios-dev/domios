@@ -52,7 +52,7 @@ fn free_form_provider_keeps_unknown_model_ids() {
 
 #[test]
 fn free_form_provider_refuses_unknown_ids_when_live_models_are_published() {
-    let provider_id = "opencode";
+    let provider_id = "live-free-form-fixture";
     let registry = registry_with(ModelProvider::new(provider_id, &[]));
     crate::agent::model_catalog::put_live(
         provider_id,
@@ -187,10 +187,10 @@ fn spawn_refuses_model_absent_from_free_form_providers_live_list() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        ModelProvider::new("opencode", &[]).with_cli("cmd.exe", "cmd.exe"),
+        ModelProvider::new("live-spawn-fixture", &[]).with_cli("cmd.exe", "cmd.exe"),
     ));
     crate::agent::model_catalog::put_live(
-        "opencode",
+        "live-spawn-fixture",
         vec![crate::agent::provider::ModelInfo {
             id: "opencode/deepseek-v4-flash-free".into(),
             display_name: "OpenCode DeepSeek Flash".into(),
@@ -200,7 +200,7 @@ fn spawn_refuses_model_absent_from_free_form_providers_live_list() {
     );
     let before = fixture.service.mux.read().snapshot().tabs.len();
     let params = SpawnAgentParams {
-        agent: Some("opencode".into()),
+        agent: Some("live-spawn-fixture".into()),
         model: Some("sonnet".into()),
         ..Default::default()
     };
@@ -211,7 +211,7 @@ fn spawn_refuses_model_absent_from_free_form_providers_live_list() {
 
     assert!(error.contains("opencode/deepseek-v4-flash-free"), "{error}");
     assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
-    crate::agent::model_catalog::unregister("opencode");
+    crate::agent::model_catalog::unregister("live-spawn-fixture");
 }
 
 #[test]

@@ -20,6 +20,43 @@ fn mem_search_human_output_is_compact_and_json_is_machine_complete() {
     assert_eq!(value["total"], 3);
 }
 
+#[test]
+fn mem_search_human_output_renders_doc_pointer() {
+    let value = json!({"hits": [{
+        "source": "doc",
+        "doc": "SECRETS",
+        "section": "Auto-unlock contract",
+        "anchor": "auto-unlock-contract",
+        "pointer": "codeterm docs SECRETS",
+        "relevance": 0.93,
+        "via": "docs"
+    }]});
+
+    assert_eq!(
+        super::render_search_hits(&value),
+        "SECRETS § Auto-unlock contract | codeterm docs SECRETS | rel 93%\n"
+    );
+}
+
+#[test]
+fn mem_search_human_output_renders_session_pointer_and_excerpt() {
+    let value = json!({"hits": [{
+        "source": "session",
+        "session_id": "sess-42",
+        "provider": "claude",
+        "title": "Release command",
+        "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
+        "pointer": "codeterm sessions get sess-42",
+        "relevance": 0.93,
+        "via": "sessions"
+    }]});
+
+    assert_eq!(
+        super::render_search_hits(&value),
+        "session [claude] Release command | codeterm sessions get sess-42 | rel 93% | Use codeterm sessions get sess-42 to inspect the prior run.\n"
+    );
+}
+
 /// codeterm-releases#60: `mem skill list` renders one row per skill in
 /// columns, not the raw `{"..."` dump the array-of-objects fallback produced.
 #[test]

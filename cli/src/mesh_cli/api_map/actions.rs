@@ -209,12 +209,13 @@ pub(super) fn now_ms() -> u64 {
 pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>) {
     let enc = urlencoding::encode;
     match action {
-        MemAction::Search { query, kind, area, scope, project, limit, .. } => {
+        MemAction::Search { query, kind, area, scope, project, limit, decision_rerank, .. } => {
             let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
             if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
             if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
             if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
             if let Some(p) = project { path.push_str(&format!("&project={}", enc(p))); }
+            if let Some(mode) = decision_rerank { path.push_str(&format!("&decision_rerank={}", mode.enabled())); }
             ("GET".into(), path, None)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
@@ -502,8 +503,9 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Secret { .. } => unsupported(
-            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret) and cannot run over --mesh",
+        | MemAction::Secret { .. }
+        | MemAction::Decision { .. } => unsupported(
+            "this mem subcommand is local-only (flush / run-worker / skill / worker / secret / decision) and cannot run over --mesh",
         ),
         MemAction::Reembed { scope } => (
             "POST".into(),
@@ -884,6 +886,37 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
             ("GET".into(), "/api/agents/providers".into(), None)
         }
-        _ => ("GET".into(), "/api/tabs".into(), None),
+        crate::AgentAction::Restart {
+            tab: Some(tab),
+            force,
+            grace_secs,
+        } if !tab.trim().is_empty() => (
+            "POST".into(),
+            format!("/api/tabs/{}/agent/restart", urlencoding::encode(tab)),
+            Some(serde_json::json!({"force": force, "grace_secs": grace_secs}).to_string()),
+        ),
+        crate::AgentAction::Restart { .. } => unsupported(
+            "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
+        ),
+        crate::AgentAction::SetOrchestrator { .. } => unsupported_agent_action("set-orchestrator"),
+        crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
+        crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
+        crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),
+        crate::AgentAction::Report(_) => unsupported_agent_action("report"),
+        crate::AgentAction::Ack { .. } => unsupported_agent_action("ack"),
+        crate::AgentAction::StartupAck => unsupported_agent_action("startup-ack"),
+        crate::AgentAction::StartupHold { .. } => unsupported_agent_action("startup-hold"),
+        crate::AgentAction::Ledger { .. } => unsupported_agent_action("ledger"),
+        crate::AgentAction::Compact { .. } => unsupported_agent_action("compact"),
+        crate::AgentAction::Model { .. } => unsupported_agent_action("model"),
     }
 }
+
+fn unsupported_agent_action(action: &str) -> (String, String, Option<String>) {
+    unsupported(&format!(
+        "agent {action} is not supported over --mesh; run it on the target peer"
+    ))
+}
+
+#[cfg(test)]
+mod tests;

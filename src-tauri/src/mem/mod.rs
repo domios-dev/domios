@@ -9,10 +9,10 @@ mod dream_status_tests;
 
 pub use codeterm_mem::dream_status;
 pub use codeterm_mem::{
-    activity, body_is_embeddable, embed_queue, embeddings, file_sync, graph, graph_layout,
-    graph_repair, ids, layers, learnings, ports, prompt_text, rerank, search, seed, store,
-    supervisor, worker_pool, Entity, MemItem, MemKind, MemManager, MemScope, MemStats, NewMemItem,
-    Relation, SearchHit, SearchQuery, WakeUpOptions, MIN_EMBED_BODY_CHARS,
+    activity, body_is_embeddable, decision, docs_source, embed_queue, embeddings, file_sync, graph,
+    graph_layout, graph_repair, ids, layers, learnings, ports, prompt_text, rerank, search, seed,
+    store, supervisor, worker_pool, Entity, MemItem, MemKind, MemManager, MemScope, MemStats,
+    NewMemItem, Relation, SearchHit, SearchQuery, WakeUpOptions, MIN_EMBED_BODY_CHARS,
 };
 
 pub mod prompts {

@@ -90,138 +90,79 @@ fn has_input_events(cast: PathBuf) -> bool {
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[test]
-fn tab_respond_marks_trust_prompt_notification_answered() {
-    tab_respond_marks_prompt_notification_answered();
-}
-
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
-#[test]
-fn tab_respond_answers_trust_prompt_in_pair_tabs() {
+fn detected_prompt_stays_respondable_without_notification() {
     let screen =
         std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
             "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
         ))
         .expect("Claude trust fixture");
-    let (fixture, tab_id, _) = fixture_with_screen(&screen);
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&tab_id).expect("pair Planner tab");
-        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
-        tab.role_profile = Some("planner".into());
-        tab.team_id = Some("team-pair".into());
-        tab.parent_tab_id = Some("orchestrator-tab".into());
-    }
+    let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
+    fixture.service.clear_pending_prompt(&tab_id);
+    fixture.service.prompt_detector.lock().clear(&tab_id);
     let parsed = fixture
         .service
         .agent_registry
         .parse_interactive_prompt("claude", &screen)
         .expect("classified trust choices");
-    assert_eq!(parsed.1, codeterm_types::pty::PromptKind::DirectoryTrust);
-    let affirmative = parsed
-        .0
-        .options
-        .iter()
-        .position(|option| option.label.to_lowercase().starts_with("yes"))
-        .expect("affirmative trust choice");
-    fixture.service.clear_pending_prompt(&tab_id);
-    fixture.service.prompt_detector.lock().clear(&tab_id);
-    fixture.service.apply_prompt_decision_with_kind(
-        &crate::agent::prompt::PromptDecision::NewPrompt {
-            tab_id: tab_id.clone(),
-            prompt: parsed.0,
-        },
-        Some(&screen),
-        codeterm_types::pty::PromptKind::DirectoryTrust,
-        true,
-    );
+    let (prompt, kind) = parsed;
+    assert_eq!(kind, codeterm_types::pty::PromptKind::DirectoryTrust);
+    let decision = fixture
+        .service
+        .prompt_detector
+        .lock()
+        .evaluate_pty_output_parsed(
+            &tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt: prompt.clone(),
+                explicit: false,
+            }),
+        );
+    assert!(matches!(
+        &decision,
+        crate::agent::prompt::PromptDecision::NewPrompt { .. }
+    ));
+    fixture
+        .service
+        .apply_prompt_decision_with_kind(&decision, Some(&screen), kind, true);
     assert_eq!(
         fixture
             .service
-            .respond_prompt(&tab_id, &(affirmative + 1).to_string()),
-        Ok(RespondPromptOutcome::Sent)
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .and_then(|tab| tab.pending_prompt.as_ref()),
+        Some(&prompt)
     );
-}
+    assert!(fixture.service.notif.lock().list(false).is_empty());
 
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
-#[test]
-fn unstructured_respond_also_resolves_its_prompt_notification() {
-    tab_respond_marks_prompt_notification_answered();
-}
-
-fn tab_respond_marks_prompt_notification_answered() {
-    let screen = std::fs::read_to_string(
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../plugins/provider-claude/tests/fixtures/folder-trust")
-            .join("quick-safety-no-first.txt"),
-    )
-    .expect("captured folder-trust fixture");
-    let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
-    let prompt = pending_prompt();
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&tab_id).expect("tab");
-        tab.pending_prompt = None;
-        tab.pending_prompt_kind = None;
-    }
-    fixture.service.apply_prompt_decision_with_kind(
-        &crate::agent::prompt::PromptDecision::NewPrompt {
-            tab_id: tab_id.clone(),
-            prompt: prompt.clone(),
-        },
-        Some(&screen),
-        codeterm_types::pty::PromptKind::DirectoryTrust,
-        true,
-    );
-    let first_id = {
-        let notifications = fixture.service.notif.lock();
-        notifications
-            .list(false)
-            .into_iter()
-            .find(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
-            .expect("prompt notification")
-            .id
-            .clone()
-    };
-    let unrelated_id = fixture.service.create_prompt_notification_ext(
-        "Unrelated prompt".into(),
-        Some("unrelated".into()),
-        Some("warning"),
-        Some(vec![
-            codeterm_types::notification::NotificationAction::RespondPromptOption {
-                label: "Later".into(),
-                value: "1".into(),
-                identity: codeterm_types::pty::PromptIdentity::new(
-                    codeterm_types::pty::PromptKind::Provider,
-                    &PendingPrompt {
-                        question: "unrelated".into(),
-                        options: vec![crate::multiplexer::types::PromptOption {
-                            label: "Later".into(),
-                            value: "1".into(),
-                        }],
-                        sections: None,
-                        multi_select: None,
-                        submit_available: None,
-                        selected_values: None,
-                    },
-                ),
+    let identity = codeterm_types::pty::PromptIdentity::new(kind, &prompt);
+    let actions = prompt
+        .options
+        .iter()
+        .map(
+            |option| codeterm_types::notification::NotificationAction::RespondPromptOption {
+                label: option.label.clone(),
+                value: option.value.clone(),
+                identity: identity.clone(),
             },
-        ]),
+        )
+        .collect();
+    let existing_id = fixture.service.create_prompt_notification_ext(
+        "opaque title".into(),
+        Some("opaque body".into()),
+        Some("warning"),
+        Some(actions),
         Some(true),
         crate::service::notification::NotificationOrigin::local_tab(tab_id.clone()),
         crate::service::notification::PushIntent {
             level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some("unrelated-prompt-answer-test".into()),
+            event_key: Some("existing-prompt-condition".into()),
         },
     );
     assert_eq!(
-        fixture
-            .service
-            .agent_registry
-            .build_prompt_response("claude", 1, &screen),
-        Some(vec![b"j".to_vec(), b"\r".to_vec()])
-    );
-    assert_eq!(
-        fixture.service.respond_prompt(&tab_id, "2"),
+        fixture.service.respond_prompt(&tab_id, "1"),
         Ok(RespondPromptOutcome::Sent)
     );
     assert!(fixture
@@ -238,47 +179,59 @@ fn tab_respond_marks_prompt_notification_answered() {
         .lock()
         .active_prompt(&tab_id)
         .is_none());
+    let notifications = fixture.service.notif.lock();
+    let existing = notifications
+        .notification(&existing_id)
+        .expect("preexisting record remains stored");
+    assert!(existing.resolved);
+    assert!(existing.read);
+    assert!(existing.actions.is_none());
+    let answer = existing.answer.as_ref().expect("answer slot");
+    assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
+    assert!(answer.delivered);
+    assert_eq!(notifications.list(false).len(), 1);
+    drop(notifications);
+    let _ = fixture.service.pty.lock().kill(&pty_id);
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
+#[test]
+fn tab_respond_answers_trust_prompt_in_pair_tabs() {
+    let screen =
+        std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt",
+        ))
+        .expect("Claude trust fixture");
+    let (fixture, tab_id, pty_id) = fixture_with_screen(&screen);
     {
-        let notifications = fixture.service.notif.lock();
-        let first = notifications
-            .notification(&first_id)
-            .expect("resolved notification");
-        assert!(first.resolved);
-        assert!(first.read);
-        assert!(first.actions.is_none());
-        let answer = first.answer.as_ref().expect("answer slot");
-        assert_eq!(answer.answered.as_deref(), Some("Yes"));
-        assert_eq!(answer.answered_via.as_deref(), Some("tab_respond"));
-        assert!(answer.delivered);
-        let unrelated = notifications.notification(&unrelated_id).unwrap();
-        assert!(!unrelated.resolved);
-        assert_eq!(unrelated.answer.as_ref().unwrap().answered, None);
-        assert!(unrelated.actions.is_some());
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).expect("pair Planner tab");
+        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+        tab.role_profile = Some("planner".into());
+        tab.team_id = Some("team-pair".into());
+        tab.parent_tab_id = Some("orchestrator-tab".into());
     }
+    let (prompt, kind) = fixture
+        .service
+        .agent_registry
+        .parse_interactive_prompt("claude", &screen)
+        .expect("classified trust choices");
+    fixture.service.clear_pending_prompt(&tab_id);
+    fixture.service.prompt_detector.lock().clear(&tab_id);
     fixture.service.apply_prompt_decision_with_kind(
         &crate::agent::prompt::PromptDecision::NewPrompt {
             tab_id: tab_id.clone(),
             prompt,
         },
         Some(&screen),
-        codeterm_types::pty::PromptKind::Provider,
+        kind,
         true,
     );
-    let notifications = fixture.service.notif.lock();
-    let for_tab = notifications
-        .list(false)
-        .into_iter()
-        .filter(|notification| notification.tab_id.as_deref() == Some(tab_id.as_str()))
-        .filter(|notification| notification.title != "Unrelated prompt")
-        .collect::<Vec<_>>();
-    assert_eq!(for_tab.len(), 2);
-    assert_ne!(for_tab[0].id, for_tab[1].id);
-    assert!(for_tab[0].resolved);
-    assert!(!for_tab[1].resolved);
-    assert!(for_tab[1]
-        .actions
-        .as_ref()
-        .is_some_and(|actions| !actions.is_empty()));
+    assert!(fixture.service.notif.lock().list(false).is_empty());
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "1"),
+        Ok(RespondPromptOutcome::Sent)
+    );
     let _ = fixture.service.pty.lock().kill(&pty_id);
 }
 

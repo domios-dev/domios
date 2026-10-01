@@ -439,7 +439,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "help": "Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)",
               "aliases": []
             }
           ],
@@ -2850,6 +2850,83 @@
           ]
         },
         {
+          "name": "decision",
+          "about": "Decision re-rank adapters: API token (stdin only) and status",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "status",
+              "about": "Show the decision re-rank config, registered adapters and token presence",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "token",
+              "about": "Manage a decision adapter's API token. The value is read from stdin only and is never printed",
+              "aliases": [],
+              "args": [],
+              "subcommands": [
+                {
+                  "name": "clear",
+                  "about": "Remove the stored token",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "adapter",
+                      "positional": false,
+                      "required": false,
+                      "value_name": "ADAPTER",
+                      "possible_values": [],
+                      "default": "typesafe-jev",
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                },
+                {
+                  "name": "set",
+                  "about": "Store the token piped on stdin, e.g. `pbpaste | codeterm mem decision token set --adapter typesafe-jev`. There is deliberately no argv flag for the value",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "adapter",
+                      "positional": false,
+                      "required": false,
+                      "value_name": "ADAPTER",
+                      "possible_values": [],
+                      "default": "typesafe-jev",
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                },
+                {
+                  "name": "status",
+                  "about": "Report token presence, file path and mode (never the value). Without --adapter, every registered adapter is listed",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "adapter",
+                      "positional": false,
+                      "required": false,
+                      "value_name": "ADAPTER",
+                      "possible_values": [],
+                      "default": null,
+                      "help": null,
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                }
+              ]
+            }
+          ]
+        },
+        {
           "name": "delete",
           "about": "Delete an item by id",
           "aliases": [],
@@ -4666,6 +4743,19 @@
               "aliases": []
             },
             {
+              "name": "decision-rerank",
+              "positional": false,
+              "required": false,
+              "value_name": "on|off",
+              "possible_values": [
+                "on",
+                "off"
+              ],
+              "default": null,
+              "help": "Force the decision re-rank stage on or off for this search; omitted, `[memory.decision_rerank].enabled` decides",
+              "aliases": []
+            },
+            {
               "name": "kind",
               "positional": false,
               "required": false,
@@ -4712,7 +4802,7 @@
               "value_name": "RERANK",
               "possible_values": [],
               "default": null,
-              "help": "Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)",
+              "help": "Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--decision-rerank on`",
               "aliases": []
             },
             {

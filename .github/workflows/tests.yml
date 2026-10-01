@@ -42,7 +42,7 @@ jobs:
     outputs:
       run: ${{ steps.tree.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - id: tree
@@ -73,7 +73,7 @@ jobs:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: cargo fmt --check
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -86,12 +86,13 @@ jobs:
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Runner service PATH has no node (same as release-linux.yml).
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
 
       - uses: dtolnay/rust-toolchain@stable
@@ -155,11 +156,12 @@ jobs:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Prepare compile stubs
@@ -193,7 +195,7 @@ jobs:
       # Plan-sidecar filenames under .codeterm/plans/** exceed MAX_PATH; the
       # runner service account (NETWORK SERVICE) can't take a system gitconfig,
       # so inject core.longpaths per-invocation via GIT_CONFIG_* env instead.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: core.longpaths
@@ -275,11 +277,12 @@ jobs:
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Setup pnpm

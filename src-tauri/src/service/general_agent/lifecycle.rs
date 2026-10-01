@@ -261,6 +261,7 @@ pub fn start_general_agent(
                                     log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
                                 }
                             }
+                            svc.reconcile_boot_stage_with_session_binding(&pid);
                             log::info!("[general-agent] Already running (tab={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }

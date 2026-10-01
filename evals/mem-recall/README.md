@@ -38,8 +38,8 @@ The runner builds a `MemManager` via `MemManager::open_offline(...)`.
 Compared to normal `open()` this:
 
 - spawns **no** background threads (no embed queue worker)
-- calls **no** LLM (no rerank, no auto-extraction)
-- needs **no** API keys or model weights
+- calls **no** LLM in default and stub modes (no auto-extraction)
+- needs **no** API keys or model weights in default and stub modes
 - falls back to FTS5-only recall when sqlite-vec is unavailable
 
 Seeding uses `MemManager::insert_raw(...)` which bypasses the dedup and
@@ -119,3 +119,63 @@ wrapping a direct binary invocation. Run the bench via
 `cargo run --bin mem-bench` for now. If we ever want it behind
 `codeterm mem bench`, the subcommand would just shell out to the built
 binary at `target/release/mem-bench`.
+
+## Optional decision re-rank A/B
+
+Run `bash evals/mem-recall/run.sh --decision-rerank stub` for an offline,
+deterministic comparison. The bench recalls a pool of at least 10 items for
+each positive and answer-absent query, then sends those candidates through the
+real stage-2 re-ranker. The stub model scores normalized keyword overlap.
+The JSON gains a `decision` block with baseline and reranked Recall@1,
+Recall@K, MRR, fallback counts, per-query stage latency, and low-confidence
+scores. `decision_negatives.json` supplies answer-absent queries only in stub
+and live modes. Low-confidence precision is the fraction of all flagged
+queries that are answer-absent; the positive false-positive rate is the
+fraction of answer-present queries flagged low-confidence.
+
+`--decision-rerank off` is the default. It preserves the original metrics and
+JSON keys. `--check` accepts only off mode and compares only the original
+metrics with `baseline.json`.
+
+`--decision-graph M` (stub or live only) adds a third arm, re-rank+graph:
+each query's pool gains up to M graph-linked items it lacks, fetched by the
+same SQL graph source `mem search` uses, and the pool is re-ranked again. The
+`decision` block gains `graph` with the arm's Recall@1, Recall@K and MRR, the
+total candidates added, `graph_only_top1` (queries whose first result came
+from the graph) and `graph_only_winners` (answer-present queries whose
+expected item ranked first through the graph alone); each per-query entry
+gains `graph`. The fixture may carry an optional graph that plain recall
+ignores:
+
+```json
+"graph": {
+  "entities": ["person_tima"],
+  "links": [{ "from": "seed_1", "to": "person_tima" }]
+}
+```
+
+Link ends are seed ids or entity ids. `benchmark.json` carries no graph
+yet, so on it the graph arm adds nothing and equals the reranked arm.
+
+`--decision-docs M` (stub or live only, `0..=10`) adds up to M matching
+sections from the embedded `prod-docs` corpus to another re-rank arm. The
+`decision.docs` report records memory-answer ranking after docs are added,
+the total docs candidates, and how often a docs candidate ranked first. The
+per-query docs entry records its memory-answer rank, candidates added, and
+whether docs ranked first. Docs with no matching sections leave that query's
+pool unchanged.
+
+`--decision-sessions M` (stub or live only, `0..=5`) adds matching session
+snippets from each test case's optional `session_candidates` fixture field.
+Every query term must occur in the same excerpt; matching entries are ordered
+by `modified_ts` before the top M are selected. The `decision.sessions` report
+records memory-answer ranking, candidate count, session top-one count, and
+session-only winners. Each per-query entry records its rank, candidates added,
+whether a session ranked first, and stage latency. Session fixtures use
+`session_id`, `provider`, `title`, `excerpt`, and optional `modified_ts` fields.
+
+`bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
+TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
+`--decision-data-dir PATH`. A missing or unreadable token fails before any
+query. **Live mode makes paid API calls, is owner-run only, and must never be
+part of an automated gate.**

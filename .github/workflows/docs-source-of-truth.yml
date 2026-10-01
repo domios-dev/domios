@@ -26,7 +26,7 @@ jobs:
   source-of-truth:
     runs-on: [self-hosted, linux-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

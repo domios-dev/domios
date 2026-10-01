@@ -37,14 +37,15 @@ jobs:
       mirror: ${{ steps.release.outputs.mirror }}
     steps:
       - name: Checkout release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
+          package-manager-cache: false
           node-version: '22.22.0'
 
       - name: Resolve release version

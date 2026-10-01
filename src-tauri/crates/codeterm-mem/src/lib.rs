@@ -4,6 +4,8 @@ pub mod activity;
 pub mod auto_extract;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod chunking;
+pub mod decision;
+pub mod docs_source;
 pub mod dream_status;
 pub mod dreaming;
 pub mod embed_queue;
