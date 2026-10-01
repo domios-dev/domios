@@ -6,6 +6,7 @@ pub mod audit;
 pub mod cluster;
 pub mod error;
 pub mod graph;
+pub mod hubs;
 pub mod lesson;
 pub mod migrations;
 pub mod plan_format;

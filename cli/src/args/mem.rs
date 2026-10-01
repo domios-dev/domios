@@ -670,15 +670,19 @@ pub enum MemGraphAction {
         /// Entity id (e.g. person_owner, tech_codeterm).
         id: String,
     },
-    /// List hub nodes — entities with active degree at or above threshold.
-    /// Each hub returns its degree, the relation_type distribution, and a
-    /// sample of neighbors with titles. Used by the Dreamer recluster phase
-    /// to decide which hubs to decompose into topic_* intermediates.
+    /// List the top hub nodes by active degree (at or above threshold). Each
+    /// hub returns its degree, relation_type distribution and `clusters`:
+    /// inbound neighbours grouped by shared area, title keyword or kind, each
+    /// with a `suggested_topic` and member ids ready for `introduce-topic`.
+    /// The dreams anchor is reported under `excluded`, not as a hub.
     Hubs {
         #[arg(long, default_value_t = 20)]
         threshold: u32,
-        /// Per-hub neighbor sample size (default 30).
-        #[arg(long, default_value_t = 30)]
+        /// Return at most N hubs, highest degree first (default 5).
+        #[arg(long, default_value_t = codeterm_mem_store::hubs::DEFAULT_HUB_LIMIT)]
+        limit: u32,
+        /// Per-hub raw neighbor sample with titles (default 0: clusters only).
+        #[arg(long, default_value_t = 0)]
         sample: u32,
     },
     /// List connected components of size <= max-size — disconnected
