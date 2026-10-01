@@ -105,14 +105,14 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
-    assert_eq!(summary.nodes, 58);
+    assert_eq!(summary.nodes, 61);
     assert_eq!(summary.vectors, 7);
-    assert_eq!(summary.capabilities, 37);
-    assert_eq!(summary.core, 12);
+    assert_eq!(summary.capabilities, 39);
+    assert_eq!(summary.core, 13);
     assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 71);
-    assert_eq!(summary.feeds, 52);
-    assert_eq!(summary.part_of, 11);
+    assert_eq!(summary.runs_on, 77);
+    assert_eq!(summary.feeds, 56);
+    assert_eq!(summary.part_of, 12);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
 }
@@ -167,7 +167,7 @@ fn essence_map_integrity_rejects_service_layer_self_parent_edges() {
     let summary = generate(fixture.path(), &map).expect("generate map without self-parent");
     let records = super::read_map(&map).expect("read generated map");
 
-    assert_eq!(summary.part_of, 11);
+    assert_eq!(summary.part_of, 12);
     assert!(!records.iter().any(|record| matches!(
         record,
         super::MapRecord::Edge(edge)
@@ -275,8 +275,8 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let decisions = root.join("essences/decisions.jsonl");
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
-    assert_eq!(summary.nodes, 58);
-    assert_eq!(summary.edges, 136);
+    assert_eq!(summary.nodes, 61);
+    assert_eq!(summary.edges, 147);
 }
 
 #[test]
