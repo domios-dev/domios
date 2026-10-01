@@ -957,7 +957,10 @@ fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
         None,
     ));
     let provider = RepairProbeProvider::with_id("claude", status);
-    assert_eq!(reconcile_probe(&provider, true, false), repaired_with_grant());
+    assert_eq!(
+        reconcile_probe(&provider, true, false),
+        repaired_with_grant()
+    );
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
