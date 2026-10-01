@@ -27,8 +27,8 @@ GATE_THRESHOLDS = (0.10, 0.15, 0.25, 0.35, 0.50)
 POSITIVE_KINDS = {"answerable", "decoy_buried"}
 ABSENT_KINDS = {"absent", "decoy_absent"}
 DC_SHELL = 'source "$1"; shift; dc "$@"'
-DOCS_CONFIG_KEY = "memory.decision_rerank.sources.docs"
-SESSIONS_CONFIG_KEY = "memory.decision_rerank.sources.sessions"
+DOCS_CONFIG_KEY = "supporter.memory_rerank.sources.docs"
+SESSIONS_CONFIG_KEY = "supporter.memory_rerank.sources.sessions"
 
 
 def private_root() -> Path:
@@ -169,35 +169,37 @@ def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> d
     sessions = []
     for rank, hit in enumerate(value.get("hits", []), start=1):
         if hit.get("source") == "doc":
+            pointer = hit.get("pointer")
+            is_cli = isinstance(pointer, str) and pointer.endswith(" --help")
+            doc = "CLI" if is_cli else pointer.removeprefix("codeterm docs ") if isinstance(pointer, str) else None
             ids.append("")
             docs.append(
                 {
                     "rank": rank,
-                    "doc": hit.get("doc"),
-                    "section": hit.get("section"),
-                    "anchor": hit.get("anchor"),
-                    "pointer": hit.get("pointer"),
+                    "doc": doc,
+                    "section": pointer.removesuffix(" --help") if is_cli else None,
+                    "pointer": pointer,
+                    "via": hit.get("via"),
+                    "score": hit.get("score"),
                     "relevance": hit.get("relevance"),
                 }
             )
             continue
         if hit.get("source") == "session":
-            session_id = hit.get("session_id")
+            session_id = hit.get("id")
             ids.append(session_id if isinstance(session_id, str) else "")
             sessions.append(
                 {
                     "rank": rank,
-                    "session_id": hit.get("session_id"),
-                    "provider": hit.get("provider"),
-                    "title": hit.get("title"),
-                    "excerpt": hit.get("excerpt"),
+                    "id": session_id,
+                    "via": hit.get("via"),
+                    "score": hit.get("score"),
                     "pointer": hit.get("pointer"),
                     "relevance": hit.get("relevance"),
                 }
             )
             continue
-        item = hit.get("item", hit)
-        item_id = item.get("id")
+        item_id = hit.get("id")
         if not isinstance(item_id, str):
             continue
         ids.append(item_id)
@@ -216,7 +218,7 @@ def result_arm(value: dict[str, Any], latency_ms: float, answers: set[str]) -> d
         "hits": hits,
         "docs": docs,
         "sessions": sessions,
-        "decision_rerank": value.get("decision_rerank"),
+        "supporter": value.get("supporter"),
         "latency_ms": latency_ms,
     }
 
@@ -284,12 +286,12 @@ def gate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     relevant_rows = [row for row in rows if row["kind"] in POSITIVE_KINDS]
     scores = [
         envelope.get("max_relevance") if isinstance(envelope, dict) else None
-        for envelope in [row["rerank"]["decision_rerank"] for row in rows]
+        for envelope in [row["rerank"]["supporter"] for row in rows]
     ]
     absent_label = [row["kind"] in ABSENT_KINDS for row in rows]
     answerable_scores = [
-        row["rerank"]["decision_rerank"].get("max_relevance")
-        if isinstance(row["rerank"]["decision_rerank"], dict)
+        row["rerank"]["supporter"].get("max_relevance")
+        if isinstance(row["rerank"]["supporter"], dict)
         else None
         for row in relevant_rows
     ]
@@ -306,7 +308,7 @@ def gate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "absent_queries": len(absent_rows),
         "answerable_queries": len(relevant_rows),
-        "score_field": "rerank.decision_rerank.max_relevance; <= threshold predicts absent",
+        "score_field": "rerank.supporter.max_relevance; <= threshold predicts absent",
         "thresholds": thresholds,
     }
 
@@ -314,7 +316,7 @@ def gate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def fallback_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for row in rows:
-        envelope = row["rerank"]["decision_rerank"]
+        envelope = row["rerank"]["supporter"]
         if not isinstance(envelope, dict):
             continue
         status = envelope.get("status")
@@ -338,9 +340,6 @@ def docs_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def sessions_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     returned = [hit for row in rows for hit in row["rerank"]["sessions"]]
     absent = [row for row in rows if row["kind"] in ABSENT_KINDS]
-    by_provider = Counter(
-        hit["provider"] for hit in returned if isinstance(hit.get("provider"), str)
-    )
     return {
         "queries_with_session_hits": sum(
             bool(row["rerank"]["sessions"]) for row in rows
@@ -349,7 +348,6 @@ def sessions_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             bool(row["rerank"]["sessions"]) for row in absent
         ),
         "returned_session_hits": len(returned),
-        "by_provider": dict(sorted(by_provider.items())),
     }
 
 
@@ -458,7 +456,7 @@ def evaluate_records(
                     "--json",
                     "--limit",
                     "10",
-                    "--decision-rerank",
+                    "--supporter",
                     mode,
                 ],
             )

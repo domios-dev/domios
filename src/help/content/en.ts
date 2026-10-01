@@ -189,9 +189,9 @@ export const enHelpContent: HelpLocaleContent = {
         {
           type: "list",
           items: [
-            "Graph — related memories linked through the knowledge graph. memory.decision_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
-            "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. memory.decision_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
-            "Sessions — matching snippets from past agent sessions. memory.decision_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
+            "Graph — related memories linked through the knowledge graph. supporter.memory_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
+            "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. supporter.memory_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
+            "Sessions — matching snippets from past agent sessions. supporter.memory_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
           ],
         },
         {
@@ -202,20 +202,20 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           items: [
             "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
-            "From a terminal, pipe it in: pbpaste | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true. Run codeterm mem decision status to check it.",
+            "From a terminal, pipe it in: pbpaste | codeterm supporter token set, then codeterm config set supporter.memory_rerank.enabled true. Run codeterm supporter status to check it.",
           ],
         },
         {
           type: "paragraph",
-          text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at memory.decision_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
+          text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at supporter.memory_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
         },
         {
           type: "paragraph",
-          text: "Cost is about $0.0007 per search. The whole step runs under one deadline, memory.decision_rerank.deadline_ms (3000 ms by default).",
+          text: "Cost is about $0.0007 per search. The whole step runs under one deadline, supporter.deadline_ms (3000 ms by default).",
         },
         {
           type: "tip",
-          text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set memory.decision_rerank.enabled false; one search can skip it with --decision-rerank off. Clear token removes the token entirely.",
+          text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set supporter.memory_rerank.enabled false; one search can skip it with --supporter off. Clear token removes the token entirely.",
         },
         {
           type: "paragraph",
@@ -225,7 +225,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: should I set up the Supporter Agent?",
           question:
-            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm mem decision status whether a token is set, and whether memory.decision_rerank.enabled and its graph, docs and sessions sources are on. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
+            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm supporter status whether a token is set, and whether supporter.memory_rerank.enabled and its graph, docs and sessions sources are on. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
         },
       ],
     },

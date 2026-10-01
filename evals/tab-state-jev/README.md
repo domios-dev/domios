@@ -82,7 +82,7 @@ using model `jev-latest`. It does not update its question or criteria from the
 predictions. The hard call ceiling defaults to 300 and cannot be raised.
 
 The token is read from `JEV_API_TOKEN` (or `TYPESAFE_JEV_TOKEN`) in the parent
-environment, or from `~/.codeterm-dev/decision-models/typesafe-jev.json`. Use
+environment, or from `~/.codeterm-dev/supporter/typesafe-jev.json`. Use
 `--token-file PATH` for a named dev instance's token store. The script never
 prints the token. `--endpoint` and `--model` can override the defaults; do not
 use a production token store.
@@ -101,7 +101,7 @@ recall uses the full dataset support, so a failed call counts as a miss.
 by the spawn-health shadow: auth, trust or permission, quota, update,
 `still_starting`, and `error_loop`. It sets `default_on_allowed` only when every
 one of those labels has at least 4 screens, no call failed, and the pooled
-precision is at least 0.90. `[agent.tab_state_shadow]` may ship enabled by
+precision is at least 0.90. `[supporter.tab_state]` may ship enabled by
 default only on that result.
 
 Structural outputs are not recomputed with a reimplementation. They are

@@ -156,34 +156,46 @@ l1_budget_tokens = 300
 
 The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a 0..30 min delay-only jitter window — so it fires between 6:00 and 6:30 AM. Schedule and jitter are not config keys. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated); the endpoints are documented in `codeterm docs API-MEMORY`. Every night it can also archive year-untouched items, only when `[memory.dream_hygiene] stale_archive = true` (default `false`); `stale_archive_cap` (default 20) and `merge_cap` (default 10) bound the nightly stale archives and Dreamer merges (`codeterm docs CONFIG`).
 
-### Decision re-rank
+### Supporter Agent
 
-An optional second stage over `mem search`: recall fetches a candidate pool, a registered decision adapter grades each candidate, and hits are re-sorted by that absolute relevance. Off by default; a request can force it either way with `decision_rerank=true|false`. Any adapter failure returns the plain recall hits unchanged, with a `decision_rerank.status = "fallback"` envelope naming the reason. Whenever the stage is effective (applied, fallback or skipped), only the mem hits actually returned count as accessed, once each; pool-only candidates are not touched. Adapter tokens are set through `POST /api/mem/decision/token` and stored under `<data dir>/decision-models/`, never in `config.toml`.
+The Supporter Agent provides optional memory re-rank and tab-state features. Both are off by default. Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, and feature switches. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.decision_rerank.enabled` | `bool` | `false` | Apply the stage to every search that does not override it. |
-| `memory.decision_rerank.adapter` | `string` | `"typesafe-jev"` | Registry id of the decision adapter. An unregistered id falls back with reason `no_adapter`. |
-| `memory.decision_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
-| `memory.decision_rerank.sources.graph` | `usize` | `3` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
-| `memory.decision_rerank.sources.docs` | `usize` | `3` | Extra embedded doc sections and CLI command sections (`0..=10`), selected by keyword match; `0` disables docs candidates. |
-| `memory.decision_rerank.sources.sessions` | `usize` | `0` | Top past-session snippets from the in-process sessions search (`0..=5`); skipped on error or deadline, and `0` disables session candidates. |
-| `memory.decision_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
-| `memory.decision_rerank.deadline_ms` | `u64` | `3000` | Failure deadline for the whole stage (`100..=30000`). |
-| `memory.decision_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
-| `memory.decision_rerank.max_body_chars` | `usize` | `2000` | Maximum body characters sent to the adapter (`256..=100000`); titles are included without truncation. |
-| `memory.decision_rerank.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
-| `memory.decision_rerank.model` | `string?` | adapter default | Adapter model override. Read at daemon start. |
+| `supporter.adapter` | `string` | `"typesafe-jev"` | Selected registered adapter. An unregistered id falls back with reason `no_adapter`. |
+| `supporter.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
+| `supporter.model` | `string?` | `"jev-latest"` | Selected model id discovered from the adapter. |
+| `supporter.deadline_ms` | `u64` | `3000` | Failure deadline for a model stage (`100..=30000`). |
+| `supporter.memory_rerank.enabled` | `bool` | `false` | Apply memory re-rank to searches without a request override. |
+| `supporter.memory_rerank.docs_hybrid` | `bool` | `false` | Use cached vectors when ranking embedded docs candidates. |
+| `supporter.memory_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
+| `supporter.memory_rerank.sources.graph` | `usize` | `3` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
+| `supporter.memory_rerank.sources.docs` | `usize` | `3` | Extra embedded doc sections and CLI command sections (`0..=10`), selected by keyword match; `0` disables docs candidates. |
+| `supporter.memory_rerank.sources.sessions` | `usize` | `0` | Top past-session snippets from the in-process sessions search (`0..=5`); skipped on error or deadline, and `0` disables session candidates. |
+| `supporter.memory_rerank.candidates` | `usize` | `50` | Maximum pooled candidates (`1..=50`). |
+| `supporter.memory_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
+| `supporter.memory_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
+| `supporter.memory_rerank.max_body_chars` | `usize` | `2000` | Maximum body characters sent to the adapter (`256..=100000`); titles are included without truncation. |
+| `supporter.tab_state.enabled` | `bool` | `false` | Enable tab-state signals. |
 
 ```toml
-[memory.decision_rerank]
-enabled = false
+[supporter]
+adapter = "typesafe-jev"
+model = "jev-latest"
+deadline_ms = 3000
 
-[memory.decision_rerank.sources]
+[supporter.memory_rerank]
+enabled = false
+docs_hybrid = false
+
+[supporter.memory_rerank.sources]
 recall = 30
 graph = 3
 docs = 3
 sessions = 0
+
+[supporter.tab_state]
+enabled = false
 ```
 
 ### Librarian
@@ -219,4 +231,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

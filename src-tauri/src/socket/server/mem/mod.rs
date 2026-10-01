@@ -49,6 +49,7 @@ pub(super) fn dispatch(
         "mem.get" => mem_get(params, svc),
         "mem.save" => mem_save(params, svc),
         "mem.delete" => mem_delete(params, svc),
+        "mem.archive" => hygiene::mem_archive(params, svc),
         "mem.forget" => mem_forget(params, svc),
         "mem.update" => mem_update(params, svc),
         "mem.pinned" => mem_pinned(params, svc),
@@ -86,9 +87,9 @@ pub(super) fn dispatch(
 const HTTP_ONLY_METHODS: [(&str, &str, &str); 2] = [
     ("mem.secret.", "mem secret", "/api/secrets/*"),
     (
-        "mem.decision.token.",
-        "mem decision token",
-        "/api/mem/decision/token",
+        "mem.supporter.token.",
+        "supporter token",
+        "/api/supporter/token",
     ),
 ];
 
@@ -718,17 +719,17 @@ mod tests {
     }
 
     #[test]
-    fn decision_socket_rejects_token_methods() {
+fn supporter_socket_refuses_token_methods() {
         let secret = secret_socket_rejection("mem.secret.get").unwrap();
         for method in [
-            "mem.decision.token.set",
-            "mem.decision.token.clear",
-            "mem.decision.token.status",
+            "mem.supporter.token.set",
+            "mem.supporter.token.clear",
+            "mem.supporter.token.status",
         ] {
             let err = secret_socket_rejection(method)
                 .unwrap_or_else(|| panic!("{method} must be rejected over socket"));
             assert_eq!(err.code, secret.code);
-            assert!(err.message.contains("/api/mem/decision/token"));
+            assert!(err.message.contains("/api/supporter/token"));
         }
         assert!(secret_socket_rejection("mem.search").is_none());
     }

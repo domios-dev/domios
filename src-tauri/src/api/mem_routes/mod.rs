@@ -32,7 +32,7 @@ pub use graph::{
     mem_graph_traverse, mem_graph_tunnels,
 };
 pub use items::{
-    mem_activity_recent, mem_append, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area,
+    mem_activity_recent, mem_append, mem_archive, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area,
     mem_get, mem_history, mem_learn, mem_pinned_list, mem_promote, mem_reembed, mem_restore,
     mem_save, mem_stats, mem_tail, mem_taxonomy, mem_update, mem_wake_up,
 };
