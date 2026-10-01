@@ -13,7 +13,7 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
+- **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran); hygiene is reversible (merge archives, never deletes)
 - **Lifecycle capture** — `SessionStart` tracks the active session; optional `PreCompact` export POSTs to the authenticated memory endpoint only after separate local-user consent
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
@@ -194,6 +194,15 @@ Whitelist enums (`RelationColumn`, `EntitySimilarityStrategy`) make SQL injectio
 - `popular_source` is true when every edge is `extracted_from` (provenance, no clusters).
 - `neighbors` is the raw `{id, rel, dir, title}` sample, empty unless `--sample N`.
 
+### Reversible hygiene
+
+The Dreamer never hard-deletes duplicates or stale items; both end as `kind = 'archived'` through the calibration archive, with a history row that keeps the prior kind.
+
+- `mem merge --keeper K --lesser L [--body B | --body-file F] [--conflict]` updates the keeper body, archives the lesser (history `merge`) and links `L merged_into K` (or `K supersedes L` with `--conflict`) in one transaction. Pinned, skill, rule and preference items are refused as the lesser. Dreamer merges are capped by `memory.dream_hygiene.merge_cap` (default 10 per UTC day), enforced server-side.
+- `mem restore L` on an archived or merged item restores the prior kind (plus the `--version` body) and invalidates the merge relation.
+- `mem calibration stale [--dry-run] [--limit N]` archives items older than 365 days with no direct touch (access, update, history row), no relation created or invalidated, and no touched active neighbour in that year. Pinned, skill, rule, preference, archived and importance >= 4 are excluded. The nightly run applies it only when `memory.dream_hygiene.stale_archive` is on (default off), capped by `stale_archive_cap` (default 20); the dry run lists ids and reasons and changes nothing.
+- The diary log records `MERGED:` and `ARCHIVED:` lines with ids and reasons, and the worker report repeats them.
+
 ### Deadline finalization
 
 A dreaming worker that hits its hard deadline is finalized by the host, not the agent: the run's diary (the bound `diary_id`, else the newest `dream-diary` daily created since the run spawned) gets a deterministic insight naming the last logged stage, every still-pending log field becomes `cut_short`, a `DEADLINE:` log field is appended, and the run records finalization `partial` with reason `deadline`. A complete diary is never rewritten and a finalization the agent already recorded is kept; a later success claim over a deadline-cut diary still reconciles to `partial`.
@@ -217,4 +226,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

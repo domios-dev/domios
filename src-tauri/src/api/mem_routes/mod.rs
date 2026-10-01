@@ -13,12 +13,13 @@ pub mod dream;
 pub mod graph;
 pub mod items;
 pub mod layout;
+pub mod mem_merge;
 pub mod pinned;
 pub mod search;
 pub mod sync;
 pub mod workers;
 
-pub use calibration::{mem_calibration_log, mem_calibration_sweep};
+pub use calibration::{mem_calibration_log, mem_calibration_stale, mem_calibration_sweep};
 pub use dream::{mem_dream, mem_dream_diary, mem_dream_report, mem_extract_pending};
 pub use graph::{
     mem_graph_alias, mem_graph_collapse_synonym_edges, mem_graph_create, mem_graph_full,
@@ -36,6 +37,7 @@ pub use items::{
     mem_save, mem_stats, mem_tail, mem_taxonomy, mem_update, mem_wake_up,
 };
 pub use layout::{mem_graph_edges, mem_graph_labels, mem_graph_layout_rebuild, mem_graph_snapshot};
+pub use mem_merge::mem_merge;
 pub use pinned::{
     mem_pinned_positions_delete, mem_pinned_positions_list, mem_pinned_positions_set,
 };

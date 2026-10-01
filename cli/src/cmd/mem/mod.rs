@@ -5,6 +5,8 @@ mod decision_render;
 mod decision_tests;
 mod graph;
 pub(crate) mod item;
+#[cfg(test)]
+mod merge_tests;
 mod skill;
 mod socket;
 mod tail;

@@ -24,6 +24,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         | MemAction::Update { .. }
         | MemAction::Append { .. }
         | MemAction::Restore { .. }
+        | MemAction::Merge { .. }
         | MemAction::Pin { .. }
         | MemAction::Unpin { .. }
         | MemAction::Pinned { .. }

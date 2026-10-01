@@ -95,6 +95,8 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
     integer("memory.decision_rerank.deadline_ms", 100.0, 30000.0),
     number("memory.decision_rerank.low_confidence_threshold", 0.0, 1.0),
     integer("memory.decision_rerank.max_body_chars", 256.0, 100000.0),
+    integer("memory.dream_hygiene.stale_archive_cap", 0.0, 500.0),
+    integer("memory.dream_hygiene.merge_cap", 0.0, 100.0),
     integer("integrations.webhook_port", 1.0, 65535.0),
     integer("integrations.voice_transcribe.timeout_ms", 1.0, 600000.0),
     integer(

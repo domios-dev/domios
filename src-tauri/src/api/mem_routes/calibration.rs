@@ -8,6 +8,11 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 
+pub(crate) mod archive;
+pub(crate) mod stale;
+
+pub use stale::mem_calibration_stale;
+
 #[derive(Deserialize)]
 pub struct SweepParams {
     #[serde(default)]
@@ -97,7 +102,7 @@ pub(crate) fn calibration_log_query(
     let mut stmt = conn
         .prepare(
             "SELECT item_id, changed_at, changed_by, change_type,
-                old_importance, new_importance, old_kind, new_kind
+                old_importance, new_importance, old_kind, new_kind, reason
              FROM mem_item_history
              WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1
              ORDER BY changed_at DESC LIMIT ?2",
@@ -114,6 +119,7 @@ pub(crate) fn calibration_log_query(
                 "new_importance": r.get::<_, Option<f64>>(5)?,
                 "old_kind": r.get::<_, Option<String>>(6)?,
                 "new_kind": r.get::<_, Option<String>>(7)?,
+                "reason": r.get::<_, Option<String>>(8)?,
             }))
         })
         .map_err(|e| e.to_string())?;
@@ -157,9 +163,9 @@ pub(crate) fn run_calibration_sweep(
     let recent: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM mem_item_history
-             WHERE changed_by LIKE 'dreamer-calibration%'
+             WHERE changed_by LIKE 'dreamer-calibration%' AND changed_by != ?1
                AND changed_at >= datetime('now','-6 hours')",
-            [],
+            params![stale::STALE_ACTOR],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
@@ -188,6 +194,7 @@ pub(crate) fn run_calibration_sweep(
 
     let mut applied: u64 = 0;
     let mut archived: u64 = 0;
+    let mut archived_ids: Vec<String> = Vec::new();
     let mut examined: u64 = 0;
     let mut total_changes: u64 = 0;
 
@@ -212,6 +219,7 @@ pub(crate) fn run_calibration_sweep(
                 }
                 CalibAction::Archive => {
                     apply_archive(conn, cand)?;
+                    archived_ids.push(cand.id.clone());
                     archived += 1;
                     total_changes += 1;
                 }
@@ -233,7 +241,23 @@ pub(crate) fn run_calibration_sweep(
         "examined": examined,
         "applied": applied,
         "archived": archived,
+        "archived_ids": archived_ids,
     }))
+}
+
+/// Nightly path: the weekly sweep keeps its Sunday gate, while the stale
+/// archive runs every night, but only when `memory.dream_hygiene` enables it.
+pub(crate) fn run_nightly_calibration(
+    conn: &Connection,
+    hygiene: &crate::config::schema::DreamHygieneConfig,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<serde_json::Value, String> {
+    let mut result = run_calibration_sweep(conn, false)?;
+    let stale = stale::run_stale_archive(conn, hygiene, now, stale::StaleMode::Apply, None)?;
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("stale".into(), stale);
+    }
+    Ok(result)
 }
 
 fn load_candidates(conn: &Connection) -> Result<Vec<Candidate>, String> {
@@ -327,23 +351,14 @@ fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(),
 }
 
 fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
-    crate::mem::store::with_changed_by("dreamer-calibration:archive", || {
-        conn.execute(
-            "UPDATE mem_items SET kind = 'archived', updated_at = datetime('now') WHERE id = ?1",
-            params![cand.id],
-        )
-        .map_err(|e| format!("archive update: {}", e))?;
-        let old = crate::mem::store::HistorySnapshot {
-            kind: Some(cand.kind.clone()),
-            ..Default::default()
-        };
-        let new = crate::mem::store::HistorySnapshot {
-            kind: Some("archived".to_string()),
-            ..Default::default()
-        };
-        crate::mem::store::history_log(conn, &cand.id, "archive", &old, &new, None);
-        Ok(())
-    })
+    archive::archive_item(
+        conn,
+        &cand.id,
+        &cand.kind,
+        "dreamer-calibration:archive",
+        "archive",
+        None,
+    )
 }
 
 #[cfg(test)]

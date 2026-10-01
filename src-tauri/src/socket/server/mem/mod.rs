@@ -2,11 +2,12 @@
 //! Plaintext-capable secret operations retain bearer-authenticated HTTP.
 
 mod graph;
+mod hygiene;
 
 use crate::api::mem_routes::items::{
-    bump_on_get, compose_appended_body, pick_restore_body, validate_update_body,
-    wake_up_options_from_params, AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams,
-    RestoreBody, SaveBody, TailParams, TaxonomyParams, UpdateBody, WakeUpParams,
+    bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
+    AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams,
+    TaxonomyParams, UpdateBody, WakeUpParams,
 };
 use crate::api::mem_routes::search::{execute_search, SearchError, SearchParams};
 use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
@@ -52,7 +53,8 @@ pub(super) fn dispatch(
         "mem.update" => mem_update(params, svc),
         "mem.pinned" => mem_pinned(params, svc),
         "mem.append" => mem_append(params, svc),
-        "mem.restore" => mem_restore(params, svc),
+        "mem.restore" => hygiene::mem_restore(params, svc),
+        "mem.merge" => hygiene::mem_merge(params, svc),
         "mem.wake_up" => mem_wake_up(params, svc),
         "mem.learn" => mem_learn(params, svc),
         "mem.learn_promote" => mem_learn_promote(params, svc),
@@ -65,6 +67,7 @@ pub(super) fn dispatch(
         "mem.tail" => mem_tail(params, svc),
         "mem.calibration.log" => mem_calibration_log(params, svc),
         "mem.calibration.sweep" => mem_calibration_sweep(params, svc),
+        "mem.calibration.stale" => hygiene::mem_calibration_stale(params, svc),
         "mem.worker.spawn" => mem_worker_spawn(params, svc),
         "mem.worker.list" => mem_worker_list(svc),
         "mem.worker.get" => mem_worker_get(params, svc),
@@ -154,7 +157,7 @@ fn changed_by_or_user(changed_by: Option<String>) -> String {
         .unwrap_or_else(|| "user".to_string())
 }
 
-fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) {
+pub(super) fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) {
     let event = MemActivityEvent {
         op: op.to_string(),
         mem_ids,
@@ -353,38 +356,6 @@ fn mem_append(
     }
     emit_activity(svc, "update", vec![id.clone()]);
     Ok(serde_json::json!({ "appended": id, "new_len": new_body.len() }))
-}
-
-fn mem_restore(
-    params: Option<serde_json::Value>,
-    svc: &ServiceState,
-) -> Result<serde_json::Value, JsonRpcError> {
-    let id = get_string_param(&params, "id")?;
-    let body: RestoreBody = parse_params(params)?;
-    let history = svc.mem.get_item_history(&id).map_err(internal_error)?;
-    if history.is_empty() {
-        return Err(not_found(format!("no history for {}", id)));
-    }
-    let restored_body = pick_restore_body(&history, body.version)
-        .map_err(|(_, message)| invalid_params(message))?;
-    let patch = MemUpdate {
-        body: Some(restored_body.clone()),
-        ..Default::default()
-    };
-    let changed_by = body
-        .changed_by
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(sanitize_actor)
-        .unwrap_or_else(|| "restore".to_string());
-    let updated =
-        with_changed_by(&changed_by, || svc.mem.update(&id, patch)).map_err(internal_error)?;
-    if !updated {
-        return Err(not_found(format!("mem item {} not found", id)));
-    }
-    emit_activity(svc, "update", vec![id.clone()]);
-    Ok(serde_json::json!({ "restored": id, "body_len": restored_body.len() }))
 }
 
 fn mem_wake_up(

@@ -73,6 +73,18 @@
         "Does NOT decompose or route anything into project_dreams (it is listed under excluded as the dreams anchor)",
         "Does NOT use python, jq, a heredoc, a pipe, a shell variable, or a /tmp file to process the hubs JSON — every command is a plain codeterm invocation"
       ]
+    },
+    {
+      "id": 7,
+      "name": "content-duplicate-merges-reversibly-never-deletes",
+      "prompt": "Stage A.3 of REM. While bridging islands you noticed two near-identical items and read both with `mem get`:\n\n{\"id\": \"fact_deploy_pipeline\", \"kind\": \"fact\", \"title\": \"Deploy pipeline runs on the build farm\", \"body\": \"Releases build on the self-hosted build farm; macOS artifacts are notarized there.\"}\n\n{\"id\": \"fact_deploy_pipeline_2\", \"kind\": \"fact\", \"title\": \"Deploy pipeline on build farm\", \"body\": \"Releases build on the self-hosted build farm. Windows installers are signed there too.\"}\n\nBoth describe the same release pipeline; together they say more than either alone. How do you resolve the duplicate, and what goes in the diary log?",
+      "expected_output": "One `codeterm mem merge --keeper fact_deploy_pipeline --lesser fact_deploy_pipeline_2 --body '<merged body>'` call carrying both facts; never `mem delete`; the diary log names the merged pair with a reason",
+      "expectations": [
+        "Uses a single codeterm mem merge call with --keeper and --lesser naming the two items",
+        "Passes a merged keeper body that keeps both the notarization and the Windows signing facts",
+        "Does NOT call codeterm mem delete on either item",
+        "Logs the merged lesser and keeper ids with a short reason in the diary log (a MERGED line or equivalent)"
+      ]
     }
   ]
 }
