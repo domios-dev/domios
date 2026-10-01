@@ -35,6 +35,10 @@ name: Release Linux x86_64 platform
       mirror:
         required: true
         type: boolean
+      dry_run:
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -115,6 +119,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -147,6 +152,7 @@ jobs:
           args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }} --bundles deb,appimage
 
       - name: Publish the Linux bundles
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -173,6 +179,7 @@ jobs:
       # read for its signature string but NOT uploaded (the updater reads the
       # signature from latest.json, never the .sig asset).
       - name: Publish AppImage updater fragment
+        if: ${{ !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -212,6 +219,7 @@ jobs:
       # separate manifest because linux-x86_64 can only map to one artifact per
       # Tauri manifest.
       - name: Publish Debian updater fragment
+        if: ${{ !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -236,7 +244,7 @@ jobs:
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Mirror to public release repo
-        if: inputs.mirror
+        if: ${{ inputs.mirror && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}

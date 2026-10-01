@@ -1,8 +1,4 @@
 mod calibration;
-mod decision;
-mod decision_render;
-#[cfg(test)]
-mod decision_tests;
 mod graph;
 pub(crate) mod item;
 #[cfg(test)]
@@ -17,6 +13,7 @@ mod worker;
 
 use crate::client::SocketClient;
 use crate::cmd::print::handle_result;
+use crate::cmd::supporter_render;
 use crate::{MemAction, MemSkillAction};
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
@@ -29,6 +26,10 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
                     crate::cmd::print::fail(1, error.to_string());
                 }
             }
+            return;
+        }
+        if json_mode && matches!(&action, MemAction::Search { .. }) {
+            print_mem_result(json_mode, result.map(|value| compact_search_json(&value)));
             return;
         }
         print_mem_result(json_mode, result);
@@ -89,7 +90,6 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         MemAction::Secret { action } => {
             crate::cmd::mem_secret::handle_mem_secret(json_mode, action);
         }
-        MemAction::Decision { action } => decision::handle_mem_decision(json_mode, action),
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         _ => unreachable!("all other mem actions have socket transport parity"),
@@ -97,6 +97,45 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
 }
 
 const SEARCH_PREVIEW_CHARS: usize = 120;
+
+fn compact_search_json(value: &serde_json::Value) -> serde_json::Value {
+    let Some(hits) = value.get("hits").and_then(serde_json::Value::as_array) else {
+        return value.clone();
+    };
+    let compact = hits.iter().map(compact_search_hit).collect();
+    let mut output = value.clone();
+    output["hits"] = serde_json::Value::Array(compact);
+    output
+}
+
+fn compact_search_hit(hit: &serde_json::Value) -> serde_json::Value {
+    let source = hit.get("source").and_then(serde_json::Value::as_str);
+    let pointer = (source == Some("doc"))
+        .then(|| hit.get("pointer").and_then(serde_json::Value::as_str))
+        .flatten();
+    let item_id = hit
+        .pointer("/item/id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| hit.get("id").and_then(serde_json::Value::as_str))
+        .or_else(|| hit.get("session_id").and_then(serde_json::Value::as_str));
+    let mut compact = serde_json::Map::new();
+    if let Some(pointer) = pointer {
+        compact.insert("pointer".into(), serde_json::Value::String(pointer.into()));
+    } else if let Some(id) = item_id {
+        compact.insert("id".into(), serde_json::Value::String(id.into()));
+    }
+    for key in ["source", "via"] {
+        if let Some(value) = hit.get(key).and_then(serde_json::Value::as_str) {
+            compact.insert(key.into(), serde_json::Value::String(value.into()));
+        }
+    }
+    for key in ["score", "relevance"] {
+        if let Some(value) = hit.get(key).and_then(serde_json::Value::as_f64) {
+            compact.insert(key.into(), serde_json::json!(value));
+        }
+    }
+    serde_json::Value::Object(compact)
+}
 
 pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
     let Some(hits) = value
@@ -133,7 +172,7 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
             if normalized.chars().count() > SEARCH_PREVIEW_CHARS {
                 preview.push('…');
             }
-            match decision_render::relevance_column(hit) {
+            match supporter_render::relevance_column(hit) {
                 Some(relevance) => out.push_str(&format!(
                     "session [{provider}] {title} | {pointer} | {relevance} | {preview}\n"
                 )),
@@ -156,7 +195,7 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
                 .get("pointer")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("codeterm docs");
-            match decision_render::relevance_column(hit) {
+            match supporter_render::relevance_column(hit) {
                 Some(relevance) => {
                     out.push_str(&format!("{doc} § {section} | {pointer} | {relevance}\n"))
                 }
@@ -192,7 +231,7 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
             .get("score")
             .and_then(|value| value.as_f64())
             .unwrap_or(0.0);
-        match decision_render::relevance_column(hit) {
+        match supporter_render::relevance_column(hit) {
             Some(relevance) => out.push_str(&format!(
                 "{id} | {title} | {kind} | {score:.3} | {relevance} | {preview}\n"
             )),
@@ -212,7 +251,7 @@ fn empty_render(response: &serde_json::Value) -> String {
 }
 
 fn append_envelope_notice(out: &mut String, response: &serde_json::Value) {
-    if let Some(notice) = decision_render::envelope_notice(response) {
+    if let Some(notice) = supporter_render::envelope_notice(response) {
         out.push_str(&notice);
         out.push('\n');
     }
@@ -262,6 +301,10 @@ fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) 
             }
             if let Some(id) = val.get("unchanged").and_then(|v| v.as_str()) {
                 println!("unchanged: {id}");
+                return;
+            }
+            if let Some(id) = val.get("archived").and_then(|v| v.as_str()) {
+                println!("archived: {id}");
                 return;
             }
         }

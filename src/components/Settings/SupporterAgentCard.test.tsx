@@ -12,7 +12,19 @@ import { SupporterAgentCard } from "./SupporterAgentCard";
 const API = "http://127.0.0.1:7686";
 const AUTH = { Authorization: "Bearer bearer-fixture" };
 const TOKEN = "tok-SECRET-4f9c2d";
-const ADAPTER = "typesafe-jev";
+const ADAPTER = "fixture-adapter";
+const MODELS = {
+  adapter: ADAPTER,
+  model: "fixture-model",
+  adapters: [{
+    id: ADAPTER,
+    primitives: { choice: true, noul: true, score: true },
+    models: [
+      { id: "fixture-model", display_name: "Fixture Model" },
+      { id: "second-model", display_name: "Second Model" },
+    ],
+  }],
+};
 
 interface Call {
   method: string;
@@ -25,38 +37,82 @@ let host: HTMLElement;
 let root: Root;
 let calls: Call[];
 let invokes: { cmd: string; args: unknown }[];
-let statusBody: unknown;
+type StatusFixture = Omit<ReturnType<typeof statusFixture>, "model"> & { model: string | null };
+let statusBody: StatusFixture;
 let writeStatus: number;
 let writeRejects: boolean;
 
-function statusFixture(present: boolean, modeOk: boolean | null = true, registered = true) {
+function statusFixture(
+  state: "no_token" | "token_only" | "active" = "no_token",
+  features = { memory_rerank: false, tab_state: false },
+  present = state !== "no_token",
+) {
+  const token = { adapter: ADAPTER, present, path: "/x/y.json", mode_ok: true };
   return {
-    config: { token: TOKEN },
-    adapter_registered: registered,
-    adapters: [{ id: ADAPTER, token: { adapter: ADAPTER, present, path: "/x/y.json", mode_ok: modeOk } }],
+    state,
+    adapter: ADAPTER,
+    model: "fixture-model",
+    deadline_ms: 3000,
+    features,
+    token,
+    adapter_registered: true,
+    adapters: [{ id: ADAPTER, primitives: { choice: true, noul: true, score: true }, models: MODELS.adapters[0].models, token }],
   };
 }
 
 function installFetch() {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    calls.push({
-      method,
-      url: String(input),
-      headers: { ...(init?.headers as Record<string, string> | undefined) },
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
-    });
+    const url = String(input);
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+    calls.push({ method, url, headers: { ...(init?.headers as Record<string, string> | undefined) }, body });
     if (method !== "GET" && writeRejects) throw new Error("network down");
+    if (method === "POST" && url.endsWith("/api/supporter/features") && writeStatus < 400 && body) {
+      const features = { ...statusBody.features, ...body };
+      statusBody = statusFixture(
+        features.memory_rerank || features.tab_state ? "active" : "token_only",
+        features,
+        true,
+      );
+    }
+    if (method === "DELETE" && url.includes("/api/supporter/token") && writeStatus < 400) {
+      statusBody = statusFixture();
+    }
+    if (method === "POST" && url.endsWith("/api/supporter/token") && writeStatus < 400) {
+      statusBody = statusFixture("token_only");
+    }
+    if (method === "POST" && url.endsWith("/api/supporter/use") && writeStatus < 400 && body) {
+      statusBody = {
+        ...statusBody,
+        adapter: body.adapter as string,
+        model: typeof body.model === "string" ? body.model : null,
+      };
+    }
     const isWrite = method !== "GET";
-    const body = isWrite ? { adapter: ADAPTER, present: true, token: TOKEN } : statusBody;
-    return { ok: !isWrite || writeStatus < 400, status: isWrite ? writeStatus : 200, json: async () => body } as Response;
+    const responseBody = url.endsWith("/api/supporter/models")
+      ? MODELS
+      : method === "POST" && url.endsWith("/api/supporter/token")
+        ? { adapter: ADAPTER, present: true, path: "/x/y.json", mode_ok: true }
+        : isWrite && url.endsWith("/api/supporter/features")
+          ? statusBody.features
+          : isWrite && url.endsWith("/api/supporter/use")
+            ? { adapter: statusBody.adapter, model: statusBody.model }
+            : method === "DELETE" && url.includes("/api/supporter/token")
+              ? { adapter: ADAPTER, removed: true }
+              : statusBody;
+    return {
+      ok: !isWrite || writeStatus < 400,
+      status: isWrite ? writeStatus : 200,
+      json: async () => responseBody,
+    } as Response;
   }) as typeof fetch;
 }
 
-async function render(adapter = ADAPTER, onOpenGuide: (section: HelpSectionId) => void = () => {}) {
+async function render(onOpenGuide: (section: HelpSectionId) => void = () => {}) {
   await act(async () => {
-    root.render(<SupporterAgentCard adapter={adapter} apiBase={API} apiHeaders={AUTH} onOpenGuide={onOpenGuide} />);
+    root.render(<SupporterAgentCard apiBase={API} apiHeaders={AUTH} onOpenGuide={onOpenGuide} />);
   });
+  await act(async () => {});
 }
 
 const q = <T extends Element = HTMLElement>(id: string) => host.querySelector<T>(`[data-testid="${id}"]`);
@@ -72,7 +128,7 @@ async function typeAndSubmit(value: string) {
 beforeEach(() => {
   calls = [];
   invokes = [];
-  statusBody = statusFixture(false);
+  statusBody = statusFixture();
   writeStatus = 200;
   writeRejects = false;
   installFetch();
@@ -97,143 +153,99 @@ afterEach(async () => {
 describe("SupporterAgentCard", () => {
   it("supporter_card_renders_once_in_agents_overview", async () => {
     const onOpenGuide = vi.fn();
-    const config = { memory: { decision_rerank: { adapter: "custom-adapter" } } } as unknown as AppConfig;
+    const config = { supporter: { adapter: ADAPTER, model: "fixture-model" } } as unknown as AppConfig;
     await act(async () => {
       root.render(<AgentsOverview config={config} onUpdate={() => {}} onOpenProvider={() => {}} onOpenGuide={onOpenGuide} />);
     });
+    await act(async () => {});
     expect(host.querySelector('[data-testid="settings-agents-overview"]')).not.toBeNull();
     expect(host.querySelectorAll('[data-testid="supporter-agent-token-form"]')).toHaveLength(1);
     expect(host.querySelectorAll('[data-testid="supporter-agent-status"]')).toHaveLength(1);
-    expect(calls.map((c) => `${c.method} ${c.url.slice(c.url.indexOf("/api/"))}`)).toEqual(["GET /api/mem/decision/status"]);
+    expect(calls.filter((call) => call.method === "GET").map((call) => call.url.slice(call.url.indexOf("/api/"))).sort()).toEqual([
+      "/api/supporter/models",
+      "/api/supporter/status",
+    ]);
 
     await typeAndSubmit(TOKEN);
-    expect((calls[1].body as { adapter: string }).adapter).toBe("custom-adapter");
+    expect(calls.find((call) => call.method === "POST" && call.url.endsWith("/api/supporter/token"))?.body).toEqual({ adapter: ADAPTER, token: TOKEN });
     await act(async () => q<HTMLButtonElement>("supporter-agent-guide-link")!.click());
     expect(onOpenGuide).toHaveBeenCalledWith("supporter-agent");
     expect(JSON.stringify(invokes)).not.toContain(TOKEN);
-    expect(invokes.every((i) => !/decision|token/i.test(i.cmd))).toBe(true);
+    expect(invokes.every((invoke) => !/decision|token/i.test(invoke.cmd))).toBe(true);
   });
 
-  it("supporter_token_input_is_write_only", async () => {
+  it("supporter_no_token_state_shows_off_features_and_write_only_input", async () => {
     await render();
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("No token");
+    expect(q("supporter-agent-token-state")?.textContent).toBe("No token");
+    expect(q("supporter-agent-selection")?.textContent).toBe("fixture-adapter · fixture-model");
+    expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')?.getAttribute("aria-checked")).toBe("false");
     expect(input().type).toBe("password");
     expect(input().value).toBe("");
     expect(input().autocomplete).toBe("off");
+  });
 
+  it("supporter_token_only_state_explicitly_says_token_set", async () => {
+    statusBody = statusFixture("token_only");
+    await render();
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Token set, all features off");
+    expect(q("supporter-agent-token-state")?.textContent).toBe("Token set");
+    expect(host.querySelector('label[for="supporter-agent-token-input"]')?.textContent).toContain("Replace token");
+    expect(q<HTMLButtonElement>("supporter-agent-token-save")?.textContent).toContain("Replace token");
+    expect(input().value).toBe("");
+  });
+
+  it("supporter_active_state_shows_each_enabled_feature", async () => {
+    statusBody = statusFixture("active", { memory_rerank: true, tab_state: true });
+    await render();
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
+    expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(q("supporter-agent-features")?.textContent).toContain("On");
+  });
+
+  it("supporter_token_input_is_write_only_and_refreshed", async () => {
+    await render();
     await typeAndSubmit(TOKEN);
     expect(input().value).toBe("");
+    expect(statusBody.state).toBe("token_only");
 
     writeRejects = true;
     await typeAndSubmit(TOKEN);
     expect(input().value).toBe("");
-
     writeRejects = false;
     writeStatus = 500;
     await typeAndSubmit(TOKEN);
     expect(input().value).toBe("");
     expect(host.innerHTML).not.toContain(TOKEN);
-    expect(calls.filter((c) => c.method === "GET").every((c) => c.url === `${API}/api/mem/decision/status`)).toBe(true);
+    expect(calls.filter((call) => call.method === "GET" && call.url.endsWith("/api/supporter/status")).length).toBeGreaterThan(1);
   });
 
-  it("supporter_submit_posts_and_refreshes_status", async () => {
+  it("supporter_model_picker_lists_discovered_models", async () => {
     await render();
-    calls.length = 0;
-    await typeAndSubmit(TOKEN);
-    expect(calls).toHaveLength(2);
-    expect(calls[0].method).toBe("POST");
-    expect(calls[0].url).toBe(`${API}/api/mem/decision/token`);
-    expect(calls[0].headers).toMatchObject({ ...AUTH, "Content-Type": "application/json" });
-    expect(Object.keys(calls[0].body as object).sort()).toEqual(["adapter", "token"]);
-    expect(calls[0].body).toEqual({ adapter: ADAPTER, token: TOKEN });
-    expect(calls[1].method).toBe("GET");
-    expect(calls[1].url).toBe(`${API}/api/mem/decision/status`);
-    expect(calls[1].headers).toMatchObject(AUTH);
-    expect(invokes).toEqual([]);
+    const picker = q<HTMLSelectElement>("supporter-agent-model-picker")!;
+    expect(Array.from(picker.options).map((option) => option.value)).toEqual(["fixture-model", "second-model"]);
+    picker.value = "second-model";
+    await act(async () => picker.dispatchEvent(new Event("change", { bubbles: true })));
+    const use = calls.find((call) => call.method === "POST" && call.url.endsWith("/api/supporter/use"));
+    expect(use?.body).toEqual({ adapter: ADAPTER, model: "second-model" });
   });
 
-  it("supporter_submit_ignores_blank_token", async () => {
+  it("supporter_feature_toggle_posts_one_feature_and_refreshes_status", async () => {
+    statusBody = statusFixture("token_only");
     await render();
-    calls.length = 0;
-    await typeAndSubmit("   ");
-    expect(calls).toEqual([]);
+    await act(async () => host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Memory re-rank"]')!.click());
+    expect(calls.find((call) => call.url.endsWith("/api/supporter/features"))?.body).toEqual({ memory_rerank: true });
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
   });
 
-  it("supporter_clear_deletes_and_refreshes", async () => {
-    await render("a b/c");
-    calls.length = 0;
-    await act(async () => q<HTMLButtonElement>("supporter-agent-token-clear")!.click());
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      `DELETE ${API}/api/mem/decision/token?adapter=a%20b%2Fc`,
-      `GET ${API}/api/mem/decision/status`,
-    ]);
-    expect(calls[0].headers).toMatchObject(AUTH);
-    expect(invokes).toEqual([]);
-  });
-
-  it("supporter_status_renders_set_and_not_set", async () => {
+  it("supporter_status_has_accessible_names_and_token_never_renders", async () => {
     await render();
-    expect(q("supporter-agent-token-state")!.textContent).toBe("not set");
-    expect(q("supporter-agent-mode-warning")).toBeNull();
-
-    statusBody = statusFixture(true, false, false);
-    await act(async () => q<HTMLButtonElement>("supporter-agent-token-clear")!.click());
-    expect(q("supporter-agent-token-state")!.textContent).toBe("set");
-    expect(q("supporter-agent-mode-warning")).not.toBeNull();
-    expect(q("supporter-agent-adapter-missing")).not.toBeNull();
-    expect(host.innerHTML).not.toContain(TOKEN);
-  });
-
-  it.each([
-    ["absent file, mode unknown", false, null, false],
-    ["present, mode unknown (non-Unix)", true, null, false],
-    ["present, mode not owner-only", true, false, true],
-  ] as const)("supporter_mode_warning: %s", async (_name, present, modeOk, warns) => {
-    statusBody = statusFixture(present, modeOk);
-    await render();
-    expect(q("supporter-agent-token-state")!.textContent).toBe(present ? "set" : "not set");
-    expect(q("supporter-agent-mode-warning") !== null).toBe(warns);
-  });
-
-  it("supporter_token_never_logged_or_rendered", async () => {
-    const spies = (["log", "info", "warn", "error", "debug"] as const).map((k) => vi.spyOn(console, k).mockImplementation(() => {}));
-    await render();
-    await typeAndSubmit(TOKEN);
-    writeRejects = true;
-    await typeAndSubmit(TOKEN);
-    for (const spy of spies) {
-      expect(JSON.stringify(spy.mock.calls)).not.toContain(TOKEN);
-    }
+    const focusables = Array.from(host.querySelectorAll<HTMLElement>("button, input, select, a[href]"));
+    const names = focusables.map((element) => element.getAttribute("aria-label") || element.textContent?.trim() || (element.id ? host.querySelector(`label[for="${element.id}"]`)?.textContent?.trim() : "") || "");
+    expect(names.every((name) => name.length > 0)).toBe(true);
+    expect(host.querySelector('[role="status"][aria-label="Supporter Agent status"]')).not.toBeNull();
     expect(document.body.innerHTML).not.toContain(TOKEN);
-    expect(host.querySelector('[value*="SECRET"]')).toBeNull();
-    expect(JSON.stringify(invokes)).not.toContain(TOKEN);
-  });
-
-  it("supporter_links_open_guide_section_and_site", async () => {
-    const onOpenGuide = vi.fn();
-    await render(ADAPTER, onOpenGuide);
-    const help = q("supporter-agent-help")!;
-    expect(Array.from(help.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://docs.typesafe.ai"]);
-    expect(help.querySelector("a")!.getAttribute("target")).toBe("_blank");
-    await act(async () => q<HTMLButtonElement>("supporter-agent-guide-link")!.click());
-    expect(onOpenGuide).toHaveBeenCalledTimes(1);
-    expect(onOpenGuide).toHaveBeenCalledWith("supporter-agent");
-  });
-
-  it("supporter_accessible_names_and_focus_order", async () => {
-    await render();
-    const focusables = Array.from(host.querySelectorAll<HTMLElement>("button, input, a[href]"));
-    const names = focusables.map((el) => {
-      const labelled = el.getAttribute("aria-label");
-      const byFor = el.id ? host.querySelector(`label[for="${el.id}"]`)?.textContent : null;
-      return labelled || byFor || el.textContent?.trim() || "";
-    });
-    expect(names.every((n) => n.length > 0)).toBe(true);
-    const order = focusables.map((el) =>
-      el.tagName === "INPUT" ? "input"
-        : el.tagName === "A" ? "site-link"
-        : el.getAttribute("data-testid")?.replace("supporter-agent-", ""),
-    );
-    expect(order).toEqual(["input", "token-save", "token-clear", "guide-link", "site-link"]);
-    expect(host.querySelector('[role="status"]')).not.toBeNull();
   });
 });

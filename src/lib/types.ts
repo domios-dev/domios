@@ -614,7 +614,6 @@ export interface AgentConfig {
   idle_timeout_s: number;
   resume_sessions: boolean;
   full_access?: boolean;
-  tab_state_shadow?: { enabled: boolean };
 }
 
 export interface ApiConfig {
@@ -760,23 +759,34 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
-export interface DecisionSources {
+export interface SupporterSources {
   recall: number;
   graph: number;
   docs: number;
   sessions?: number;
 }
 
-export interface DecisionRerankConfig {
+export interface MemoryRerankConfig {
   enabled: boolean;
-  adapter: string;
-  sources: DecisionSources;
+  docs_hybrid: boolean;
+  sources: SupporterSources;
+  candidates: number;
   max_concurrency: number;
-  deadline_ms: number;
   low_confidence_threshold: number;
   max_body_chars: number;
-  endpoint?: string;
-  model?: string;
+}
+
+export interface SupporterTabStateConfig {
+  enabled: boolean;
+}
+
+export interface SupporterConfig {
+  adapter: string;
+  endpoint?: string | null;
+  model?: string | null;
+  deadline_ms: number;
+  memory_rerank: MemoryRerankConfig;
+  tab_state: SupporterTabStateConfig;
 }
 
 export interface MemoryConfig {
@@ -791,7 +801,6 @@ export interface MemoryConfig {
   file_sync_enabled: boolean;
   file_sync_interval_minutes: number;
   librarian_enabled?: boolean;
-  decision_rerank?: DecisionRerankConfig;
 }
 
 export interface UiConfig {
@@ -815,6 +824,7 @@ export interface AppConfig {
   agents: { [providerId: string]: ProviderConfig };
   general_agent: GeneralAgentConfig;
   memory: MemoryConfig;
+  supporter: SupporterConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
   orchestration: OrchestrationConfig;

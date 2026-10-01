@@ -1,11 +1,14 @@
 use super::*;
-use crate::config::schema::DecisionSources;
+use crate::config::schema::{SupporterConfig, SupporterSources};
 
-fn docs_cfg(docs: usize) -> DecisionRerankConfig {
-    DecisionRerankConfig {
-        sources: DecisionSources {
-            docs,
-            ..enabled_cfg().sources
+fn docs_cfg(docs: usize) -> SupporterConfig {
+    SupporterConfig {
+        memory_rerank: MemoryRerankConfig {
+            sources: SupporterSources {
+                docs,
+                ..enabled_cfg().memory_rerank.sources
+            },
+            ..enabled_cfg().memory_rerank
         },
         ..enabled_cfg()
     }
@@ -14,7 +17,7 @@ fn docs_cfg(docs: usize) -> DecisionRerankConfig {
 fn applied_query(query: &str, limit: usize) -> SearchParams {
     SearchParams {
         q: query.into(),
-        decision_rerank: Some(true),
+        supporter: Some(true),
         limit: Some(limit),
         ..SearchParams::default()
     }
@@ -48,7 +51,7 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
         }])
     );
     assert_eq!(
-        output["decision_rerank"]["sources"],
+        output["supporter"]["sources"],
         json!({ "recall": 0, "graph": 0, "docs": 1 })
     );
     assert_eq!(access_counts(&backend), before);
@@ -114,7 +117,7 @@ fn docs_zero_keeps_the_existing_applied_output() {
     }
     let expected = json!({
         "hits": expected_hits,
-        "decision_rerank": {
+        "supporter": {
             "status": "applied",
             "adapter": STUB_ID,
             "low_confidence": false,
@@ -135,7 +138,7 @@ fn docs_are_absent_from_off_and_fallback_results() {
     let plain = SearchParams {
         q: query.into(),
         limit: Some(2),
-        decision_rerank: Some(false),
+        supporter: Some(false),
         ..SearchParams::default()
     };
     let baseline = baseline_oracle(&backend, &plain);
@@ -154,7 +157,7 @@ fn docs_are_absent_from_off_and_fallback_results() {
     )
     .unwrap();
     assert_eq!(
-        failed["decision_rerank"],
+        failed["supporter"],
         json!({ "status": "fallback", "reason": "unavailable" })
     );
     assert_eq!(

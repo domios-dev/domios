@@ -54,7 +54,9 @@ remain in the report but do not gate eligibility.
 
 Each invocation is capped at 300 Jev calls and makes one call per selected
 frame. A token must be available as JEV_API_TOKEN, TYPESAFE_JEV_TOKEN, or
-through --token-file for the named dev instance. The token is never printed.
+through --token-file for the named dev instance. Without an override, the
+default token path is `~/.codeterm-dev/supporter/typesafe-jev.json`. The token
+is never printed.
 
     python3 -m unittest discover -s evals/tab-state-jev -p "test_*.py"
     python3 evals/tab-state-jev/run.py --arm screen
