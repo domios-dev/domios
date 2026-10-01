@@ -174,12 +174,21 @@ fn stub_registry(
 fn opts(terms: &[&str], limit: usize) -> SessionSearchOpts {
     SessionSearchOpts {
         terms: terms.iter().map(|t| t.to_string()).collect(),
+        match_mode: SessionMatchMode::AllTerms,
         provider: None,
         project_path: None,
         limit,
         max_snippets: 3,
         max_file_bytes: 0,
     }
+}
+
+#[test]
+fn session_search_opts_default_to_all_terms() {
+    assert_eq!(
+        SessionSearchOpts::default().match_mode,
+        SessionMatchMode::AllTerms
+    );
 }
 
 /// The scan must stop at `limit` in recency order. Three sessions, strictly
@@ -324,6 +333,122 @@ fn search_sessions_all_terms_must_match_in_same_session() {
         .hits;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].meta.session_id, "s1");
+}
+
+#[test]
+fn registry_search_any_term_matches_subset() {
+    let reg = stub_registry(
+        vec![session("webpack", "f-webpack", 2), session("memory", "f-memory", 1)],
+        vec![
+            ("f-webpack", vec![("user", "webpack config")]),
+            ("f-memory", vec![("user", "memory lookup")]),
+        ],
+    );
+    let result = reg
+        .search_sessions(&SessionSearchOpts {
+            match_mode: SessionMatchMode::AnyTermRanked,
+            ..opts(&["the", "webpack", "memory", "missing"], 10)
+        })
+        .unwrap();
+
+    let ids: Vec<_> = result
+        .hits
+        .iter()
+        .map(|hit| hit.meta.session_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["webpack", "memory"]);
+}
+
+#[test]
+fn registry_search_any_term_drops_stop_words_before_scanning() {
+    let p = probe(
+        vec![session("meeting", "f-meeting", 1)],
+        vec![("f-meeting", vec![("user", "the meeting notes")])],
+    );
+    let (result, stats) = p
+        .registry
+        .search_sessions_with_stats(&SessionSearchOpts {
+            match_mode: SessionMatchMode::AnyTermRanked,
+            ..opts(&["the"], 10)
+        })
+        .unwrap();
+
+    assert!(result.hits.is_empty());
+    assert_eq!(stats.scanned, 0);
+    assert_eq!(p.parse_calls(), 0);
+}
+
+#[test]
+fn registry_search_any_term_ranks_by_bm25_then_recency() {
+    let reg = stub_registry(
+        vec![
+            session("bm25", "f-bm25", 1),
+            session("recent", "f-recent", 30),
+            session("older", "f-older", 10),
+            session("common", "f-common", 100),
+        ],
+        vec![
+            ("f-bm25", vec![("user", "alpha beta alpha beta")]),
+            ("f-recent", vec![("user", "alpha beta")]),
+            ("f-older", vec![("user", "alpha beta")]),
+            ("f-common", vec![("user", "alpha alpha alpha alpha")]),
+        ],
+    );
+    let result = reg
+        .search_sessions(&SessionSearchOpts {
+            match_mode: SessionMatchMode::AnyTermRanked,
+            ..opts(&["alpha", "beta"], 10)
+        })
+        .unwrap();
+
+    let ids: Vec<_> = result
+        .hits
+        .iter()
+        .map(|hit| hit.meta.session_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["bm25", "recent", "older", "common"]);
+}
+
+#[test]
+fn registry_search_any_term_respects_scan_budget_and_limit() {
+    let total = ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER + 8;
+    let files: Vec<String> = (0..total).map(|index| format!("f-{index}")).collect();
+    let bodies: Vec<String> = (0..total)
+        .map(|index| {
+            if index == ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER - 1 {
+                "alpha beta alpha beta alpha beta".into()
+            } else {
+                "alpha beta".into()
+            }
+        })
+        .collect();
+    let sessions = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| session(&format!("s-{index}"), file, (total - index) as i64))
+        .collect();
+    let messages = files
+        .iter()
+        .zip(&bodies)
+        .map(|(file, body)| (file.as_str(), vec![("user", body.as_str())]))
+        .collect();
+    let p = probe(sessions, messages);
+    let (result, stats) = p
+        .registry
+        .search_sessions_with_stats(&SessionSearchOpts {
+            match_mode: SessionMatchMode::AnyTermRanked,
+            ..opts(&["alpha", "beta"], 1)
+        })
+        .unwrap();
+
+    assert_eq!(stats.scanned, ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER);
+    assert_eq!(stats.matched, ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER);
+    assert_eq!(p.parse_calls(), ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER);
+    assert_eq!(result.hits.len(), 1);
+    assert_eq!(
+        result.hits[0].meta.session_id,
+        format!("s-{}", ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER - 1)
+    );
 }
 
 #[test]

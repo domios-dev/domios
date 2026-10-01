@@ -4,7 +4,9 @@ use std::time::Instant;
 
 use serde_json::{json, Value};
 
-use crate::agent::registry::{AgentRegistry, SessionSearchHit, SessionSearchOpts};
+use crate::agent::registry::{
+    AgentRegistry, SessionMatchMode, SessionSearchHit, SessionSearchOpts,
+};
 use crate::mem::decision::rerank::RerankCandidate;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,8 +15,13 @@ pub(crate) struct SessionCandidate {
     pub candidate: RerankCandidate,
 }
 
-type SearchResult = Result<Vec<SessionCandidate>, String>;
 type SearchJob = Box<dyn FnOnce() + Send + 'static>;
+
+struct SearchOutput {
+    candidates: Vec<SessionCandidate>,
+    matched: usize,
+    scanned: usize,
+}
 
 static SEARCH_WORKER: OnceLock<Result<SyncSender<SearchJob>, String>> = OnceLock::new();
 
@@ -31,30 +38,27 @@ pub(super) fn search(
     let started = Instant::now();
     if started >= deadline {
         log::debug!(
-            "[mem.decision] sessions source status=timeout candidates=0 elapsed_ms={}",
+            "[mem.decision] sessions source status=timeout candidates=0 matched=0 scanned=0 elapsed_ms={}",
             started.elapsed().as_millis()
         );
         return Vec::new();
     }
-    let opts = SessionSearchOpts {
-        terms: query.split_whitespace().map(str::to_owned).collect(),
-        provider: None,
-        project_path: None,
-        limit,
-        max_snippets: 1,
-        max_file_bytes: 0,
-    };
+    let opts = session_search_opts(query, limit);
     let result = run_bounded_search(deadline, move || {
         if Instant::now() >= deadline {
             return Err("deadline".into());
         }
         registry
-            .search_sessions(&opts)
-            .map(|result| candidates_from_hits(result.hits, max_body_chars))
+            .search_sessions_with_stats(&opts)
+            .map(|(result, stats)| SearchOutput {
+                candidates: candidates_from_hits(result.hits, max_body_chars),
+                matched: stats.matched,
+                scanned: stats.scanned,
+            })
             .map_err(|error| error.to_string())
     });
-    let (status, candidates) = match result {
-        Ok(candidates) => ("applied", candidates),
+    let (status, output) = match result {
+        Ok(output) => ("applied", output),
         Err(error) => {
             log::debug!("[mem.decision] sessions source skipped: {error}");
             let status = if error == "deadline" {
@@ -62,24 +66,46 @@ pub(super) fn search(
             } else {
                 "error"
             };
-            (status, Vec::new())
+            (
+                status,
+                SearchOutput {
+                    candidates: Vec::new(),
+                    matched: 0,
+                    scanned: 0,
+                },
+            )
         }
     };
     log::debug!(
-        "[mem.decision] sessions source status={} candidates={} elapsed_ms={}",
+        "[mem.decision] sessions source status={} candidates={} matched={} scanned={} elapsed_ms={}",
         status,
-        candidates.len(),
+        output.candidates.len(),
+        output.matched,
+        output.scanned,
         started.elapsed().as_millis()
     );
-    candidates
+    output.candidates
 }
 
-fn run_bounded_search<F>(deadline: Instant, search: F) -> SearchResult
+fn session_search_opts(query: &str, limit: usize) -> SessionSearchOpts {
+    SessionSearchOpts {
+        terms: query.split_whitespace().map(str::to_owned).collect(),
+        match_mode: SessionMatchMode::AnyTermRanked,
+        provider: None,
+        project_path: None,
+        limit,
+        max_snippets: 1,
+        max_file_bytes: 0,
+    }
+}
+
+fn run_bounded_search<T, F>(deadline: Instant, search: F) -> Result<T, String>
 where
-    F: FnOnce() -> SearchResult + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     let worker = search_worker()?;
-    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+    let (reply_tx, reply_rx) = mpsc::sync_channel::<Result<T, String>>(1);
     let job: SearchJob = Box::new(move || {
         let _ = reply_tx.send(search());
     });
@@ -182,7 +208,18 @@ mod tests {
     use crate::agent::provider::SessionMetadata;
     use crate::agent::registry::{SessionSearchHit, SessionSnippet};
 
-    use super::{run_bounded_search, session_candidate};
+    use super::{run_bounded_search, session_candidate, session_search_opts};
+
+    #[test]
+    fn decision_sessions_source_uses_any_term_mode() {
+        let opts = session_search_opts("release thread", 2);
+
+        assert_eq!(opts.match_mode, super::SessionMatchMode::AnyTermRanked);
+        assert_eq!(
+            opts.terms,
+            vec!["release".to_string(), "thread".to_string()]
+        );
+    }
 
     #[test]
     fn candidate_context_is_bounded_and_excludes_provider_file_paths() {
@@ -228,7 +265,7 @@ mod tests {
         let (release_tx, release_rx) = mpsc::channel();
         let (finished_tx, finished_rx) = mpsc::channel();
         let deadline = Instant::now() + Duration::from_millis(20);
-        let result = run_bounded_search(deadline, move || {
+        let result = run_bounded_search(deadline, move || -> Result<Vec<()>, String> {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             finished_tx.send(()).unwrap();

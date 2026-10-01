@@ -4,7 +4,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use super::{match_messages, ProviderScan, ScanCtx, SessionSearchHit, SessionSkipReason};
+use super::{
+    match_messages, ProviderScan, ScanCtx, SessionMatchMode, SessionSearchHit, SessionSkipReason,
+    ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER,
+};
 use crate::agent::provider::{
     AgentProvider, SessionContentQuery, SessionContentSource, SessionMetadata,
 };
@@ -77,6 +80,7 @@ pub(super) fn scan_provider(provider: &dyn AgentProvider, ctx: &ScanCtx) -> Prov
         provider: provider.id().to_string(),
         hits: tally.hits,
         skipped: tally.skipped.into_iter().collect(),
+        scanned: tally.scanned,
     }
 }
 
@@ -88,10 +92,10 @@ fn scan_shared_store(
 ) {
     let query = SessionContentQuery {
         max_bytes: ctx.byte_cap,
-        hint_terms: ctx.hint_terms.clone(),
+        hint_terms: ctx.store_hint_terms.clone(),
     };
     for meta in sessions {
-        if tally.hits.len() >= ctx.limit {
+        if scan_is_complete(ctx, tally) {
             break;
         }
         tally.scanned += 1;
@@ -105,6 +109,7 @@ fn scan_shared_store(
             &content.messages,
             &ctx.lowered_terms,
             ctx.max_snippets,
+            ctx.match_mode,
         ) {
             Some(hit) => tally.hits.push(hit),
             None if content.truncated => tally.skip(SessionSkipReason::ContentTruncated, 1),
@@ -128,13 +133,18 @@ fn scan_session_files(
         .collect();
     let mut rest = sessions.as_slice();
     let mut batch_len = FIRST_PROBE_BATCH;
-    while !rest.is_empty() && tally.hits.len() < ctx.limit {
-        let (batch, tail) = rest.split_at(batch_len.min(rest.len()));
+    while !rest.is_empty() && !scan_is_complete(ctx, tally) {
+        let remaining_budget = if ctx.match_mode == SessionMatchMode::AnyTermRanked {
+            ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER.saturating_sub(tally.scanned)
+        } else {
+            usize::MAX
+        };
+        let (batch, tail) = rest.split_at(batch_len.min(rest.len()).min(remaining_budget));
         rest = tail;
         batch_len = (batch_len * 2).min(MAX_PROBE_BATCH);
-        let probes = probe_batch(batch, ctx.byte_cap, &hint_finders);
+        let probes = probe_batch(batch, ctx.byte_cap, &hint_finders, ctx.match_mode);
         for (meta, probe) in batch.iter().zip(probes) {
-            if tally.hits.len() >= ctx.limit {
+            if scan_is_complete(ctx, tally) {
                 break;
             }
             tally.scanned += 1;
@@ -153,9 +163,13 @@ fn scan_session_files(
                     }
                     tally.parsed += 1;
                     let messages = provider.parse_session_messages(Path::new(&candidate.file_path));
-                    if let Some(mut hit) =
-                        match_messages(candidate, &messages, &ctx.lowered_terms, ctx.max_snippets)
-                    {
+                    if let Some(mut hit) = match_messages(
+                        candidate,
+                        &messages,
+                        &ctx.lowered_terms,
+                        ctx.max_snippets,
+                        ctx.match_mode,
+                    ) {
                         if ctx.project_path.is_none() && !described {
                             hit.meta = provider.describe_session_for_search(&hit.meta);
                         }
@@ -167,10 +181,20 @@ fn scan_session_files(
     }
 }
 
+fn scan_is_complete(ctx: &ScanCtx, tally: &ScanTally) -> bool {
+    match ctx.match_mode {
+        SessionMatchMode::AllTerms => tally.hits.len() >= ctx.limit,
+        SessionMatchMode::AnyTermRanked => {
+            tally.scanned >= ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER
+        }
+    }
+}
+
 fn probe_batch(
     batch: &[SessionMetadata],
     byte_cap: u64,
     hint_finders: &[regex::bytes::Regex],
+    mode: SessionMatchMode,
 ) -> Vec<FileProbe> {
     let next = AtomicUsize::new(0);
     let workers = FILE_PROBE_WORKERS.min(batch.len());
@@ -183,7 +207,10 @@ fn probe_batch(
                     loop {
                         let index = next.fetch_add(1, Ordering::Relaxed);
                         let Some(meta) = batch.get(index) else { break };
-                        out.push((index, probe_file(&meta.file_path, byte_cap, hint_finders)));
+                        out.push((
+                            index,
+                            probe_file(&meta.file_path, byte_cap, hint_finders, mode),
+                        ));
                     }
                     out
                 })
@@ -202,7 +229,12 @@ fn probe_batch(
 
 /// Unreadable metadata is not a skip: providers may hand back synthetic paths
 /// whose size the filesystem can't report, so those go straight to the parser.
-fn probe_file(file_path: &str, byte_cap: u64, hint_finders: &[regex::bytes::Regex]) -> FileProbe {
+fn probe_file(
+    file_path: &str,
+    byte_cap: u64,
+    hint_finders: &[regex::bytes::Regex],
+    mode: SessionMatchMode,
+) -> FileProbe {
     let Ok(meta) = std::fs::metadata(file_path) else {
         return FileProbe::Parse;
     };
@@ -223,7 +255,11 @@ fn probe_file(file_path: &str, byte_cap: u64, hint_finders: &[regex::bytes::Rege
         return FileProbe::Parse;
     }
     bytes.make_ascii_lowercase();
-    if hint_finders.iter().all(|finder| finder.is_match(&bytes)) {
+    let matches = match mode {
+        SessionMatchMode::AllTerms => hint_finders.iter().all(|finder| finder.is_match(&bytes)),
+        SessionMatchMode::AnyTermRanked => hint_finders.iter().any(|finder| finder.is_match(&bytes)),
+    };
+    if matches {
         FileProbe::Parse
     } else {
         FileProbe::Miss
