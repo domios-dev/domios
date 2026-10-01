@@ -49,9 +49,15 @@ pub enum SupporterTokenAction {
     /// Store the token piped on stdin, e.g.
     /// `pbpaste | codeterm supporter token set --adapter typesafe-jev`.
     /// There is deliberately no argv flag for the value.
-    Set { #[arg(long)] adapter: Option<String> },
+    Set {
+        #[arg(long)]
+        adapter: Option<String>,
+    },
     /// Remove the stored token.
-    Clear { #[arg(long)] adapter: Option<String> },
+    Clear {
+        #[arg(long)]
+        adapter: Option<String>,
+    },
     /// Report token presence, file path and mode (never the value). Without
     /// --adapter, every registered adapter is listed.
     Status {

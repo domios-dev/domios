@@ -273,7 +273,7 @@ mod tests {
             AccessLevel::Custom(vec![Permission::Admin]),
         ] {
             for method in [Method::GET, Method::POST, Method::DELETE] {
-                assert!(!check_access(&access, &method, DECISION_TOKEN_PATH));
+                assert!(!check_access(&access, &method, SUPPORTER_TOKEN_PATH));
                 assert!(!check_access(
                     &access,
                     &method,

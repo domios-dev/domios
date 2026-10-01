@@ -60,7 +60,7 @@ describe("DecisionRerankCard", () => {
 
   it("rerank_card_has_toggle_and_agents_link_only", async () => {
     const onOpenAgentsSettings = vi.fn();
-    await render(mem(), () => {}, onOpenAgentsSettings);
+    await render(supporter(), () => {}, onOpenAgentsSettings);
     const focusables = Array.from(host.querySelectorAll<HTMLElement>("button, input, a[href]"));
     expect(focusables.map((el) => el.getAttribute("data-testid"))).toEqual(["settings-toggle", "memory-rerank-agents-link"]);
     expect(focusables.every((el) => (el.getAttribute("aria-label") || el.textContent?.trim() || "").length > 0)).toBe(true);

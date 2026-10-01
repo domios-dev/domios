@@ -145,7 +145,8 @@ fn supporter_bounds_reject_out_of_range() {
     edges.supporter.memory_rerank.max_body_chars = 256;
     validate_app_config(&edges).unwrap();
 
-    let error = validate_config_text("[supporter.memory_rerank.sources]\nrecall = 0\n").unwrap_err();
+    let error =
+        validate_config_text("[supporter.memory_rerank.sources]\nrecall = 0\n").unwrap_err();
     assert!(error.contains("supporter.memory_rerank.sources.recall"));
     validate_config_text("[supporter.memory_rerank.sources]\ngraph = 0\n").unwrap();
     validate_config_text("[supporter.memory_rerank.sources]\ndocs = 0\n").unwrap();

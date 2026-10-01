@@ -129,7 +129,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="supporter-agent-model-picker">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="supporter-agent-model-selection">
         <FormRow label="Adapter" htmlFor="supporter-agent-adapter">
           <select
             id="supporter-agent-adapter"

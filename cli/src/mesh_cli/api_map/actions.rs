@@ -215,7 +215,9 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
             if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
             if let Some(p) = project { path.push_str(&format!("&project={}", enc(p))); }
-            if let Some(mode) = supporter { path.push_str(&format!("&supporter={}", mode.enabled())); }
+            if let Some(mode) = supporter {
+                path.push_str(&format!("&supporter={}", mode.enabled()));
+            }
             ("GET".into(), path, None)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
@@ -223,7 +225,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Archive { id, reason, changed_by } => (
             "POST".into(),
             format!("/api/mem/items/{}/archive", enc(id)),
-            Some(serde_json::json!({ "reason": reason, "changed_by": changed_by })),
+            Some(serde_json::json!({ "reason": reason, "changed_by": changed_by }).to_string()),
         ),
         MemAction::Forget { area, yes } => {
             if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {

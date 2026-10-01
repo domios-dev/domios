@@ -54,9 +54,17 @@ pub(super) fn socket_request(
         }
         MemAction::Get { id } => Some(("mem.get", Some(serde_json::json!({ "id": id })))),
         MemAction::Delete { id } => Some(("mem.delete", Some(serde_json::json!({ "id": id })))),
-        MemAction::Archive { id, reason, changed_by } => Some((
+        MemAction::Archive {
+            id,
+            reason,
+            changed_by,
+        } => Some((
             "mem.archive",
-            Some(serde_json::json!({ "id": id, "reason": reason, "changed_by": changed_by })),
+            Some(serde_json::json!({
+                "id": id,
+                "reason": reason,
+                "changed_by": changed_by
+            })),
         )),
         MemAction::Forget { area, yes } => {
             if let Err(e) = item::validate_mem_forget_confirmation(area, *yes) {

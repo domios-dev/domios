@@ -7,9 +7,9 @@ use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::api::routes::{check_auth, AppState};
 use crate::api::mem_routes::calibration::archive::archive_item;
 use crate::api::mem_routes::{changed_by_from_headers, emit_activity, sanitize_actor};
+use crate::api::routes::{check_auth, AppState};
 use crate::service::ServiceState;
 
 #[derive(Deserialize)]
@@ -36,9 +36,11 @@ pub async fn mem_archive(
         .unwrap_or_else(|| changed_by_from_headers(&headers));
     let svc = state.svc.clone();
     let target = id.clone();
-    let output = tokio::task::spawn_blocking(move || archive_mem_item(&svc, &target, &reason, &actor))
-        .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
+    let output = tokio::task::spawn_blocking(move || {
+        archive_mem_item(&svc, &target, &reason, &actor)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
     emit_activity(&state, &headers, "update", vec![id]);
     Ok(Json(output))
 }

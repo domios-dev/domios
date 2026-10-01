@@ -65,9 +65,17 @@ fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
         .collect()
 }
 
-fn supporter_state(features_on: bool, token: &TokenStatus, adapter_registered: bool) -> &'static str {
+fn supporter_state(
+    features_on: bool,
+    token: &TokenStatus,
+    adapter_registered: bool,
+) -> &'static str {
     if !token.present {
-        return if features_on { "feature_without_token" } else { "no_token" };
+        return if features_on {
+            "feature_without_token"
+        } else {
+            "no_token"
+        };
     }
     if token.mode_ok == Some(false) {
         return "token_unusable";
@@ -75,7 +83,11 @@ fn supporter_state(features_on: bool, token: &TokenStatus, adapter_registered: b
     if !adapter_registered {
         return "adapter_unavailable";
     }
-    if features_on { "active" } else { "token_only" }
+    if features_on {
+        "active"
+    } else {
+        "token_only"
+    }
 }
 
 fn select_model_id(
@@ -93,7 +105,9 @@ fn select_model_id(
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            Err(format!("model {id} is not listed by adapter {adapter}; listed models: {listed}"))
+            Err(format!(
+                "model {id} is not listed by adapter {adapter}; listed models: {listed}"
+            ))
         }
         None if current_adapter
             && current_model
@@ -580,8 +594,12 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         let adapter_registered = models.contains(&cfg.adapter);
         let state = supporter_state(features_on, &selected_token, adapter_registered);
         let model = cfg.model.clone().or_else(|| {
-            models.get(&cfg.adapter)
-                .and_then(|model| model.models().first().map(|entry| entry.id.clone()))
+            models.get(&cfg.adapter).and_then(|model| {
+                model
+                    .models()
+                    .first()
+                    .map(|entry| entry.id.clone())
+            })
         });
         Ok(json!({
             "state": state,
@@ -658,7 +676,8 @@ pub async fn supporter_features(
     }
     if body.memory_rerank == Some(true) || body.tab_state == Some(true) {
         let adapter = state.config.lock().supporter.adapter.clone();
-        let status = token_io(move || token_store().status(&adapter)).await?;
+        let token_adapter = adapter.clone();
+        let status = token_io(move || token_store().status(&token_adapter)).await?;
         if !status.present || status.mode_ok == Some(false) {
             return Err((
                 StatusCode::CONFLICT,

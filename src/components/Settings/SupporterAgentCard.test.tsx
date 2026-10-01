@@ -37,7 +37,8 @@ let host: HTMLElement;
 let root: Root;
 let calls: Call[];
 let invokes: { cmd: string; args: unknown }[];
-let statusBody: ReturnType<typeof statusFixture>;
+type StatusFixture = Omit<ReturnType<typeof statusFixture>, "model"> & { model: string | null };
+let statusBody: StatusFixture;
 let writeStatus: number;
 let writeRejects: boolean;
 
@@ -81,7 +82,11 @@ function installFetch() {
       statusBody = statusFixture("token_only");
     }
     if (method === "POST" && url.endsWith("/api/supporter/use") && writeStatus < 400 && body) {
-      statusBody = { ...statusBody, adapter: body.adapter as string, model: body.model as string | null };
+      statusBody = {
+        ...statusBody,
+        adapter: body.adapter as string,
+        model: typeof body.model === "string" ? body.model : null,
+      };
     }
     const isWrite = method !== "GET";
     const responseBody = url.endsWith("/api/supporter/models")
