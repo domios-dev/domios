@@ -196,11 +196,14 @@ void decisionPlugin;
 void decisionModelInfo;
 void decisionAnswer;
 
-const asyncFetchResult: string = host.fetch.async(
-  { url: "http://127.0.0.1/decision" },
-  (result) => result.body ?? result.error ?? String(result.status),
-);
-void asyncFetchResult;
+// Type-only check: `host` exists only inside the plugin VM, so this is never called here.
+function typeCheckAsyncFetch(): string {
+  return host.fetch.async(
+    { url: "http://127.0.0.1/decision" },
+    (result) => result.body ?? result.error ?? String(result.status),
+  );
+}
+void typeCheckAsyncFetch;
 
 async function exercise() {
   // worker: non-blocking start → poll (F4), not blocking run.
