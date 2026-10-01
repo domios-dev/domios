@@ -1,11 +1,11 @@
 # CodeTerm API Reference
 CodeTerm exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
 
-### Architecture: Unified Service Layer
+### One behavior across transports
 
-All multiplexer operations are implemented in one **ServiceContext** (`src-tauri/src/service/mod.rs`). REST routes and Tauri IPC delegate to it, preserving PTY cleanup, events, hierarchy validation, and semantics.
+REST, the local socket and the CLI share one implementation, so authorization, PTY cleanup, events and hierarchy validation behave the same on every transport.
 
-The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum without TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
+The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
 Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `codeterm docs API-TRANSPORT`.
 
@@ -51,9 +51,9 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 
-The desktop REST listener has one monotonic runtime generation owner. A generation reports `listening` only once it owns the real socket and a real `GET /api/health` succeeds, its body is consumed, and the proof connection closes. Listener/server exit retires that generation and creates exactly one replacement; bind ownership failure waits for an explicit port-release or restart event, never a timer. The internal `get_rest_api_status` command returns `generation`, `phase`, `diagnostic`, and `message`. Diagnostic values are `listener_exited`, `bind_ownership_failed`, or `workers_blocked`; the last means the listener remains bound but the four REST runtime workers cannot answer health.
+A desktop REST listener generation reports `listening` only once it owns the real socket and a real `GET /api/health` succeeds, its body is consumed, and the proof connection closes. A listener exit is replaced by exactly one new generation; a bind ownership failure waits for an explicit port-release or restart event, never a timer. The listener status reports `generation`, `phase`, `diagnostic`, and `message`. Diagnostic values are `listener_exited`, `bind_ownership_failed`, or `workers_blocked`; the last means the listener remains bound but the four REST runtime workers cannot answer health.
 
-Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail on blocking workers.
+Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -123,7 +123,7 @@ The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/st
 | POST | `/api/tabs/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
 | POST | `/api/tabs/{id}/prompt/respond` | `{value}` | Respond to the active numbered prompt. `codeterm tab respond <option> --tab <id>` uses the one-based option shown by status and refuses when the prompt is no longer on screen. |
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
-| GET | `/api/agents/providers` | — | Provider catalog: `id`, `display_name`, models, reasoning efforts/defaults (per-model values override the provider list, API-AGENTS), settings, and `kind`: `agent` (PTY) or `shell` (chat backend, also exposing presets and Chat UI support). `availability` is `available`, `unavailable`, or `unknown`; PTY lookup uses `binary_name`; backends use optional `cli_binary`. Spawn refuses `unavailable` before creating a tab; `unknown` warns. Resolver and cache details: [provider contract](../.agents/skills/provider-authoring/SKILL.md#launch-binary-availability). |
+| GET | `/api/agents/providers` | — | Provider catalog: `id`, `display_name`, models, reasoning efforts/defaults (per-model values override the provider list, API-AGENTS), settings, and `kind`: `agent` (PTY) or `shell` (chat backend, also exposing presets and Chat UI support). `availability` is `available`, `unavailable`, or `unknown`; PTY lookup uses `binary_name`; backends use optional `cli_binary`. Spawn refuses `unavailable` before creating a tab; `unknown` warns. |
 | POST | `/api/agents/providers/refresh` | `{provider_id}` | Explicitly refreshes a catalogue whose capability requires live discovery; returns `{provider_id, discovery_required, refreshed}`. |
 | GET | `/api/providers` | — | Authenticated provider list alias for selectors |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, plan_id? (alias `plan`), can_spawn?, task?, task_id?, plan_task? (alias `plan-task`), execution_intent?, authorized_gates?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?, team_id?, creator_tab_id?}` | One-call agent spawn: field semantics, capability routing, role sugar, and Team attachment are in API-AGENTS; roled Team members use `POST /api/teams/{team_id}/members` (API-TEAMS). |
@@ -134,7 +134,7 @@ Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin
 
 #### Interactive chat prompts
 
-Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream via the `AgentProvider::parse_interactive_events` capability (native or JS `parseInteractiveEvents` + manifest `interactiveEvents` flag), never a provider-id branch. It rides both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, on the tool-call message). First element type:
+Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream by providers that declare the capability. It rides both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, on the tool-call message). First element type:
 
 ```json
 { "type": "question", "id": "toolu_42-0", "toolUseId": "toolu_42",
@@ -166,4 +166,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 178 -->
+<!-- revision: 179 -->

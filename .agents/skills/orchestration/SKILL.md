@@ -182,3 +182,9 @@ be captured as a bug, follow-up, or docs gap when it affects the work.
 
 Prompt templates compiled into the binary live under `src-tauri/prompts/`; the
 full source and loader map is `.agents/skills/prompts/inventory.md`.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/attempt-retirement.md](references/attempt-retirement.md) — the attempt retirement fence
