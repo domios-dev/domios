@@ -33,5 +33,3 @@ The providers' general parsers remain separate from the live trust parser. This 
 ## Verification surfaces
 
 Coverage includes generic numbered choices, active Codex trust choices, trust-dialog negative fixtures, stale-screen refusal, native/JavaScript parity, and the response path. Canonical QA should run the focused Rust and plugin tests from the task report after refreshing the generated Codex plugin bundle.
-
-<!-- revision: 6 -->

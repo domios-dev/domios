@@ -181,4 +181,4 @@ be captured as a bug, follow-up, or docs gap when it affects the work.
 ## Agent Prompts On Disk
 
 Prompt templates compiled into the binary live under `src-tauri/prompts/`; the
-full source and loader map is `prod-docs/PROMPTS.md`.
+full source and loader map is `.agents/skills/prompts/inventory.md`.

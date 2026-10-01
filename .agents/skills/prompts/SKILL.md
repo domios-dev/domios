@@ -37,7 +37,7 @@ skills/codeterm/
 docs/                            Embedded docs, read on demand via `codeterm docs <NAME>`
 ```
 
-The layout is an excerpt; the complete prompt inventory is the table in `prod-docs/PROMPTS.md`.
+The layout is an excerpt; the complete prompt inventory is the table in [inventory.md](inventory.md); progressive-disclosure tiers are in [tiers.md](tiers.md). Neither is embedded in the binary: they describe CodeTerm's own source, which a production agent cannot edit.
 
 ## Compile and substitution flow
 
@@ -123,7 +123,7 @@ When you're about to add or move a piece of prompt content, ask:
    ```rust
    doc!("TOPIC", "What the playbook is for", "../../../prod-docs/TOPIC.md"),
    ```
-   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. The membership test rejects unregistered files in `prod-docs/`.
+   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. A doc about CodeTerm's own source (prompt files, loaders, detection internals) is never embedded: a production agent cannot edit the binary. The membership test rejects unregistered files in `prod-docs/`.
 3. Mention it in `general_agent.md` under the **Operational playbooks** section so the GA knows it exists. One line — name + when to use it.
 4. Bump `<!-- revision: N -->` at the end of the playbook on every meaningful edit.
 
@@ -131,7 +131,7 @@ When you're about to add or move a piece of prompt content, ask:
 
 1. Put it in `src-tauri/prompts/` and load it with `include_str!()` in the owning loader.
 2. Add its filename to the list in `every_prompt_md_has_a_loader` (`src-tauri/src/prompts/tests.rs`); an unlisted file fails as an orphan.
-3. Add its row to the prompt table in `prod-docs/PROMPTS.md`; `scripts/check-prompts-doc.sh` rejects a prompt file missing from it.
+3. Add its row to the prompt table in `.agents/skills/prompts/inventory.md`; `scripts/check-prompts-doc.sh` rejects a prompt file missing from it.
 
 ## Adding a new mem worker prompt
 

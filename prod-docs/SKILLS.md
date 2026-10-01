@@ -54,7 +54,7 @@ still bump it when you change the file.
 
 Every agent's own pad rule (write payloads to the pad, pass `--from-pad`) reaches
 spawned agents through their launch prompt and reaches skill readers through
-`{agent_pad_rule}`; `prod-docs/PROMPTS.md` maps all three carriers.
+`{agent_pad_rule}`.
 
 ## Available Skills
 
@@ -187,4 +187,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->
