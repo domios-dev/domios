@@ -8,13 +8,31 @@ const MAX_PLAN_TEXT_FIELDS: usize = 1024;
 const MAX_STORED_PLAN_TEXT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_STORED_PLAN_TEXT_FIELDS: usize = 65536;
 
-#[derive(Default)]
 struct TextBudget {
     bytes: usize,
     fields: usize,
+    refuse_control_characters: bool,
+}
+
+impl Default for TextBudget {
+    fn default() -> Self {
+        Self {
+            bytes: 0,
+            fields: 0,
+            refuse_control_characters: true,
+        }
+    }
 }
 
 impl TextBudget {
+    /// Stored records predate the input rules; bound their size but never refuse their characters.
+    fn stored() -> Self {
+        Self {
+            refuse_control_characters: false,
+            ..Self::default()
+        }
+    }
+
     fn add(&mut self, field: &str, value: &str) -> Result<(), PlanError> {
         self.fields += 1;
         self.bytes = self.bytes.saturating_add(value.len());
@@ -28,10 +46,7 @@ impl TextBudget {
                 "task text exceeds {MAX_PLAN_TEXT_BYTES} UTF-8 bytes"
             )));
         }
-        if value
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-        {
+        if self.refuse_control_characters && contains_control_character(value) {
             return Err(PlanError::InvalidPlanText(format!(
                 "{field} contains a control character"
             )));
@@ -40,18 +55,24 @@ impl TextBudget {
     }
 }
 
+fn contains_control_character(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+}
+
 pub(super) fn validate_plan_text(field: &str, value: &str) -> Result<(), PlanError> {
     let mut budget = TextBudget::default();
     budget.add(field, value)
 }
 
 pub(super) fn validate_plan(plan: &crate::plan::Plan) -> Result<(), PlanError> {
-    validate_plan_label("plan title", &plan.title)?;
+    add_label(&mut TextBudget::stored(), "plan title", &plan.title)?;
     for section in &plan.sections {
-        validate_section(section)?;
+        validate_stored_section(section)?;
     }
     for task in &plan.tasks {
-        validate_task_text(task)?;
+        validate_stored_task_text(task)?;
     }
     let value = serde_json::to_value(plan)
         .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?;
@@ -136,7 +157,15 @@ pub(super) fn validate_new_task_text(new: &NewTask) -> Result<(), PlanError> {
 }
 
 pub(super) fn validate_task_text(task: &Task) -> Result<(), PlanError> {
-    let mut budget = TextBudget::default();
+    task_text(task, TextBudget::default())
+}
+
+/// A task update validates its changed fields at entry; the whole task is only size-bounded.
+pub(super) fn validate_stored_task_text(task: &Task) -> Result<(), PlanError> {
+    task_text(task, TextBudget::stored())
+}
+
+fn task_text(task: &Task, mut budget: TextBudget) -> Result<(), PlanError> {
     add_label(&mut budget, "task name", &task.name)?;
     add_label(&mut budget, "task type", &task.kind)?;
     add(&mut budget, "model", task.model.as_deref())?;
@@ -248,16 +277,27 @@ fn nested_value(value: &Option<Option<String>>) -> Option<&str> {
 }
 
 fn validate_section(section: &crate::plan::Section) -> Result<(), PlanError> {
-    validate_plan_label("section title", &section.title)?;
-    validate_plan_text("section body", &section.body)?;
+    section_text(section, TextBudget::default)
+}
+
+fn validate_stored_section(section: &crate::plan::Section) -> Result<(), PlanError> {
+    section_text(section, TextBudget::stored)
+}
+
+fn section_text(
+    section: &crate::plan::Section,
+    budget: fn() -> TextBudget,
+) -> Result<(), PlanError> {
+    add_label(&mut budget(), "section title", &section.title)?;
+    budget().add("section body", &section.body)?;
     for tag in &section.tags {
-        validate_plan_label("section tag", tag)?;
+        add_label(&mut budget(), "section tag", tag)?;
     }
     if let Some(handle) = section.handle.as_deref() {
-        validate_plan_label("section handle", handle)?;
+        add_label(&mut budget(), "section handle", handle)?;
     }
     for subsection in &section.subsections {
-        validate_section(subsection)?;
+        section_text(subsection, budget)?;
     }
     Ok(())
 }
@@ -290,14 +330,6 @@ fn validate_stored_plan_value(
                 return Err(PlanError::InvalidPlanText(format!(
                     "plan text exceeds {MAX_STORED_PLAN_TEXT_BYTES} total UTF-8 bytes"
                 )));
-            }
-            if text
-                .chars()
-                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-            {
-                return Err(PlanError::InvalidPlanText(
-                    "plan text contains a control character".into(),
-                ));
             }
             Ok(())
         }
