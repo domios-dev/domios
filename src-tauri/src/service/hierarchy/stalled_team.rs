@@ -201,7 +201,6 @@ impl ServiceContext {
 
     fn orchestrator_is_idle(&self, tab_id: &str) -> bool {
         use crate::agent::offline_state_classifier::TimelineState;
-        use crate::multiplexer::types::AgentRole;
 
         let mux = self.mux.read();
         mux.resolve_tab_id(tab_id)

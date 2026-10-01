@@ -7,7 +7,6 @@ use parking_lot::{Condvar, Mutex, RwLock};
 use super::classify_input::StatusBarRowsSource;
 use super::provider::{AgentProvider, SessionMetadata};
 
-pub(crate) use super::registry_search::SessionSearchStats;
 pub use super::registry_search::{
     SessionMatchMode, SessionSearchError, SessionSearchHit, SessionSearchOpts, SessionSearchResult,
     SessionSearchWarning, SessionSkipReason, SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP,

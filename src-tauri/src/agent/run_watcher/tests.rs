@@ -723,10 +723,10 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
     );
     assert_eq!(
         worker.finalization,
-        Some(DiaryFinalization::Partial {
+        DiaryFinalization::Partial {
             diary_id: Some(diary.clone()),
             reason: APPROVAL_PROMPT_REASON.into(),
-        })
+        }
     );
     assert_eq!(
         worker.dream_run_status(),

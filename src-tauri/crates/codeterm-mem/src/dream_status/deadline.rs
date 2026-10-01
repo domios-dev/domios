@@ -36,7 +36,7 @@ pub fn last_logged_stage(body: &str) -> Option<String> {
         .into_iter()
         .filter(|(name, value)| name != DEADLINE_FIELD && !is_unfilled_value(value))
         .map(|(name, _)| name)
-        .last()
+        .next_back()
 }
 
 /// Deterministic insight for a cut-short diary, naming the last logged stage.
