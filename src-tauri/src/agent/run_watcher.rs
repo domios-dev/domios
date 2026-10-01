@@ -362,14 +362,13 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
         let elapsed_total = state.started_at.elapsed().as_secs();
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
+        let pending_prompt_kind = if matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
+            tab_pending_prompt_kind(&svc, &state.tab_id)
+        } else {
+            None
+        };
         let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
             && surface_idle_provider_prompt(&svc, &state.tab_id, &state.pty_id);
-        let pending_prompt_kind =
-            if provider_prompt_pending && matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
-                tab_pending_prompt_kind(&svc, &state.tab_id)
-            } else {
-                None
-            };
         if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
         {
             if claim_run_end(&state) {
