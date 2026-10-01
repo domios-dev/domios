@@ -43,17 +43,22 @@ enabled = true
                 },
                 ..MemoryRerankConfig::default()
             },
-            tab_state: SupporterTabStateConfig { enabled: true },
+            tab_state: SupporterTabStateConfig {
+                enabled: true,
+                ..SupporterTabStateConfig::default()
+            },
             ..SupporterConfig::default()
         }
     );
 }
 
 #[test]
-fn supporter_missing_table_defaults_all_off() {
+fn supporter_missing_table_keeps_tab_state_switch_off() {
     let config: AppConfig = toml::from_str("[memory]\nauto_extract = false\n").unwrap();
 
     assert!(!config.supporter.memory_rerank.enabled);
     assert!(!config.supporter.tab_state.enabled);
+    assert!(config.supporter.tab_state.strong_actions);
+    assert!(config.supporter.tab_state.weak_hints);
     assert_eq!(config.supporter, SupporterConfig::default());
 }

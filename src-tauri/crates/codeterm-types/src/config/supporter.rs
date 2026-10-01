@@ -70,10 +70,22 @@ impl Default for SupporterSources {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SupporterTabStateConfig {
     pub enabled: bool,
+    pub strong_actions: bool,
+    pub weak_hints: bool,
+}
+
+impl Default for SupporterTabStateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            strong_actions: true,
+            weak_hints: true,
+        }
+    }
 }
 
 #[cfg(test)]

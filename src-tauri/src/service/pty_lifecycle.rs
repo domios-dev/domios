@@ -398,6 +398,11 @@ fn handle_pty_death_with_cause(
     svc.run_watcher
         .fail_cron_on_process_exit(svc, pty_id, "cron PTY process exited".into());
     {
+        svc.observe_tab_state(
+            pid,
+            crate::service::supporter_tab_state::ObservationTrigger::TabExit,
+            "provider_process_exit",
+        );
         svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
         svc.settle_restore_report();
         svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
