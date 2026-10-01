@@ -1719,6 +1719,63 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
   };
 }
 
+// plugins/provider-claude/src/hookOwnership.ts
+var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
+var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+var CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush"
+];
+var LEGACY_V2_SESSION_START = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_STOP = "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
+var LEGACY_V2_COMMANDS = /* @__PURE__ */ new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
+function commandCarriesMarker(command) {
+  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
+}
+function entryCarriesMarker(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+  });
+}
+function entryIsLegacyPaneCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
+  });
+}
+function commandIsCurrentUnmarked(command) {
+  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
+}
+function isCodetermHook(entry) {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  return hooks.some((hook) => {
+    if (!hook) return false;
+    if (typeof hook._source === "string" && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
+      return true;
+    }
+    const command = hook.command;
+    return typeof command === "string" && (commandCarriesMarker(command) || commandIsCurrentUnmarked(command) || LEGACY_V2_COMMANDS.has(command));
+  });
+}
+function entriesCarryMarker(entries) {
+  return entries.every((entry) => {
+    if (!isCodetermHook(entry)) return true;
+    const hooks = entry && entry.hooks || [];
+    return hooks.some((hook) => {
+      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+    });
+  });
+}
+
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
@@ -2410,7 +2467,12 @@ var plugin = {
     const pc = markerOwnedPresent("PreCompact");
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
-    const owned = INTEGRATION_HOOK_KEYS.some((key) => markerOwnedPresent(key));
+    const owned = INTEGRATION_HOOK_KEYS.some((key) => {
+      const arr = json.hooks && json.hooks[key];
+      return Array.isArray(arr) && arr.some((entry) => {
+        return entryCarriesMarker(entry) || entryIsLegacyPaneCodetermHook(entry);
+      });
+    });
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
@@ -2621,70 +2683,5 @@ function randomShortHex(len) {
   let out = "";
   for (let i = 0; i < len; i++) out += hex.charAt(Math.random() * 16 | 0);
   return out;
-}
-var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
-var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
-var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
-var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
-var CODETERM_CURRENT_ROUTES = [
-  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
-  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
-  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-  "$CODETERM_API_URL/api/mem/flush"
-];
-function commandCarriesMarker(cmd) {
-  return cmd.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
-}
-function entryCarriesMarker(entry) {
-  const hooks = entry && entry.hooks;
-  return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && commandCarriesMarker(hook.command);
-  });
-}
-function commandIsCurrentUnmarked(cmd) {
-  if (cmd.indexOf("$CODETERM_API_URL") === -1) return false;
-  if (cmd.indexOf("$CODETERM_TAB_ID") === -1) return false;
-  if (cmd.indexOf("$CODETERM_API_TOKEN") === -1) return false;
-  for (let i = 0; i < CODETERM_CURRENT_ROUTES.length; i++) {
-    if (cmd.indexOf(CODETERM_CURRENT_ROUTES[i]) !== -1) return true;
-  }
-  return false;
-}
-function commandIsLegacyV2(cmd) {
-  if (cmd.indexOf("$CODETERM_PANE_ID") === -1) return false;
-  return cmd.indexOf("/api/panes/$CODETERM_PANE_ID/hook/") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
-}
-function isCodetermHook(entry) {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  for (let i = 0; i < hooks.length; i++) {
-    const h = hooks[i];
-    if (!h) continue;
-    if (typeof h._source === "string" && (h._source.indexOf("codeterm-hook") === 0 || h._source === "codeterm")) {
-      return true;
-    }
-    const cmd = h.command;
-    if (typeof cmd === "string" && (commandCarriesMarker(cmd) || commandIsCurrentUnmarked(cmd) || commandIsLegacyV2(cmd))) {
-      return true;
-    }
-  }
-  return false;
-}
-function entriesCarryMarker(entries) {
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!isCodetermHook(entry)) continue;
-    const hooks = entry && entry.hooks || [];
-    let marked = false;
-    for (let j = 0; j < hooks.length; j++) {
-      const cmd = hooks[j] && hooks[j].command;
-      if (typeof cmd === "string" && commandCarriesMarker(cmd)) {
-        marked = true;
-        break;
-      }
-    }
-    if (!marked) return false;
-  }
-  return true;
 }
 var plugin_default = plugin;

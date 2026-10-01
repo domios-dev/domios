@@ -2486,7 +2486,7 @@ function isOwnedCodexHook(hook) {
   const command = String(hook.command || "");
   const fullCommand = command + "\n" + String(hook.commandWindows || "");
   if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
-  if (hook._source !== void 0) return hook._source === CODETERM_CODEX_HOOK_MARKER;
+  if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
   return LEGACY_CODEX_HOOK_COMMANDS.has(command);
 }
 var CODEX_HOOK_SCRIPT_CONTRACT = [
