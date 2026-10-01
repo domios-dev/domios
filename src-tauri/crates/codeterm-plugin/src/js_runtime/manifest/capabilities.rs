@@ -285,7 +285,7 @@ pub struct WebhookReceiverCap {
 /// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber` /
 /// `JsGlanceProvider` / `JsBubbleProvider`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     #[serde(default)]
     pub agent_provider: bool,
@@ -295,6 +295,8 @@ pub struct Capabilities {
     pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
+    #[serde(default)]
+    pub decision_model: bool,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
     #[serde(default)]
     pub glance_view: bool,
@@ -322,6 +324,8 @@ pub struct Capabilities {
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,
+    #[serde(default, flatten, skip_serializing)]
+    pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl Capabilities {
@@ -333,5 +337,9 @@ impl Capabilities {
 
     pub fn chat_backend_watcher_capable(&self) -> bool {
         self.chat_backend.watcher()
+    }
+
+    pub fn unknown_capabilities(&self) -> impl Iterator<Item = &str> {
+        self.unknown.keys().map(String::as_str)
     }
 }

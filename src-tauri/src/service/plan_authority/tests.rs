@@ -1081,3 +1081,5 @@ fn an_unbound_authenticated_caller_is_the_owner() {
         "a tab without its binding proof is still refused"
     );
 }
+
+mod lifecycle;

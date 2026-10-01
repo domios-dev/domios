@@ -740,6 +740,18 @@ pub(super) fn install(
         }
     });
     let sb = sandbox.clone();
+    bind!("fetchStart", move |opts_json: String| -> String {
+        let host = super::host_net::host_of(&opts_json).unwrap_or_default();
+        if !sb.can_reach(&host) {
+            log::warn!("[plugin] denied fetch.async({host}) — not in network.allow");
+            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+        }
+        match super::host_credentials::inject(sb.credentials(), &opts_json) {
+            Ok(prepared) => super::host_net::start(sb.plugin_id(), &prepared),
+            Err(e) => serde_json::json!({ "error": e }).to_string(),
+        }
+    });
+    let sb = sandbox.clone();
     bind!("fetchStream", move |opts_json: String| -> String {
         let host = super::host_net::host_of(&opts_json).unwrap_or_default();
         // Egress-equivalent to host.fetch: use the exact same network.allow gate.

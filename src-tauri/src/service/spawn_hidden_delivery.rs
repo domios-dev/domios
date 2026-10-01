@@ -4,7 +4,7 @@ use super::ServiceContext;
 /// Mirrors the visible orchestrator launch path (orchestrator::launch step 4).
 /// Uses the same optimistic seam as `send_text` — success never depends on
 /// echo/submit confirmation, only a genuine write/transport failure errs.
-pub(super) fn deliver_hidden_pty_task(
+pub(in crate::service) fn deliver_hidden_pty_task(
     svc: &ServiceContext,
     pty_id: &str,
     tab_id: &str,

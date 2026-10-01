@@ -19,15 +19,15 @@ pub(super) fn should_end_on_blocking_prompt(
     provider_prompt_pending: bool,
     pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
 ) -> bool {
-    provider_prompt_pending
-        && matches!(kind, AgentRunKind::MemWorker { .. })
-        && matches!(
-            pending_prompt_kind,
+    matches!(kind, AgentRunKind::MemWorker { .. })
+        && match pending_prompt_kind {
+            Some(codeterm_types::pty::PromptKind::DirectoryTrust) => true,
             Some(
                 codeterm_types::pty::PromptKind::Provider
-                    | codeterm_types::pty::PromptKind::Structured
-            )
-        )
+                | codeterm_types::pty::PromptKind::Structured,
+            ) => provider_prompt_pending,
+            _ => false,
+        }
 }
 
 pub(super) fn claim_run_end(state: &RunState) -> bool {
@@ -35,7 +35,13 @@ pub(super) fn claim_run_end(state: &RunState) -> bool {
 }
 
 pub(super) fn end_on_blocking_prompt(svc: &ServiceContext, state: &RunState) {
-    let summary = codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON.to_string();
+    let summary = match tab_pending_prompt_kind(svc, &state.tab_id) {
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust) => {
+            crate::mem::dream_runs::FOLDER_TRUST_REASON
+        }
+        _ => codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON,
+    }
+    .to_string();
     log::warn!(
         "[run-watcher] ending mem worker on blocking prompt: tab={} reason={}",
         state.tab_id,

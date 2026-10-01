@@ -19,9 +19,11 @@ Injected into every agent session:
 ```bash
 # Search
 codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
-codeterm mem search "<query>" --decision-rerank on|off      # per-request override of the decision re-rank stage
-codeterm mem decision status                        # config, adapters, token presence
-printf %s "$TOKEN" | codeterm mem decision token set [--adapter <id>]   # stdin only; also token clear|status
+codeterm mem search "<query>" --supporter on|off      # per-request override of Supporter Agent memory re-rank
+codeterm supporter enable|disable|status|models
+codeterm supporter use <adapter> [--model <id>]
+codeterm supporter features [--memory-rerank on|off] [--tab-state on|off]
+printf %s "$TOKEN" | codeterm supporter token set [--adapter <id>]   # stdin only; also token clear|status
 codeterm mem get <id>                               # full item body
 codeterm mem wake-up                                # L0 identity + L1 critical
 codeterm mem wake-up                                # inherit the calling tab's workspace
@@ -32,6 +34,7 @@ codeterm mem wake-up --explain                      # append per-item score brea
 codeterm mem save --kind <k> --title "<t>" [--area <a>] [--tags <csv>] "<body>"
 codeterm mem save --kind fact --title "X" --pin --workspace <ws> "<body>"   # atomic create + pin + scope
 codeterm mem update <id> [--area <a>] [--title <t>] [--body <b>]
+codeterm mem archive <id> --reason "<why>"           # reversible; use mem restore
 codeterm mem delete <id>
 codeterm mem forget <area>                          # batch delete by area
 
@@ -63,18 +66,21 @@ codeterm mem sync                    # trigger re-index of source-tracked items
 codeterm mem dream                   # SQL phases + spawn REM worker
 ```
 
+`codeterm mem search --json` keeps hit payloads compact: an item id (or a documentation pointer), source/via, baseline score, and Supporter relevance. It omits titles, bodies, summaries, and tags. Fetch a complete memory record with `codeterm mem get <id> --json`.
+
 Save identity is the exact kind and title. Saving an unchanged body after whitespace normalization reports `unchanged`, increments `recurrence_count`, and does not start extraction. A different body reports `updated`, preserves the item's id, uid, and creation time, and records the previous body and changed fields in history. A first save reports `created`. `--replace` uses the same in-place update and history behavior.
 
 ## REST API
 
 `/api/mem/*` — parallel to CLI:
 - `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
-- `GET /search?decision_rerank=true|false` — per-request decision re-rank override; `GET|POST|DELETE /decision/token`, `GET /decision/status` (contract in `codeterm docs API-MEMORY`)
+- `GET /search?supporter=true|false` — per-request Supporter Agent memory re-rank override; `/api/supporter/*` exposes status, models, selection, feature switches and bearer-only token operations (contract in `codeterm docs API-MEMORY`)
 - `GET /pinned?limit=N` — list pinned items (default 100, max 500)
 - `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
 - `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted; other scope values are refused)
 - `POST /dream`
 - `PATCH /items/{id}` (`{pinned: true|false}` toggles `is_pinned_wakeup`, audited)
+- `POST /items/{id}/archive` preserves an item and history; restore it with `POST /items/{id}/restore`
 - `DELETE /items/{id}`, `/forget/{area}`
 - `GET /workers`, `/workers/{id}/log`
 
@@ -95,4 +101,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

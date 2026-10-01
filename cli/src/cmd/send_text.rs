@@ -243,16 +243,27 @@ fn probe_tab_kind(client: &mut SocketClient, tab_id: &str) -> TabKind {
     match client.call("tab.list", Some(params)) {
         Ok(value) => value
             .as_array()
-            .and_then(|tabs| {
-                tabs.iter().find(|tab| {
-                    tab.get("id").and_then(|v| v.as_str()) == Some(tab_id)
-                        || tab.get("tab_id").and_then(|v| v.as_str()) == Some(tab_id)
-                })
-            })
+            .and_then(|tabs| find_target_record(tabs, tab_id))
             .map(classify_tab_kind)
             .unwrap_or(TabKind::Unknown),
         Err(_) => TabKind::Unknown,
     }
+}
+
+/// The daemon resolves `main`/`general` to the General Agent tab, so the probe must too.
+pub(crate) fn find_target_record<'a>(
+    tabs: &'a [serde_json::Value],
+    tab_id: &str,
+) -> Option<&'a serde_json::Value> {
+    let by_id = tabs.iter().find(|tab| {
+        tab.get("id").and_then(|v| v.as_str()) == Some(tab_id)
+            || tab.get("tab_id").and_then(|v| v.as_str()) == Some(tab_id)
+    });
+    if by_id.is_some() || !matches!(tab_id.to_ascii_lowercase().as_str(), "main" | "general") {
+        return by_id;
+    }
+    tabs.iter()
+        .find(|tab| tab.get("role_profile").and_then(|v| v.as_str()) == Some("general_agent"))
 }
 
 fn emit_send_refusal(json: bool, msg: &str) -> ! {

@@ -1,21 +1,33 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-interface AdapterTokenStatus {
+export interface SupporterTokenStatus {
+  adapter: string;
   present: boolean;
+  path: string;
   mode_ok: boolean | null;
 }
 
-interface DecisionStatus {
-  adapter_registered: boolean;
-  adapters: { id: string; token: AdapterTokenStatus }[];
+export interface SupporterAdapter {
+  id: string;
+  primitives: { choice: boolean; noul: boolean; score: boolean };
+  models: { id: string; display_name: string }[];
+  token: SupporterTokenStatus;
 }
 
-export type TokenState = "set" | "not set";
+export interface SupporterStatus {
+  state: "active" | "token_only" | "no_token" | "feature_without_token" | "token_unusable" | "adapter_unavailable";
+  adapter: string;
+  model: string | null;
+  deadline_ms: number;
+  features: { memory_rerank: boolean; tab_state: boolean };
+  token: SupporterTokenStatus;
+  adapter_registered: boolean;
+  adapters: SupporterAdapter[];
+}
 
-// The token value lives only in the uncontrolled input until submit; it is never stored in state.
-export function useDecisionToken(adapter: string, apiBase: string, apiHeaders: HeadersInit) {
+export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
   const tokenRef = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<DecisionStatus | null>(null);
+  const [status, setStatus] = useState<SupporterStatus | null>(null);
   const [statusFailed, setStatusFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,9 +36,9 @@ export function useDecisionToken(adapter: string, apiBase: string, apiHeaders: H
 
   const refreshStatus = useCallback(async () => {
     try {
-      const r = await fetch(`${apiBase}/api/mem/decision/status`, { headers: authRef.current });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setStatus(await r.json() as DecisionStatus);
+      const response = await fetch(`${apiBase}/api/supporter/status`, { headers: authRef.current });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setStatus(await response.json() as SupporterStatus);
       setStatusFailed(false);
     } catch {
       setStatusFailed(true);
@@ -41,14 +53,18 @@ export function useDecisionToken(adapter: string, apiBase: string, apiHeaders: H
     if (tokenRef.current) tokenRef.current.value = "";
   };
 
-  const write = async (init: RequestInit, url: string, verb: string) => {
+  const write = async (url: string, init: RequestInit, verb: string, secret?: string) => {
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch(url, init);
-      if (!r.ok) setError(`Could not ${verb} the token (HTTP ${r.status}).`);
+      const response = await fetch(url, { ...init, headers: { ...authRef.current, ...init.headers } });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        const message = body?.error?.message?.replace(secret ?? "\u0000", "[redacted]");
+        setError(message || `Could not ${verb} (HTTP ${response.status}).`);
+      }
     } catch {
-      setError(`Could not reach the daemon to ${verb} the token.`);
+      setError(`Could not reach the daemon to ${verb}.`);
     } finally {
       clearInput();
     }
@@ -61,35 +77,65 @@ export function useDecisionToken(adapter: string, apiBase: string, apiHeaders: H
     const token = (tokenRef.current?.value ?? "").trim();
     if (!token || busy) return;
     await write(
+      `${apiBase}/api/supporter/token`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authRef.current },
-        body: JSON.stringify({ adapter, token }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adapter: status?.adapter, token }),
       },
-      `${apiBase}/api/mem/decision/token`,
-      "save",
+      "save the token",
+      token,
     );
   };
 
   const clearToken = async () => {
-    if (busy) return;
+    if (busy || !status) return;
     await write(
-      { method: "DELETE", headers: authRef.current },
-      `${apiBase}/api/mem/decision/token?adapter=${encodeURIComponent(adapter)}`,
-      "clear",
+      `${apiBase}/api/supporter/token?adapter=${encodeURIComponent(status.adapter)}`,
+      { method: "DELETE" },
+      "clear the token",
     );
   };
 
-  const token = status?.adapters?.find((a) => a.id === adapter)?.token;
+  const setFeature = async (feature: "memory_rerank" | "tab_state", enabled: boolean) => {
+    if (busy) return;
+    await write(
+      `${apiBase}/api/supporter/features`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [feature]: enabled }),
+      },
+      `update ${feature === "memory_rerank" ? "memory re-rank" : "tab-state"}`,
+    );
+  };
+
+  const select = async (adapter: string, model?: string) => {
+    if (busy) return;
+    await write(
+      `${apiBase}/api/supporter/use`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adapter, model }),
+      },
+      "select the Supporter Agent model",
+    );
+  };
+
   return {
     tokenRef,
+    status,
     busy,
     error,
     statusFailed,
-    tokenState: (token ? (token.present ? "set" : "not set") : null) as TokenState | null,
-    modeWarning: token?.present === true && token.mode_ok === false,
+    tokenState: status?.token.present ? "set" : status ? "not set" : null,
+    modeWarning: status?.token.present === true && status.token.mode_ok === false,
     adapterMissing: status !== null && !status.adapter_registered,
+    refreshStatus,
     saveToken,
     clearToken,
+    setFeature,
+    select,
   };
 }

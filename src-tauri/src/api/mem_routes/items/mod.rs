@@ -93,7 +93,10 @@ pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     }
 }
 
+mod archive;
 mod delete;
+pub(crate) use archive::{archive_mem_item, validate_archive_reason};
+pub use archive::{mem_archive, ArchiveBody};
 pub use delete::{mem_delete, mem_forget_area};
 
 pub(crate) fn save_schedules_extraction(

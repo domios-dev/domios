@@ -98,6 +98,13 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
                 "plugin management is local-only — run it on the target machine",
             ),
         },
+        Commands::Supporter { .. } => Transport {
+            local: Local::PreMesh,
+            mesh_relay: MeshRelay::Fallthrough,
+            api_verdict: ApiVerdict::Unsupported(
+                "Supporter Agent settings and tokens are local-only — run on the owning machine",
+            ),
+        },
         Commands::CliManifest { .. } => pre_socket_unsupported(
             "cli-manifest is local-only — it dumps this binary's own command tree",
         ),

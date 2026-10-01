@@ -46,6 +46,10 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. The [core essence](core.md) describes provider and plugin boundaries.
 
+## Small judgments, bounded authority
+
+The Supporter Agent supplies fast model judgments where CodeTerm needs them: relevance for memory recall and an optional shadow view of tab state. Its features are separately enabled and leave decisions with the capability that owns the work. The [core essence](core.md#core:supporter-agent) keeps that boundary independent of any model or provider.
+
 ## Future capabilities
 
 - **Project indexing** — each machine indexes its projects into memory, queryable across the mesh.

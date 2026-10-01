@@ -122,7 +122,7 @@ binary at `target/release/mem-bench`.
 
 ## Optional decision re-rank A/B
 
-Run `bash evals/mem-recall/run.sh --decision-rerank stub` for an offline,
+Run `bash evals/mem-recall/run.sh --supporter stub` for an offline,
 deterministic comparison. The bench recalls a pool of at least 10 items for
 each positive and answer-absent query, then sends those candidates through the
 real stage-2 re-ranker. The stub model scores normalized keyword overlap.
@@ -133,7 +133,7 @@ and live modes. Low-confidence precision is the fraction of all flagged
 queries that are answer-absent; the positive false-positive rate is the
 fraction of answer-present queries flagged low-confidence.
 
-`--decision-rerank off` is the default. It preserves the original metrics and
+`--supporter off` is the default. It preserves the original metrics and
 JSON keys. `--check` accepts only off mode and compares only the original
 metrics with `baseline.json`.
 
@@ -174,8 +174,8 @@ session-only winners. Each per-query entry records its rank, candidates added,
 whether a session ranked first, and stage latency. Session fixtures use
 `session_id`, `provider`, `title`, `excerpt`, and optional `modified_ts` fields.
 
-`bash evals/mem-recall/run.sh --decision-rerank live` uses the stored
-TypeSafe token in `<data-dir>/decision-models`. Supply a different root with
+`bash evals/mem-recall/run.sh --supporter live` uses the stored
+TypeSafe token in `<data-dir>/supporter`. Supply a different root with
 `--decision-data-dir PATH`. A missing or unreadable token fails before any
 query. **Live mode makes paid API calls, is owner-run only, and must never be
 part of an automated gate.**

@@ -199,6 +199,7 @@ fn default_capabilities() -> Capabilities {
         agent_provider: true,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
+        decision_model: false,
         glance_view: false,
         status_bubble: false,
         view: false,
@@ -206,6 +207,7 @@ fn default_capabilities() -> Capabilities {
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
         tab_menu: Vec::new(),
+        unknown: Default::default(),
     }
 }
 

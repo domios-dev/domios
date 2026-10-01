@@ -123,7 +123,7 @@ fn mem_recall_is_a_hidden_exact_alias_for_search() {
                 project,
                 limit,
                 rerank,
-                decision_rerank: _,
+                supporter: _,
             } => (query, kind, area, scope, project, limit, rerank),
             _ => panic!("expected mem search"),
         }

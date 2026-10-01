@@ -7,7 +7,7 @@
 3. For identity questions (who am I, who is the user, what is this machine), `codeterm mem wake-up` returns the L0 identity and L1 critical facts.
 4. Use ids a search returned; `codeterm mem get` on a guessed id finds nothing useful.
 5. When the user says remember (in any language), save it now with `codeterm mem save`, in English. A background worker handles area, entities, graph links, and dedup.
-6. When a fact changes, save the new one; history keeps the old. `codeterm mem delete` is for facts that are explicitly outdated.
+6. When a fact changes, save the new one; history keeps the old. Archive outdated facts that may still be useful; use `codeterm mem delete` only for an explicitly permanent removal.
 7. Leave dates out of bodies: `created_at` and `updated_at` are tracked, and duplicates pollute vector search.
 8. Before calling a skill missing, run `codeterm mem search "<capability> skill"` (and `codeterm mem skill list` if needed), since the provider's injected skill list is only a subset; read the returned source `SKILL.md` before acting.
 

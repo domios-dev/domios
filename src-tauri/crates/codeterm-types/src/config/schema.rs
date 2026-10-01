@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::notification::{NotifyDestination, NotifyLevel};
 
-pub use super::decision_rerank::{DecisionRerankConfig, DecisionSources};
 pub use super::dream_hygiene::DreamHygieneConfig;
+pub use super::supporter::{MemoryRerankConfig, SupporterConfig, SupporterSources};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -35,6 +35,8 @@ pub struct AppConfig {
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
+    #[serde(default)]
+    pub supporter: SupporterConfig,
     #[serde(default)]
     pub orchestration: OrchestrationConfig,
     #[serde(default)]
@@ -69,6 +71,7 @@ impl Default for AppConfig {
             plugins: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
+            supporter: SupporterConfig::default(),
             orchestration: OrchestrationConfig::default(),
             usage: UsageConfig::default(),
             integrations: IntegrationsConfig::default(),
@@ -542,7 +545,6 @@ pub struct AgentConfig {
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
     pub full_access: Option<bool>,
-    pub tab_state_shadow: super::TabStateShadowConfig,
 }
 
 impl Default for AgentConfig {
@@ -552,7 +554,6 @@ impl Default for AgentConfig {
             idle_timeout_s: 2,
             resume_sessions: true,
             full_access: None,
-            tab_state_shadow: super::TabStateShadowConfig::default(),
         }
     }
 }
@@ -875,8 +876,6 @@ pub struct MemoryConfig {
     #[serde(default = "default_true")]
     pub dreaming_telegram_notify: bool,
     #[serde(default)]
-    pub decision_rerank: DecisionRerankConfig,
-    #[serde(default)]
     pub dream_hygiene: DreamHygieneConfig,
 }
 
@@ -898,7 +897,6 @@ impl Default for MemoryConfig {
             librarian_enabled: true,
             l1_budget_tokens: default_l1_budget_tokens(),
             dreaming_telegram_notify: true,
-            decision_rerank: DecisionRerankConfig::default(),
             dream_hygiene: DreamHygieneConfig::default(),
         }
     }

@@ -114,6 +114,12 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
   host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
   host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
+  host.fetch.async = function (opts, then) {
+    if (typeof then !== "function") { throw new Error("host.fetch.async requires a continuation function"); }
+    var j = parseJson(host.fetchStart(JSON.stringify(opts)));
+    if (!j || typeof j.jobId !== "string") { return then({ error: (j && j.error) || "fetch start failed" }); }
+    return host.awaitJob(j.jobId, then);
+  };
   // Async exec (job-id + poll) so a slow tool call never holds the shared VM lock for its whole duration.
   host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
   host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };

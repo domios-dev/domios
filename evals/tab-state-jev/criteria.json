@@ -1,0 +1,11 @@
+{
+  "ready_idle": "The agent TUI is ready, and its composer is waiting for user input.",
+  "working_normally": "The agent TUI is making ordinary progress, such as thinking or running tools.",
+  "provider_update_prompt": "The provider is blocked on an update available dialog or update choice.",
+  "trust_or_permission_prompt": "The provider is blocked on a trust, folder access, command approval, or permission choice.",
+  "login_or_auth_required": "The provider needs sign-in, authentication, account setup, first-run onboarding, or authorization, including setup shown before sign-in.",
+  "model_unavailable_or_quota": "The selected model is unavailable or the provider reached a usage quota or rate limit.",
+  "crashed_to_shell": "The provider TUI is gone and the terminal is showing a shell prompt.",
+  "error_loop": "The provider repeatedly shows the same runtime or tool error and makes no progress.",
+  "still_starting": "The provider is initializing and has not reached a usable agent TUI state."
+}

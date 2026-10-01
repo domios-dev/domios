@@ -456,6 +456,12 @@ impl ServiceContext {
             plugin_id,
             session_id
         );
+        let structural = self.classify_startup_nudge_for_hierarchy_report(&tab_id);
+        self.observe_tab_state(
+            &tab_id,
+            crate::service::supporter_tab_state::ObservationTrigger::SpawnReady,
+            structural.reason(),
+        );
 
         let replay_tab = tab_id.clone();
         self.spawn_chatbackend_poll_loop(tab_id, plugin_id, session_id, history_meta);

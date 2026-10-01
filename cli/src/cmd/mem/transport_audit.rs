@@ -20,6 +20,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         MemAction::Search { .. }
         | MemAction::Get { .. }
         | MemAction::Delete { .. }
+        | MemAction::Archive { .. }
         | MemAction::Forget { .. }
         | MemAction::Update { .. }
         | MemAction::Append { .. }
@@ -51,7 +52,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
 
         MemAction::RunWorker { .. } | MemAction::Dream { .. } => ShortCircuitedInMain,
 
-        MemAction::Secret { .. } | MemAction::Decision { .. } => SocketDedicated,
+        MemAction::Secret { .. } => SocketDedicated,
     }
 }
 

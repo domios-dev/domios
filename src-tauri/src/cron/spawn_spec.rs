@@ -2,10 +2,8 @@
 //! the manual trigger, so a scheduled agent and a triggered one cannot disagree
 //! about which runtime serves the job's provider.
 //!
-//! Verdict (a) for this path: nothing a cron run needs is PTY-only. Completion
-//! keys off the run id carried in the brief (`ServiceContext::cron_complete`
-//! tolerates a tab with no PTY), and the run-watcher registration at both fire
-//! sites is already conditional on a PTY existing.
+//! PTY-backed cron runs issue the provider command only after their own shell is
+//! ready; chat-backend runs continue through their non-PTY runtime.
 
 use crate::chatbackend::ChatBackendRegistry;
 use crate::multiplexer::types::TabAudience;

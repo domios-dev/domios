@@ -150,6 +150,34 @@ class ReleaseIssueContractTest(unittest.TestCase):
         )
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
+    def test_closing_punctuation_after_a_trailing_declaration_resolves(self):
+        subject = (
+            "merge: forward Plan lifecycle caller binding "
+            "(PR #525, Repository-Issue: rollacode/codeterm#518)"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            commits_path = Path(tmp) / "commits.json"
+            prs_path = Path(tmp) / "prs.json"
+            prs_path.write_text("[]", encoding="utf-8")
+
+            def resolve(message: str) -> subprocess.CompletedProcess:
+                commits = [{"sha": "5" * 40, "url": "https://example.invalid/c", "body": message}]
+                commits_path.write_text(json.dumps(commits), encoding="utf-8")
+                return self.run_contract(
+                    "resolve", "--commits-file", str(commits_path), "--prs-file", str(prs_path)
+                )
+
+            accepted = resolve(subject)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                [issue["reference"] for issue in json.loads(accepted.stdout)["repository_issues"]],
+                ["rollacode/codeterm#518"],
+            )
+
+            rejected = resolve("merge: lane (Repository-Issue: codeterm#518)")
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("malformed Repository-Issue metadata", rejected.stderr)
+
     def test_prose_before_a_trailing_declaration_stays_under_contract(self):
         rejected = self.run_contract(
             "parse", "--body-file", str(FIXTURES / "trailing-prose-ref.md")

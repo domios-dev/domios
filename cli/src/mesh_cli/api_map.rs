@@ -921,6 +921,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         // match was reached. Listed explicitly so a new variant must choose.
         Commands::Web { .. }
         | Commands::Plugin { .. }
+        | Commands::Supporter { .. }
         | Commands::Plan { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }

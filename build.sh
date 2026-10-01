@@ -1723,6 +1723,8 @@ EOF
           scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
           exit $?
         fi
+        prepare_dev_frontend_dist "$(pwd -P)"
+        prepare_bundle_stubs
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --no-default-features "$test_filter"
         ;;

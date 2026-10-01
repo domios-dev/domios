@@ -773,3 +773,5 @@ mod review_ref_forwarding {
         assert_eq!(params["class"], "canonical_qa");
     }
 }
+
+mod lifecycle_caller;

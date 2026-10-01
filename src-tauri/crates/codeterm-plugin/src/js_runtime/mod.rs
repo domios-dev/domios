@@ -5,6 +5,7 @@ mod bubble;
 mod call_gate;
 mod chatbackend;
 mod chatpreprocessor;
+mod decision_model;
 mod glance;
 pub mod grants;
 mod host_api;
@@ -32,6 +33,7 @@ pub use bin_resolve::{
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
+pub use decision_model::JsDecisionModel;
 pub use glance::JsGlanceProvider;
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
@@ -45,6 +47,9 @@ pub(crate) static PROCESS_TEST_LOCK: std::sync::LazyLock<parking_lot::Mutex<()>>
 
 #[cfg(test)]
 mod parity_test;
+
+#[cfg(test)]
+mod fetch_async;
 
 pub use hot_reload::{
     pending_reload_ids, set_watcher_service, CapabilityRegistries, HotReloadRegistry,

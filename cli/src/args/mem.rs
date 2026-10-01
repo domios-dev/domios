@@ -1,4 +1,4 @@
-use super::mem_decision::{DecisionRerankMode, MemDecisionAction};
+use super::supporter::SupporterMode;
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -24,13 +24,13 @@ pub enum MemAction {
         #[arg(long, default_value = "5")]
         limit: usize,
         /// Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY).
-        /// Exclusive with `--decision-rerank on`.
+        /// Exclusive with `--supporter on`.
         #[arg(long)]
         rerank: bool,
-        /// Force the decision re-rank stage on or off for this search;
-        /// omitted, `[memory.decision_rerank].enabled` decides.
+        /// Force Supporter Agent memory re-rank on or off for this search;
+        /// omitted, `[supporter.memory_rerank].enabled` decides.
         #[arg(long, value_enum, value_name = "on|off")]
-        decision_rerank: Option<DecisionRerankMode>,
+        supporter: Option<SupporterMode>,
     },
     /// Print one item by id
     Get {
@@ -39,6 +39,15 @@ pub enum MemAction {
     },
     /// Delete an item by id
     Delete { id: String },
+    /// Archive an item without deleting it; undo with `mem restore`.
+    Archive {
+        id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+        /// Actor label for audit trail (defaults to "user").
+        #[arg(long, allow_hyphen_values = true)]
+        changed_by: Option<String>,
+    },
     /// Batch-delete every item in an area (use sparingly).
     Forget {
         /// Area name (e.g. auth, deploy, billing).
@@ -361,11 +370,6 @@ pub enum MemAction {
     Secret {
         #[command(subcommand)]
         action: MemSecretAction,
-    },
-    /// Decision re-rank adapters: API token (stdin only) and status.
-    Decision {
-        #[command(subcommand)]
-        action: MemDecisionAction,
     },
     /// Dreamer review/apply: run a daemon-routed dream phase, or apply a
     /// reviewed re-cluster plan against the local mem DB.

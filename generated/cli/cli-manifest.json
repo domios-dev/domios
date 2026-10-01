@@ -2786,6 +2786,44 @@
           "subcommands": []
         },
         {
+          "name": "archive",
+          "about": "Archive an item without deleting it; undo with `mem restore`",
+          "aliases": [],
+          "args": [
+            {
+              "name": "changed-by",
+              "positional": false,
+              "required": false,
+              "value_name": "CHANGED_BY",
+              "possible_values": [],
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\")",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "required": true,
+              "value_name": "REASON",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
           "aliases": [],
@@ -2874,83 +2912,6 @@
                 }
               ],
               "subcommands": []
-            }
-          ]
-        },
-        {
-          "name": "decision",
-          "about": "Decision re-rank adapters: API token (stdin only) and status",
-          "aliases": [],
-          "args": [],
-          "subcommands": [
-            {
-              "name": "status",
-              "about": "Show the decision re-rank config, registered adapters and token presence",
-              "aliases": [],
-              "args": [],
-              "subcommands": []
-            },
-            {
-              "name": "token",
-              "about": "Manage a decision adapter's API token. The value is read from stdin only and is never printed",
-              "aliases": [],
-              "args": [],
-              "subcommands": [
-                {
-                  "name": "clear",
-                  "about": "Remove the stored token",
-                  "aliases": [],
-                  "args": [
-                    {
-                      "name": "adapter",
-                      "positional": false,
-                      "required": false,
-                      "value_name": "ADAPTER",
-                      "possible_values": [],
-                      "default": "typesafe-jev",
-                      "help": null,
-                      "aliases": []
-                    }
-                  ],
-                  "subcommands": []
-                },
-                {
-                  "name": "set",
-                  "about": "Store the token piped on stdin, e.g. `pbpaste | codeterm mem decision token set --adapter typesafe-jev`. There is deliberately no argv flag for the value",
-                  "aliases": [],
-                  "args": [
-                    {
-                      "name": "adapter",
-                      "positional": false,
-                      "required": false,
-                      "value_name": "ADAPTER",
-                      "possible_values": [],
-                      "default": "typesafe-jev",
-                      "help": null,
-                      "aliases": []
-                    }
-                  ],
-                  "subcommands": []
-                },
-                {
-                  "name": "status",
-                  "about": "Report token presence, file path and mode (never the value). Without --adapter, every registered adapter is listed",
-                  "aliases": [],
-                  "args": [
-                    {
-                      "name": "adapter",
-                      "positional": false,
-                      "required": false,
-                      "value_name": "ADAPTER",
-                      "possible_values": [],
-                      "default": null,
-                      "help": null,
-                      "aliases": []
-                    }
-                  ],
-                  "subcommands": []
-                }
-              ]
             }
           ]
         },
@@ -4849,19 +4810,6 @@
               "aliases": []
             },
             {
-              "name": "decision-rerank",
-              "positional": false,
-              "required": false,
-              "value_name": "on|off",
-              "possible_values": [
-                "on",
-                "off"
-              ],
-              "default": null,
-              "help": "Force the decision re-rank stage on or off for this search; omitted, `[memory.decision_rerank].enabled` decides",
-              "aliases": []
-            },
-            {
               "name": "kind",
               "positional": false,
               "required": false,
@@ -4908,7 +4856,7 @@
               "value_name": "RERANK",
               "possible_values": [],
               "default": null,
-              "help": "Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--decision-rerank on`",
+              "help": "Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--supporter on`",
               "aliases": []
             },
             {
@@ -4919,6 +4867,19 @@
               "possible_values": [],
               "default": null,
               "help": "Restrict to global / workspace / workspace:<id>",
+              "aliases": []
+            },
+            {
+              "name": "supporter",
+              "positional": false,
+              "required": false,
+              "value_name": "on|off",
+              "possible_values": [
+                "on",
+                "off"
+              ],
+              "default": null,
+              "help": "Force Supporter Agent memory re-rank on or off for this search; omitted, `[supporter.memory_rerank].enabled` decides",
               "aliases": []
             }
           ],
@@ -13931,6 +13892,166 @@
               "positional": true,
               "required": true,
               "value_name": "SPEC_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "supporter",
+      "about": "Configure and inspect the Supporter Agent",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "disable",
+          "about": "Disable both Supporter Agent features",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "enable",
+          "about": "Enable both Supporter Agent features",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "features",
+          "about": "Read or change the feature switches",
+          "aliases": [],
+          "args": [
+            {
+              "name": "memory-rerank",
+              "positional": false,
+              "required": false,
+              "value_name": "on|off",
+              "possible_values": [
+                "on",
+                "off"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab-state",
+              "positional": false,
+              "required": false,
+              "value_name": "on|off",
+              "possible_values": [
+                "on",
+                "off"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "models",
+          "about": "List registered adapters and their discovered models",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show the selected adapter, model, token state and feature state",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "token",
+          "about": "Manage the selected adapter's API token. The value is read from stdin only and is never printed",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "clear",
+              "about": "Remove the stored token",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "adapter",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ADAPTER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": "Store the token piped on stdin, e.g. `pbpaste | codeterm supporter token set --adapter typesafe-jev`. There is deliberately no argv flag for the value",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "adapter",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ADAPTER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Report token presence, file path and mode (never the value). Without --adapter, every registered adapter is listed",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "adapter",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ADAPTER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "use",
+          "about": "Select a registered adapter and optionally one of its listed models",
+          "aliases": [],
+          "args": [
+            {
+              "name": "adapter",
+              "positional": true,
+              "required": true,
+              "value_name": "ADAPTER",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODEL",
               "possible_values": [],
               "default": null,
               "help": null,

@@ -30,6 +30,7 @@ use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
+use super::supporter::SupporterAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::team::TeamAction;
@@ -312,6 +313,12 @@ pub enum Commands {
     Mem {
         #[command(subcommand)]
         action: MemAction,
+    },
+
+    /// Configure and inspect the Supporter Agent.
+    Supporter {
+        #[command(subcommand)]
+        action: SupporterAction,
     },
 
     /// Canvas plans — persistent orchestration boards
