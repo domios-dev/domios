@@ -288,5 +288,44 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn('wait "$ARM_NOTARY_PID"', script)
 
 
+PUBLISHING = ("gh release", "release-upload-assets", "publish-release.sh", "release-clear-wedged-assets")
+PLATFORM_WORKFLOWS = ("release-builder.yml", "release-linux.yml", "release-windows.yml")
+
+
+class DryRunContractTest(unittest.TestCase):
+    def test_caller_dry_run_skips_drafts_and_the_manifest_and_reaches_every_platform(self):
+        caller = read("release.yml")
+        self.assertIn("      dry_run:\n", caller)
+        drafts = next(s for s in steps(caller) if s.get("name") == "Create draft releases before parallel uploads")
+        self.assertIn("dry_run != 'true'", drafts.get("if", ""))
+        final = caller[caller.index("  release-manifest:") :]
+        self.assertIn("if: needs.prepare.outputs.dry_run != 'true'", final)
+        for job in ("macos-linux-arm64:", "linux-x86_64:", "windows:"):
+            block = caller[caller.index(f"  {job}") :]
+            block = block[: block.index("secrets: inherit")]
+            self.assertIn("dry_run: ${{ needs.prepare.outputs.dry_run == 'true' }}", block, job)
+
+    def test_every_publishing_step_is_skipped_by_a_dry_run(self):
+        for name in PLATFORM_WORKFLOWS:
+            text = read(name)
+            self.assertIn("      dry_run:\n", text, name)
+            for step in steps(text):
+                if any(marker in step.get("run", "") for marker in PUBLISHING):
+                    with self.subTest(workflow=name, step=step.get("name")):
+                        self.assertIn("!inputs.dry_run", step.get("if", ""))
+
+    def test_a_dry_run_never_pushes_a_tag_or_names_a_release(self):
+        for name in PLATFORM_WORKFLOWS:
+            for step in steps(read(name)):
+                if "git push" in step.get("run", ""):
+                    with self.subTest(workflow=name, step=step.get("name")):
+                        self.assertIn('if [ "$DRY_RUN" != true ]; then', step["run"])
+        windows = read("release-windows.yml")
+        self.assertIn("tagName: ${{ !inputs.dry_run && steps.tag.outputs.name || '' }}", windows)
+        mac = read("release-builder.yml")
+        cleanup = next(s for s in steps(mac) if s.get("name") == "Drop the dry-run build tag")
+        self.assertIn("always() && inputs.dry_run", cleanup.get("if", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
