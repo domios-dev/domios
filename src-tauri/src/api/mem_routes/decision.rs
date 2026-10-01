@@ -232,7 +232,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         .map(|(index, hit)| candidate(index, hit))
         .collect();
     let docs = if docs_on {
-        crate::mem::docs_source::search(&p.q, cfg.sources.docs)
+        crate::mem::docs_source::search_with_hybrid(&p.q, cfg.sources.docs, cfg.docs_hybrid)
     } else {
         Vec::new()
     };

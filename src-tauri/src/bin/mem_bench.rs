@@ -46,6 +46,7 @@ struct Args {
     decision_data_dir: Option<PathBuf>,
     decision_graph: usize,
     decision_docs: usize,
+    docs_hybrid: bool,
     decision_sessions: usize,
 }
 
@@ -63,6 +64,7 @@ impl Args {
         let mut decision_data_dir = None;
         let mut decision_graph = 0;
         let mut decision_docs = 0;
+        let mut docs_hybrid = false;
         let mut decision_sessions = 0;
 
         while let Some(arg) = it.next() {
@@ -107,6 +109,9 @@ impl Args {
                         .parse()
                         .map_err(|e| format!("--decision-docs: {}", e))?;
                 }
+                "--docs-hybrid" => {
+                    docs_hybrid = true;
+                }
                 "--decision-sessions" => {
                     decision_sessions = it
                         .next()
@@ -138,6 +143,12 @@ impl Args {
         if decision_docs > 10 {
             return Err("--decision-docs must be 0..=10".into());
         }
+        if docs_hybrid && decision_rerank == Mode::Off {
+            return Err("--docs-hybrid requires --decision-rerank stub|live".into());
+        }
+        if docs_hybrid && decision_docs == 0 {
+            return Err("--docs-hybrid requires --decision-docs > 0".into());
+        }
         if decision_sessions > 0 && decision_rerank == Mode::Off {
             return Err("--decision-sessions requires --decision-rerank stub|live".into());
         }
@@ -156,6 +167,7 @@ impl Args {
             decision_data_dir,
             decision_graph,
             decision_docs,
+            docs_hybrid,
             decision_sessions,
         })
     }
@@ -177,6 +189,7 @@ fn print_help() {
            --decision-data-dir PATH  Data directory for live token\n  \
            --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (default 0)\n  \
            --decision-docs M  Add a re-rank+docs arm with up to M prod-docs sections (default 0)\n  \
+           --docs-hybrid      Fuse BM25 and cached document vectors for the docs arm\n  \
            --decision-sessions M  Add a re-rank+sessions arm with up to M fixture snippets (default 0)\n  \
            -h, --help          Show this help\n"
     );
@@ -326,6 +339,9 @@ fn run() -> Result<(), String> {
             chrono::Utc::now().format("%Y%m%d-%H%M%S%3f")
         )),
     };
+    if args.docs_hybrid {
+        codeterm_lib::mem::docs_source::prepare_hybrid_for_benchmark(&db_dir);
+    }
     // If db points to a file path, we use its parent. Easier: treat it as a dir.
     let mem = MemManager::open_offline(&db_dir).map_err(|e| format!("open_offline: {}", e))?;
 
@@ -424,6 +440,7 @@ fn run() -> Result<(), String> {
             args.top_k,
             args.decision_graph,
             args.decision_docs,
+            args.docs_hybrid,
             args.decision_sessions,
         )?),
         None => None,
