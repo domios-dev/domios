@@ -37,7 +37,8 @@ pub(crate) use spawn_model_catalogue::{
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
 use crate::multiplexer::types::TabCloseReason;
-use spawn_hidden_delivery::{deliver_hidden_pty_task, hidden_launch_args};
+pub(super) use spawn_hidden_delivery::deliver_hidden_pty_task;
+use spawn_hidden_delivery::hidden_launch_args;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
@@ -1002,6 +1003,7 @@ impl ServiceContext {
         let task_for_thread = wrapped_task.clone();
         let role_for_thread = agent.role.clone();
         let role_profile_for_thread = agent.role_profile.clone();
+        let cron_run = agent.launch_purpose == super::unattended_launch::LaunchPurpose::CronRun;
         // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
         let task_delivery = self
             .agent_registry
@@ -1011,117 +1013,22 @@ impl ServiceContext {
             crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
             crate::agent::provider::TaskDelivery::InlineFlag => None,
         };
-        std::thread::spawn(move || {
-            let svc_reader = svc_outer.clone();
-            let pty_reader = pty_id_outer.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("backend reader runtime");
-                rt.block_on(async {
-                    match crate::service::pty_lifecycle::start_backend_reader(
-                        &svc_reader,
-                        &pty_reader,
-                        true,
-                    ) {
-                        Ok(handle) => {
-                            let _ = handle.await;
-                        }
-                        Err(e) => log::warn!("[spawn.hidden] backend reader: {}", e),
-                    }
-                });
-            });
-
-            crate::service::pty_io::poll_shell_prompt(
-                &svc_outer.screen_state,
-                &pty_id_outer,
-                std::time::Duration::from_secs(10),
-            );
-
-            // from the standard agent rails, not a stream-json result event.
-            let hidden_cwd = svc_outer
-                .mux
-                .read()
-                .get_tab(&tab_id_outer)
-                .and_then(|p| p.cwd.clone())
-                .unwrap_or_default();
-            let mut launch_params = crate::agent::provider::AgentLaunchParams {
-                agent_name: None,
-                task: task_for_thread.clone(),
-                starter_prompt: Default::default(),
-                args: if model_args.is_empty() {
-                    None
-                } else {
-                    Some(model_args)
-                },
-                skip_permissions: permission_bypass,
-                session_id: launch_session_id,
-                structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
-                    &svc_outer,
-                    &provider,
-                    &tab_id_outer,
-                    &hidden_cwd,
-                ),
-                launch_marker: None,
-                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
-            };
-            let launch_cmd = super::launch_session_detection::marked_launch_command_for_tab(
-                &svc_outer,
-                &provider,
-                &tab_id_outer,
-                &hidden_cwd,
-                &mut launch_params,
-            )
-            .unwrap_or_else(|| provider.clone());
-            crate::service::launch_diagnostics::log_launch(
-                crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
-                &tab_id_outer,
-                &provider,
-                &launch_cmd,
-                task_for_thread.as_deref(),
-                role_for_thread.as_deref(),
-                role_profile_for_thread.as_deref(),
-                "provider_descriptor",
-            );
-
-            match svc_outer.resolve_pty_id(&tab_id_outer) {
-                Ok(pty_id) => {
-                    if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
-                        log::error!("[spawn.hidden] shell spawn failed: {}", e);
-                    } else if let Some(ref task_text) = pty_input_task {
-                        if let Err(e) = deliver_hidden_pty_task(
-                            &svc_outer,
-                            &pty_id,
-                            &tab_id_outer,
-                            &provider,
-                            task_text,
-                        ) {
-                            log::error!(
-                                "[spawn.hidden] task delivery failed for Tab {}: {}",
-                                tab_id_outer,
-                                e
-                            );
-                            svc_outer.run_watcher.fail_now(
-                                &svc_outer,
-                                &pty_id,
-                                format!("task delivery failed: {e}"),
-                            );
-                        } else {
-                            svc_outer.run_watcher.arm(&pty_id);
-                        }
-                    } else {
-                        svc_outer.run_watcher.arm(&pty_id);
-                    }
-                }
-                Err(e) => log::error!("[spawn.hidden] no pty for Tab {}: {}", tab_id_outer, e),
-            }
-            log::debug!(
-                "[spawn.hidden] agent launched tab={} provider={}",
-                tab_id_outer,
-                provider
-            );
-        });
+        super::spawn_hidden_launch::start(
+            svc_outer,
+            super::spawn_hidden_launch::HiddenLaunch {
+                tab_id: tab_id_outer,
+                pty_id: pty_id_outer,
+                provider,
+                launch_session_id,
+                task: task_for_thread,
+                model_args,
+                role: role_for_thread,
+                role_profile: role_profile_for_thread,
+                pty_input_task,
+                permission_bypass,
+                cron_run,
+            },
+        );
 
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
