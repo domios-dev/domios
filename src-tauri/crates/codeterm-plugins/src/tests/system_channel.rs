@@ -126,7 +126,11 @@ fn system_channel_aggregate_diff_skips_failed_materialization() {
             format!("file://{}", missing_source.display()),
         );
         let healthy_source = root.join("healthy-source");
-        write_channel(&healthy_source, "healthy", &[("healthy-plugin", "provider-good")]);
+        write_channel(
+            &healthy_source,
+            "healthy",
+            &[("healthy-plugin", "provider-good")],
+        );
         add_channel(
             &format!("file://{}", healthy_source.display()),
             Some("healthy".to_string()),
@@ -136,7 +140,11 @@ fn system_channel_aggregate_diff_skips_failed_materialization() {
         let diff = channel_diff(None).expect("aggregate diff keeps healthy channel");
 
         assert_eq!(diff_ids(&diff), vec!["healthy-plugin".to_string()]);
-        assert!(audit_has_channel_event("diff-skipped", SYSTEM_CHANNEL_NAME, false));
+        assert!(audit_has_channel_event(
+            "diff-skipped",
+            SYSTEM_CHANNEL_NAME,
+            false
+        ));
     });
 }
 
@@ -152,7 +160,10 @@ fn system_channel_named_diff_returns_materialization_error() {
         let error = channel_diff(Some(SYSTEM_CHANNEL_NAME)).expect_err("missing fixture fails");
 
         assert!(!error.contains("not registered"), "{error}");
-        assert!(error.contains(&missing_source.display().to_string()), "{error}");
+        assert!(
+            error.contains(&missing_source.display().to_string()),
+            "{error}"
+        );
     });
 }
 
@@ -202,7 +213,10 @@ fn system_channel_named_refresh_returns_materialization_error() {
         let error = refresh_channel(Some(SYSTEM_CHANNEL_NAME)).expect_err("missing fixture fails");
 
         assert!(!error.contains("not registered"), "{error}");
-        assert!(error.contains(&missing_source.display().to_string()), "{error}");
+        assert!(
+            error.contains(&missing_source.display().to_string()),
+            "{error}"
+        );
     });
 }
 
@@ -215,13 +229,21 @@ fn system_channel_aggregate_refresh_skips_failed_materialization() {
             format!("file://{}", missing_source.display()),
         );
         let healthy_source = root.join("healthy-source");
-        write_channel(&healthy_source, "healthy", &[("healthy-plugin", "provider-good")]);
+        write_channel(
+            &healthy_source,
+            "healthy",
+            &[("healthy-plugin", "provider-good")],
+        );
         add_channel(
             &format!("file://{}", healthy_source.display()),
             Some("healthy".to_string()),
         )
         .expect("healthy channel registration");
-        write_channel(&healthy_source, "healthy", &[("refreshed-plugin", "provider-new")]);
+        write_channel(
+            &healthy_source,
+            "healthy",
+            &[("refreshed-plugin", "provider-new")],
+        );
 
         refresh_channel(None).expect("aggregate refresh skips core failure");
 
@@ -229,7 +251,11 @@ fn system_channel_aggregate_refresh_skips_failed_materialization() {
         let healthy = registry.channels.get("healthy").expect("healthy channel");
         let manifest = read_channel_manifest(Path::new(&healthy.path)).expect("refreshed cache");
         assert_eq!(manifest.plugins[0].id, "refreshed-plugin");
-        assert!(audit_has_channel_event("refresh-failed", SYSTEM_CHANNEL_NAME, false));
+        assert!(audit_has_channel_event(
+            "refresh-failed",
+            SYSTEM_CHANNEL_NAME,
+            false
+        ));
     });
 }
 

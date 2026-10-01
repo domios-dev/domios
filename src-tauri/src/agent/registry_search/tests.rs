@@ -338,7 +338,10 @@ fn search_sessions_all_terms_must_match_in_same_session() {
 #[test]
 fn registry_search_any_term_matches_subset() {
     let reg = stub_registry(
-        vec![session("webpack", "f-webpack", 2), session("memory", "f-memory", 1)],
+        vec![
+            session("webpack", "f-webpack", 2),
+            session("memory", "f-memory", 1),
+        ],
         vec![
             ("f-webpack", vec![("user", "webpack config")]),
             ("f-memory", vec![("user", "memory lookup")]),

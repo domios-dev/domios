@@ -184,9 +184,7 @@ fn scan_session_files(
 fn scan_is_complete(ctx: &ScanCtx, tally: &ScanTally) -> bool {
     match ctx.match_mode {
         SessionMatchMode::AllTerms => tally.hits.len() >= ctx.limit,
-        SessionMatchMode::AnyTermRanked => {
-            tally.scanned >= ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER
-        }
+        SessionMatchMode::AnyTermRanked => tally.scanned >= ANY_TERM_CANDIDATE_BUDGET_PER_PROVIDER,
     }
 }
 
@@ -257,7 +255,9 @@ fn probe_file(
     bytes.make_ascii_lowercase();
     let matches = match mode {
         SessionMatchMode::AllTerms => hint_finders.iter().all(|finder| finder.is_match(&bytes)),
-        SessionMatchMode::AnyTermRanked => hint_finders.iter().any(|finder| finder.is_match(&bytes)),
+        SessionMatchMode::AnyTermRanked => {
+            hint_finders.iter().any(|finder| finder.is_match(&bytes))
+        }
     };
     if matches {
         FileProbe::Parse

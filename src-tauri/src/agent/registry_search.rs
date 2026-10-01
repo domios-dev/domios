@@ -146,11 +146,17 @@ impl AgentRegistry {
             }
         }
         if opts.terms.is_empty() {
-            return Ok((SessionSearchResult::default(), SessionSearchStats::default()));
+            return Ok((
+                SessionSearchResult::default(),
+                SessionSearchStats::default(),
+            ));
         }
         let ctx = scan_ctx(opts);
         if ctx.lowered_terms.is_empty() {
-            return Ok((SessionSearchResult::default(), SessionSearchStats::default()));
+            return Ok((
+                SessionSearchResult::default(),
+                SessionSearchStats::default(),
+            ));
         }
         let started = Instant::now();
         let scans: Vec<ProviderScan> = std::thread::scope(|scope| {
@@ -196,11 +202,12 @@ fn scan_ctx(opts: &SessionSearchOpts) -> ScanCtx {
         .collect();
     if opts.match_mode == SessionMatchMode::AnyTermRanked {
         let mut seen = HashSet::new();
-        lowered_terms.retain(|term| {
-            !term.is_empty() && !is_stop_word(term) && seen.insert(term.clone())
-        });
+        lowered_terms
+            .retain(|term| !term.is_empty() && !is_stop_word(term) && seen.insert(term.clone()));
     }
-    let all_terms_hintable = lowered_terms.iter().all(|term| session_content_hint_term(term));
+    let all_terms_hintable = lowered_terms
+        .iter()
+        .all(|term| session_content_hint_term(term));
     let safe_file_hints = opts.match_mode != SessionMatchMode::AnyTermRanked || all_terms_hintable;
     let hint_terms: Vec<String> = lowered_terms
         .iter()
@@ -298,7 +305,12 @@ fn rank_by_bm25(hits: &mut Vec<SessionSearchHit>, terms: &[String]) {
     .max(1.0);
     let document_frequencies: Vec<usize> = terms
         .iter()
-        .map(|term| documents.iter().filter(|(text, _)| text.contains(term)).count())
+        .map(|term| {
+            documents
+                .iter()
+                .filter(|(text, _)| text.contains(term))
+                .count()
+        })
         .collect();
     let mut scored: Vec<_> = hits
         .drain(..)
@@ -313,8 +325,7 @@ fn rank_by_bm25(hits: &mut Vec<SessionSearchHit>, terms: &[String]) {
                         return 0.0;
                     }
                     let frequency = *frequency as f64;
-                    let idf =
-                        (1.0 + (document_count - frequency + 0.5) / (frequency + 0.5)).ln();
+                    let idf = (1.0 + (document_count - frequency + 0.5) / (frequency + 0.5)).ln();
                     let length_norm = K1 * (1.0 - B + B * *length as f64 / average_length);
                     idf * (term_frequency * (K1 + 1.0)) / (term_frequency + length_norm)
                 })
@@ -323,7 +334,9 @@ fn rank_by_bm25(hits: &mut Vec<SessionSearchHit>, terms: &[String]) {
         })
         .collect();
     scored.sort_by(|(a, score_a), (b, score_b)| {
-        score_b.total_cmp(score_a).then_with(|| compare_recency(a, b))
+        score_b
+            .total_cmp(score_a)
+            .then_with(|| compare_recency(a, b))
     });
     hits.extend(scored.into_iter().map(|(hit, _)| hit));
 }
