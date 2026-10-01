@@ -388,6 +388,11 @@ export interface DecisionPrimitives {
   score: boolean;
 }
 
+export interface DecisionModelInfo {
+  id: string;
+  display_name: string;
+}
+
 export type DecisionAnswer =
   | {
       type: "choice";
@@ -405,6 +410,7 @@ export type DecisionAnswer =
 
 export interface DecisionModelCapability {
   decide(request: DecisionRequest): DecisionAnswer;
+  models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
 }
 

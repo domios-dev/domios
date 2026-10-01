@@ -31,12 +31,15 @@ Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,
 `AgentProvider`, `SecretBackend`, `Transcriber`, `DecisionModelCapability`,
-`DecisionRequest`, `DecisionAnswer`, `DecisionPrimitives`, `DecisionQuestion`, …).
+`DecisionModelInfo`, `DecisionRequest`, `DecisionAnswer`, `DecisionPrimitives`,
+`DecisionQuestion`, …).
 
 ## Decision model capability
 
-Declare `"decisionModel": true` in `plugin.json` and export `primitives()` plus
-`decide(request)`. A request carries `state`, `instructions`, and a tagged
+Declare `"decisionModel": true` in `plugin.json` and export `primitives()`,
+`models()`, and `decide(request)`. `models()` returns entries with `id` and
+`display_name`; the host uses them for the supporter model picker. A request
+carries `state`, `instructions`, and a tagged
 `question` (`choice`, `noul`, or `score`). Answers use the same tagged JSON
 shapes as the Rust decision types. Use `host.fetch.async` for network calls so
 the host can serve other candidate decisions while a request is in flight.
@@ -46,6 +49,7 @@ import type { DecisionModelCapability, PluginModule } from "@codeterm/plugin-sdk
 
 const decisionModel: DecisionModelCapability = {
   primitives: () => ({ choice: true, noul: true, score: true }),
+  models: () => [{ id: "loaded-model", display_name: "Loaded model" }],
   decide(request) {
     const encoded = JSON.stringify(request);
     return host.fetch.async(

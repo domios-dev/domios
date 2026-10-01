@@ -6,6 +6,7 @@ import type {
   ChatPreprocessor,
   DecisionAnswer,
   DecisionModelCapability,
+  DecisionModelInfo,
   AgentProvider,
   AgentCommandHandler,
   AgentCommandCtx,
@@ -163,6 +164,7 @@ declare const host: Host;
 
 const decisionModel: DecisionModelCapability = {
   primitives: () => ({ choice: true, noul: true, score: true }),
+  models: () => [{ id: "loaded", display_name: "Loaded model" }],
   decide(request) {
     if (request.question.type === "noul") return { type: "noul", p: 0.8 };
     if (request.question.type === "choice") {
@@ -181,12 +183,17 @@ const decisionModel: DecisionModelCapability = {
     };
   },
 };
+const decisionModelInfo: DecisionModelInfo = {
+  id: "loaded",
+  display_name: "Loaded model",
+};
 const decisionPlugin: PluginModule = { ...decisionModel };
 const decisionAnswer: DecisionAnswer = {
   type: "noul",
   p: 0.6,
 };
 void decisionPlugin;
+void decisionModelInfo;
 void decisionAnswer;
 
 const asyncFetchResult: string = host.fetch.async(
