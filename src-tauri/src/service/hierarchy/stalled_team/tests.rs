@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use super::*;
 use crate::plan::{ElementCanvas, OrchestratorRef, Task, TaskLaneMetadata, TaskPriority};
 
@@ -173,4 +175,17 @@ fn stalled_team_gone_tab_nudges_only_idle_orchestrator() {
     nudge(&plan, &no_live_workers, true, &tracker, &mut deliveries);
     nudge(&plan, &no_live_workers, true, &tracker, &mut deliveries);
     assert_eq!(deliveries.len(), 1);
+}
+
+#[test]
+fn stalled_team_non_orchestrator_idle_skips_plan_store() {
+    let plan_store_read = Cell::new(false);
+
+    let plans = idle_orchestrator_candidates(false, || {
+        plan_store_read.set(true);
+        Vec::new()
+    });
+
+    assert!(plans.is_empty());
+    assert!(!plan_store_read.get());
 }
