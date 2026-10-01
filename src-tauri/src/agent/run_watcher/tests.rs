@@ -776,7 +776,7 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
     };
     assert!(should_end_on_blocking_prompt(
         &kind,
-        true,
+        false,
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     ));
     assert!(!should_end_on_blocking_prompt(
@@ -830,7 +830,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
             pinned: false,
         })
         .unwrap();
-    let state = RunState {
+    let state = Arc::new(RunState {
         pty_id: pty_id.clone(),
         tab_id: tab_id.clone(),
         kind: AgentRunKind::MemWorker {
@@ -846,40 +846,40 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
-    };
+    });
     svc.run_watcher
         .runs
         .lock()
-        .insert(pty_id.clone(), Arc::new(state));
+        .insert(pty_id.clone(), state.clone());
 
-    let run = svc
-        .run_watcher
-        .runs
-        .lock()
-        .get(&pty_id)
-        .cloned()
-        .expect("registered run");
-    assert!(claim_run_end(&run));
-    end_on_blocking_prompt(svc, &run);
+    let completed = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            watchdog_loop(svc.clone(), state.clone(), 0),
+        )
+        .await
+    });
+    assert!(completed.is_ok(), "folder trust must win over hard timeout");
+    assert!(state.completed.load(Ordering::Acquire));
 
     let worker = svc.workers.get(&worker_id).expect("worker finalization");
     assert_eq!(
         worker.execution_end,
         Some(ExecutionEnd::TimedOut {
-            detail: "folder_trust".into(),
+            detail: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
         })
     );
     assert_eq!(
         worker.finalization,
         DiaryFinalization::Partial {
             diary_id: Some(diary.clone()),
-            reason: "folder_trust".into(),
+            reason: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
         }
     );
     assert_eq!(
         worker.dream_run_status(),
         DreamRunStatus::PartiallyFinalized {
-            reason: "folder_trust".into(),
+            reason: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
         }
     );
     let stored = svc.mem.get(&diary).unwrap().unwrap();

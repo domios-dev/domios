@@ -6,16 +6,14 @@ use super::{
     READY_IDLE, SPAWN_OK_LINE, STILL_STARTING, TRUST_OR_PERMISSION_PROMPT, WEAK_HINT_PREFIX,
     WORKING_NORMALLY,
 };
-use crate::notification::push::NotifyLevel;
 use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::MessageEnvelope;
-use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
 
 const PROMPT_RESPONSE_GUIDANCE: &str =
     "Resolve its pending choice with `codeterm tab respond <number> --tab {tab_id}`.";
-const AUTH_NOTIFICATION_TITLE: &str = "Agent authentication required";
-const AUTH_NOTIFICATION_SUFFIX: &str = "needs authentication or first-run setup.";
+const AUTH_SIGNAL_GUIDANCE: &str = "needs authentication or first-run setup.";
+const AUTH_SIGNAL_EVENT_TYPE: &str = "tab_state_auth_required";
 const MODEL_UNAVAILABLE_GUIDANCE: &str =
     "cannot use its requested model. Respawn it with a model from the provider catalogue.";
 const CRASH_RECOVERY_GUIDANCE: &str =
@@ -137,23 +135,10 @@ fn publish_event(
                 options
             ),
         ),
-        LOGIN_OR_AUTH_REQUIRED => {
-            let body = format!("Tab {tab_id} {AUTH_NOTIFICATION_SUFFIX}");
-            service.create_notification_ext(
-                AUTH_NOTIFICATION_TITLE.into(),
-                Some(body.clone()),
-                Some("warning"),
-                None,
-                Some(true),
-                NotificationOrigin::default(),
-                PushIntent {
-                    level: Some(NotifyLevel::ActionNeeded),
-                    event_key: Some(format!("tab-state-auth:{tab_id}:{episode}")),
-                },
-                None,
-            );
-            ("tab_state_auth_required", body)
-        }
+        LOGIN_OR_AUTH_REQUIRED => (
+            AUTH_SIGNAL_EVENT_TYPE,
+            format!("Tab {tab_id} {AUTH_SIGNAL_GUIDANCE}"),
+        ),
         MODEL_UNAVAILABLE_OR_QUOTA => (
             "tab_state_model_unavailable",
             format!("Tab {tab_id} {MODEL_UNAVAILABLE_GUIDANCE}"),

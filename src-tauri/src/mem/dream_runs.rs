@@ -9,6 +9,8 @@ use codeterm_mem::dream_status::{
 
 use crate::service::ServiceContext;
 
+pub const FOLDER_TRUST_REASON: &str = "folder_trust";
+
 /// What a worker explicitly stated about its own artifact when it reported.
 #[derive(Debug, Default, Clone)]
 pub struct ReportedFinalization {
@@ -91,10 +93,12 @@ pub fn finalize_dream_at_deadline(svc: &ServiceContext, worker_id: &str, detail:
     if !dreaming {
         return;
     }
-    let reason = if detail == codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON {
-        codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON
-    } else {
-        codeterm_mem::dream_status::deadline::DEADLINE_REASON
+    let reason = match detail {
+        codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON => {
+            codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON
+        }
+        FOLDER_TRUST_REASON => FOLDER_TRUST_REASON,
+        _ => codeterm_mem::dream_status::deadline::DEADLINE_REASON,
     };
     match codeterm_mem::dream_status::deadline::finalize_at_deadline_with_reason(
         &svc.mem,
