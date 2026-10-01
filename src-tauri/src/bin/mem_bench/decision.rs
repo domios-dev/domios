@@ -318,7 +318,7 @@ fn session_additions(
         .iter()
         .filter(|session| {
             let excerpt = session.excerpt.to_ascii_lowercase();
-            terms.iter().all(|term| excerpt.contains(term))
+            terms.iter().any(|term| excerpt.contains(term))
         })
         .cloned()
         .collect();
@@ -793,32 +793,32 @@ mod tests {
     }
 
     #[test]
-    fn decision_session_candidates_match_all_terms_and_use_recent_order() {
+    fn decision_session_candidates_match_any_term_and_use_recent_order() {
         let fixtures = vec![
             SessionCandidateFixture {
                 session_id: "older".into(),
                 provider: "claude".into(),
                 title: "Deploy notes".into(),
-                excerpt: "Use codeterm sessions get for the deploy notes".into(),
+                excerpt: "Deploy the earlier change".into(),
                 modified_ts: Some(10),
             },
             SessionCandidateFixture {
                 session_id: "recent".into(),
                 provider: "codex".into(),
                 title: "Deploy command".into(),
-                excerpt: "Use codeterm sessions get to inspect deploy".into(),
+                excerpt: "Deploy the current change".into(),
                 modified_ts: Some(20),
             },
             SessionCandidateFixture {
                 session_id: "miss".into(),
                 provider: "claude".into(),
                 title: "Deploy command".into(),
-                excerpt: "Use codeterm sessions search instead".into(),
+                excerpt: "Search the session index".into(),
                 modified_ts: Some(30),
             },
         ];
 
-        let result = session_additions("codeterm sessions get", &fixtures, 1);
+        let result = session_additions("deploy lighthouse", &fixtures, 1);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].session_id, "recent");
