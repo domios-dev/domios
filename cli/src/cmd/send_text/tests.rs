@@ -1,5 +1,5 @@
 use super::{
-    analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
+    analyze_send_text_response, classify_tab_kind, decide_send_eligibility, find_target_record,
     guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, pad_file_path,
     parse_actions_spec, parse_tab_targets, resolve_send_text_input, SendActionSpec,
     SendEligibility, SendTextOutcome, TabKind,
@@ -408,4 +408,21 @@ fn multi_tab_send_rejects_empty_entries() {
             "refusal names the defect for {spec}: {err}"
         );
     }
+}
+
+#[test]
+fn require_agent_probe_resolves_the_general_agent_alias() {
+    let tabs = vec![
+        serde_json::json!({"id": "aaaa1111", "backing_kind": "pty"}),
+        serde_json::json!({"id": "004c7c5c", "role_profile": "general_agent", "agent_type": "codex", "backing_kind": "pty"}),
+    ];
+    for alias in ["main", "general", "MAIN"] {
+        let record = find_target_record(&tabs, alias).expect("alias resolves to the General Agent");
+        assert_eq!(record["id"], "004c7c5c");
+    }
+    assert_eq!(
+        find_target_record(&tabs, "aaaa1111").unwrap()["id"],
+        "aaaa1111"
+    );
+    assert!(find_target_record(&tabs, "zzzz9999").is_none());
 }
