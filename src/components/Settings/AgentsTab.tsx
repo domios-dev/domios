@@ -7,7 +7,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
-import { DEFAULT_DECISION_ADAPTER, SupporterAgentCard } from "./SupporterAgentCard";
+import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
 import { Button } from "../shared/Button";
@@ -44,7 +44,6 @@ export function AgentsOverview({
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 
       <SupporterAgentCard
-        adapter={config.memory?.decision_rerank?.adapter ?? DEFAULT_DECISION_ADAPTER}
         apiBase={daemonHttpBase(config.api)}
         apiHeaders={apiHeaders}
         onOpenGuide={onOpenGuide}

@@ -858,7 +858,7 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
-                decision_models: crate::api::mem_routes::decision::default_registry(),
+                supporter_models: crate::api::mem_routes::decision::default_registry(),
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
                 repo_watch,

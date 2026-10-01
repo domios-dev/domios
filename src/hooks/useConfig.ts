@@ -73,6 +73,22 @@ export function defaultConfig(): AppConfig {
     file_sync_enabled: true,
     file_sync_interval_minutes: 60,
   },
+  supporter: {
+    adapter: "typesafe-jev",
+    endpoint: null,
+    model: null,
+    deadline_ms: 3000,
+    memory_rerank: {
+      enabled: false,
+      docs_hybrid: false,
+      sources: { recall: 30, graph: 3, docs: 3, sessions: 0 },
+      candidates: 50,
+      max_concurrency: 16,
+      low_confidence_threshold: 0.15,
+      max_body_chars: 2000,
+    },
+    tab_state: { enabled: false },
+  },
   integrations: {
     telegram_enabled: false,
     telegram_allowed_users: [],

@@ -112,7 +112,7 @@ def load_token(token_file: Path | None) -> str:
         token = os.environ.get(name, "").strip()
         if token:
             return token
-    path = token_file or Path.home() / ".codeterm-dev" / "decision-models" / "typesafe-jev.json"
+    path = token_file or Path.home() / ".codeterm-dev" / "supporter" / "typesafe-jev.json"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:

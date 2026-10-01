@@ -209,17 +209,22 @@ pub(super) fn now_ms() -> u64 {
 pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>) {
     let enc = urlencoding::encode;
     match action {
-        MemAction::Search { query, kind, area, scope, project, limit, decision_rerank, .. } => {
+        MemAction::Search { query, kind, area, scope, project, limit, supporter, .. } => {
             let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
             if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
             if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
             if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
             if let Some(p) = project { path.push_str(&format!("&project={}", enc(p))); }
-            if let Some(mode) = decision_rerank { path.push_str(&format!("&decision_rerank={}", mode.enabled())); }
+            if let Some(mode) = supporter { path.push_str(&format!("&supporter={}", mode.enabled())); }
             ("GET".into(), path, None)
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
+        MemAction::Archive { id, reason, changed_by } => (
+            "POST".into(),
+            format!("/api/mem/items/{}/archive", enc(id)),
+            Some(serde_json::json!({ "reason": reason, "changed_by": changed_by })),
+        ),
         MemAction::Forget { area, yes } => {
             if let Err(e) = crate::cmd::mem::item::validate_mem_forget_confirmation(area, *yes) {
                 crate::cmd::print::fail(2, e.to_string());
@@ -510,7 +515,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
         | MemAction::Secret { .. }
-        | MemAction::Decision { .. } => unsupported(
+        => unsupported(
             "this mem subcommand is local-only (flush / run-worker / skill / worker / secret / decision) and cannot run over --mesh",
         ),
         MemAction::Reembed { scope } => (

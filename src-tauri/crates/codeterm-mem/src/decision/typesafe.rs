@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::RwLock;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -7,8 +8,8 @@ use serde_json::{json, Value};
 
 use super::token_store::TokenStore;
 use super::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionQuestion, DecisionRequest,
 };
 
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
@@ -18,7 +19,7 @@ static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 pub struct TypeSafeAdapter {
     token_store: TokenStore,
     endpoint: String,
-    model: String,
+    model: RwLock<String>,
 }
 
 impl fmt::Debug for TypeSafeAdapter {
@@ -36,7 +37,7 @@ impl TypeSafeAdapter {
         Self {
             token_store,
             endpoint: endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_owned()),
-            model: model.unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
+            model: RwLock::new(model.unwrap_or_else(|| DEFAULT_MODEL.to_owned())),
         }
     }
 
@@ -176,6 +177,22 @@ impl DecisionModel for TypeSafeAdapter {
         }
     }
 
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        vec![DecisionModelInfo {
+            id: model.clone(),
+            display_name: model,
+        }]
+    }
+
+    fn select_model(&self, id: &str) -> bool {
+        let mut model = self.model.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if model.as_str() == id {
+            return true;
+        }
+        false
+    }
+
     fn decide(
         &self,
         request: &DecisionRequest,
@@ -191,7 +208,8 @@ impl DecisionModel for TypeSafeAdapter {
             return Err(DecisionError::Deadline);
         }
         let client = CLIENT.get_or_init(reqwest::blocking::Client::new);
-        let body = Self::build_request_body(&self.model, request);
+        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let body = Self::build_request_body(&model, request);
         let response = client
             .post(&self.endpoint)
             .bearer_auth(token.expose())
