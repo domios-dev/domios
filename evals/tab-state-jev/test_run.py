@@ -71,25 +71,37 @@ class BandMathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "screens.jsonl"
             path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "at least 4 real frames"):
+            with self.assertRaisesRegex(ValueError, "at least 4 real frames per label"):
                 read_dataset(path)
             self.assertEqual(len(read_dataset(path, require_coverage=False)), 1)
 
-    def test_coverage_reports_missing_provider_and_chat_backend_groups(self):
+    def test_coverage_pools_label_support_across_providers(self):
         samples = [
             {
-                "provider": "claude",
+                "provider": provider,
                 "label": "ready_idle",
                 "transport": "pty",
                 "provider_capability": {"display_name": "Claude"},
             }
+            for provider in ("claude", "codex", "opencode", "cursor")
         ]
 
         gaps = coverage_gaps(samples)
 
-        self.assertIn("claude/ready_idle=1", gaps)
-        self.assertIn("codex/ready_idle=0", gaps)
-        self.assertIn("LM Studio/chat_backend/ready_idle=0", gaps)
+        self.assertNotIn("ready_idle=4", gaps)
+        self.assertIn("working_normally=0", gaps)
+        self.assertIn("transport/chat_backend=0", gaps)
+
+    def test_coverage_requires_both_transports(self):
+        samples = [
+            {"label": "ready_idle", "transport": "pty"},
+            {"label": "ready_idle", "transport": "chat_backend"},
+        ]
+
+        gaps = coverage_gaps(samples)
+
+        self.assertNotIn("transport/pty=0", gaps)
+        self.assertNotIn("transport/chat_backend=0", gaps)
 
     def test_confidence_bands_include_threshold_edges(self):
         self.assertEqual(band_for_confidence(0.80), "strong")

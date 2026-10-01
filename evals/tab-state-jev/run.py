@@ -35,8 +35,8 @@ STRONG_THRESHOLD = 0.80
 WEAK_THRESHOLD = 0.60
 STRONG_GATE = 0.90
 WEAK_GATE = 0.60
-MIN_FRAMES_PER_GROUP = 4
-REQUIRED_PROVIDERS = ("claude", "codex", "opencode", "cursor")
+MIN_FRAMES_PER_LABEL = 4
+REQUIRED_TRANSPORTS = ("pty", "chat_backend")
 LABELS = (
     "ready_idle",
     "working_normally",
@@ -86,25 +86,14 @@ def band_for_confidence(confidence: float) -> str:
 
 
 def coverage_gaps(samples: list[dict[str, Any]]) -> list[str]:
-    support = Counter((sample["provider"], sample["label"]) for sample in samples)
+    support = Counter(sample["label"] for sample in samples)
     gaps = [
-        f"{provider}/{label}={support[(provider, label)]}"
-        for provider in REQUIRED_PROVIDERS
+        f"{label}={support[label]}"
         for label in LABELS
-        if support[(provider, label)] < MIN_FRAMES_PER_GROUP
+        if support[label] < MIN_FRAMES_PER_LABEL
     ]
-    lm_studio = [
-        sample
-        for sample in samples
-        if sample["transport"] == "chat_backend"
-        and sample["provider_capability"]["display_name"].strip().casefold() == "lm studio"
-    ]
-    chat_support = Counter(sample["label"] for sample in lm_studio)
-    gaps.extend(
-        f"LM Studio/chat_backend/{label}={chat_support[label]}"
-        for label in LABELS
-        if chat_support[label] < MIN_FRAMES_PER_GROUP
-    )
+    transports = {sample["transport"] for sample in samples}
+    gaps.extend(f"transport/{transport}=0" for transport in REQUIRED_TRANSPORTS if transport not in transports)
     return gaps
 
 
@@ -176,7 +165,8 @@ def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str,
     gaps = coverage_gaps(rows)
     if gaps and require_coverage:
         raise ValueError(
-            f"the labelled set needs at least {MIN_FRAMES_PER_GROUP} real frames per label/provider; "
+            f"the labelled set needs at least {MIN_FRAMES_PER_LABEL} real frames per label "
+            "and both pty/chat_backend transports; "
             f"missing: {', '.join(gaps)}"
         )
     return rows

@@ -42,14 +42,13 @@ ready_idle, working_normally, provider_update_prompt,
 trust_or_permission_prompt, login_or_auth_required,
 model_unavailable_or_quota, crashed_to_shell, error_loop, and still_starting.
 
-Collect at least four frames for every label from each of claude, codex,
-opencode, and cursor, plus four for every label from an LM Studio tab whose
-capability descriptor says chat_backend. Reproduce a closed-port proxy,
-folder trust and Codex update prompts, logged-out Codex or fresh Claude
-onboarding, an invalid model, a killed provider, early startup, ready idle, and
-normal work. Run prepare_fixtures.py after labeling; it sanitizes and writes
-the real labelled records to screens.jsonl. Evaluation refuses incomplete
-provider/label coverage.
+Collect at least four frames per label pooled across providers and include both
+`pty` and `chat_backend` transports. Reproduce a closed-port proxy, folder
+trust and Codex update prompts, logged-out Codex or fresh Claude onboarding, an
+invalid model, a killed provider, early startup, ready idle, and normal work.
+Run prepare_fixtures.py after labeling; it sanitizes and writes the real
+labelled records to screens.jsonl. Per-provider and per-transport precision
+remain in the report but do not gate eligibility.
 
 ## Evaluate
 
@@ -79,9 +78,10 @@ the A/B winner's label map as criteria.json; Phase 2 embeds that file. An
 incomplete set can produce exploratory measurements with `--allow-incomplete`,
 but its gate is ineligible and cannot authorize runtime actions.
 
-## Deferred data and model run
+## Coverage policy
 
-The default evaluator refuses an incomplete provider/label matrix before any
-Jev call. `--allow-incomplete` permits interim measurements for a partial set;
-reports retain missing coverage and mark the gate ineligible. Use it to inspect
-exploratory results, never to authorize runtime actions.
+The default evaluator requires four pooled frames for every label and both
+transports before any Jev call. `--allow-incomplete` permits interim
+measurements for a partial set; reports retain missing labels/transports and
+mark the gate ineligible. Use it to inspect exploratory results, never to
+authorize runtime actions.
