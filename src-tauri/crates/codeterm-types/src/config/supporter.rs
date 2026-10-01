@@ -82,8 +82,9 @@ impl Default for SupporterTabStateConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            strong_actions: true,
-            weak_hints: true,
+            // The 1.12.3 e2e oracle failed (no spawn-ok, single-observation actions): ship observe-only.
+            strong_actions: false,
+            weak_hints: false,
         }
     }
 }

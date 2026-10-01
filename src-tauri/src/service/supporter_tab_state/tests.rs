@@ -225,7 +225,8 @@ fn choice(label: &str, confidence: f64) -> DecisionAnswer {
 fn enabled() -> SupporterTabStateConfig {
     SupporterTabStateConfig {
         enabled: true,
-        ..SupporterTabStateConfig::default()
+        strong_actions: true,
+        weak_hints: true,
     }
 }
 
