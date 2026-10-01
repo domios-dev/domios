@@ -31,6 +31,7 @@ interface Props {
   pulses: Map<string, Pulse>;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
+  epoch?: number;
   selectedIdOverride?: string | null;
   onSelectedIdChange?: (id: string | null) => void;
 }
@@ -62,6 +63,7 @@ export function MemorySnapshotCanvas({
   pulses,
   registerFit,
   registerRecenter,
+  epoch,
   selectedIdOverride,
   onSelectedIdChange,
 }: Props) {
@@ -297,10 +299,18 @@ export function MemorySnapshotCanvas({
     [],
   );
 
-  // Rebuild on index change.
+  // A full snapshot can change any node's edges or title; drop the lazy caches before rebuilding.
+  const cacheEpochRef = useRef(epoch);
   useEffect(() => {
+    if (cacheEpochRef.current !== epoch) {
+      cacheEpochRef.current = epoch;
+      labelsRef.current.clear();
+      fetchedLabelsRef.current.clear();
+      edgesByNodeRef.current.clear();
+      fetchedEdgesRef.current.clear();
+    }
     rebuildGraph();
-  }, [index, rebuildGraph]);
+  }, [index, epoch, rebuildGraph]);
 
   // Rebuild on camera move (LOD swap), debounced.
   useEffect(() => {
