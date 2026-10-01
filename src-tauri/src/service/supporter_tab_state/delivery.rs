@@ -1,10 +1,10 @@
 use serde_json::{json, Value};
 
 use super::{
-    NumberedPromptOption, ObservationTrigger, SignalAction, TabStateMetadata,
-    CRASHED_TO_SHELL, ERROR_LOOP, LOGIN_OR_AUTH_REQUIRED, MODEL_UNAVAILABLE_OR_QUOTA,
-    PROVIDER_UPDATE_PROMPT, READY_IDLE, STILL_STARTING, TRUST_OR_PERMISSION_PROMPT,
-    WEAK_HINT_PREFIX, SPAWN_OK_LINE, WORKING_NORMALLY,
+    NumberedPromptOption, ObservationTrigger, SignalAction, TabStateMetadata, CRASHED_TO_SHELL,
+    ERROR_LOOP, LOGIN_OR_AUTH_REQUIRED, MODEL_UNAVAILABLE_OR_QUOTA, PROVIDER_UPDATE_PROMPT,
+    READY_IDLE, SPAWN_OK_LINE, STILL_STARTING, TRUST_OR_PERMISSION_PROMPT, WEAK_HINT_PREFIX,
+    WORKING_NORMALLY,
 };
 use crate::notification::push::NotifyLevel;
 use crate::service::message_gateway::DeliveryClass;
@@ -43,9 +43,9 @@ pub(super) fn deliver(
         SignalAction::WeakHint => {
             publish_weak_hint(service, tab_id, metadata, label, confidence, episode)
         }
-        SignalAction::StrongAction => {
-            publish_event(service, tab_id, metadata, trigger, label, confidence, episode)
-        }
+        SignalAction::StrongAction => publish_event(
+            service, tab_id, metadata, trigger, label, confidence, episode,
+        ),
         SignalAction::None => {}
     }
 }

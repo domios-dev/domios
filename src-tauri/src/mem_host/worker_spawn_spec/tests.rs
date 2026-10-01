@@ -118,11 +118,8 @@ fn hidden_worker_path_prefers_instance_cli_dir() {
     let instance_cli = instance_dir.join(&cli_name);
     std::fs::write(&instance_cli, b"").unwrap();
     std::fs::write(prod_dir.join(&cli_name), b"").unwrap();
-    let inherited = std::env::join_paths([
-        prod_dir.clone(),
-        std::path::PathBuf::from("/usr/bin"),
-    ])
-    .unwrap();
+    let inherited =
+        std::env::join_paths([prod_dir.clone(), std::path::PathBuf::from("/usr/bin")]).unwrap();
     let spec = build_mem_worker_spawn_spec(
         &chatbackends,
         worker_cwd(),
@@ -140,8 +137,8 @@ fn hidden_worker_path_prefers_instance_cli_dir() {
         std::path::PathBuf::from(&agent.extra_env["CODETERM_CLI_PATH"]),
         instance_cli
     );
-    let path = std::env::split_paths(std::ffi::OsStr::new(&agent.extra_env["PATH"]))
-        .collect::<Vec<_>>();
+    let path =
+        std::env::split_paths(std::ffi::OsStr::new(&agent.extra_env["PATH"])).collect::<Vec<_>>();
     assert_eq!(path.first(), Some(&instance_dir));
     assert!(path.iter().skip(1).any(|entry| entry == &prod_dir));
     let resolved_cli = path
