@@ -28,6 +28,8 @@ const CURRENT_SESSION_START: &str = r#"if [ -n "${CODETERM_API_URL:-}" ] && [ -n
 
 const LEGACY_V2_SESSION_START: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#;
 const LEGACY_V2_STOP: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"#;
+const FOREIGN_PANE_ROUTE: &str =
+    "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
 
 /// A neighbour's hook that happens to talk to a local HTTP service. Nothing
 /// about it is CodeTerm's, so reconciliation must leave it alone.
@@ -125,6 +127,11 @@ fn legacy_v2_codeterm_hook_is_owned() {
 }
 
 #[test]
+fn similar_pane_route_is_not_claimed() {
+    assert!(!is_codeterm_hook(&entry("", FOREIGN_PANE_ROUTE, None)));
+}
+
+#[test]
 fn foreign_hook_is_not_owned() {
     assert!(!is_codeterm_hook(&entry("*", FOREIGN_LOCAL_HTTP, None)));
     assert!(!is_codeterm_hook(&entry(
@@ -152,6 +159,7 @@ fn reconcile_current_hooks_twice_keeps_one_entry_per_event() {
         let mut entries = vec![foreign_entry(event), current_unmarked_entry(event)];
         if event == "SessionStart" {
             entries.push(entry("", LEGACY_V2_SESSION_START, Some("codeterm-hook-v2")));
+            entries.push(entry("", FOREIGN_PANE_ROUTE, None));
         }
         if event == "Stop" {
             entries.push(entry("", LEGACY_V2_STOP, None));
@@ -206,12 +214,16 @@ fn reconcile_current_hooks_twice_keeps_one_entry_per_event() {
         );
 
         let foreign: Vec<&Json> = entries.iter().filter(|e| !is_codeterm_hook(e)).collect();
-        assert_eq!(foreign.len(), 1, "{event}: the foreign entry survives");
+        let expected_foreign = if event == "SessionStart" { 2 } else { 1 };
+        assert_eq!(foreign.len(), expected_foreign, "{event}: foreign entries survive");
         assert_eq!(
             command_of(foreign[0]),
             command_of(&foreign_entry(event)),
             "{event}: the foreign entry is byte-identical"
         );
+        if event == "SessionStart" {
+            assert_eq!(command_of(foreign[1]), FOREIGN_PANE_ROUTE);
+        }
     }
 
     // The provider's own report agrees that the contract is now current, which

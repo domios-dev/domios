@@ -10,6 +10,8 @@ use crate::agent::provider::{
     TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
+use codeterm_plugin::agent_claude::provider::hook_ownership::is_codeterm_hook;
+use codeterm_plugin::agent_claude::provider::integration::install_integration_at;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -17,6 +19,10 @@ use std::thread::ThreadId;
 use std::time::Duration;
 
 type ThreadProbe = Arc<StdMutex<Option<ThreadId>>>;
+
+const LEGACY_PANE_SESSION_START: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#;
+const FOREIGN_PANE_ROUTE: &str =
+    "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
 
 struct InstallProbeProvider {
     id: String,
@@ -501,6 +507,7 @@ impl AgentProvider for RepairProbeProvider {
             }),
             _ => serde_json::json!({
                 "hooks_installed": true,
+                "hook_contract_current": true,
                 "session_start_route": "tab-session-start"
             }),
         };
@@ -540,6 +547,7 @@ fn fresh_install_reconciles_after_recorded_consent() {
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
     assert_eq!(grants(&provider), 1);
+    assert_eq!(provider.check_integration()["hook_contract_current"], true);
 }
 
 #[test]
@@ -926,4 +934,87 @@ fn hook_contract_repair_leaves_unclassifiable_entry_and_reports_outcome() {
     assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
     assert!(matches!(outcome, IntegrationRepairOutcome::RepairFailed(_)));
+}
+
+#[test]
+fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
+    let legacy_entry = serde_json::json!({
+        "hooks": [{ "type": "command", "command": LEGACY_PANE_SESSION_START }]
+    });
+    let status = serde_json::json!({
+        "hooks_installed": false,
+        "integration_owned": is_codeterm_hook(&legacy_entry),
+        "hook_contract_current": false
+    });
+    assert_eq!(status["integration_owned"], true);
+
+    let mut config = crate::config::schema::AppConfig::default();
+    assert!(infer_consent_for_owned_install(
+        &mut config,
+        "claude",
+        &status,
+        1_790_403_600,
+        None,
+    ));
+    let provider = RepairProbeProvider::with_id("claude", status);
+    assert_eq!(reconcile_probe(&provider, true, false), repaired_with_grant());
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
+    assert_eq!(grants(&provider), 1);
+    assert_eq!(provider.check_integration()["hook_contract_current"], true);
+}
+
+#[test]
+fn hooks_similar_foreign_route_is_not_claimed() {
+    let foreign_entry = serde_json::json!({
+        "hooks": [{ "type": "command", "command": FOREIGN_PANE_ROUTE }]
+    });
+    let status = serde_json::json!({
+        "hooks_installed": false,
+        "integration_owned": is_codeterm_hook(&foreign_entry),
+        "hook_contract_current": false
+    });
+    assert_eq!(status["integration_owned"], false);
+
+    let mut config = crate::config::schema::AppConfig::default();
+    assert!(!infer_consent_for_owned_install(
+        &mut config,
+        "claude",
+        &status,
+        1_790_403_600,
+        None,
+    ));
+    let provider = RepairProbeProvider::with_id("claude", status);
+    assert_eq!(
+        reconcile_probe(&provider, false, false),
+        IntegrationRepairOutcome::ConsentMissing
+    );
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
+fn hooks_repaired_content_is_instance_agnostic() {
+    let dir = tempfile::tempdir().unwrap();
+    let dev_path = dir.path().join("dev-settings.json");
+    let prod_path = dir.path().join("prod-settings.json");
+    let options = IntegrationInstallOptions {
+        consent: true,
+        precompact_memory_export: true,
+        repair: true,
+    };
+
+    install_integration_at(&dev_path, &options).unwrap();
+    install_integration_at(&prod_path, &options).unwrap();
+    let dev_content = std::fs::read_to_string(dev_path).unwrap();
+    let prod_content = std::fs::read_to_string(prod_path).unwrap();
+
+    assert_eq!(dev_content.as_bytes(), prod_content.as_bytes());
+    assert!(dev_content.contains("$CODETERM_API_URL"));
+    assert!(dev_content.contains("$CODETERM_API_TOKEN"));
+    assert!(dev_content.contains("$CODETERM_TAB_ID"));
+    assert!(!dev_content.contains("localhost"));
+    assert!(!dev_content.contains("7685"));
+    assert!(!dev_content.contains("7686"));
+    assert!(!dev_content.contains("CODETERM_API_PORT"));
+    assert!(!dev_content.contains("Bearer ct_"));
 }

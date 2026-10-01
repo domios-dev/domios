@@ -9,8 +9,8 @@
 //! provider doesn't require touching `commands/`.
 
 use super::hook_ownership::{
-    entries_carry_marker, entry_carries_marker, is_codeterm_hook, marker_header_arg,
-    CODETERM_HOOK_MARKER,
+    entries_carry_marker, entry_carries_marker, entry_is_legacy_pane_codeterm_hook,
+    is_codeterm_hook, marker_header_arg, CODETERM_HOOK_MARKER,
 };
 use crate::prompts::CODETERM_RULE;
 use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
@@ -104,7 +104,11 @@ fn integration_owned(json: &Json) -> bool {
     hook_event_roster().iter().any(|binding| {
         json.pointer(&format!("/hooks/{}", binding.event))
             .and_then(Json::as_array)
-            .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry_carries_marker(entry) || entry_is_legacy_pane_codeterm_hook(entry)
+                })
+            })
     })
 }
 
@@ -584,6 +588,34 @@ mod tests {
 
         assert!(!is_current_codeterm_hook(&stale));
         assert!(is_current_codeterm_hook(&current));
+    }
+
+    #[test]
+    fn legacy_pane_hook_is_owned_for_startup_reconciliation() {
+        const LEGACY_SESSION_START: &str = r#"curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" -d '{}' > /dev/null 2>&1 || true"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": LEGACY_SESSION_START
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let status = check_integration_at(&path);
+        assert_eq!(status["integration_owned"], true);
+        assert_eq!(status["hooks_installed"], false);
+        assert_eq!(status["hook_contract_current"], false);
     }
 
     #[test]
