@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionQuestion, DecisionRequest,
 };
 use serde_json::json;
 
@@ -28,6 +28,10 @@ impl DecisionModel for JsDecisionModel {
 
     fn primitives(&self) -> DecisionPrimitives {
         call_json(&self.vm, "primitives", &[]).unwrap_or_default()
+    }
+
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        call_json(&self.vm, "models", &[]).unwrap_or_default()
     }
 
     fn decide(
@@ -208,6 +212,27 @@ mod tests {
                 confidence: Some(0.7),
             }
         );
+    }
+
+    #[test]
+    fn js_decision_model_models() {
+        let model = JsDecisionModel::new(
+            vm(
+                r#"module.exports.default = {
+                    models() { return [{ id: "loaded", display_name: "Loaded model" }]; }
+                };"#,
+            ),
+            "decision-models",
+        );
+        assert_eq!(
+            model.models(),
+            vec![DecisionModelInfo {
+                id: "loaded".into(),
+                display_name: "Loaded model".into(),
+            }]
+        );
+        assert!(model.select_model("loaded"));
+        assert!(!model.select_model("missing"));
     }
 
     #[test]

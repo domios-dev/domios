@@ -5,6 +5,7 @@ declare const host: Host;
 
 const decisionModel: DecisionModelCapability = {
   primitives: () => ({ choice: true, noul: true, score: true }),
+  models: () => [{ id: "loaded-model", display_name: "Loaded model" }],
   decide(request) {
     return host.fetch.async(
       {

@@ -6,12 +6,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use codeterm_types::config::SupporterTabStateConfig;
+use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+
 use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
-use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
-use codeterm_types::config::SupporterTabStateConfig;
 
 pub(crate) const SCREEN_LINES: usize = 40;
 pub(crate) const DEADLINE: Duration = Duration::from_secs(5);

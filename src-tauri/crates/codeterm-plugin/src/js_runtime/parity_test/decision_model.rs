@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionQuestion, DecisionRequest,
 };
 use serde_json::json;
 
@@ -23,6 +23,13 @@ impl DecisionModel for NativeDecisionModel {
             noul: true,
             score: true,
         }
+    }
+
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        vec![DecisionModelInfo {
+            id: "fixture-model".into(),
+            display_name: "Fixture model".into(),
+        }]
     }
 
     fn decide(
@@ -81,6 +88,7 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
         primitives() { return { choice: true, noul: true, score: true }; },
+        models() { return [{ id: "fixture-model", display_name: "Fixture model" }]; },
         decide(request) {
             if (request.question.type === "noul") return { type: "noul", p: 0.8 };
             if (request.question.type === "choice") return {
@@ -95,6 +103,16 @@ fn parity_decision_model_matches_shared_fixtures() {
     let native = NativeDecisionModel;
     let javascript = JsDecisionModel::new(vm, "js-fixture");
     assert_eq!(native.primitives(), javascript.primitives());
+    assert_eq!(native.models(), javascript.models());
+    assert!(native.select_model("fixture-model"));
+    assert_eq!(
+        native.select_model("fixture-model"),
+        javascript.select_model("fixture-model")
+    );
+    assert_eq!(
+        native.select_model("missing"),
+        javascript.select_model("missing")
+    );
     for request in shared_fixtures() {
         let deadline = Instant::now() + std::time::Duration::from_secs(2);
         assert_eq!(
