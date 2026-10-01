@@ -6,7 +6,6 @@ pub(super) const MAX_PLAN_TEXT_BYTES: usize = 256 * 1024;
 const MAX_PLAN_LABEL_CHARS: usize = 256;
 const MAX_PLAN_TEXT_FIELDS: usize = 1024;
 const MAX_STORED_PLAN_TEXT_BYTES: usize = 16 * 1024 * 1024;
-const MAX_STORED_PLAN_TEXT_FIELDS: usize = 65536;
 
 struct TextBudget {
     bytes: usize,
@@ -302,10 +301,10 @@ fn section_text(
     Ok(())
 }
 
+/// A long-lived plan legitimately accumulates many fields; only its bytes bound memory.
 #[derive(Default)]
 struct StoredPlanTextBudget {
     bytes: usize,
-    fields: usize,
 }
 
 fn validate_stored_plan_value(
@@ -314,16 +313,10 @@ fn validate_stored_plan_value(
 ) -> Result<(), PlanError> {
     match value {
         Value::String(text) => {
-            budget.fields += 1;
             budget.bytes = budget.bytes.saturating_add(text.len());
             if text.len() > MAX_PLAN_TEXT_BYTES {
                 return Err(PlanError::InvalidPlanText(format!(
                     "plan text exceeds {MAX_PLAN_TEXT_BYTES} UTF-8 bytes"
-                )));
-            }
-            if budget.fields > MAX_STORED_PLAN_TEXT_FIELDS {
-                return Err(PlanError::InvalidPlanText(format!(
-                    "plan has more than {MAX_STORED_PLAN_TEXT_FIELDS} text fields"
                 )));
             }
             if budget.bytes > MAX_STORED_PLAN_TEXT_BYTES {
