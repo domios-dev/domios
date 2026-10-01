@@ -18,6 +18,7 @@ export interface UsePlansResult {
 export interface UsePlansOptions {
   enabled?: boolean;
   project?: string | null;
+  contextKey?: number;
 }
 
 interface PlanChangedPayload {
@@ -39,7 +40,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
         project: projectRef.current,
       }),
     EMPTY_PLANS,
-    { enabled, deps: [api.host, api.port, api.token, project] },
+    { enabled, deps: [api.host, api.port, api.token, project, options.contextKey] },
   );
 
   const patchPlan = useCallback(
@@ -74,6 +75,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       return;
     }
     let active = true;
+    const controllers = patchCtrls.current;
     let unlistenPlanChanged: (() => void) | null = null;
     let unlistenPlansLoaded: (() => void) | null = null;
 
@@ -101,10 +103,12 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
 
     return () => {
       active = false;
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
       unlistenPlanChanged?.();
       unlistenPlansLoaded?.();
     };
-  }, [enabled, patchPlan, refetch, setData]);
+  }, [enabled, patchPlan, refetch, setData, options.contextKey]);
 
   return { plans, loading, reconnecting, error, refetch };
 }
