@@ -418,6 +418,7 @@ fn mem_search_relays_to_search_endpoint_with_query() {
             project: None,
             limit: 5,
             rerank: false,
+            decision_rerank: None,
         },
     };
     let (m, p, b) = cli_command_to_api(&cmd);

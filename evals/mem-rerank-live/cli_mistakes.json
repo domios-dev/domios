@@ -1,0 +1,92 @@
+[
+  {
+    "command_as_typed": "codeterm plan task add pl_cli_eval --title \"CLI probe\" --executor-role eval --personality Assayer --role-guidance probe",
+    "error_text": "error: unexpected argument '--title' found\n\n  tip: to pass '--title' as a value, use '-- --title'\n\nUsage: codeterm plan task add --name <NAME> --executor-role <EXECUTOR_ROLE> --personality <ONE_WORD_PERSONA> <PLAN_ID>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task add"],
+    "note": "Plan history: task add was called with --title instead of --name."
+  },
+  {
+    "command_as_typed": "codeterm plan review bounce pl_cli_eval task_cli_eval --reason probe",
+    "error_text": "error: unexpected argument '--reason' found\n\n  tip: a similar argument exists: '--json'\n\nUsage: codeterm plan review bounce --note <NOTE> --json <PLAN_ID> <TASK_ID>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan review bounce"],
+    "note": "Plan history: review bounce was called with --reason instead of --note."
+  },
+  {
+    "command_as_typed": "codeterm plan task add pl_cli_eval --name \"CLI probe\" --executor-role eval --personality Assayer --role-guidance probe --tag",
+    "error_text": "error: a value is required for '--tag <TAGS>' but none was supplied\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task add"],
+    "note": "Plan history: task add needed a work:<value> tag. This captured syntax error omits the --tag value; memrerank has no plan to reproduce the separate work-facet refusal."
+  },
+  {
+    "command_as_typed": "codeterm agent spawn codex --role Worker --unplanned --reason probe --tag work:qa",
+    "error_text": "error: unexpected argument '--tag' found\n\n  tip: a similar argument exists: '--team'\n\nUsage: codeterm agent spawn --role <ROLE> --unplanned --reason <REASON> --team <TEAM_ID> <AGENT>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm agent spawn"],
+    "note": "Plan history: work tag was sought for an unplanned spawn; this captured guess puts --tag on spawn, where it is not accepted."
+  },
+  {
+    "command_as_typed": "codeterm plan create --goal probe",
+    "error_text": "error: unexpected argument '--goal' found\n\nUsage: codeterm plan create [OPTIONS] --title <TITLE>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan create"],
+    "note": "Plan history: plan create was called with --goal; creation takes --title and goal is set separately."
+  },
+  {
+    "command_as_typed": "codeterm plan show pl_cli_eval",
+    "error_text": "error: unrecognized subcommand 'show'\n\n  tip: a similar subcommand exists: 'disown'\n\nUsage: codeterm plan [OPTIONS] <COMMAND>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan get"],
+    "note": "Plan history: plan show was attempted; the plan reader is plan get."
+  },
+  {
+    "command_as_typed": "codeterm mem secret get cli-eval-key",
+    "error_text": "error: unexpected argument 'cli-eval-key' found\n\nUsage: codeterm mem secret get [OPTIONS] --name <NAME>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm mem secret get"],
+    "note": "Plan history: secret get was called without the required --name option."
+  },
+  {
+    "command_as_typed": "codeterm notify send \"CLI eval\" \"inline body\" --level verbose",
+    "error_text": "error: the argument '<TITLE>' cannot be used with '[BODY]'\n\nUsage: codeterm notify send --level <LEVEL> <TITLE>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm notify send"],
+    "note": "Plan history: notify send was given an inline body instead of a pad/file source."
+  },
+  {
+    "command_as_typed": "codeterm plan task add pl_cli_eval --name \"CLI probe\" --section sec_probe --executor-role eval --personality Assayer --role-guidance probe",
+    "error_text": "error: unexpected argument '--section' found\n\n  tip: a similar argument exists: '--sections'\n\nUsage: codeterm plan task add --name <NAME> --executor-role <EXECUTOR_ROLE> --personality <ONE_WORD_PERSONA> --sections <SECTIONS> <PLAN_ID>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task add"],
+    "note": "Codeterm skill wrong-flag list: task add uses --sections, not --section."
+  },
+  {
+    "command_as_typed": "codeterm plan task add pl_cli_eval --name \"CLI probe\" --acceptance done --executor-role eval --personality Assayer --role-guidance probe",
+    "error_text": "error: unexpected argument '--acceptance' found\n\n  tip: to pass '--acceptance' as a value, use '-- --acceptance'\n\nUsage: codeterm plan task add --name <NAME> --executor-role <EXECUTOR_ROLE> --personality <ONE_WORD_PERSONA> <PLAN_ID>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task add"],
+    "note": "Codeterm skill wrong-flag list: task add uses repeatable --criterion, not --acceptance."
+  },
+  {
+    "command_as_typed": "codeterm plan goal set pl_cli_eval --goal probe --vector proof",
+    "error_text": "error: unexpected argument '--goal' found\n\n  tip: to pass '--goal' as a value, use '-- --goal'\n\nUsage: codeterm plan goal set <PLAN_ID> [GOAL_TEXT]\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan goal set"],
+    "note": "Codeterm skill wrong-flag list: goal text is positional and --vector is required."
+  },
+  {
+    "command_as_typed": "codeterm plan task dispatch pl_cli_eval task_cli_eval --brief probe --execution-intent mutating",
+    "error_text": "error: unexpected argument '--brief' found\n\n  tip: to pass '--brief' as a value, use '-- --brief'\n\nUsage: codeterm plan task dispatch --execution-intent <EXECUTION_INTENT> <PLAN_ID> <TASK_ID>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task dispatch"],
+    "note": "Codeterm skill wrong-flag list: dispatch uses the task body as its brief, not --brief."
+  },
+  {
+    "command_as_typed": "codeterm team create",
+    "error_text": "error: unrecognized subcommand 'create'\n\n  tip: a similar subcommand exists: 'rename'\n\nUsage: codeterm team [OPTIONS] <COMMAND>\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm team pair"],
+    "note": "Codeterm skill wrong-flag list: there is no team create; team pair creates the team."
+  },
+  {
+    "command_as_typed": "codeterm plan mode pl_cli_eval --mode approved",
+    "error_text": "error: unexpected argument '--mode' found\n\n  tip: to pass '--mode' as a value, use '-- --mode'\n\nUsage: codeterm plan mode <PLAN_ID> [MODE]\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan mode"],
+    "note": "Codeterm skill wrong-flag list: plan mode is positional or uses --set, not --mode."
+  },
+  {
+    "command_as_typed": "codeterm plan task dispatch pl_cli_eval task_cli_eval --execution-intent repository_mutation",
+    "error_text": "error: invalid value 'repository_mutation' for '--execution-intent <EXECUTION_INTENT>'\n  [possible values: read_only, mutating]\n\nFor more information, try '--help'.",
+    "expected_cli_sections": ["codeterm plan task dispatch"],
+    "note": "Codeterm skill wrong-flag list: repository_mutation is task-add intent; dispatch accepts read_only or mutating."
+  }
+]

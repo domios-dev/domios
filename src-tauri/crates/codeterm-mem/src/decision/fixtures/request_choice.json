@@ -1,0 +1,14 @@
+{
+  "state": "A customer requests a refund.",
+  "model": "jev-latest",
+  "questions": {
+    "q": {
+      "type": "choice",
+      "instructions": "Classify the request.",
+      "criteria": {
+        "billing": "Billing requests",
+        "support": "Technical requests"
+      }
+    }
+  }
+}

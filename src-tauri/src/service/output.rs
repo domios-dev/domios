@@ -28,14 +28,13 @@ mod shell_markers;
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
-mod prompt_notifications;
+mod prompt_rendering;
 #[cfg(test)]
 pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
 pub(super) use manual_update::{
     clear_manual_update_occurrence, manual_update_prompt_candidate,
     parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
 };
-use prompt_notifications::should_notify_pending_prompt;
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(
@@ -788,7 +787,7 @@ impl ServiceContext {
         prompt_kind: codeterm_types::pty::PromptKind,
         require_user_confirmation: bool,
     ) {
-        self.apply_prompt_decision_with_kind_and_notice(
+        self.apply_prompt_decision_with_kind_and_routing(
             decision,
             screen_text,
             prompt_kind,
@@ -797,20 +796,20 @@ impl ServiceContext {
         );
     }
 
-    fn apply_prompt_decision_with_kind_and_notice(
+    fn apply_prompt_decision_with_kind_and_routing(
         &self,
         decision: &PromptDecision,
         screen_text: Option<&str>,
         prompt_kind: codeterm_types::pty::PromptKind,
         require_user_confirmation: bool,
-        notify_owner: bool,
+        route_owner_prompt: bool,
     ) {
         if self.defer_launch_onboarding_prompt(
             decision,
             screen_text,
             prompt_kind,
             require_user_confirmation,
-            notify_owner,
+            route_owner_prompt,
         ) {
             return;
         }
@@ -819,7 +818,7 @@ impl ServiceContext {
             screen_text,
             prompt_kind,
             require_user_confirmation,
-            notify_owner,
+            route_owner_prompt,
         );
     }
 
@@ -829,7 +828,7 @@ impl ServiceContext {
         screen_text: Option<&str>,
         prompt_kind: codeterm_types::pty::PromptKind,
         require_user_confirmation: bool,
-        notify_owner: bool,
+        route_owner_prompt: bool,
     ) {
         let directory_trust_prompt = prompt_kind == codeterm_types::pty::PromptKind::DirectoryTrust;
         match decision {
@@ -950,27 +949,23 @@ impl ServiceContext {
                 if self.is_second_prompt_rendering(tab_id, prompt, prompt_kind) {
                     return;
                 }
-                let notify_prompt = {
+                let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
+                let pending_prompt_changed = {
                     let mut mux = self.mux.write();
                     if let Some(tab) = mux.get_tab_mut(tab_id) {
                         let previous_identity = tab.prompt_identity();
-                        let notify = should_notify_pending_prompt(
-                            decision,
-                            tab.pending_prompt.as_ref(),
-                            tab.pending_prompt_kind,
-                            prompt_kind,
-                        );
+                        let changed = previous_identity.as_ref() != Some(&identity);
                         tab.pending_prompt = Some(prompt.clone());
                         tab.pending_prompt_kind = Some(prompt_kind);
-                        Some((notify, previous_identity))
+                        Some((changed, previous_identity))
                     } else {
                         None
                     }
                 };
-                let Some((notify_prompt, previous_identity)) = notify_prompt else {
+                let Some((pending_prompt_changed, previous_identity)) = pending_prompt_changed
+                else {
                     return;
                 };
-                let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
                 self.resolve_prompt_transition(tab_id, previous_identity, Some(&identity));
                 self.hold_boot_for_owner_prompt(tab_id);
                 crate::api::events::emit_everywhere(
@@ -982,8 +977,8 @@ impl ServiceContext {
                     }),
                 );
                 self.emit_state_changed();
-                if notify_prompt && notify_owner {
-                    self.notify_pending_prompt(tab_id, prompt, prompt_kind);
+                if pending_prompt_changed && route_owner_prompt {
+                    let _ = self.route_pending_prompt(tab_id, prompt, prompt_kind);
                 }
             }
             PromptDecision::PromptCleared { tab_id } => {

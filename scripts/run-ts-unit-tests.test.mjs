@@ -89,6 +89,23 @@ async function writeTestList(t, files) {
   return { directory, listFile };
 }
 
+test("workers see no half-built Node localStorage global", async (t) => {
+  const { directory, listFile } = await writeTestList(t, ["storage.test.ts"]);
+  await writeFile(
+    path.join(directory, "storage.test.ts"),
+    `if (typeof localStorage !== "undefined" && typeof localStorage.getItem !== "function") {
+  throw new Error("worker inherited an unusable localStorage global");
+}
+`,
+  );
+  const result = await runNodeEntrypoint({
+    TS_UNIT_JOBS: "1",
+    CODETERM_TS_UNIT_RUNNER_TEST_LIST: listFile,
+  });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /✓ all 1 TS unit test file\(s\) green/);
+});
+
 test("rejects invalid scheduler widths", async () => {
   const stderr = new PassThrough();
   let text = "";

@@ -66,3 +66,83 @@ fn config_bounds_table_enforced() {
         .unwrap_err()
         .contains("control character"));
 }
+
+#[test]
+fn decision_rerank_bounds_reject_out_of_range() {
+    type Set = fn(&mut AppConfig);
+    let cases: [(&str, Set, Set); 5] = [
+        (
+            "memory.decision_rerank.sources.recall",
+            |c| c.memory.decision_rerank.sources.recall = 0,
+            |c| c.memory.decision_rerank.sources.recall = 51,
+        ),
+        (
+            "memory.decision_rerank.max_concurrency",
+            |c| c.memory.decision_rerank.max_concurrency = 0,
+            |c| c.memory.decision_rerank.max_concurrency = 33,
+        ),
+        (
+            "memory.decision_rerank.deadline_ms",
+            |c| c.memory.decision_rerank.deadline_ms = 99,
+            |c| c.memory.decision_rerank.deadline_ms = 30_001,
+        ),
+        (
+            "memory.decision_rerank.low_confidence_threshold",
+            |c| c.memory.decision_rerank.low_confidence_threshold = -0.01,
+            |c| c.memory.decision_rerank.low_confidence_threshold = 1.01,
+        ),
+        (
+            "memory.decision_rerank.max_body_chars",
+            |c| c.memory.decision_rerank.max_body_chars = 255,
+            |c| c.memory.decision_rerank.max_body_chars = 100_001,
+        ),
+    ];
+    for (path, below, above) in cases {
+        for set in [below, above] {
+            let mut config = AppConfig::default();
+            set(&mut config);
+            let error = validate_app_config(&config).unwrap_err();
+            assert!(error.contains(path), "{path}: {error}");
+        }
+    }
+
+    let mut config = AppConfig::default();
+    config.memory.decision_rerank.sources.graph = 21;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("memory.decision_rerank.sources.graph"),
+        "{error}"
+    );
+    config = AppConfig::default();
+    config.memory.decision_rerank.sources.docs = 11;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("memory.decision_rerank.sources.docs"),
+        "{error}"
+    );
+    config = AppConfig::default();
+    config.memory.decision_rerank.sources.sessions = 6;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("memory.decision_rerank.sources.sessions"),
+        "{error}"
+    );
+
+    let mut edges = AppConfig::default();
+    edges.memory.decision_rerank.sources.recall = 50;
+    edges.memory.decision_rerank.sources.graph = 20;
+    edges.memory.decision_rerank.sources.docs = 10;
+    edges.memory.decision_rerank.sources.sessions = 5;
+    edges.memory.decision_rerank.max_concurrency = 1;
+    edges.memory.decision_rerank.deadline_ms = 100;
+    edges.memory.decision_rerank.low_confidence_threshold = 1.0;
+    edges.memory.decision_rerank.max_body_chars = 256;
+    validate_app_config(&edges).unwrap();
+
+    let error = validate_config_text("[memory.decision_rerank.sources]\nrecall = 0\n").unwrap_err();
+    assert!(error.contains("memory.decision_rerank.sources.recall"));
+    validate_config_text("[memory.decision_rerank.sources]\ngraph = 0\n").unwrap();
+    validate_config_text("[memory.decision_rerank.sources]\ndocs = 0\n").unwrap();
+    validate_config_text("[memory.decision_rerank.sources]\nsessions = 0\n").unwrap();
+    validate_config_text("[memory.decision_rerank.sources]\nsessions = 5\n").unwrap();
+}

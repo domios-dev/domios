@@ -1087,12 +1087,12 @@ mod model_refresh_tests {
     fn qualified_catalogue_model_matches_bare_runtime_model_without_notice() {
         let (mut mux, tab_id) = seeded_tab(Some("session-live"));
         let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some("opencode".into());
+        tab.agent_type = Some("live-session-fixture".into());
         tab.agent_requested_model = Some("opencode/big-pickle".into());
         tab.agent_provider_resolved_model = Some("opencode/big-pickle".into());
         let fixture = ServiceFixture::new(mux);
         let (provider, sessions) =
-            SessionModelProvider::with_provider("opencode", &["session-live"]);
+            SessionModelProvider::with_provider("live-session-fixture", &["session-live"]);
         sessions
             .lock()
             .unwrap()
@@ -1102,7 +1102,7 @@ mod model_refresh_tests {
             .agent_registry
             .register_provider(Box::new(provider));
         crate::agent::model_catalog::put_live(
-            "opencode",
+            "live-session-fixture",
             vec![crate::agent::provider::ModelInfo {
                 id: "opencode/big-pickle".into(),
                 display_name: "Big Pickle".into(),
@@ -1125,7 +1125,7 @@ mod model_refresh_tests {
         assert!(tab.model_identity_mismatch.is_none());
         drop(mux);
         assert!(fixture.service.notif.lock().list(false).is_empty());
-        crate::agent::model_catalog::unregister("opencode");
+        crate::agent::model_catalog::unregister("live-session-fixture");
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

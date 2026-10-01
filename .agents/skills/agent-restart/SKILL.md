@@ -10,7 +10,7 @@ both the graceful path (default) and the forced path (`--force`).
 
 Cross-references:
 - Service code: `src-tauri/src/service/agent_restart.rs`
-- REST handler: `src-tauri/src/api/routes.rs::agent_restart_handler`
+- REST route: `src-tauri/src/api/tab_agent_routes.rs`; handler: `src-tauri/src/api/agent_routes.rs::agent_restart_handler`
 - CLI: `cli/src/main.rs::Agent { Restart { ... } }`
 - API doc: [`prod-docs/API.md` §Agent Restart](../../prod-docs/API.md#agent-restart-post-apitabsidagentrestart)
 
@@ -116,6 +116,14 @@ the system to restart it.
 
 ```bash
 codeterm agent restart --tab $WORKER_TAB_ID --grace-secs 30
+```
+
+For a Worker on another peer, add `--mesh PEER` and pass its peer-side tab id
+explicitly. A mesh restart refuses without `--tab` and never reads the caller's
+local `CODETERM_TAB_ID`.
+
+```bash
+codeterm agent restart --tab "$WORKER_TAB_ID" --grace-secs 30 --mesh PEER
 ```
 
 The Orchestrator's Tab keeps running; only the Worker's PTY cycles.

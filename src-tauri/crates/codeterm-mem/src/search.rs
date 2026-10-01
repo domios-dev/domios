@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use super::store::MemItem;
 
+pub(crate) mod graph_source;
 mod lexical;
 
 const STOP_WORDS: &[&str] = &[

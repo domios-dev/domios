@@ -1591,11 +1591,18 @@ button,
 }
 
 .ct-liquid-toggle {
+  /* Knob size and travel derive from the track, so resizing the track keeps the knob inside it. */
+  --ct-liquid-toggle-w: 2.38rem;
+  --ct-liquid-toggle-h: 1.3rem;
+  --ct-liquid-toggle-gap: 2px;
+  --ct-liquid-toggle-knob: calc(var(--ct-liquid-toggle-h) - 2px - 2 * var(--ct-liquid-toggle-gap));
+  --ct-liquid-toggle-travel: calc(var(--ct-liquid-toggle-w) - 2px - 2 * var(--ct-liquid-toggle-gap) - var(--ct-liquid-toggle-knob));
   position: relative;
   display: inline-block;
   flex-shrink: 0;
-  width: 2.38rem;
-  height: 1.3rem;
+  box-sizing: border-box;
+  width: var(--ct-liquid-toggle-w);
+  height: var(--ct-liquid-toggle-h);
   padding: 0;
   border: 1px solid var(--ct-border);
   border-radius: 999px;
@@ -1614,33 +1621,24 @@ button,
 .ct-liquid-toggle__knob {
   position: absolute;
   top: 50%;
-  left: 3px;
-  width: 1.45rem;
-  height: 1.45rem;
+  left: var(--ct-liquid-toggle-gap);
+  width: var(--ct-liquid-toggle-knob);
+  height: var(--ct-liquid-toggle-knob);
   border-radius: 50%;
-  background: var(--ct-on-accent);
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--ct-bg) 45%, transparent);
+  background: var(--ct-fg);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ct-bg) 45%, transparent);
   transform: translate(0, -50%);
 }
 .ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob,
 .ct-liquid-toggle[data-checked="true"] .ct-liquid-toggle__knob {
-  transform: translate(1.55rem, -50%);
+  transform: translate(var(--ct-liquid-toggle-travel), -50%);
 }
 
 /* Half the shipped area, so the switch reads as a mark beside its label
    rather than furniture parked at the far edge of a row. */
 .ct-liquid-toggle--compact {
-  width: 34px;
-  height: 18px;
-}
-.ct-liquid-toggle--compact .ct-liquid-toggle__knob {
-  left: 2px;
-  width: 12px;
-  height: 12px;
-}
-.ct-liquid-toggle--compact[aria-checked="true"] .ct-liquid-toggle__knob,
-.ct-liquid-toggle--compact[data-checked="true"] .ct-liquid-toggle__knob {
-  transform: translate(16px, -50%);
+  --ct-liquid-toggle-w: 34px;
+  --ct-liquid-toggle-h: 18px;
 }
 .ct-liquid-toggle__knob--travel {
   animation: ct-liquid-control-knob var(--ct-duration-liquid-toggle) both;

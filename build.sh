@@ -24,7 +24,70 @@
 
 set -e
 
+source scripts/dev-notify.sh
+dev_notify_capture_parent
+
 CMD="${1:-dev}"
+CT_DEV_WAIT=0
+DEV_NOTIFY_TAB=""
+if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
+  DEV_NOTIFY_ARGS=("${@:2}")
+  DEV_NOTIFY_INDEX=0
+  DEV_NOTIFY_SEEN=0
+  while [ "$DEV_NOTIFY_INDEX" -lt "${#DEV_NOTIFY_ARGS[@]}" ]; do
+    DEV_NOTIFY_ARG="${DEV_NOTIFY_ARGS[$DEV_NOTIFY_INDEX]}"
+    case "$DEV_NOTIFY_ARG" in
+      --wait|--wait-build)
+        CT_DEV_WAIT=1
+        DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 1))
+        ;;
+      --notify-tab)
+        DEV_NOTIFY_VALUE_INDEX=$((DEV_NOTIFY_INDEX + 1))
+        if [ "$DEV_NOTIFY_VALUE_INDEX" -ge "${#DEV_NOTIFY_ARGS[@]}" ]; then
+          DEV_NOTIFY_VALUE=""
+        else
+          DEV_NOTIFY_VALUE="${DEV_NOTIFY_ARGS[$DEV_NOTIFY_VALUE_INDEX]}"
+        fi
+        if [ -z "$DEV_NOTIFY_VALUE" ] || [[ "$DEV_NOTIFY_VALUE" == --* ]]; then
+          echo "ERROR: --notify-tab requires a non-empty tab id" >&2
+          exit 2
+        fi
+        if [ "$DEV_NOTIFY_SEEN" = "1" ]; then
+          echo "ERROR: --notify-tab may be supplied only once" >&2
+          exit 2
+        fi
+        DEV_NOTIFY_TAB="$DEV_NOTIFY_VALUE"
+        DEV_NOTIFY_SEEN=1
+        DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 2))
+        ;;
+      --notify-tab=*)
+        DEV_NOTIFY_VALUE="${DEV_NOTIFY_ARG#--notify-tab=}"
+        if [ -z "$DEV_NOTIFY_VALUE" ]; then
+          echo "ERROR: --notify-tab requires a non-empty tab id" >&2
+          exit 2
+        fi
+        if [ "$DEV_NOTIFY_SEEN" = "1" ]; then
+          echo "ERROR: --notify-tab may be supplied only once" >&2
+          exit 2
+        fi
+        DEV_NOTIFY_TAB="$DEV_NOTIFY_VALUE"
+        DEV_NOTIFY_SEEN=1
+        DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 1))
+        ;;
+      *) DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 1)) ;;
+    esac
+  done
+  if [ "$DEV_NOTIFY_SEEN" = "1" ]; then
+    if [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
+      echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
+      exit 127
+    fi
+    DEV_NOTIFY_SENT_MARKER="${TMPDIR:-/tmp}/codeterm-dev-notify.$$.sent"
+    rm -rf "$DEV_NOTIFY_SENT_MARKER"
+    DEV_NOTIFY_STAGE=setup
+    trap 'dev_notify_exit_report "$?"' EXIT
+  fi
+fi
 
 # --- Load .env (build secrets like UPDATER_TOKEN) ---
 if [ -f ".env" ]; then
@@ -247,6 +310,7 @@ else
   CT_CDP_PORT="${CT_CDP_PORT:-9223}"
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -254,11 +318,9 @@ export CODETERM_VITE_PORT="$CT_VITE_PORT"
 export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
 export CODETERM_CDP_PORT="$CT_CDP_PORT"
 
-CT_DEV_WAIT=0
 if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   for arg in "${@:2}"; do
     case "$arg" in
-      --wait|--wait-build) CT_DEV_WAIT=1 ;;
       --release-gateway-after-ready)
         echo "ERROR: --release-gateway-after-ready is obsolete; named dev --wait always skips the shared gateway handoff" >&2
         exit 2
@@ -299,6 +361,13 @@ if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
     printf 'instance=%s\nshared_gateway_handoff=skipped\n' "$CT_INSTANCE"
   else
     printf 'instance=\nshared_gateway_handoff=required\n'
+  fi
+  if [ -n "$DEV_NOTIFY_TAB" ]; then
+    printf 'notify_tab=%s\nparent_cli=%s\n' "$DEV_NOTIFY_TAB" "$DEV_NOTIFY_PARENT_CLI"
+  fi
+  if [ "${CODETERM_TEST_SEND_PARENT_REPORT:-0}" = "1" ] && [ -n "$DEV_NOTIFY_TAB" ]; then
+    dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "${CT_INSTANCE:-}" "${CT_PORT:-7686}" \
+      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 "$(pwd -P)"
   fi
   exit 0
 fi
@@ -788,6 +857,8 @@ dev_target_record() {
 record_dev_target() {
   local target="$1" target_win
   mkdir -p "$(dirname "$(dev_target_record)")"
+  # A fresh named --wait target has only release/ until tauri dev links debug/.
+  mkdir -p "$target"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     target_win="$(cd "$target" 2>/dev/null && pwd -W 2>/dev/null || true)"
     [ -n "$target_win" ] || target_win="$(pwd -W 2>/dev/null || pwd)/$target"
@@ -957,7 +1028,7 @@ preflight_dev_prebuilt_runtime() {
 }
 
 cleanup_failed_prebuilt_launch() {
-  local status="$?"
+  local status="${1:-$?}"
   trap - EXIT INT TERM
   echo "ERROR: prebuilt dev launch failed; cleaning the owned dev processes." >&2
   kill_dev || true
@@ -1424,6 +1495,14 @@ dev_listener_pid() {
   fi
 }
 
+dev_notify_health_proof() {
+  local tab_id="$1" health sha
+  [ -n "${EXPECTED_BUILD_SHA:-}" ] || return 1
+  health="$(dev_health_status)"
+  sha="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$health" 2>/dev/null)" || return 1
+  dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$(dev_listener_pid)" "$(pwd -P)"
+}
+
 # Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
   if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
@@ -1582,7 +1661,7 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+    cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets
     cargo check --manifest-path cli/Cargo.toml --all-targets
     ;;
   frontend)
@@ -1828,6 +1907,11 @@ EOF
       export CODETERM_ALLOW_EXTERNAL_TARGET=1
     fi
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
+    if [ -n "$DEV_NOTIFY_TAB" ]; then
+      : > "$PREBUILT_LOG"
+      DEV_NOTIFY_LOG="$PREBUILT_LOG"
+    fi
+    DEV_NOTIFY_STAGE=preflight
     if ! validate_dev_provenance; then
       echo "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." >&2
       echo "Run ./build.sh dev --wait to rebuild and record valid dev provenance." >&2
@@ -1839,7 +1923,13 @@ EOF
       exit 2
     fi
     kill_dev
-    trap cleanup_failed_prebuilt_launch EXIT INT TERM
+    if [ -n "$DEV_NOTIFY_TAB" ]; then
+      trap 'status=$?; dev_notify_exit_report "$status"; cleanup_failed_prebuilt_launch "$status"' EXIT
+      trap 'dev_notify_exit_report 130; cleanup_failed_prebuilt_launch 130' INT
+      trap 'dev_notify_exit_report 143; cleanup_failed_prebuilt_launch 143' TERM
+    else
+      trap cleanup_failed_prebuilt_launch EXIT INT TERM
+    fi
     export PATH="$CT_DATA_DIR/bin:$PATH"
     export CODETERM_CLI_PATH="$(dev_cli_path)"
     export CODETERM_DEV=1
@@ -1849,19 +1939,64 @@ EOF
     start_web_watch
     start_dev_static_server
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
+      DEV_NOTIFY_STAGE=launch
       node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT"
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD)"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH")"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+      if [ -n "$DEV_NOTIFY_TAB" ]; then
+        dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
+        dev_notify_exit_report 0
+      fi
       trap - EXIT INT TERM
     else
       echo "Starting provenance-validated prebuilt dev..."
-      exec "$(dev_app_path)"
+      if [ -n "$DEV_NOTIFY_TAB" ]; then
+        INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
+        : > "$INTERACTIVE_LOG"
+        DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
+        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+        DEV_NOTIFY_STAGE=launch
+        dev_notify_wait_stream "$INTERACTIVE_LOG" 600 "$$" "$DEV_NOTIFY_TAB" &
+        DEV_NOTIFY_WAITER_PID=$!
+        exec 3> >(tee -a "$INTERACTIVE_LOG")
+        DEV_NOTIFY_TEE_PID=$!
+        if ( exec "$(dev_app_path)" ) >&3 2>&1; then
+          DEV_NOTIFY_STATUS=0
+        else
+          DEV_NOTIFY_STATUS=$?
+        fi
+        exec 3>&-
+        DEV_NOTIFY_TEE_STATUS=0
+        if wait "$DEV_NOTIFY_TEE_PID"; then
+          DEV_NOTIFY_TEE_STATUS=0
+        else
+          DEV_NOTIFY_TEE_STATUS=$?
+        fi
+        if [ "$DEV_NOTIFY_STATUS" -eq 0 ]; then DEV_NOTIFY_STATUS="$DEV_NOTIFY_TEE_STATUS"; fi
+        DEV_NOTIFY_SEND_CLAIMED=0
+        if ! dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then
+          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" exited "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$DEV_NOTIFY_STATUS"
+        fi
+        if [ "$DEV_NOTIFY_SEND_CLAIMED" = 1 ]; then
+          dev_notify_stop_stream_waiter "$DEV_NOTIFY_WAITER_PID"
+        else
+          wait "$DEV_NOTIFY_WAITER_PID" 2>/dev/null || true
+        fi
+        DEV_NOTIFY_WAITER_PID=
+        DEV_NOTIFY_STAGE=exited
+        trap - EXIT INT TERM
+        dev_notify_exit_report "$DEV_NOTIFY_STATUS"
+        exit "$DEV_NOTIFY_STATUS"
+      else
+        exec "$(dev_app_path)"
+      fi
     fi
     ;;
   dev)
+    DEV_NOTIFY_STAGE=preflight
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       HEALTH="$(dev_health_status)"
       HEALTH_FIELDS="$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null || true)"
@@ -1870,10 +2005,25 @@ EOF
       HEALTH_API_PORT="$(printf '%s\n' "$HEALTH_FIELDS" | sed -n '4p')"
       if [ "$HEALTH_STATUS" = "ok" ] && [ "$HEALTH_API_PORT" = "$CT_PORT" ]; then
         SHA="$HEALTH_SHA"
-        echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
-        exit 0
+        if [ -n "$DEV_NOTIFY_TAB" ]; then
+          EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+          if SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" 2>/dev/null)"; then
+            echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+            dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
+            exit 0
+          elif [ -n "$CT_INSTANCE" ]; then
+            DEV_NOTIFY_STAGE=stale-health
+            DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
+            echo "ERROR: named dev listener is stale or wrong-lane; run CODETERM_INSTANCE=$CT_INSTANCE ./build.sh kill before retrying." >&2
+            exit 1
+          fi
+        else
+          echo "Dev already ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
+          exit 0
+        fi
       fi
     fi
+    DEV_NOTIFY_STAGE=build
     if named_dev_wait_isolated; then
       prepare_named_dev_target
       echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
@@ -1912,10 +2062,12 @@ EOF
 
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
+      DEV_NOTIFY_LOG="$LOG"
       : > "$LOG"
       EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
       PID_FILE="/tmp/codeterm-dev${CT_SUFFIX}.pid.$$"
       if ! start_dev_wait_process "$LOG" > "$PID_FILE"; then
+        DEV_NOTIFY_STAGE=launcher-start
         echo "Dev startup failed before the explicit health signal. Last log lines:"
         tail -25 "$LOG"
         exit 1
@@ -1923,6 +2075,7 @@ EOF
       DEV_PID="$(cat "$PID_FILE")"
       rm -f "$PID_FILE"
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
+      DEV_NOTIFY_STAGE=launch
       DEADLINE=$(( $(date +%s) + 600 ))
       LAST_STAGE=""
       while : ; do
@@ -1933,6 +2086,7 @@ EOF
         fi
         echo "Dev startup heartbeat: stage=$LAST_STAGE"
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
+          DEV_NOTIFY_STAGE=deadline
           echo "Timeout after 600s during stage: $LAST_STAGE. Last log lines:"
           tail -25 "$LOG"
           if [ -f "/tmp/codeterm-web-watch${CT_SUFFIX}.log" ]; then
@@ -1942,6 +2096,7 @@ EOF
           exit 1
         fi
         if ! dev_wait_process_alive "$DEV_PID"; then
+          DEV_NOTIFY_STAGE=exited
           echo "Dev process exited before reporting ready during stage: $LAST_STAGE. Last log lines:"
           tail -25 "$LOG"
           exit 1
@@ -1951,6 +2106,7 @@ EOF
           STATUS=$(printf '%s' "$HEALTH" | dev_health_fields 2>/dev/null | head -n1 || true)
           if [ "$STATUS" = "ok" ]; then
             if ! SHA=$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH"); then
+              DEV_NOTIFY_STAGE=health
               echo "$HEALTH"
               exit 1
             fi
@@ -1964,17 +2120,22 @@ EOF
               fi
             done
             if [ "$STABLE" != "1" ]; then
+              DEV_NOTIFY_STAGE=unhealthy
               echo "Dev process became unhealthy immediately after reporting ready. Last log lines:"
               tail -25 "$LOG"
               exit 1
             fi
             if ! dev_frontend_ready; then
+              DEV_NOTIFY_STAGE=frontend
               sleep 2
               continue
             fi
             write_dev_provenance "$SHA"
             retain_dev_pdb "$SHA"
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
+            if [ -n "$DEV_NOTIFY_TAB" ]; then
+              dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
+            fi
             if [ -n "$CT_INSTANCE" ]; then
               echo "Named dev ready; shared build gateway handoff skipped."
             else
@@ -1990,7 +2151,36 @@ EOF
       # the one tauri just linked and ran. Nothing relinks until the next dev, so
       # a daemon that died leaves its symbols intact for this copy.
       dev_status=0
-      pnpm tauri dev --no-watch --config "$(dev_conf_path)" || dev_status=$?
+      if [ -n "$DEV_NOTIFY_TAB" ]; then
+        INTERACTIVE_LOG="/tmp/codeterm-dev${CT_SUFFIX}.interactive.log"
+        : > "$INTERACTIVE_LOG"
+        DEV_NOTIFY_LOG="$INTERACTIVE_LOG"
+        EXPECTED_BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+        DEV_NOTIFY_STAGE=launch
+        dev_notify_wait_stream "$INTERACTIVE_LOG" 600 "$$" "$DEV_NOTIFY_TAB" &
+        DEV_NOTIFY_WAITER_PID=$!
+        if pnpm tauri dev --no-watch --config "$(dev_conf_path)" 2>&1 | tee -a "$INTERACTIVE_LOG"; then
+          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
+        else
+          DEV_NOTIFY_PIPE_STATUS=("${PIPESTATUS[@]}")
+        fi
+        dev_status="${DEV_NOTIFY_PIPE_STATUS[0]}"
+        DEV_NOTIFY_TEE_STATUS="${DEV_NOTIFY_PIPE_STATUS[1]}"
+        if [ "$dev_status" -eq 0 ]; then dev_status="$DEV_NOTIFY_TEE_STATUS"; fi
+        DEV_NOTIFY_SEND_CLAIMED=0
+        if ! dev_notify_is_sent "$DEV_NOTIFY_SENT_MARKER"; then
+          dev_notify_failure_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" exited "$CT_INSTANCE" "$CT_PORT" "$INTERACTIVE_LOG" "$dev_status"
+        fi
+        if [ "$DEV_NOTIFY_SEND_CLAIMED" = 1 ]; then
+          dev_notify_stop_stream_waiter "$DEV_NOTIFY_WAITER_PID"
+        else
+          wait "$DEV_NOTIFY_WAITER_PID" 2>/dev/null || true
+        fi
+        DEV_NOTIFY_WAITER_PID=
+        DEV_NOTIFY_STAGE=exited
+      else
+        pnpm tauri dev --no-watch --config "$(dev_conf_path)" || dev_status=$?
+      fi
       retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
       exit "$dev_status"
     fi

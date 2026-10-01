@@ -2,6 +2,9 @@ use axum::http::Method;
 
 use crate::mesh::types::{AccessLevel, Permission};
 
+/// Decision-model tokens are machine-local credentials, like secrets.
+const DECISION_TOKEN_PATH: &str = "/api/mem/decision/token";
+
 pub(crate) fn request_path(path: &str) -> &str {
     path.split(['?', '#']).next().unwrap_or(path)
 }
@@ -32,7 +35,10 @@ pub(crate) fn peer_access_allowed(
 
 pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
     let path = request_path(path);
-    if path.starts_with("/api/secrets/") || path == "/api/mesh/debug/sign" {
+    if path.starts_with("/api/secrets/")
+        || path == "/api/mesh/debug/sign"
+        || path == DECISION_TOKEN_PATH
+    {
         return false;
     }
     if *method == Method::POST && path == "/api/mesh/announce" {
@@ -256,6 +262,30 @@ mod tests {
             assert!(!check_access(&access, &Method::GET, "/api/secrets/items"));
             assert!(!check_access(&access, &Method::GET, "/api/mesh/debug/sign"));
         }
+    }
+
+    #[test]
+    fn decision_token_route_denied_to_peers() {
+        for access in [
+            AccessLevel::Full,
+            AccessLevel::ReadOnly,
+            AccessLevel::AgentIsolated,
+            AccessLevel::Custom(vec![Permission::Admin]),
+        ] {
+            for method in [Method::GET, Method::POST, Method::DELETE] {
+                assert!(!check_access(&access, &method, DECISION_TOKEN_PATH));
+                assert!(!check_access(
+                    &access,
+                    &method,
+                    "/api/mem/decision/token?adapter=x"
+                ));
+            }
+        }
+        assert!(check_access(
+            &AccessLevel::Full,
+            &Method::GET,
+            "/api/mem/decision/status"
+        ));
     }
 
     #[test]

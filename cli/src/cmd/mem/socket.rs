@@ -18,7 +18,9 @@ pub(super) fn try_dispatch(
     Some(client.call(method, params))
 }
 
-fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json::Value>)> {
+pub(super) fn socket_request(
+    action: &MemAction,
+) -> Option<(&'static str, Option<serde_json::Value>)> {
     match action {
         MemAction::Stats => Some(("mem.stats", None)),
         MemAction::Search {
@@ -29,24 +31,26 @@ fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json
             project,
             limit,
             rerank,
+            decision_rerank,
         } => {
             let project = project.clone().or_else(|| {
                 std::env::current_dir()
                     .ok()
                     .map(|path| path.display().to_string())
             });
-            Some((
-                "mem.search",
-                Some(serde_json::json!({
-                    "q": query,
-                    "kind": kind,
-                    "area": area,
-                    "scope": scope,
-                    "project": project,
-                    "limit": limit,
-                    "rerank": rerank,
-                })),
-            ))
+            let mut params = serde_json::json!({
+                "q": query,
+                "kind": kind,
+                "area": area,
+                "scope": scope,
+                "project": project,
+                "limit": limit,
+                "rerank": rerank,
+            });
+            if let Some(mode) = decision_rerank {
+                params["decision_rerank"] = serde_json::json!(mode.enabled());
+            }
+            Some(("mem.search", Some(params)))
         }
         MemAction::Get { id } => Some(("mem.get", Some(serde_json::json!({ "id": id })))),
         MemAction::Delete { id } => Some(("mem.delete", Some(serde_json::json!({ "id": id })))),

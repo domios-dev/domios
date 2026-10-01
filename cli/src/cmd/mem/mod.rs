@@ -1,4 +1,8 @@
 mod calibration;
+mod decision;
+mod decision_render;
+#[cfg(test)]
+mod decision_tests;
 mod graph;
 pub(crate) mod item;
 mod skill;
@@ -83,6 +87,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         MemAction::Secret { action } => {
             crate::cmd::mem_secret::handle_mem_secret(json_mode, action);
         }
+        MemAction::Decision { action } => decision::handle_mem_decision(json_mode, action),
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         _ => unreachable!("all other mem actions have socket transport parity"),
@@ -97,13 +102,66 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
         .and_then(serde_json::Value::as_array)
         .or_else(|| value.as_array())
     else {
-        return "(empty)\n".into();
+        return empty_render(value);
     };
     if hits.is_empty() {
-        return "(empty)\n".into();
+        return empty_render(value);
     }
     let mut out = String::new();
     for hit in hits {
+        if hit.get("source").and_then(serde_json::Value::as_str) == Some("session") {
+            let provider = hit
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let title = hit
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Untitled session");
+            let pointer = hit
+                .get("pointer")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("codeterm sessions get");
+            let excerpt = hit
+                .get("excerpt")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let normalized = excerpt.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut preview: String = normalized.chars().take(SEARCH_PREVIEW_CHARS).collect();
+            if normalized.chars().count() > SEARCH_PREVIEW_CHARS {
+                preview.push('…');
+            }
+            match decision_render::relevance_column(hit) {
+                Some(relevance) => out.push_str(&format!(
+                    "session [{provider}] {title} | {pointer} | {relevance} | {preview}\n"
+                )),
+                None => out.push_str(&format!(
+                    "session [{provider}] {title} | {pointer} | {preview}\n"
+                )),
+            }
+            continue;
+        }
+        if hit.get("source").and_then(serde_json::Value::as_str) == Some("doc") {
+            let doc = hit
+                .get("doc")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let section = hit
+                .get("section")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let pointer = hit
+                .get("pointer")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("codeterm docs");
+            match decision_render::relevance_column(hit) {
+                Some(relevance) => {
+                    out.push_str(&format!("{doc} § {section} | {pointer} | {relevance}\n"))
+                }
+                None => out.push_str(&format!("{doc} § {section} | {pointer}\n")),
+            }
+            continue;
+        }
         let item = hit.get("item").unwrap_or(hit);
         let text = item
             .get("summary")
@@ -132,11 +190,30 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
             .get("score")
             .and_then(|value| value.as_f64())
             .unwrap_or(0.0);
-        out.push_str(&format!(
-            "{id} | {title} | {kind} | {score:.3} | {preview}\n"
-        ));
+        match decision_render::relevance_column(hit) {
+            Some(relevance) => out.push_str(&format!(
+                "{id} | {title} | {kind} | {score:.3} | {relevance} | {preview}\n"
+            )),
+            None => out.push_str(&format!(
+                "{id} | {title} | {kind} | {score:.3} | {preview}\n"
+            )),
+        }
     }
+    append_envelope_notice(&mut out, value);
     out
+}
+
+fn empty_render(response: &serde_json::Value) -> String {
+    let mut out = String::from("(empty)\n");
+    append_envelope_notice(&mut out, response);
+    out
+}
+
+fn append_envelope_notice(out: &mut String, response: &serde_json::Value) {
+    if let Some(notice) = decision_render::envelope_notice(response) {
+        out.push_str(&notice);
+        out.push('\n');
+    }
 }
 
 /// codeterm-releases#60: one row per skill in columns — never the raw

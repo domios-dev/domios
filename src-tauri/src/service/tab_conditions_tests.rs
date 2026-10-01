@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::Manager;
 
-use super::{condition_owner, ConditionOwner, ConditionRoute};
+use super::{condition_owner, ConditionOwner};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::TabAudience;
 use crate::notification::dedupe::TabCondition;
@@ -49,6 +49,23 @@ fn open_records_for(fixture: &ServiceFixture, tab_id: &str) -> Vec<String> {
         .filter(|(_, _, resolved)| !resolved)
         .map(|(id, _, _)| id)
         .collect()
+}
+
+fn seed_prompt_condition(fixture: &ServiceFixture, tab_id: &str) -> String {
+    fixture.service.create_condition_notification(
+        tab_id,
+        TabCondition::PendingPrompt,
+        "opaque condition".into(),
+        Some("opaque body".into()),
+        None,
+    )
+}
+
+fn set_pending_prompt(fixture: &ServiceFixture, tab_id: &str, prompt: PendingPrompt) {
+    let mut mux = fixture.service.mux.write();
+    let tab = mux.get_tab_mut(tab_id).expect("tab");
+    tab.pending_prompt = Some(prompt);
+    tab.pending_prompt_kind = Some(PromptKind::Provider);
 }
 
 #[test]
@@ -113,37 +130,33 @@ fn non_user_facing_tab_routes_prompt_to_parent() {
     }
     let fixture = ServiceFixture::new(mux);
     let asked = prompt("opaque-a");
+    set_pending_prompt(&fixture, &child, asked.clone());
 
     let first = fixture
         .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
+        .route_pending_prompt(&child, &asked, PromptKind::Provider);
     let again = fixture
         .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
+        .route_pending_prompt(&child, &asked, PromptKind::Provider);
 
-    assert_eq!(first, Some(ConditionRoute::Reported { to: owner.clone() }));
-    assert_eq!(
-        again,
-        Some(ConditionRoute::AlreadyReported),
-        "one prompt reaches its owner once"
-    );
+    assert_eq!(first, Some(owner.clone()));
+    assert_eq!(again, None, "reobserving the prompt stays quiet");
     assert!(
         records_for(&fixture, &child).is_empty(),
-        "a non-user-facing tab never opens a user notification"
+        "a routed prompt does not create a notification"
     );
 
-    let identity = PromptIdentity::new(PromptKind::Provider, &asked);
+    fixture.service.clear_pending_prompt(&child);
     fixture
         .service
-        .resolve_prompt_notifications(&child, &identity);
-    let next =
+        .resolve_prompt_notifications(&child, &PromptIdentity::new(PromptKind::Provider, &asked));
+    let next = prompt("opaque-b");
+    set_pending_prompt(&fixture, &child, next.clone());
+    assert_eq!(
         fixture
             .service
-            .notify_pending_prompt(&child, &prompt("opaque-b"), PromptKind::Provider);
-    assert_eq!(
-        next,
-        Some(ConditionRoute::Reported { to: owner }),
-        "a cleared prompt releases the latch, so the next prompt is news"
+            .route_pending_prompt(&child, &next, PromptKind::Provider),
+        Some(owner)
     );
 }
 
@@ -156,16 +169,17 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     let (mut mux, _owner, child) = two_tabs();
     mux.get_tab_mut(&child).unwrap().hidden = true;
     let fixture = ServiceFixture::new(mux);
+    let asked = prompt("opaque");
+    set_pending_prompt(&fixture, &child, asked.clone());
 
-    let route =
-        fixture
-            .service
-            .notify_pending_prompt(&child, &prompt("opaque"), PromptKind::Provider);
+    let routed = fixture
+        .service
+        .route_pending_prompt(&child, &asked, PromptKind::Provider);
     fixture
         .service
         .notify_surviving_shell_restart_required(&child, "pty-1");
 
-    assert_eq!(route, Some(ConditionRoute::Unowned));
+    assert_eq!(routed, None);
     assert!(records_for(&fixture, &child).is_empty());
 }
 
@@ -174,7 +188,7 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn user_owned_cron_prompt_notifies_the_user_once_and_marks_history_waiting() {
+fn user_owned_cron_prompt_tracks_waiting_state_without_notification() {
     let (mut mux, _, child) = two_tabs();
     {
         let tab = mux.get_tab_mut(&child).unwrap();
@@ -235,22 +249,20 @@ fn user_owned_cron_prompt_notifies_the_user_once_and_marks_history_waiting() {
     };
 
     let asked = prompt("opaque-owner");
-    let first = fixture
-        .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
-    let again = fixture
-        .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
-    let Some(ConditionRoute::Notified(id)) = first else {
-        panic!("owner automation without a creator notifies the user: {first:?}");
-    };
-    assert_eq!(again, Some(ConditionRoute::Notified(id.clone())));
-    assert_eq!(open_records_for(&fixture, &child), vec![id]);
+    set_pending_prompt(&fixture, &child, asked.clone());
+    assert_eq!(
+        fixture
+            .service
+            .route_pending_prompt(&child, &asked, PromptKind::Provider),
+        None
+    );
+    assert!(fixture.service.notif.lock().list(false).is_empty());
     assert_eq!(
         cron.lock().get_history(&job_id)[0].status,
         crate::cron::store::CronRunStatus::AwaitingOwnerPrompt
     );
 
+    fixture.service.clear_pending_prompt(&child);
     fixture
         .service
         .resolve_prompt_notifications(&child, &PromptIdentity::new(PromptKind::Provider, &asked));
@@ -260,35 +272,6 @@ fn user_owned_cron_prompt_notifies_the_user_once_and_marks_history_waiting() {
         crate::cron::store::CronRunStatus::Running
     );
     assert_eq!(store.get_history(&job_id)[0].finished_at, None);
-}
-
-#[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
-)]
-fn user_facing_prompt_is_one_notice_until_it_resolves() {
-    let (mux, _owner, child) = two_tabs();
-    let fixture = ServiceFixture::new(mux);
-    let asked = prompt("opaque");
-
-    let first = fixture
-        .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
-    let again = fixture
-        .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
-
-    let Some(ConditionRoute::Notified(id)) = first else {
-        panic!("a user-facing prompt opens a notification: {first:?}");
-    };
-    assert_eq!(again, Some(ConditionRoute::Notified(id.clone())));
-    assert_eq!(open_records_for(&fixture, &child), vec![id.clone()]);
-
-    fixture
-        .service
-        .resolve_prompt_notifications(&child, &PromptIdentity::new(PromptKind::Provider, &asked));
-    assert!(open_records_for(&fixture, &child).is_empty());
 }
 
 #[test]
@@ -347,9 +330,7 @@ fn readiness_keeps_a_prompt_that_is_still_showing() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);
     let asked = prompt("opaque");
-    fixture
-        .service
-        .notify_pending_prompt(&child, &asked, PromptKind::Provider);
+    seed_prompt_condition(&fixture, &child);
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&child).unwrap();
@@ -369,15 +350,13 @@ fn readiness_keeps_a_prompt_that_is_still_showing() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn tab_close_resolves_exit_and_prompt_notifications() {
+fn tab_close_resolves_exit_and_preexisting_prompt_condition() {
     let (mux, _owner, child) = two_tabs();
     let fixture = ServiceFixture::new(mux);
     fixture
         .service
         .notify_surviving_shell_restart_required(&child, "pty-1");
-    fixture
-        .service
-        .notify_pending_prompt(&child, &prompt("opaque"), PromptKind::Provider);
+    seed_prompt_condition(&fixture, &child);
     assert_eq!(open_records_for(&fixture, &child).len(), 2);
 
     fixture.service.close_tab(&child).unwrap();

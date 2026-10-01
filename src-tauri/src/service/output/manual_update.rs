@@ -132,7 +132,7 @@ pub(crate) fn resolve_classified_manual_update_prompt(
             return None;
         }
     }
-    service.apply_prompt_decision_with_kind_and_notice(
+    service.apply_prompt_decision_with_kind_and_routing(
         &decision,
         Some(&snapshot.screen_text),
         codeterm_types::pty::PromptKind::ManualUpdate,
@@ -149,7 +149,7 @@ pub(crate) fn resolve_classified_manual_update_prompt(
                 Ok(outcome) => outcome,
                 Err(_) => {
                     clear_manual_update_occurrence(&snapshot.tab_id);
-                    service.notify_pending_prompt(
+                    let _ = service.route_pending_prompt(
                         &snapshot.tab_id,
                         &prompt,
                         codeterm_types::pty::PromptKind::ManualUpdate,
@@ -184,7 +184,7 @@ pub(crate) fn resolve_classified_manual_update_prompt(
             }
             _ => {
                 clear_manual_update_occurrence(&snapshot.tab_id);
-                service.notify_pending_prompt(
+                let _ = service.route_pending_prompt(
                     &snapshot.tab_id,
                     &prompt,
                     codeterm_types::pty::PromptKind::ManualUpdate,

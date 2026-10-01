@@ -40,7 +40,9 @@ TASK — execute each step as Bash tool calls, in order:
       If the SOURCE item ({id}) is the lesser, delete it and STOP (skip steps 2-4, go to step 5).
    d. If they cover the same topic from different angles → link them:
         codeterm mem graph relate --from {id} --rel similar_to --to <other_id>
-   e. If clearly different despite low distance → ignore, proceed.
+   e. If they state conflicting values for the same fact → keep both and mark the newer one current:
+        codeterm mem graph relate --from {id} --rel supersedes --to <other_id>
+   f. If clearly different despite low distance → ignore, proceed.
 
 2. AREA CLASSIFICATION
    Pick from EXISTING AREAS above based on strong keyword match with TEXT.

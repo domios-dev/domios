@@ -105,13 +105,13 @@ fn essence_map_contract_accepts_valid_document_anchor_sets() {
     let fixture = fixture_root();
     let (map, decisions, summary) = valid_map(fixture.path());
 
-    assert_eq!(summary.nodes, 57);
+    assert_eq!(summary.nodes, 58);
     assert_eq!(summary.vectors, 7);
-    assert_eq!(summary.capabilities, 36);
+    assert_eq!(summary.capabilities, 37);
     assert_eq!(summary.core, 12);
     assert_eq!(summary.clients, 2);
-    assert_eq!(summary.runs_on, 67);
-    assert_eq!(summary.feeds, 50);
+    assert_eq!(summary.runs_on, 71);
+    assert_eq!(summary.feeds, 52);
     assert_eq!(summary.part_of, 11);
     assert_eq!(summary.client_of, 2);
     assert_eq!(validate(fixture.path(), &map, &decisions), Ok(summary));
@@ -275,8 +275,8 @@ fn essence_map_contract_committed_artifacts_are_fresh() {
     let decisions = root.join("essences/decisions.jsonl");
     let summary = validate(&root, &map, &decisions).expect("committed map is source-fresh");
 
-    assert_eq!(summary.nodes, 57);
-    assert_eq!(summary.edges, 130);
+    assert_eq!(summary.nodes, 58);
+    assert_eq!(summary.edges, 136);
 }
 
 #[test]
