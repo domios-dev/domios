@@ -72,9 +72,14 @@ pub async fn mem_dream(
     // Run calibration directly in daemon to ensure results are real and history rows are durable.
     if phase == "all" {
         let svc = state.svc.clone();
+        let hygiene = crate::config::memory_config().dream_hygiene;
         let calib = tokio::task::spawn_blocking(move || {
             svc.mem.with_conn(|conn| {
-                crate::api::mem_routes::calibration::run_calibration_sweep(conn, false)
+                crate::api::mem_routes::calibration::run_nightly_calibration(
+                    conn,
+                    &hygiene,
+                    chrono::Utc::now(),
+                )
             })
         })
         .await

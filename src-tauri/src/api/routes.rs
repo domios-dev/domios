@@ -767,6 +767,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/items/{id}/history", get(mem_routes::mem_history))
         .route("/api/mem/items/{id}/append", post(mem_routes::mem_append))
         .route("/api/mem/items/{id}/restore", post(mem_routes::mem_restore))
+        .route("/api/mem/merge", post(mem_routes::mem_merge))
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))
         .route("/api/mem/tail", get(mem_routes::mem_tail))
         .route(
@@ -882,6 +883,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/mem/calibration/log",
             get(mem_routes::mem_calibration_log),
+        )
+        .route(
+            "/api/mem/calibration/stale",
+            post(mem_routes::mem_calibration_stale),
         )
         .route(
             "/api/mem/workers",

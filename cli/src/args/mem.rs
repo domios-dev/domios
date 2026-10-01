@@ -114,8 +114,9 @@ pub enum MemAction {
         #[arg(long, allow_hyphen_values = true)]
         changed_by: Option<String>,
     },
-    /// Restore a prior body from the audit history (undo a bad replace).
-    /// With no --version, reverts to the body before the most recent change.
+    /// Restore from the audit history. An archived or merged item gets its
+    /// prior kind back and its merge link invalidated (plus the --version body
+    /// when given); otherwise reverts the body before the most recent change.
     Restore {
         /// Mem item id
         id: String,
@@ -123,6 +124,30 @@ pub enum MemAction {
         /// Omit to undo the latest body change.
         #[arg(long)]
         version: Option<i64>,
+        /// Actor label for audit trail (defaults to "user").
+        #[arg(long, allow_hyphen_values = true)]
+        changed_by: Option<String>,
+    },
+    /// Merge a near-duplicate into a keeper, reversibly: the lesser is archived
+    /// (never deleted) and linked `merged_into` the keeper; `--conflict` links
+    /// keeper `supersedes` lesser instead. Undo with `mem restore <lesser>`.
+    /// Pinned, skill, rule and preference items are refused as the lesser.
+    Merge {
+        /// Item that survives
+        #[arg(long)]
+        keeper: String,
+        /// Item that is archived and linked to the keeper
+        #[arg(long)]
+        lesser: String,
+        /// New keeper body (the merged text). Use `-` to read stdin.
+        #[arg(long, allow_hyphen_values = true)]
+        body: Option<String>,
+        /// Read the new keeper body from a file instead of --body.
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
+        /// The two disagree: keeper supersedes lesser instead of merged_into.
+        #[arg(long)]
+        conflict: bool,
         /// Actor label for audit trail (defaults to "user").
         #[arg(long, allow_hyphen_values = true)]
         changed_by: Option<String>,
@@ -374,6 +399,16 @@ pub enum MemCalibrationAction {
         /// Bypass the day-of-week gate. Manual / testing.
         #[arg(long)]
         force: bool,
+    },
+    /// Archive items untouched for a year (no access, update, relation change
+    /// or touched neighbour). Gated by memory.dream_hygiene.stale_archive.
+    Stale {
+        /// List the ids and reasons that would be archived; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Dry-run list size (default: tonight's remaining cap, max 1000).
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }
 
