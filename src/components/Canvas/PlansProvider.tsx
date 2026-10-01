@@ -90,15 +90,16 @@ export function PlansProvider({
   const value = useMemo<PlansContextValue>(
     () => ({
       contextKey: peerContext.generation,
-      index,
-      indexLoading,
-      indexReconnecting,
-      indexError,
+      index: queriesEnabled ? index : EMPTY_INDEX,
+      indexLoading: queriesEnabled && indexLoading,
+      indexReconnecting: queriesEnabled && indexReconnecting,
+      indexError: queriesEnabled ? indexError : null,
       refetchIndex,
-      full,
+      full: queriesEnabled ? full : EMPTY_FULL,
     }),
     [
       peerContext.generation,
+      queriesEnabled,
       index,
       indexLoading,
       indexReconnecting,

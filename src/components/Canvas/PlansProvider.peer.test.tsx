@@ -5,6 +5,9 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import { withFailureDeadline } from "../../test/withFailureDeadline";
+
+const renderAct = (body: () => Promise<void>) => withFailureDeadline(act(body), "plan provider render");
 
 async function main() {
   const win = new Window({ url: "http://gateway:7685" });
@@ -61,50 +64,59 @@ async function main() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => { root.render(<PlansProvider api={API}><Probe /></PlansProvider>); });
-  assert.deepEqual(snapshot.full, ["pl_self"]);
+  try {
+    await renderAct(async () => { root.render(<PlansProvider api={API}><Probe /></PlansProvider>); });
+    assert.deepEqual(snapshot.full, ["pl_self"]);
 
-  async function switchPeer(peer: string | null, switchId: number) {
-    await act(async () => {
-      invalidateWebRequestContext();
-      flushSync(() => { win.dispatchEvent(new win.CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } })); });
-      assert.deepEqual(snapshot.full, [], "old full plans disappear before peer rebinding");
-      assert.deepEqual(snapshot.index, [], "old index disappears before peer rebinding");
-      if (peer) setRelayTarget(peer, peer);
-      else clearRelayTarget();
-      invalidateWebRequestContext();
-      win.dispatchEvent(new win.CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
+    async function switchPeer(peer: string | null, switchId: number) {
+      await renderAct(async () => {
+        invalidateWebRequestContext();
+        const beforeReset = reads.length;
+        flushSync(() => { win.dispatchEvent(new win.CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } })); });
+        assert.deepEqual(snapshot.full, [], "old full plans disappear before peer rebinding");
+        assert.deepEqual(snapshot.index, [], "old index disappears before peer rebinding");
+        assert.equal(reads.length, beforeReset, "disabled queries cannot reload the old peer during reset");
+        if (peer) setRelayTarget(peer, peer);
+        else clearRelayTarget();
+        invalidateWebRequestContext();
+        win.dispatchEvent(new win.CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
+      });
+    }
+
+    await switchPeer("ubunta", 1);
+    assert.deepEqual(snapshot.full, ["pl_ubunta"]);
+    assert.deepEqual(snapshot.index, ["pl_ubunta"]);
+    revision = 1;
+    await renderAct(async () => {
+      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
     });
+    assert.deepEqual(snapshot.titles, ["ubunta-1"]);
+
+    holdReads = true;
+    await renderAct(async () => {
+      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
+    });
+    assert(heldReads.length > 0);
+    holdReads = false;
+    await switchPeer("eight", 2);
+    assert.deepEqual(snapshot.full, ["pl_eight"]);
+    await renderAct(async () => { heldReads.splice(0).forEach((resolve) => resolve()); });
+    assert.deepEqual(snapshot.full, ["pl_eight"], "late peer reads cannot contaminate the current machine");
+
+    await switchPeer(null, 3);
+    assert.deepEqual(snapshot.full, ["pl_self"]);
+    assert.deepEqual(snapshot.index, ["pl_self"]);
+    assert(reads.includes("ubunta:/api/plans?full=1"));
+    assert(reads.includes("eight:/api/plans?full=1"));
+  } finally {
+    await renderAct(async () => {
+      root.unmount();
+      heldReads.splice(0).forEach((resolve) => resolve());
+    });
+    host.remove();
+    __setListenForTest(null);
   }
-
-  await switchPeer("ubunta", 1);
-  assert.deepEqual(snapshot.full, ["pl_ubunta"]);
-  assert.deepEqual(snapshot.index, ["pl_ubunta"]);
-  revision = 1;
-  await act(async () => {
-    for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
-  });
-  assert.deepEqual(snapshot.titles, ["ubunta-1"]);
-
-  holdReads = true;
-  await act(async () => {
-    for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
-  });
-  assert(heldReads.length > 0);
-  holdReads = false;
-  await switchPeer("eight", 2);
-  assert.deepEqual(snapshot.full, ["pl_eight"]);
-  await act(async () => { heldReads.splice(0).forEach((resolve) => resolve()); });
-  assert.deepEqual(snapshot.full, ["pl_eight"], "late peer reads cannot contaminate the current machine");
-
-  await switchPeer(null, 3);
-  assert.deepEqual(snapshot.full, ["pl_self"]);
-  assert.deepEqual(snapshot.index, ["pl_self"]);
-  assert(reads.includes("ubunta:/api/plans?full=1"));
-  assert(reads.includes("eight:/api/plans?full=1"));
-  await act(async () => { root.unmount(); });
   assert([...handlers.values()].every((listeners) => listeners.size === 0));
-  __setListenForTest(null);
   console.log("PlansProvider peer switching passed");
 }
 
