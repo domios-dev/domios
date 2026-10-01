@@ -129,17 +129,18 @@ For each island, top to bottom, until the cap:
         --reason "dreamer-island-promote"
 
 - Garbage (extraction leftovers like `auto: User has mentioned ...`,
-  duplicate `tech_*` stubs): `codeterm mem delete <id>`, or `mem graph alias`.
+  duplicate `tech_*` stubs): `codeterm mem archive <id> --reason "orphan or junk stub"`,
+  or `mem graph alias` when the name is a duplicate entity.
 
 Orphans: link a `rule`/`skill`/`preference` with a clear area to its area's
 topic with `relate`; leave `peer` and Librarian `document` items alone;
-delete `conversation`/`summary` flush stubs and `auto:` scaffolding facts.
+archive `conversation`/`summary` flush stubs and `auto:` scaffolding facts.
 Density is not the goal: every node findable through its topic is.
 
 Verify: re-run both commands; `ISLANDS_AFTER` = `total_components`,
 `ORPHANS_AFTER` = `count`. If you created topics, run
 `codeterm mem reembed --scope entities`.
-Log `ISLANDS: bridged=N promoted=M deleted=K`, `ORPHANS: bridged=N deleted=M`.
+Log `ISLANDS: bridged=N promoted=M archived=K`, `ORPHANS: bridged=N archived=M`.
 
 ## STAGE 4 — A.3 Dedup (10 pair checks)
 
@@ -151,7 +152,7 @@ concept, different name: `codeterm mem graph alias --alias <lesser>
 --canonical <better>`. Different concepts: keep both.
 
 Content duplicates you noticed in A.1/A.2: read both with `mem get`. Genuine
-duplicate, one call (never `mem delete`):
+duplicate, merge it in one call so the lesser remains recoverable:
 
     codeterm mem merge --keeper <keeper> --lesser <lesser> --body '<merged body>'
 

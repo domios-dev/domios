@@ -19,8 +19,8 @@ from typing import Any
 LOCAL_ROOT = Path.home() / "Developer" / "codeterm-worktrees" / "mem-eval-local"
 MISTAKES_PATH = Path(__file__).with_name("cli_mistakes.json")
 RESULTS_ROOT = LOCAL_ROOT / "results" / "cli-mistakes"
-DOCS_CONFIG_KEY = "memory.decision_rerank.sources.docs"
-SESSIONS_CONFIG_KEY = "memory.decision_rerank.sources.sessions"
+DOCS_CONFIG_KEY = "supporter.memory_rerank.sources.docs"
+SESSIONS_CONFIG_KEY = "supporter.memory_rerank.sources.sessions"
 CONFIDENCE_THRESHOLDS = (0.50, 0.70, 0.85)
 GATE_THRESHOLD = 0.70
 GATE_HIT_AT_1 = 0.70
@@ -154,13 +154,17 @@ def number(value: Any) -> float | None:
     return numeric if math.isfinite(numeric) and 0 <= numeric <= 1 else None
 
 
+def cli_section(hit: Any) -> str | None:
+    if not isinstance(hit, dict) or hit.get("source") != "doc":
+        return None
+    pointer = hit.get("pointer")
+    if isinstance(pointer, str) and pointer.endswith(" --help"):
+        return pointer.removesuffix(" --help")
+    return None
+
+
 def is_expected_cli_hit(hit: Any, expected_sections: set[str]) -> bool:
-    return (
-        isinstance(hit, dict)
-        and hit.get("source") == "doc"
-        and hit.get("doc") == "CLI"
-        and hit.get("section") in expected_sections
-    )
+    return cli_section(hit) in expected_sections
 
 
 def evaluate_one(
@@ -171,7 +175,7 @@ def evaluate_one(
     output = run_dc_command(
         lib_path,
         instance,
-        ["mem", "search", query, "--decision-rerank", "on", "--json"],
+        ["mem", "search", query, "--supporter", "on", "--json"],
     )
     latency_ms = (time.perf_counter() - started) * 1000.0
     value = json.loads(output)
@@ -189,11 +193,8 @@ def evaluate_one(
     )
     top = hits[0] if hits else None
     top_relevance = number(top.get("relevance")) if isinstance(top, dict) else None
-    top_is_cli = (
-        isinstance(top, dict)
-        and top.get("source") == "doc"
-        and top.get("doc") == "CLI"
-    )
+    top_section = cli_section(top)
+    top_is_cli = top_section is not None
     return {
         "note": mistake["note"],
         "command_as_typed": mistake["command_as_typed"],
@@ -202,9 +203,10 @@ def evaluate_one(
         "top1_relevance": top_relevance,
         "top1_is_cli_doc": top_is_cli,
         "top1_is_correct": correct_rank == 1,
-        "top1_doc": top.get("doc") if isinstance(top, dict) else None,
-        "top1_section": top.get("section") if isinstance(top, dict) else None,
-        "decision_rerank": value.get("decision_rerank"),
+        "top1_doc": "CLI" if top_is_cli else None,
+        "top1_section": top_section,
+        "top1_pointer": top.get("pointer") if isinstance(top, dict) else None,
+        "supporter": value.get("supporter"),
         "latency_ms": latency_ms,
     }
 
@@ -247,8 +249,8 @@ def metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "confident_but_wrong": confident_wrong,
         "top1_cli_doc_hits": sum(row["top1_is_cli_doc"] for row in rows),
         "applied_queries": sum(
-            isinstance(row["decision_rerank"], dict)
-            and row["decision_rerank"].get("status") == "applied"
+            isinstance(row["supporter"], dict)
+            and row["supporter"].get("status") == "applied"
             for row in rows
         ),
         "latency_p50_ms": statistics.median(row["latency_ms"] for row in rows),

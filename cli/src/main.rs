@@ -107,7 +107,7 @@ pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
 };
-pub use args::mem_decision::{DecisionRerankMode, MemDecisionAction, MemDecisionTokenAction};
+pub use args::supporter::{SupporterAction, SupporterMode, SupporterTokenAction};
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
     WebAction, WorkspaceAction,
@@ -169,6 +169,10 @@ fn main_impl() {
     }
 
     if let Some(mesh_target) = cli.mesh.clone() {
+        if matches!(&cli.command, Commands::Supporter { .. }) {
+            eprintln!("Error: Supporter Agent settings and tokens are local-only; run the command on the owning machine.");
+            std::process::exit(7);
+        }
         if matches!(
             &cli.command,
             Commands::Plan {
@@ -193,18 +197,6 @@ fn main_impl() {
             );
             std::process::exit(7);
         }
-        // Decision adapter tokens are secrets too: the token and its status stay on this machine.
-        if matches!(
-            cli.command,
-            Commands::Mem {
-                action: MemAction::Decision { .. }
-            }
-        ) {
-            eprintln!(
-                "Error: decision adapter tokens do not cross the mesh. Run on the local machine."
-            );
-            std::process::exit(7);
-        }
         if matches!(
             cli.command,
             Commands::Bridge {
@@ -223,6 +215,7 @@ fn main_impl() {
     if transport::should_dispatch_direct_local(&cli.command, cli.mesh.as_deref()) {
         match cli.command {
             Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
+            Commands::Supporter { action } => cmd::supporter::handle_supporter(cli.json, action),
             _ => unreachable!(),
         }
         return;
@@ -523,6 +516,8 @@ fn main_impl() {
 
         // plugin is handled before socket connect (filesystem-local)
         Commands::Plugin { .. } => unreachable!(),
+
+        Commands::Supporter { .. } => unreachable!(),
 
         Commands::Mesh { action } => {
             cmd::mesh::handle_mesh(&mut client, cli.json, action);
