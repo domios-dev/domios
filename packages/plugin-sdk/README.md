@@ -30,4 +30,39 @@ stay on the `host.*` surface. See the CodeTerm plugin authoring guide for detail
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,
-`AgentProvider`, `SecretBackend`, `Transcriber`, …).
+`AgentProvider`, `SecretBackend`, `Transcriber`, `DecisionModelCapability`,
+`DecisionRequest`, `DecisionAnswer`, `DecisionPrimitives`, `DecisionQuestion`, …).
+
+## Decision model capability
+
+Declare `"decisionModel": true` in `plugin.json` and export `primitives()` plus
+`decide(request)`. A request carries `state`, `instructions`, and a tagged
+`question` (`choice`, `noul`, or `score`). Answers use the same tagged JSON
+shapes as the Rust decision types. Use `host.fetch.async` for network calls so
+the host can serve other candidate decisions while a request is in flight.
+
+```ts
+import type { DecisionModelCapability, PluginModule } from "@codeterm/plugin-sdk";
+
+const decisionModel: DecisionModelCapability = {
+  primitives: () => ({ choice: true, noul: true, score: true }),
+  decide(request) {
+    const encoded = JSON.stringify(request);
+    return host.fetch.async(
+      {
+        url: "http://127.0.0.1:1234/decision",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: encoded,
+      },
+      (result) => {
+        if (result.error || !result.body) throw new Error("decision request failed");
+        return JSON.parse(result.body) as ReturnType<DecisionModelCapability["decide"]>;
+      },
+    );
+  },
+};
+
+const plugin: PluginModule = { ...decisionModel };
+export default plugin;
+```

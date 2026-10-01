@@ -643,7 +643,7 @@ mod store_index_tests {
             std::env::remove_var("CODETERM_TEST_GIT_BIN"); // use the real git binary
 
             let git = |args: &[&str], cwd: Option<&Path>| {
-                let mut c = std::process::Command::new("git");
+                let mut c = git_command();
                 if let Some(d) = cwd {
                     c.current_dir(d);
                 }

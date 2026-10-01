@@ -47,6 +47,7 @@ impl PluginProviderRegistrar for TestRegistrar {
 
 fn test_caps() -> CapabilityRegistries {
     let capabilities = CapabilityRegistries {
+        decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
@@ -167,6 +168,7 @@ fn watcher_holds_threaded_capability_registries() {
     let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registrar, caps.clone());
     let held = watcher.capability_registries();
     assert!(Arc::ptr_eq(&held.transcribe, &caps.transcribe));
+    assert!(Arc::ptr_eq(&held.decision_model, &caps.decision_model));
     assert!(Arc::ptr_eq(&held.glance, &caps.glance));
     assert!(Arc::ptr_eq(&held.bubble, &caps.bubble));
     assert!(Arc::ptr_eq(&held.view, &caps.view));
@@ -176,6 +178,36 @@ fn watcher_holds_threaded_capability_registries() {
         &caps.chat_preprocessor
     ));
     assert!(Arc::ptr_eq(&held.webhook_receiver, &caps.webhook_receiver));
+}
+
+#[test]
+fn js_decision_model_registers_and_unregisters_by_capability() {
+    let capabilities = test_caps();
+    let manifest: PluginManifest = serde_json::from_str(
+        r#"{
+            "id":"decision-fixture",
+            "version":"0",
+            "displayName":"Decision fixture",
+            "capabilities":{"decisionModel":true}
+        }"#,
+    )
+    .expect("manifest");
+    let vm = Arc::new(
+        super::super::PluginVm::from_source(
+            "decision-fixture",
+            r#"module.exports.default = {
+                primitives() { return { choice: true, noul: true, score: true }; },
+                decide() { return { type: "noul", p: 0.5 }; }
+            };"#
+                .into(),
+        )
+        .expect("vm"),
+    );
+
+    capabilities.register_plugin(&manifest, &vm);
+    assert!(capabilities.decision_model.get("decision-fixture").is_some());
+    capabilities.deregister_plugin("decision-fixture");
+    assert!(capabilities.decision_model.get("decision-fixture").is_none());
 }
 
 #[test]
