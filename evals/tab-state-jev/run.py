@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify fixed terminal screens with Jev and compare recorded structural outputs."""
+"""Measure screen-only and context-aware tab-state classification."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ import argparse
 import json
 import math
 import os
+import ssl
 import statistics
 import sys
 import time
-import ssl
 import urllib.error
 import urllib.request
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +27,16 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = Path(__file__).with_name("screens.jsonl")
+CRITERIA_FILE = Path(__file__).with_name("criteria_variants.json")
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
-DEFAULT_MAX_CALLS = 300
-CONFIDENCE_BAR = 0.8
+MAX_CALLS_PER_RUN = 300
+STRONG_THRESHOLD = 0.80
+WEAK_THRESHOLD = 0.60
+STRONG_GATE = 0.90
+WEAK_GATE = 0.60
+MIN_FRAMES_PER_LABEL = 4
+REQUIRED_TRANSPORTS = ("pty", "chat_backend")
 LABELS = (
     "ready_idle",
     "working_normally",
@@ -50,33 +56,60 @@ ACTIONABLE = {
     "crashed_to_shell",
     "error_loop",
 }
-READY = {"ready_idle", "working_normally"}
-SHADOW_GATE_LABELS = (
-    "login_or_auth_required",
-    "trust_or_permission_prompt",
-    "model_unavailable_or_quota",
-    "provider_update_prompt",
-    "still_starting",
-    "error_loop",
+CONTEXT_FIELDS = (
+    "provider_capability",
+    "requested_model",
+    "session_model",
+    "role",
+    "plan_id",
+    "task_id",
+    "spawned_by_tab",
+    "seconds_since_spawn",
+    "seconds_since_last_output",
+    "structural_verdict",
+    "pending_prompt_kind",
+    "screen_changed",
 )
-SHADOW_GATE_BAR = 0.90
-MIN_GATE_SUPPORT = 4
-CRITERIA = {
-    "ready_idle": "The agent TUI is ready, and its composer is waiting for user input.",
-    "working_normally": "The agent TUI is making ordinary progress, such as thinking or running tools.",
-    "provider_update_prompt": "The provider is blocked on an update available dialog or update choice.",
-    "trust_or_permission_prompt": "The provider is blocked on a trust, folder access, command approval, or permission choice.",
-    "login_or_auth_required": "The provider requires sign-in, authentication, or an authorization step.",
-    "model_unavailable_or_quota": "The selected model is unavailable or the provider reached a usage quota or rate limit.",
-    "crashed_to_shell": "The provider TUI is gone and the terminal is showing a shell prompt.",
-    "error_loop": "The provider repeatedly shows the same runtime or tool error and makes no progress.",
-    "still_starting": "The provider is initializing and has not reached a usable agent TUI state.",
-}
 INSTRUCTIONS = "Classify the current agent tab state from its visible terminal screen. Choose the single best label."
 
 
-def read_dataset(path: Path) -> list[dict[str, Any]]:
+def band_for_confidence(confidence: float) -> str:
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        raise ValueError("confidence must be numeric")
+    if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+        raise ValueError("confidence must be finite and between zero and one")
+    if confidence >= STRONG_THRESHOLD:
+        return "strong"
+    if confidence >= WEAK_THRESHOLD:
+        return "weak"
+    return "ignored"
+
+
+def coverage_gaps(samples: list[dict[str, Any]]) -> list[str]:
+    support = Counter(sample["label"] for sample in samples)
+    gaps = [
+        f"{label}={support[label]}"
+        for label in LABELS
+        if support[label] < MIN_FRAMES_PER_LABEL
+    ]
+    transports = {sample["transport"] for sample in samples}
+    gaps.extend(f"transport/{transport}=0" for transport in REQUIRED_TRANSPORTS if transport not in transports)
+    return gaps
+
+
+def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    required = {
+        "id",
+        "provider",
+        "transport",
+        "provider_capability",
+        "label",
+        "labelled_by",
+        "source",
+        "screen",
+        "context",
+    }
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
@@ -84,27 +117,73 @@ def read_dataset(path: Path) -> list[dict[str, Any]]:
             row = json.loads(line)
         except json.JSONDecodeError as error:
             raise ValueError(f"invalid JSON on {path}:{line_number}: {error.msg}") from error
-        required = {
-            "id",
-            "provider",
-            "boot_stage",
-            "boot_stage_source",
-            "label",
-            "source",
-            "screen",
-            "baselines",
-        }
-        if not required <= row.keys():
+        if not isinstance(row, dict) or not required <= row.keys():
             raise ValueError(f"{path}:{line_number} is missing required fields")
         if row["label"] not in LABELS or not isinstance(row["screen"], str) or not row["screen"].strip():
             raise ValueError(f"{path}:{line_number} has an invalid label or empty screen")
+        if (
+            not isinstance(row["provider"], str)
+            or not row["provider"]
+            or not isinstance(row["labelled_by"], str)
+            or not row["labelled_by"].strip()
+            or not isinstance(row["source"], str)
+            or not row["source"].startswith("dev-capture")
+        ):
+            raise ValueError(f"{path}:{line_number} is not a human-labelled dev capture")
+        capability = row["provider_capability"]
+        if (
+            not isinstance(capability, dict)
+            or not isinstance(capability.get("transport"), str)
+            or capability.get("transport") not in {"pty", "chat_backend"}
+            or not isinstance(capability.get("display_name"), str)
+            or not capability["display_name"].strip()
+            or row["transport"] != capability["transport"]
+        ):
+            raise ValueError(f"{path}:{line_number} has no provider capability transport")
+        context = row["context"]
+        if not isinstance(context, dict) or not set(CONTEXT_FIELDS) <= context.keys():
+            raise ValueError(f"{path}:{line_number} is missing runtime context fields")
+        if context["provider_capability"] != capability:
+            raise ValueError(f"{path}:{line_number} context capability does not match the tab descriptor")
+        if not isinstance(context["screen_changed"], bool):
+            raise ValueError(f"{path}:{line_number} has an invalid screen_changed value")
+        for field in ("seconds_since_spawn", "seconds_since_last_output"):
+            value = context[field]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"{path}:{line_number} has an invalid {field}")
         rows.append(row)
-    if len(rows) < 60:
-        raise ValueError(f"the fixed dataset has {len(rows)} screens; at least 60 are required")
     ids = [row["id"] for row in rows]
     if len(set(ids)) != len(ids):
-        raise ValueError("the fixed dataset contains duplicate ids")
+        raise ValueError("the dataset contains duplicate ids")
+    if not rows:
+        raise ValueError("screens.jsonl has no labelled real dev captures")
+    gaps = coverage_gaps(rows)
+    if gaps and require_coverage:
+        raise ValueError(
+            f"the labelled set needs at least {MIN_FRAMES_PER_LABEL} real frames per label "
+            "and both pty/chat_backend transports; "
+            f"missing: {', '.join(gaps)}"
+        )
     return rows
+
+
+def load_criteria(path: Path, variant: str) -> dict[str, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"criteria variants are unreadable: {error}") from error
+    variants = data.get("variants") if isinstance(data, dict) else None
+    criteria = variants.get(variant) if isinstance(variants, dict) else None
+    if not isinstance(criteria, dict) or set(criteria) != set(LABELS):
+        raise ValueError(f"criteria variant {variant!r} does not define every state label")
+    if any(not isinstance(value, str) or not value.strip() for value in criteria.values()):
+        raise ValueError(f"criteria variant {variant!r} contains an empty criterion")
+    return criteria
 
 
 def load_token(token_file: Path | None) -> str:
@@ -118,7 +197,7 @@ def load_token(token_file: Path | None) -> str:
     except FileNotFoundError as error:
         raise ValueError(
             "Jev token missing; set JEV_API_TOKEN in the parent environment or pass --token-file "
-            "for the dev token store"
+            "for the named dev instance"
         ) from error
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("Jev token file is unreadable or invalid") from error
@@ -128,15 +207,23 @@ def load_token(token_file: Path | None) -> str:
     return token.strip()
 
 
-def request_body(screen: str, model: str) -> bytes:
+def request_body(
+    screen: str,
+    context: dict[str, Any],
+    *,
+    arm: str,
+    model: str,
+    criteria: dict[str, str],
+) -> bytes:
+    state: Any = screen if arm == "screen" else {"screen": screen, "context": context}
     body = {
-        "state": screen,
+        "state": state,
         "model": model,
         "questions": {
             "q": {
                 "type": "choice",
                 "instructions": INSTRUCTIONS,
-                "criteria": CRITERIA,
+                "criteria": criteria,
             }
         },
     }
@@ -145,7 +232,10 @@ def request_body(screen: str, model: str) -> bytes:
 
 def call_jev(
     screen: str,
+    context: dict[str, Any],
     *,
+    arm: str,
+    criteria: dict[str, str],
     token: str,
     endpoint: str,
     model: str,
@@ -153,11 +243,8 @@ def call_jev(
 ) -> tuple[dict[str, Any] | None, float, str | None]:
     request = urllib.request.Request(
         endpoint,
-        data=request_body(screen, model),
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        data=request_body(screen, context, arm=arm, model=model, criteria=criteria),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
     started = time.perf_counter()
@@ -171,6 +258,7 @@ def call_jev(
         return None, (time.perf_counter() - started) * 1000, f"transport_error: {type(reason).__name__}"
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None, (time.perf_counter() - started) * 1000, "invalid_json"
+
     elapsed = (time.perf_counter() - started) * 1000
     answers = payload.get("answers") if isinstance(payload, dict) else None
     answer = answers.get("q") if isinstance(answers, dict) else None
@@ -180,22 +268,20 @@ def call_jev(
     if choice not in LABELS:
         return None, elapsed, "invalid_choice"
     probabilities = answer.get("probabilities")
-    if not isinstance(probabilities, dict) or not probabilities:
-        return None, elapsed, "invalid_probabilities"
-    if any(
+    if not isinstance(probabilities, dict) or any(
         key not in LABELS
-        or isinstance(probability, bool)
-        or not isinstance(probability, (int, float))
-        or not math.isfinite(probability)
-        or not 0 <= probability <= 1
-        for key, probability in probabilities.items()
+        or isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+        for key, value in probabilities.items()
     ):
         return None, elapsed, "invalid_probabilities"
     confidence = answer.get("confidence")
-    confidence_source = "reported"
+    source = "reported"
     if confidence is None:
         confidence = probabilities.get(choice)
-        confidence_source = "choice_probability"
+        source = "choice_probability"
     if (
         isinstance(confidence, bool)
         or not isinstance(confidence, (int, float))
@@ -206,8 +292,130 @@ def call_jev(
     return {
         "prediction": choice,
         "confidence": float(confidence),
-        "confidence_source": confidence_source,
+        "confidence_source": source,
     }, elapsed, None
+
+
+def precision_recall(
+    samples: list[dict[str, Any]], predictions: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    by_label: dict[str, dict[str, Any]] = {}
+    for label in LABELS:
+        actual = [sample for sample in samples if sample["label"] == label]
+        predicted = [item for item in predictions if item["prediction"] == label]
+        correct = sum(item["label"] == label for item in predicted)
+        by_label[label] = {
+            "support": len(actual),
+            "predicted": len(predicted),
+            "correct": correct,
+            "precision": correct / len(predicted) if predicted else None,
+            "recall": correct / len(actual) if actual else None,
+        }
+    return by_label
+
+
+def band_metrics(
+    samples: list[dict[str, Any]], predictions: list[dict[str, Any]]
+) -> dict[str, Any]:
+    by_band: dict[str, Any] = {}
+    for band in ("strong", "weak", "ignored"):
+        selected = [item for item in predictions if band_for_confidence(item["confidence"]) == band]
+        correct = sum(item["prediction"] == item["label"] for item in selected)
+        per_label = {}
+        for label in LABELS:
+            predicted_label = [item for item in selected if item["prediction"] == label]
+            label_correct = sum(item["label"] == label for item in predicted_label)
+            support = sum(sample["label"] == label for sample in samples)
+            per_label[label] = {
+                "predicted": len(predicted_label),
+                "correct": label_correct,
+                "precision": label_correct / len(predicted_label) if predicted_label else None,
+                "recall": label_correct / support if support else None,
+            }
+        by_band[band] = {
+            "predicted": len(selected),
+            "correct": correct,
+            "precision": correct / len(selected) if selected else None,
+            "per_label": per_label,
+        }
+    strong_actionable = [
+        item
+        for item in predictions
+        if band_for_confidence(item["confidence"]) == "strong" and item["prediction"] in ACTIONABLE
+    ]
+    strong_correct = sum(item["prediction"] == item["label"] for item in strong_actionable)
+    by_band["strong_actionable"] = {
+        "predicted": len(strong_actionable),
+        "correct": strong_correct,
+        "precision": strong_correct / len(strong_actionable) if strong_actionable else None,
+        "per_label": {
+            label: by_band["strong"]["per_label"][label]
+            for label in sorted(ACTIONABLE)
+        },
+    }
+    return by_band
+
+
+def aggregate_precision(
+    samples: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, Any]]:
+    predicted_by_id = {item["id"]: item for item in predictions}
+    sample_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for sample in samples:
+        sample_groups[str(sample[field])].append(sample)
+    report: dict[str, dict[str, Any]] = {}
+    for group, group_samples in sorted(sample_groups.items()):
+        group_predictions = [
+            predicted_by_id[sample["id"]]
+            for sample in group_samples
+            if sample["id"] in predicted_by_id
+        ]
+        correct = sum(item["prediction"] == item["label"] for item in group_predictions)
+        report[group] = {
+            "support": len(group_samples),
+            "calls": len(group_predictions),
+            "correct": correct,
+            "precision": correct / len(group_predictions) if group_predictions else None,
+        }
+    return report
+
+
+def aggregate_band_precision(
+    samples: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    return {
+        band: aggregate_precision(
+            samples,
+            [item for item in predictions if band_for_confidence(item["confidence"]) == band],
+            field,
+        )
+        for band in ("strong", "weak", "ignored")
+    }
+
+
+def gate_verdict(
+    strong_actionable_precision: float | None,
+    weak_precision: float | None,
+) -> dict[str, Any]:
+    strong_pass = strong_actionable_precision is not None and strong_actionable_precision >= STRONG_GATE
+    weak_pass = weak_precision is not None and weak_precision >= WEAK_GATE
+    return {
+        "strong_actionable": {
+            "precision": strong_actionable_precision,
+            "threshold": STRONG_GATE,
+            "verdict": "pass" if strong_pass else "fail",
+        },
+        "weak_overall": {
+            "precision": weak_precision,
+            "threshold": WEAK_GATE,
+            "verdict": "pass" if weak_pass else "fail",
+        },
+        "verdict": "pass" if strong_pass and weak_pass else "fail",
+    }
 
 
 def nearest_rank(values: list[float], percentile: float) -> float | None:
@@ -218,258 +426,11 @@ def nearest_rank(values: list[float], percentile: float) -> float | None:
     return ordered[index]
 
 
-def confusion_matrix(rows: list[tuple[str, str]]) -> dict[str, dict[str, int]]:
-    counts: Counter[tuple[str, str]] = Counter(rows)
-    return {
-        actual: {predicted: counts[(actual, predicted)] for predicted in LABELS}
-        for actual in LABELS
-    }
-
-
-def classification_metrics(rows: list[tuple[str, str]]) -> dict[str, Any]:
-    matrix = confusion_matrix(rows)
-    metrics: dict[str, Any] = {}
-    recalls: list[float] = []
-    f1s: list[float] = []
-    for label in LABELS:
-        support = sum(matrix[label].values())
-        predicted = sum(matrix[actual][label] for actual in LABELS)
-        true_positive = matrix[label][label]
-        precision = true_positive / predicted if predicted else None
-        recall = true_positive / support if support else None
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if precision is not None and recall is not None and precision + recall
-            else None
-        )
-        if recall is not None:
-            recalls.append(recall)
-        if f1 is not None:
-            f1s.append(f1)
-        metrics[label] = {
-            "support": support,
-            "predicted": predicted,
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-        }
-    count = len(rows)
-    supported = sum(item["support"] > 0 for item in metrics.values())
-    return {
-        "count": count,
-        "accuracy": sum(matrix[label][label] for label in LABELS) / count if count else None,
-        "macro_accuracy": statistics.fmean(recalls) if recalls else None,
-        "macro_f1": statistics.fmean(f1s) if f1s else None,
-        "represented_labels": supported,
-        "per_label": metrics,
-        "confusion_matrix": matrix,
-    }
-
-
-def high_confidence_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = [item for item in predictions if item.get("confidence") is not None and item["confidence"] >= CONFIDENCE_BAR]
-    actionable = [item for item in selected if item["prediction"] in ACTIONABLE]
-    correct_actionable = sum(item["prediction"] == item["label"] for item in actionable)
-    per_actionable: dict[str, Any] = {}
-    for label in sorted(ACTIONABLE):
-        predicted = [item for item in selected if item["prediction"] == label]
-        correct = sum(item["label"] == label for item in predicted)
-        per_actionable[label] = {
-            "predicted_at_threshold": len(predicted),
-            "correct": correct,
-            "precision": correct / len(predicted) if predicted else None,
-        }
-    return {
-        "threshold": CONFIDENCE_BAR,
-        "count": len(selected),
-        "accuracy": sum(item["prediction"] == item["label"] for item in selected) / len(selected)
-        if selected
-        else None,
-        "coverage": len(selected) / len(predictions) if predictions else None,
-        "actionable_predictions": len(actionable),
-        "actionable_precision": correct_actionable / len(actionable) if actionable else None,
-        "actionable_per_label": per_actionable,
-    }
-
-
-def per_label_at_threshold(
-    samples: list[dict[str, Any]], predictions: list[dict[str, Any]]
-) -> dict[str, Any]:
-    support = Counter(sample["label"] for sample in samples)
-    selected = [item for item in predictions if item["confidence"] >= CONFIDENCE_BAR]
-    metrics: dict[str, Any] = {}
-    for label in LABELS:
-        predicted = [item for item in selected if item["prediction"] == label]
-        correct = sum(item["label"] == label for item in predicted)
-        metrics[label] = {
-            "support": support[label],
-            "predicted_at_threshold": len(predicted),
-            "correct": correct,
-            "precision": correct / len(predicted) if predicted else None,
-            "recall": correct / support[label] if support[label] else None,
-        }
-    return metrics
-
-
-def shadow_gate(
-    samples: list[dict[str, Any]], predictions: list[dict[str, Any]], failed_calls: int
-) -> dict[str, Any]:
-    support = Counter(sample["label"] for sample in samples)
-    selected = [
-        item
-        for item in predictions
-        if item["confidence"] >= CONFIDENCE_BAR and item["prediction"] in SHADOW_GATE_LABELS
-    ]
-    correct = sum(item["prediction"] == item["label"] for item in selected)
-    precision = correct / len(selected) if selected else None
-    under_supported = [label for label in SHADOW_GATE_LABELS if support[label] < MIN_GATE_SUPPORT]
-    if under_supported:
-        allowed, reason = False, f"Labels below {MIN_GATE_SUPPORT} screens: {', '.join(under_supported)}."
-    elif failed_calls:
-        allowed, reason = False, f"{failed_calls} Jev calls failed, so the run is incomplete."
-    elif precision is None or precision < SHADOW_GATE_BAR:
-        allowed, reason = False, "Actionable precision at confidence 0.8 is below the 0.90 bar."
-    else:
-        allowed, reason = True, "Actionable precision at confidence 0.8 clears the 0.90 bar with full support."
-    return {
-        "labels": list(SHADOW_GATE_LABELS),
-        "threshold": CONFIDENCE_BAR,
-        "bar": SHADOW_GATE_BAR,
-        "min_label_support": MIN_GATE_SUPPORT,
-        "label_support": {label: support[label] for label in SHADOW_GATE_LABELS},
-        "under_supported_labels": under_supported,
-        "failed_calls": failed_calls,
-        "predictions_at_threshold": len(selected),
-        "correct": correct,
-        "precision": precision,
-        "default_on_allowed": allowed,
-        "reason": reason,
-    }
-
-
-def structural_comparison(
-    samples: list[dict[str, Any]], prediction_by_id: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
-    detector_rows: dict[str, list[tuple[dict[str, Any], str | None, str]]] = {}
-    raw_outputs: dict[str, Counter[str]] = {}
-    for sample in samples:
-        for detector, output in sample.get("baselines", {}).items():
-            raw = output.get("raw", "unknown") if isinstance(output, dict) else "unknown"
-            raw_outputs.setdefault(detector, Counter())[str(raw)] += 1
-            if isinstance(output, dict):
-                detector_rows.setdefault(detector, []).append(
-                    (sample, output.get("label"), str(raw))
-                )
-    detectors: dict[str, Any] = {}
-    for detector, rows in detector_rows.items():
-        comparable = [(sample, label) for sample, label, _ in rows if label in LABELS]
-        legacy_pairs = [(sample["label"], label) for sample, label in comparable]
-        jev_pairs = [
-            (sample["label"], prediction_by_id[sample["id"]]["prediction"])
-            for sample, _ in comparable
-            if sample["id"] in prediction_by_id
-        ]
-        same_rows = [
-            (sample, label)
-            for sample, label in comparable
-            if sample["id"] in prediction_by_id
-        ]
-        detectors[detector] = {
-            "computed_rows": len(rows),
-            "labelled_output_rows": len(comparable),
-            "abstentions_or_nonmapped_outputs": len(rows) - len(comparable),
-            "coverage": len(comparable) / len(samples) if samples else None,
-            "legacy": classification_metrics(legacy_pairs),
-            "jev_on_same_rows": classification_metrics(jev_pairs),
-            "jev_agreement_with_legacy": sum(
-                prediction_by_id[sample["id"]]["prediction"] == label
-                for sample, label in same_rows
-            )
-            / len(same_rows)
-            if same_rows
-            else None,
-            "raw_outputs": dict(sorted(raw_outputs[detector].items())),
-        }
-    stage_rows = [sample for sample in samples if sample.get("boot_stage")]
-    stage_breakdown: dict[str, Counter[str]] = {}
-    for sample in stage_rows:
-        stage_breakdown.setdefault(sample["boot_stage"], Counter())[sample["label"]] += 1
-    return {
-        "detectors": detectors,
-        "boot_stage": {
-            "recorded_rows": len(stage_rows),
-            "coverage": len(stage_rows) / len(samples) if samples else None,
-            "by_stage_and_screen_label": {
-                stage: dict(sorted(counts.items())) for stage, counts in sorted(stage_breakdown.items())
-            },
-        },
-    }
-
-
-def readiness_precision(predictions: list[dict[str, Any]]) -> dict[str, Any]:
-    ready = [
-        item
-        for item in predictions
-        if item["confidence"] >= CONFIDENCE_BAR and item["prediction"] in READY
-    ]
-    correct = sum(item["label"] in READY for item in ready)
-    return {
-        "predicted_ready_at_threshold": len(ready),
-        "precision": correct / len(ready) if ready else None,
-    }
-
-
-def verdicts(
-    samples: list[dict[str, Any]],
-    predictions: list[dict[str, Any]],
-    calibration: dict[str, Any],
-) -> dict[str, Any]:
-    support = Counter(sample["label"] for sample in samples)
-    missing = [label for label in LABELS if not support[label]]
-    action_labels_pass = all(
-        calibration["actionable_per_label"][label]["precision"] is not None
-        and calibration["actionable_per_label"][label]["precision"] >= 0.90
-        for label in ACTIONABLE
-    )
-    full_label_coverage = not missing
-    ready_precision = readiness_precision(predictions)
-    confident_count = calibration["count"]
-    if full_label_coverage and action_labels_pass and (ready_precision["precision"] or 0) >= 0.90:
-        spawn = "hint"
-        spawn_reason = "All nine labels are represented; every actionable label clears 90% precision at confidence 0.8, and ready-state precision clears 90%."
-    elif full_label_coverage and confident_count:
-        spawn = "shadow"
-        spawn_reason = "All labels are represented, but the proposed high-confidence precision bar is not met."
-    else:
-        spawn = "nothing"
-        spawn_reason = "The corpus lacks required state coverage, so a spawn-health decision is not measured."
-    stuck_precision = [
-        calibration["actionable_per_label"][label]["precision"]
-        for label in ("crashed_to_shell", "error_loop")
-    ]
-    if full_label_coverage and action_labels_pass and all(value is not None and value >= 0.90 for value in stuck_precision):
-        stuck = "hint"
-        stuck_reason = "Both shell-crash and error-loop precision clear 90% at confidence 0.8, with full label coverage."
-    elif full_label_coverage and confident_count:
-        stuck = "shadow"
-        stuck_reason = "All labels are represented, but the proposed stuck-state precision bar is not met."
-    else:
-        stuck = "nothing"
-        stuck_reason = "The corpus lacks error-loop coverage, so the stuck-working decision is not measured."
-    return {
-        "proposed_actionable_precision_bar": 0.90,
-        "spawn_health": {"verdict": spawn, "reason": spawn_reason, "ready_precision_at_0_8": ready_precision},
-        "stuck_working": {"verdict": stuck, "reason": stuck_reason},
-        "missing_ground_truth_labels": missing,
-        "label_support": {label: support[label] for label in LABELS},
-        "action_labels_clear_bar": action_labels_pass,
-        "confidence_0_8_predictions": confident_count,
-    }
-
-
 def evaluate(
     samples: list[dict[str, Any]],
     *,
+    arm: str,
+    criteria: dict[str, str],
     token: str,
     endpoint: str,
     model: str,
@@ -481,6 +442,9 @@ def evaluate(
     for sample in samples:
         answer, latency_ms, error = call_jev(
             sample["screen"],
+            sample["context"],
+            arm=arm,
+            criteria=criteria,
             token=token,
             endpoint=endpoint,
             model=model,
@@ -490,6 +454,8 @@ def evaluate(
         record: dict[str, Any] = {
             "id": sample["id"],
             "label": sample["label"],
+            "provider": sample["provider"],
+            "transport": sample["transport"],
             "latency_ms": round(latency_ms, 2),
         }
         if error:
@@ -500,29 +466,43 @@ def evaluate(
         predictions.append(record)
 
     successful = [item for item in predictions if "prediction" in item]
-    pairs = [(item["label"], item["prediction"]) for item in successful]
-    metrics = classification_metrics(pairs)
-    calibration = high_confidence_metrics(successful)
-    prediction_by_id = {item["id"]: item for item in successful}
+    bands = band_metrics(samples, successful)
+    coverage_missing = coverage_gaps(samples)
+    observed_gate = gate_verdict(
+        bands["strong_actionable"]["precision"],
+        bands["weak"]["precision"],
+    )
+    gate = dict(observed_gate)
+    gate["eligible"] = not coverage_missing
+    if coverage_missing:
+        gate["verdict"] = "inconclusive"
     return {
+        "arm": arm,
         "model": model,
         "endpoint": endpoint,
         "dataset": str(DATASET.relative_to(ROOT)),
         "snapshot_count": len(samples),
+        "calls_used": len(predictions),
         "successful_calls": len(successful),
         "failed_calls": dict(sorted(failures.items())),
-        "metrics": metrics,
-        "calibration_at_0_8": calibration,
-        "per_label_at_0_8": per_label_at_threshold(samples, successful),
-        "shadow_gate": shadow_gate(samples, successful, sum(failures.values())),
+        "per_label": precision_recall(samples, successful),
+        "bands": bands,
+        "per_provider": aggregate_precision(samples, successful, "provider"),
+        "per_transport": aggregate_precision(samples, successful, "transport"),
+        "per_band_per_provider": aggregate_band_precision(samples, successful, "provider"),
+        "per_band_per_transport": aggregate_band_precision(samples, successful, "transport"),
+        "coverage": {
+            "complete": not coverage_missing,
+            "missing_groups": coverage_missing,
+        },
+        "observed_gate": observed_gate,
+        "gate": gate,
         "latency_ms": {
             "mean": statistics.fmean(latencies) if latencies else None,
             "p50": nearest_rank(latencies, 0.50),
             "p95": nearest_rank(latencies, 0.95),
             "n": len(latencies),
         },
-        "structural_comparison": structural_comparison(samples, prediction_by_id),
-        "verdicts": verdicts(samples, successful, calibration),
         "predictions": predictions,
     }
 
@@ -530,39 +510,60 @@ def evaluate(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DATASET)
+    parser.add_argument("--criteria-file", type=Path, default=CRITERIA_FILE)
+    parser.add_argument("--criteria-variant", choices=("current", "auth-first-run"), default="current")
+    parser.add_argument("--arm", choices=("screen", "context"), default="screen")
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="run an exploratory measurement; incomplete coverage makes the gate ineligible",
+    )
     parser.add_argument("--endpoint", default=os.environ.get("JEV_ENDPOINT", DEFAULT_ENDPOINT))
     parser.add_argument("--model", default=os.environ.get("JEV_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS)
     parser.add_argument("--timeout", type=float, default=60.0)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if not 1 <= args.max_calls <= DEFAULT_MAX_CALLS:
-        raise SystemExit(f"--max-calls must be between 1 and {DEFAULT_MAX_CALLS}")
+    if args.offset < 0:
+        raise SystemExit("--offset must be nonnegative")
     if args.limit is not None and args.limit < 1:
         raise SystemExit("--limit must be positive")
     if args.timeout <= 0:
         raise SystemExit("--timeout must be positive")
     try:
-        samples = read_dataset(args.dataset)
+        all_samples = read_dataset(args.dataset, require_coverage=not args.allow_incomplete)
+        criteria = load_criteria(args.criteria_file, args.criteria_variant)
+        samples = all_samples[args.offset :]
         if args.limit is not None:
             samples = samples[: args.limit]
-        if len(samples) > args.max_calls:
+        if not samples:
+            raise ValueError("the requested dataset slice has no records")
+        if len(samples) > MAX_CALLS_PER_RUN:
             raise ValueError(
-                f"{len(samples)} screens require more than the configured {args.max_calls} Jev calls"
+                f"{len(samples)} records exceed the hard {MAX_CALLS_PER_RUN}-call run ceiling; "
+                "use --offset and --limit to evaluate slices"
             )
         token = load_token(args.token_file)
         result = evaluate(
             samples,
+            arm=args.arm,
+            criteria=criteria,
             token=token,
             endpoint=args.endpoint,
             model=args.model,
             timeout=args.timeout,
         )
+        result["criteria_variant"] = args.criteria_variant
+        result["dataset_slice"] = {
+            "offset": args.offset,
+            "count": len(samples),
+            "complete_dataset": args.offset == 0 and len(samples) == len(all_samples),
+        }
     except (OSError, ValueError) as error:
         print(f"tab-state Jev evaluation: {error}", file=sys.stderr)
         return 2
