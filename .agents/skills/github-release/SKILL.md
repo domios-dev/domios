@@ -48,6 +48,23 @@ Releases are cut from the resulting `master` commit.
 bash scripts/check-release-runners.sh   # exit 1 names each offline label
 ```
 
+**Then every release credential is valid** (about a minute, nothing built):
+
+```bash
+gh workflow run release-credentials.yml --repo rollacode/codeterm
+gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rollacode/codeterm \
+  --workflow release-credentials.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+```
+
+It runs `scripts/check-release-credentials-mac.sh` on the Mac builder (Developer ID, minisign key,
+`gh`, Apple notary) and checks the updater signing key and repository write tokens on the Linux and
+Windows runners. The release builder runs the same Mac script, so a green check here is what the
+tag run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
+`403 A required agreement is missing or has expired`: the Account Holder must accept the new Apple
+Developer agreement at https://developer.apple.com/account; the password is not the problem, and
+Apple may take a minute or two to honour a fresh acceptance. The weekly schedule surfaces an
+expiring agreement or token between releases.
+
 It requires an online runner for each of `codeterm-builder` (Mac: macOS and arm64 Linux),
 `windows-build` (ROG: Windows) and `linux-build` (x86_64 Linux). Run it before the version bump
 and again right before pushing the tag. An offline runner leaves its job queued forever: the PR CI
@@ -59,6 +76,7 @@ machine up first; never tag around it.
 ```bash
 VER=X.Y.Z
 bash scripts/check-release-runners.sh
+gh workflow run release-credentials.yml --repo rollacode/codeterm   # watch it green
 git fetch origin --prune
 git checkout "release/$VER"
 git pull --ff-only origin "release/$VER"
