@@ -197,6 +197,13 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 `memory.decision_rerank.enabled` (default `false`), `.adapter`, `.endpoint` and `.model` complete the section; see `codeterm docs MEMORY` for the behaviour and the runtime settings reference below.
 `memory.decision_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for decision-rerank documentation candidates.
 
+| Key | Bounds |
+|-----|--------|
+| `memory.dream_hygiene.stale_archive_cap` | integer from 0 to 500; default 20 |
+| `memory.dream_hygiene.merge_cap` | integer from 0 to 100; default 10 |
+
+`memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. The caps count archives and Dreamer merges per UTC day.
+
 The user-facing name of this model is the Supporter Agent; its token is set in Settings > Agents or with `codeterm mem decision token set`, never in `config.toml`.
 
 Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
@@ -230,4 +237,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

@@ -5,7 +5,7 @@ Optimizer (REM phase) prompt that runs as a periodic background worker
 to clean up the mem graph (decompose hub-and-spoke nodes, bridge
 disconnected islands, dedup entities).
 
-## What's covered (6 cases)
+## What's covered (7 cases)
 
 Stage A.1 — Hub decomposition:
 
@@ -37,7 +37,14 @@ Stage A.2 — Island bridging:
   single `relate` edge, not a fresh `introduce-topic` (which is for
   inventing new themed anchors).
 
-What's NOT covered yet (future): A.3 dedup pass, Stage B diary writing,
+Stage A.3 — Dedup:
+
+- **#7 content-duplicate-merges-reversibly-never-deletes** — two content
+  duplicates are resolved with one `mem merge` (keeper body carries both
+  facts, the lesser is archived and linked), never `mem delete`, and the
+  diary log names the merged pair.
+
+What's NOT covered yet (future): A.3 alias pass, Stage B diary writing,
 Stage C maintenance. Add cases as new failure modes show up.
 
 ## How to run
@@ -69,8 +76,8 @@ python .agents/skills/prompt-evaluator/runner.py \
   --only-id 1 --runs 1 --verbose
 ```
 
-A full 6-case × 3-run × 1-prompt sweep is ~90 LLM calls (18 sonnet +
-~72 haiku judges).
+A full 7-case × 3-run × 1-prompt sweep is ~105 LLM calls (21 sonnet +
+~84 haiku judges).
 
 ## Sandbox model
 

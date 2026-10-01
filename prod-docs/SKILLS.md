@@ -98,7 +98,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 28. **Memory pin / unpin**: `codeterm mem pin <id>` and `codeterm mem unpin <id>` toggle `is_pinned_wakeup` so the item is always loaded into the L1 wake-up payload (subject to budget). `codeterm mem pinned [--limit N]` lists every pinned item.
 29. **Atomic pinned save**: `codeterm mem save --kind fact --title "T" --pin --workspace $CODETERM_WORKSPACE_ID "<body>"` creates a pinned, workspace-scoped item in a single round-trip — no follow-up PATCH.
 30. **Workspace-aware wake-up**: `codeterm mem wake-up` inherits the calling tab's workspace, boosts items scoped there by `+0.5` in the L1 score, and admits them alongside global rows. Use `--workspace <id>` only to override the caller. Add `--explain` to append a per-item score breakdown for debugging selection.
-31. **Calibration audit / manual run**: `codeterm mem calibration log [--since ISO] [--limit N] [--count]` shows the dreamer's importance / archive sweep history. `codeterm mem calibration sweep [--force]` runs it manually — server-gated to Sunday unless `--force`, hard-capped at 30 mutations per session.
+31. **Calibration audit / manual run**: `codeterm mem calibration log [--since ISO] [--limit N] [--count]` shows the dreamer's importance / archive sweep history. `codeterm mem calibration sweep [--force]` runs it manually — server-gated to Sunday unless `--force`, hard-capped at 30 mutations per session. `codeterm mem calibration stale --dry-run` lists the year-untouched items the gated nightly stale archive would take, with reasons; `codeterm mem merge` and `codeterm mem restore` keep Dreamer dedup reversible.
 32. **Audit-trail actor**: `codeterm mem update <id> --changed-by <actor> ...` sets the `X-CodeTerm-Actor` header so `mem_item_history.changed_by` carries the actor label (e.g. `dreamer-calibration:promote`). Default is `"user"` when the flag is omitted.
 
 ## CLI Flags
@@ -187,4 +187,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->
