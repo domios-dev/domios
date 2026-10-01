@@ -82,10 +82,8 @@ pub(super) fn add_channel(
 }
 
 pub(super) fn list_channels() -> Result<serde_json::Value, String> {
-    let reg = read_channel_registry().unwrap_or_default();
-    let mut rows: Vec<ChannelListRow> = reg
-        .channels
-        .values()
+    let mut rows: Vec<ChannelListRow> = channels_view()
+        .into_iter()
         .map(|ch| ChannelListRow {
             name: ch.name.clone(),
             url: ch.url.clone(),
@@ -95,10 +93,6 @@ pub(super) fn list_channels() -> Result<serde_json::Value, String> {
             removable: ch.name != SYSTEM_CHANNEL_NAME && ch.name != DEFAULT_PLUGIN_CHANNEL_NAME,
         })
         .collect();
-    // before it has been registered/cloned.
-    if !rows.iter().any(|r| r.name == SYSTEM_CHANNEL_NAME) {
-        rows.push(virtual_system_channel());
-    }
     rows.sort_by(|a, b| {
         u8::from(b.system)
             .cmp(&u8::from(a.system))
@@ -107,34 +101,58 @@ pub(super) fn list_channels() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "channels": rows }))
 }
 
-pub(super) fn virtual_system_channel() -> ChannelListRow {
-    ChannelListRow {
-        name: SYSTEM_CHANNEL_NAME.to_string(),
-        url: system_channel_url(),
-        path: String::new(),
-        kind: ChannelKind::Git,
-        system: true,
-        removable: false,
+pub(super) fn channels_view() -> Vec<ChannelRecord> {
+    let mut channels: Vec<ChannelRecord> = read_channel_registry()
+        .unwrap_or_default()
+        .channels
+        .into_values()
+        .collect();
+    if !channels
+        .iter()
+        .any(|channel| channel.name == SYSTEM_CHANNEL_NAME)
+    {
+        channels.push(ChannelRecord {
+            name: SYSTEM_CHANNEL_NAME.to_string(),
+            url: system_channel_url(),
+            path: String::new(),
+            kind: ChannelKind::Git,
+        });
     }
+    channels.sort_by(|a, b| a.name.cmp(&b.name));
+    channels
 }
 
-pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
-    let reg = read_channel_registry().unwrap_or_default();
-    let channels: Vec<ChannelRecord> = reg
-        .channels
-        .values()
-        .filter(|ch| name.map(|n| n == ch.name).unwrap_or(true))
-        .cloned()
+fn selected_channels(name: Option<&str>) -> Result<Vec<ChannelRecord>, String> {
+    let channels: Vec<ChannelRecord> = channels_view()
+        .into_iter()
+        .filter(|channel| name.map(|name| name == channel.name).unwrap_or(true))
         .collect();
-    if let Some(name) = name {
-        if channels.is_empty() {
+    if channels.is_empty() {
+        if let Some(name) = name {
             return Err(format!("channel '{name}' not registered"));
         }
     }
+    Ok(channels)
+}
 
+fn materialize_view_channel(channel: &ChannelRecord) -> Result<ChannelRecord, String> {
+    if channel.name != SYSTEM_CHANNEL_NAME || !channel.path.is_empty() {
+        return Ok(channel.clone());
+    }
+    ensure_system_channel()?;
+    channels_view()
+        .into_iter()
+        .find(|registered| registered.name == SYSTEM_CHANNEL_NAME && !registered.path.is_empty())
+        .ok_or_else(|| "failed to register system plugin channel".to_string())
+}
+
+pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, String> {
+    let channels = selected_channels(name)?;
     let mut rows = Vec::new();
     for ch in channels {
-        match diff_channel_rows(&ch) {
+        let result =
+            materialize_view_channel(&ch).and_then(|registered| diff_channel_rows(&registered));
+        match result {
             Ok(mut channel_rows) => rows.append(&mut channel_rows),
             Err(err) => {
                 // One unreachable channel must not blank every other channel's plugins from
@@ -286,19 +304,10 @@ pub(super) fn remove_channel(name: &str, force: bool) -> Result<serde_json::Valu
 }
 
 pub(super) fn refresh_channel(name: Option<&str>) -> Result<(), String> {
-    let reg = read_channel_registry().unwrap_or_default();
-    if let Some(name) = name {
-        if !reg.channels.contains_key(name) {
-            return Err(format!("channel '{name}' not registered"));
-        }
-    }
-    for ch in reg.channels.values() {
-        if let Some(name) = name {
-            if ch.name != name {
-                continue;
-            }
-        }
-        if let Err(err) = refresh_channel_record(ch) {
+    for ch in selected_channels(name)? {
+        let result = materialize_view_channel(&ch)
+            .and_then(|registered| refresh_channel_record(&registered));
+        if let Err(err) = result {
             // Refreshing all channels: one unavailable channel must not abort the
             // refresh of the rest. Propagate only when a single channel was named.
             if name.is_some() {

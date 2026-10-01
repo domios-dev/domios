@@ -890,6 +890,7 @@ pub fn run() {
                     std::collections::HashSet::new(),
                 )),
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                stalled_team_nudges: Arc::new(Default::default()),
                 worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
                     crate::service::WorkerPersonaReservations::default(),
                 )),

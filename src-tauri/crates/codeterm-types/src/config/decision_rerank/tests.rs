@@ -5,6 +5,7 @@ use crate::config::schema::AppConfig;
 fn decision_rerank_defaults_off() {
     let cfg = DecisionRerankConfig::default();
     assert!(!cfg.enabled);
+    assert!(!cfg.docs_hybrid);
     assert_eq!(
         cfg.sources,
         DecisionSources {

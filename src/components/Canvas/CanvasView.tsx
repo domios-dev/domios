@@ -21,7 +21,7 @@ import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planTabMatch";
-import { useCanvasPlans } from "./PlansProvider";
+import { useCanvasPlans, usePlanDataContextKey } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
@@ -914,6 +914,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   );
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
+  const planDataContextKey = usePlanDataContextKey();
   const workspaceTarget = useCanvasWorkspaceTarget();
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
@@ -971,6 +972,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   );
   return (
     <PlanViewShell
+      key={planDataContextKey}
       mode={mode}
       plans={plans}
       loading={loading}

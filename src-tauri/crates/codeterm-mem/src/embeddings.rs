@@ -8,10 +8,13 @@
 //! When the feature is on:
 //! - sqlite-vec extension loaded into the existing knowledge.db connection
 //! - mem_vectors virtual table 1:1 with mem_items
-//! - fastembed-rs runs all-MiniLM-L6-v2 locally (384-dim, no API key)
+//! - fastembed-rs runs multilingual MiniLM locally (384-dim, no API key)
 //! - search formula: vector_dist × (1 − 0.30 × keyword_overlap) × (1 − temporal_boost)
 
 use serde::{Deserialize, Serialize};
+
+pub const EMBEDDER_MODEL_ID: &str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
+pub const EMBEDDING_DIMENSION: usize = 384;
 
 #[doc(hidden)]
 pub const EMBED_CHILD_CALL_BUDGET: u64 = 8;
@@ -29,8 +32,8 @@ impl Default for EmbeddingsConfig {
         Self {
             enabled: false,
             provider: "local".into(),
-            model: "all-MiniLM-L6-v2".into(),
-            dimension: 384,
+            model: EMBEDDER_MODEL_ID.into(),
+            dimension: EMBEDDING_DIMENSION,
         }
     }
 }

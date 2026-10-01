@@ -39,10 +39,8 @@ requiring `plan rebind`.
 
 It stops at execution. A Planner is refused for `status`, `status_label`, `lane`,
 `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`,
-`review_stage` and `qa_state`, and it may not assign, dispatch or approve. The
-list is `PLANNER_EXECUTION_FIELDS` in `service/plan_authority.rs`, and both the
-owner-epoch seam and the `plan.task.update` handler bound the Planner by that one
-list, so widening either cannot widen what a Planner may write.
+`review_stage` and `qa_state`, and it may not assign, dispatch or approve. One field list bounds
+the Planner on every write path.
 
 Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner`
 when the caller holds no authority over the task at all, and a `-32003`
@@ -237,4 +235,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

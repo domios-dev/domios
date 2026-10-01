@@ -29,5 +29,15 @@ console.log("memoryGraphTheme tests");
   assert("dark theme labels use foreground", palette.labelColor === "#c9d1d9");
 }
 
+{
+  const palette = deriveMemoryGraphPalette("#0d1117", "#c9d1d9");
+  assert(
+    "edge colors are premultiplied for sigma's blending",
+    palette.edgeColor(0.5) === "rgba(101,105,109,0.5)",
+    palette.edgeColor(0.5),
+  );
+  assert("an opaque edge keeps the foreground", palette.edgeColor(1) === "rgba(201,209,217,1)");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);

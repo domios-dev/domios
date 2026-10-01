@@ -216,6 +216,10 @@ const STOP_WORDS: &[&str] = &[
     "сделал",
 ];
 
+pub fn is_stop_word(term: &str) -> bool {
+    STOP_WORDS.contains(&term)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchQuery {
     pub query: String,

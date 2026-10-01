@@ -965,25 +965,17 @@ impl ServiceContext {
         );
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
-            // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self
                 .workers
                 .get(worker_id)
                 .map(|w| w.intent.clone())
                 .unwrap_or_default();
-            let dreaming = crate::mem::workers::is_dreaming_intent(&intent);
-            let timeout = if dreaming {
-                mem_cfg.dreaming_timeout_seconds
-            } else {
-                mem_cfg.worker_timeout_seconds
-            };
-            // diagnosed: either intent lookup returned empty, or is_dreaming_intent didn't match.
+            let timeout = crate::mem::worker_deadline::worker_deadline_secs(&intent, &mem_cfg);
             log::info!(
-                "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
+                "[run-watcher] register worker={} intent='{}' timeout={}s",
                 worker_id,
                 intent,
-                dreaming,
                 timeout
             );
             self.run_watcher.register(

@@ -37,7 +37,7 @@ skills/codeterm/
 docs/                            Embedded docs, read on demand via `codeterm docs <NAME>`
 ```
 
-The layout is an excerpt; the complete prompt inventory is the table in `prod-docs/PROMPTS.md`.
+The layout is an excerpt; the complete prompt inventory is the table in [inventory.md](inventory.md); progressive-disclosure tiers are in [tiers.md](tiers.md). Neither is embedded in the binary: they describe CodeTerm's own source, which a production agent cannot edit.
 
 ## Compile and substitution flow
 
@@ -123,7 +123,7 @@ When you're about to add or move a piece of prompt content, ask:
    ```rust
    doc!("TOPIC", "What the playbook is for", "../../../prod-docs/TOPIC.md"),
    ```
-   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. The membership test rejects unregistered files in `prod-docs/`.
+   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. A doc about CodeTerm's own source (prompt files, loaders, detection internals) is never embedded: a production agent cannot edit the binary. The membership test rejects unregistered files in `prod-docs/`.
 3. Mention it in `general_agent.md` under the **Operational playbooks** section so the GA knows it exists. One line — name + when to use it.
 4. Bump `<!-- revision: N -->` at the end of the playbook on every meaningful edit.
 
@@ -131,7 +131,7 @@ When you're about to add or move a piece of prompt content, ask:
 
 1. Put it in `src-tauri/prompts/` and load it with `include_str!()` in the owning loader.
 2. Add its filename to the list in `every_prompt_md_has_a_loader` (`src-tauri/src/prompts/tests.rs`); an unlisted file fails as an orphan.
-3. Add its row to the prompt table in `prod-docs/PROMPTS.md`; `scripts/check-prompts-doc.sh` rejects a prompt file missing from it.
+3. Add its row to the prompt table in `.agents/skills/prompts/inventory.md`; `scripts/check-prompts-doc.sh` rejects a prompt file missing from it.
 
 ## Adding a new mem worker prompt
 
@@ -142,3 +142,70 @@ Mem workers (extraction, rerank, dream) are headless — they don't share contex
 Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revision: N -->` line at the bottom. Bump it on every change. The skill seeder uses revision tags to decide whether to overwrite a stale copy in data-dir.
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
+
+## Role preset composition
+
+Which suffix a launch gets is decided by one resolver and one composition table,
+never by a role literal: `service/role_preset.rs` resolves `(role, role_profile)`
+to a `RolePreset`, and `service/persona/occasion.rs` places its fragments per
+delivery occasion. Task personality, `role_guidance`, and `executor_role` enter
+as that preset's task overlay, so a Worker subtype and a Manager kind compose the
+same way. The full prompt file inventory is [inventory.md](inventory.md).
+
+## Skill seeding, rendering and mirroring
+
+Moved from the embedded `SKILLS` doc.
+
+### Installation from a checkout
+
+CodeTerm installs the `codeterm` skill itself on every start — a manual copy is
+only for a checkout you are not running. See *Seeding, rendering and mirroring*
+below for what the app does.
+
+```bash
+cp -r skills/codeterm ~/.claude/skills/
+```
+
+Or symlink:
+```bash
+ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
+```
+
+### Seeding, rendering and mirroring
+
+`commands/skills.rs` owns three steps, all on startup:
+
+1. **Seed** — bundled `skills/<id>/` → the canonical dir
+   (`<data_dir>/skills/<id>/`), whole directory, `references/` included.
+2. **Render** — the `codeterm` skill declares placeholders filled from the
+   in-binary prompt constants, so the skill and the General Agent prompt share
+   one source instead of two drifting copies:
+
+   | Placeholder | Source constant | Prompt file |
+   |---|---|---|
+   | `{codeterm_cli}` | `CODETERM_CLI` | `src-tauri/prompts/codeterm_cli.md` |
+   | `{agent_pad_rule}` | `AGENT_PAD_RULE` | `src-tauri/prompts/agent_pad_rule.md` |
+
+   Adding a fragment to the skill means adding a placeholder plus a render-map
+   entry — never pasting the text into `SKILL.md`. Rendering happens on copy, so
+   the canonical and provider copies are post-render.
+3. **Mirror** — canonical `codeterm` → `~/.claude/skills/` and
+   `~/.agents/skills/`. Provider dirs hold exactly `{codeterm}`; every other
+   entry is pruned. All other skills stay canonical-only and are discovered
+   through `codeterm mem search`.
+
+**The install gate is content, directory-scoped and render-aware.** Both the seed
+and the mirror copy when the destination is missing or differs from the *rendered*
+source anywhere in the skill directory — an edited `references/` file counts, and a
+changed prompt constant reinstalls at the same revision. Comparing raw bundled
+bytes would be permanently unequal (source pre-render, destination post-render),
+which silently degrades the gate to always-true.
+
+`<!-- revision: N -->` at the bottom of `SKILL.md` is a **never-downgrade guard
+only**: a destination declaring a strictly newer revision is left alone. It is not
+the copy decision, so bumping it is not how you ship an edit — though you should
+still bump it when you change the file.
+
+Every agent's own pad rule (write payloads to the pad, pass `--from-pad`) reaches
+spawned agents through their launch prompt and reaches skill readers through
+`{agent_pad_rule}`.

@@ -218,4 +218,85 @@ async function incompleteOnPageKeepsOneCount() {
   console.log("✓ a page-scoped incompleteness flag never adds a second count");
 }
 
-void main().then(incompleteOnPageKeepsOneCount);
+// The modal's summary is the report of the run that wrote this diary, joined by diary id.
+async function openedDreamShowsItsRunReport() {
+  setupDom();
+  __setListenForTest(async () => () => {});
+  const diaryId = DIARY_RESPONSE.items[0].id;
+  const workers = [
+    {
+      worker_id: "gw_other",
+      tab_id: null,
+      intent: "dreaming:rem",
+      spawned_by: "system:dreaming",
+      spawned_at: 2,
+      status: "done",
+      progress_text: null,
+      touched_nodes: [],
+      color: "#fff",
+      report: "foreign-report-token",
+      done_at: 3,
+      diary_id: "daily_dream_other",
+    },
+    {
+      worker_id: "gw_owner",
+      tab_id: null,
+      intent: "dreaming:rem",
+      spawned_by: "system:dreaming",
+      spawned_at: 1,
+      status: "done",
+      progress_text: null,
+      touched_nodes: [],
+      color: "#fff",
+      report: "owner-report-token",
+      done_at: 2,
+      diary_id: diaryId,
+    },
+  ];
+
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = String(url);
+    if (u.includes("/api/mem/dream/diary")) {
+      return { ok: true, json: async () => DIARY_RESPONSE } as Response;
+    }
+    if (u.includes("/api/crons")) {
+      return { ok: true, json: async () => CRONS_RESPONSE } as Response;
+    }
+    if (u.includes("/api/mem/workers")) {
+      return { ok: true, json: async () => workers } as Response;
+    }
+    return { ok: true, json: async () => ({}) } as Response;
+  }) as typeof fetch;
+
+  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+
+  await act(async () => {
+    root.render(<MemoryDreamsTab api={api} />);
+  });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+  const card = host.querySelector<HTMLElement>('[data-testid="memory-dream-card"]');
+  assert(card, "the diary card must render");
+  await act(async () => { card.click(); });
+
+  const modal = document.querySelector('[data-testid="memory-dream-modal"]');
+  assert(modal, "clicking a card must open its detail modal");
+  assert(!modal.querySelector('[data-testid="memory-dream-log-toggle"]'), "the log toggle is gone");
+  const summary = modal.querySelector('[data-testid="memory-dream-summary"]');
+  assert(summary, "the opened dream must show its run summary");
+  assert(summary.getAttribute("data-summary-source") === "report", "the run report is the source");
+  assert(
+    summary.textContent === "owner-report-token",
+    `the summary must be this diary's run report: ${summary.textContent}`,
+  );
+  assert(!!modal.querySelector('[data-testid="memory-dream-copy-raw"]'), "copy-raw stays available");
+
+  await act(async () => root.unmount());
+  __setListenForTest(null);
+  console.log("✓ an opened dream shows the report of the run that wrote it");
+}
+
+void main().then(incompleteOnPageKeepsOneCount).then(openedDreamShowsItsRunReport);

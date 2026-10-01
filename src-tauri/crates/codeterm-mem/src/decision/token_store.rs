@@ -3,6 +3,9 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+#[cfg(windows)]
+mod windows;
+
 #[derive(Clone)]
 pub struct ApiToken(String);
 
@@ -64,7 +67,8 @@ impl TokenStore {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&self.base_dir, fs::Permissions::from_mode(0o700))?;
         }
-        // Windows per-user data directory ACL confines the token file.
+        #[cfg(windows)]
+        windows::restrict(&self.base_dir)?;
         let target = self.path(adapter_id);
         let temp = target.with_file_name(format!(
             ".{}.{}.tmp",
@@ -85,6 +89,8 @@ impl TokenStore {
             )?;
             file.flush()?;
             file.sync_all()?;
+            #[cfg(windows)]
+            windows::restrict(&temp)?;
             fs::rename(&temp, &target)?;
             Ok(())
         })();
@@ -116,7 +122,9 @@ impl TokenStore {
                 .as_ref()
                 .map(|m| m.permissions().mode() & 0o777 == 0o600)
         };
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let mode_ok = windows::mode_ok(&path).ok();
+        #[cfg(all(not(unix), not(windows)))]
         let mode_ok = None;
         Ok(TokenStatus {
             present: metadata.is_some(),

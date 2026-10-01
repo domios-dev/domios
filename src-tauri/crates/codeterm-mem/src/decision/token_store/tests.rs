@@ -29,6 +29,38 @@ fn token_store_set_creates_0600_file() {
     assert!(store.load("typesafe-jev").unwrap().unwrap().expose() == TOKEN);
 }
 
+#[cfg(windows)]
+#[test]
+fn token_store_windows_dacl_is_current_user_only() {
+    let (_dir, store) = store();
+    store.set("typesafe-jev", TOKEN).unwrap();
+
+    assert!(super::windows::mode_ok(&store.path("typesafe-jev")).unwrap());
+    assert!(super::windows::mode_ok(&store.base_dir).unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn token_store_windows_status_detects_extra_ace() {
+    let (_dir, store) = store();
+    store.set("typesafe-jev", TOKEN).unwrap();
+    super::windows::add_deny_ace_for_test(&store.path("typesafe-jev")).unwrap();
+
+    assert_eq!(store.status("typesafe-jev").unwrap().mode_ok, Some(false));
+}
+
+#[cfg(windows)]
+#[test]
+fn token_store_windows_status_read_failure_is_none() {
+    let (_dir, store) = store();
+    let path = store.path("missing-adapter");
+
+    assert!(super::windows::mode_ok(&path).is_err());
+    let status = store.status("missing-adapter").unwrap();
+    assert!(!status.present);
+    assert_eq!(status.mode_ok, None);
+}
+
 #[test]
 fn token_store_clear_removes_file() {
     let (_dir, store) = store();
@@ -48,7 +80,9 @@ fn token_store_status_reports_presence_without_value() {
     assert!(!format!("{status:?}").contains(TOKEN));
     #[cfg(unix)]
     assert_eq!(status.mode_ok, Some(true));
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    assert_eq!(status.mode_ok, Some(true));
+    #[cfg(all(not(unix), not(windows)))]
     assert_eq!(status.mode_ok, None);
 }
 

@@ -332,3 +332,29 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         stats,
     })
 }
+
+/// Ids of dream diaries (kind `daily`, tagged `dream-diary`) created at or
+/// after `since_ms`, newest first. Timestamps are compared parsed, not as text.
+pub fn dream_diaries_since(conn: &Connection, since_ms: u64) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, created_at FROM mem_items
+             WHERE kind = 'daily' AND tags_json LIKE '%\"dream-diary\"%'
+             ORDER BY created_at DESC, id DESC LIMIT 50",
+        )
+        .map_err(|e| format!("prepare dream diaries: {}", e))?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| format!("query dream diaries: {}", e))?;
+    let mut ids = Vec::new();
+    for row in rows {
+        let (id, created_at) = row.map_err(|e| format!("read dream diary: {}", e))?;
+        let created_ms = chrono::DateTime::parse_from_rfc3339(&created_at)
+            .map(|at| at.timestamp_millis())
+            .unwrap_or(i64::MIN);
+        if created_ms >= since_ms as i64 {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}

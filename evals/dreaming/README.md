@@ -5,7 +5,7 @@ Optimizer (REM phase) prompt that runs as a periodic background worker
 to clean up the mem graph (decompose hub-and-spoke nodes, bridge
 disconnected islands, dedup entities).
 
-## What's covered (5 cases)
+## What's covered (7 cases)
 
 Stage A.1 — Hub decomposition:
 
@@ -22,6 +22,14 @@ Stage A.1 — Hub decomposition:
   edges are `extracted_from` provenance pointers is a valid SKIP, with
   reason "popular source, not a structural hub".
 
+- **#6 hub-clusters-drive-introduce-topic-no-scripts** — given the real
+  `mem graph hubs --limit` shape, the agent turns each `clusters` entry into
+  one `introduce-topic` call (suggested topic, type and members verbatim),
+  leaves the `excluded` dreams anchor alone, and processes the JSON without
+  any script, pipe or temp file. Real failure: five nights timed out at
+  1800 s because an ad-hoc `python3`/heredoc hub analysis sat on an approval
+  prompt nobody could answer in the hidden tab.
+
 Stage A.2 — Island bridging:
 
 - **#5 island-existing-anchor-relate-not-introduce** — when the
@@ -29,7 +37,14 @@ Stage A.2 — Island bridging:
   single `relate` edge, not a fresh `introduce-topic` (which is for
   inventing new themed anchors).
 
-What's NOT covered yet (future): A.3 dedup pass, Stage B diary writing,
+Stage A.3 — Dedup:
+
+- **#7 content-duplicate-merges-reversibly-never-deletes** — two content
+  duplicates are resolved with one `mem merge` (keeper body carries both
+  facts, the lesser is archived and linked), never `mem delete`, and the
+  diary log names the merged pair.
+
+What's NOT covered yet (future): A.3 alias pass, Stage B diary writing,
 Stage C maintenance. Add cases as new failure modes show up.
 
 ## How to run
@@ -61,8 +76,8 @@ python .agents/skills/prompt-evaluator/runner.py \
   --only-id 1 --runs 1 --verbose
 ```
 
-A full 5-case × 3-run × 1-prompt sweep is ~75 LLM calls (15 sonnet +
-~60 haiku judges).
+A full 7-case × 3-run × 1-prompt sweep is ~105 LLM calls (21 sonnet +
+~84 haiku judges).
 
 ## Sandbox model
 

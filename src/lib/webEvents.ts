@@ -54,10 +54,14 @@ export const RESYNC_EVENTS = [
 
 function readCursor(): string | null {
   try {
-    return sessionStorage.getItem(CURSOR_KEY);
+    return sessionStorage.getItem(cursorKey());
   } catch {
     return null;
   }
+}
+
+function cursorKey(): string {
+  return `${CURSOR_KEY}:${apiHost()}:${relayTarget()?.id ?? "self"}`;
 }
 
 let cursor: string | null = readCursor();
@@ -67,7 +71,7 @@ const seqGaps = createSeqGapTracker();
 function saveCursor(next: string): void {
   cursor = next;
   try {
-    sessionStorage.setItem(CURSOR_KEY, next);
+    sessionStorage.setItem(cursorKey(), next);
   } catch {
     /* storage unavailable (private mode) — memory-only cursor still works */
   }
@@ -158,6 +162,7 @@ async function runStream(): Promise<void> {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: abort.signal,
       });
+      if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       if (reconnecting) window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
       backoffMs = 1_000;
@@ -166,6 +171,7 @@ async function runStream(): Promise<void> {
       let buf = "";
       for (;;) {
         const { done, value } = await reader.read();
+        if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
         if (done) break;
         lastFrameAt = Date.now();
         buf += decoder.decode(value, { stream: true });
@@ -240,6 +246,7 @@ export function webListen(event: string, handler: Handler): () => void {
  * current apiHost automatically, replaying from the last cursor. */
 export function resetWebEvents(): void {
   seqGaps.reset();
+  cursor = readCursor();
   if (watchdogTimer) {
     clearInterval(watchdogTimer);
     watchdogTimer = null;

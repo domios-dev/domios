@@ -1,11 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 
+mod vectors;
+
 #[derive(Debug, Clone, PartialEq)]
 struct DocSection {
     doc_name: &'static str,
     section_title: String,
     anchor: String,
+    heading_path: Vec<String>,
     text: String,
 }
 
@@ -64,11 +67,8 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "MEMORY-SERVICES",
     "MEMORY-USAGE",
     "HTML",
-    "PROMPTS",
-    "PROMPT-TIERS",
     "SKILLS",
     "AGENT-CONTROL",
-    "PROMPT-DETECTION",
     "TELEGRAM-SETUP",
     "SECRETS",
     "ROUTING",
@@ -180,22 +180,44 @@ impl Index {
     }
 }
 
-static INDEX: OnceLock<Index> = OnceLock::new();
+fn corpus_sections() -> &'static [DocSection] {
+    static SECTIONS: OnceLock<Vec<DocSection>> = OnceLock::new();
+    SECTIONS.get_or_init(|| {
+        DOCS.iter()
+            .flat_map(|doc| chunks_for_document(doc.name, doc.body))
+            .chain(chunks_for_cli_reference(CLI_REFERENCE))
+            .collect()
+    })
+}
+
+fn index() -> &'static Index {
+    static INDEX: OnceLock<Index> = OnceLock::new();
+    INDEX.get_or_init(|| Index::from_sections(corpus_sections().to_vec()))
+}
 
 pub fn search(query: &str, limit: usize) -> Vec<DocCandidate> {
     if limit == 0 {
         return Vec::new();
     }
-    INDEX
-        .get_or_init(|| {
-            Index::from_sections(
-                DOCS.iter()
-                    .flat_map(|doc| chunks_for_document(doc.name, doc.body))
-                    .chain(chunks_for_cli_reference(CLI_REFERENCE))
-                    .collect(),
-            )
-        })
-        .search(query, limit)
+    index().search(query, limit)
+}
+
+pub fn search_with_hybrid(query: &str, limit: usize, enabled: bool) -> Vec<DocCandidate> {
+    if !enabled || limit == 0 {
+        return search(query, limit);
+    }
+    let Some(vectors) = vectors::ready_vectors() else {
+        return search(query, limit);
+    };
+    vectors::hybrid_search(index(), query, limit, &vectors, &crate::embeddings::embed)
+}
+
+pub(crate) fn start_background_build(data_dir: &std::path::Path) {
+    vectors::start_background_build(data_dir);
+}
+
+pub fn prepare_hybrid_for_benchmark(data_dir: &std::path::Path) -> bool {
+    vectors::prepare_for_benchmark(data_dir, corpus_sections())
 }
 
 fn chunks_for_document(doc_name: &'static str, body: &str) -> Vec<DocSection> {
@@ -228,6 +250,8 @@ fn chunks_for_headings(
 ) -> Vec<DocSection> {
     let mut sections = Vec::new();
     let mut heading: Option<String> = None;
+    let mut heading_path = Vec::<(usize, String)>::new();
+    let mut section_path = Vec::<String>::new();
     let mut lines = Vec::new();
     let mut anchors = HashMap::<String, usize>::new();
     let mut fence: Option<(char, usize)> = None;
@@ -244,31 +268,65 @@ fn chunks_for_headings(
             fence = Some((marker, count));
             continue;
         }
-        if let Some(title) = section_heading(line, min_level, max_level) {
+        if let Some((level, raw_title)) = parsed_heading(line) {
+            let selected = (min_level..=max_level).contains(&level);
+            let title = raw_title;
             let title = if trim_code_ticks {
                 title.trim_start_matches('`').trim_end_matches('`')
             } else {
                 title
             };
-            if let Some(previous) = heading.replace(title.to_string()) {
-                push_section(doc_name, previous, &mut lines, &mut anchors, &mut sections);
-            } else if !keep_preamble {
-                lines.clear();
+            if selected {
+                if let Some(previous) = heading.take() {
+                    push_section(
+                        doc_name,
+                        previous,
+                        &section_path,
+                        &mut lines,
+                        &mut anchors,
+                        &mut sections,
+                    );
+                } else if !keep_preamble {
+                    lines.clear();
+                }
+                update_heading_path(&mut heading_path, level, title);
+                section_path = heading_path
+                    .iter()
+                    .map(|(_, title)| title.clone())
+                    .collect();
+                heading = Some(title.to_string());
+                continue;
             }
-            continue;
+            update_heading_path(&mut heading_path, level, title);
         }
         if keep_preamble || heading.is_some() {
             lines.push(line);
         }
     }
     if let Some(title) = heading {
-        push_section(doc_name, title, &mut lines, &mut anchors, &mut sections);
+        push_section(
+            doc_name,
+            title,
+            &section_path,
+            &mut lines,
+            &mut anchors,
+            &mut sections,
+        );
     } else if !lines.iter().all(|line| line.trim().is_empty()) {
         let text = lines.join("\n").trim().to_string();
+        let heading_path = if heading_path.is_empty() {
+            vec!["Overview".into()]
+        } else {
+            heading_path
+                .iter()
+                .map(|(_, title)| title.clone())
+                .collect()
+        };
         sections.push(DocSection {
             doc_name,
             section_title: "Overview".into(),
             anchor: slug(doc_name),
+            heading_path,
             text,
         });
     }
@@ -278,6 +336,7 @@ fn chunks_for_headings(
 fn push_section(
     doc_name: &'static str,
     title: String,
+    heading_path: &[String],
     lines: &mut Vec<&str>,
     anchors: &mut HashMap<String, usize>,
     sections: &mut Vec<DocSection>,
@@ -298,17 +357,23 @@ fn push_section(
         doc_name,
         section_title: title,
         anchor,
+        heading_path: heading_path.to_vec(),
         text,
     });
 }
 
-fn section_heading(line: &str, min_level: usize, max_level: usize) -> Option<&str> {
+fn update_heading_path(path: &mut Vec<(usize, String)>, level: usize, title: &str) {
+    path.retain(|(existing_level, _)| *existing_level < level);
+    path.push((level, title.to_string()));
+}
+
+fn parsed_heading(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_start();
     let level = trimmed.chars().take_while(|ch| *ch == '#').count();
-    if !(min_level..=max_level).contains(&level) || trimmed.as_bytes().get(level) != Some(&b' ') {
+    if !(1..=6).contains(&level) || trimmed.as_bytes().get(level) != Some(&b' ') {
         return None;
     }
-    Some(trimmed[level..].trim().trim_end_matches('#').trim())
+    Some((level, trimmed[level..].trim().trim_end_matches('#').trim()))
 }
 
 fn opens_fence(line: &str) -> Option<(char, usize)> {
@@ -389,10 +454,22 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.len(), 3);
         assert_eq!(first[0].section_title, "First section");
+        assert_eq!(
+            first[0].heading_path,
+            vec!["Guide".to_string(), "First section".to_string()]
+        );
         assert_eq!(first[0].anchor, "first-section");
         assert!(first[0].text.contains("Overview text."));
         assert!(first[0].text.contains("## Not a section"));
         assert_eq!(first[1].section_title, "Nested section");
+        assert_eq!(
+            first[1].heading_path,
+            vec![
+                "Guide".to_string(),
+                "First section".to_string(),
+                "Nested section".to_string()
+            ]
+        );
         assert_eq!(first[2].anchor, "first-section-1");
     }
 
@@ -403,12 +480,14 @@ mod tests {
                 doc_name: "CONFIG",
                 section_title: "Secrets and unlock".into(),
                 anchor: "secrets-and-unlock".into(),
+                heading_path: vec!["Secrets and unlock".into()],
                 text: "The vault secret is unlocked with the stored key.".into(),
             },
             DocSection {
                 doc_name: "MEMORY",
                 section_title: "Search memory".into(),
                 anchor: "search-memory".into(),
+                heading_path: vec!["Search memory".into()],
                 text: "Memory candidates are recalled from the database.".into(),
             },
         ]);
@@ -418,6 +497,20 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].doc_name, "CONFIG");
         assert_eq!(result[0].anchor, "secrets-and-unlock");
+    }
+
+    #[test]
+    fn docs_vectors_flag_off_is_bm25_identical() {
+        for query in [
+            "codeterm sessions search",
+            "secret unlock",
+            "unmatched query",
+        ] {
+            assert_eq!(
+                super::search_with_hybrid(query, 5, false),
+                super::search(query, 5)
+            );
+        }
     }
 
     #[test]

@@ -80,3 +80,40 @@ pub fn diary_record_state(svc: &ServiceContext, diary_id: &str, body: &str) -> D
     let live_owner = svc.workers.live_owner_of_diary(diary_id);
     codeterm_mem::dream_status::classify_diary_record(&evidence, live_owner.as_deref())
 }
+
+/// Finalize a deadline-ended dreaming run host-side; a no-op for other workers.
+/// Blocking store IO: call it off the async runtime.
+pub fn finalize_dream_at_deadline(svc: &ServiceContext, worker_id: &str, detail: &str) {
+    let dreaming = svc
+        .workers
+        .get(worker_id)
+        .is_some_and(|w| crate::mem::workers::is_dreaming_intent(&w.intent));
+    if !dreaming {
+        return;
+    }
+    let reason = if detail == codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON {
+        codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON
+    } else {
+        codeterm_mem::dream_status::deadline::DEADLINE_REASON
+    };
+    match codeterm_mem::dream_status::deadline::finalize_at_deadline_with_reason(
+        &svc.mem,
+        &svc.workers,
+        worker_id,
+        detail,
+        reason,
+    ) {
+        Ok(outcome) => log::info!(
+            "[dreaming] deadline finalization for {}: diary={:?} rewritten={} recorded={}",
+            worker_id,
+            outcome.diary_id,
+            outcome.diary_rewritten,
+            outcome.finalization_recorded
+        ),
+        Err(error) => log::warn!(
+            "[dreaming] deadline finalization failed for {}: {}",
+            worker_id,
+            error
+        ),
+    }
+}

@@ -1,54 +1,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HelpSectionId } from "../../help/types";
 import type { MemoryConfig } from "../../lib/types";
 import { DecisionRerankCard } from "./DecisionRerankCard";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const API = "http://127.0.0.1:7686";
-const AUTH = { Authorization: "Bearer bearer-fixture" };
-const TOKEN = "tok-SECRET-4f9c2d";
-const ADAPTER = "typesafe-jev";
-
-interface Call {
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  body: unknown;
-}
-
 let host: HTMLElement;
 let root: Root;
-let calls: Call[];
-let statusBody: unknown;
-let writeStatus: number;
-let writeRejects: boolean;
-
-function statusFixture(present: boolean, modeOk: boolean | null = true, registered = true) {
-  return {
-    config: { token: TOKEN },
-    adapter_registered: registered,
-    adapters: [{ id: ADAPTER, token: { adapter: ADAPTER, present, path: "/x/y.json", mode_ok: modeOk } }],
-  };
-}
-
-function installFetch() {
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const method = init?.method ?? "GET";
-    calls.push({
-      method,
-      url: String(input),
-      headers: { ...(init?.headers as Record<string, string> | undefined) },
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
-    });
-    if (method !== "GET" && writeRejects) throw new Error("network down");
-    const isWrite = method !== "GET";
-    const body = isWrite ? { adapter: ADAPTER, present: true, token: TOKEN } : statusBody;
-    return { ok: !isWrite || writeStatus < 400, status: isWrite ? writeStatus : 200, json: async () => body } as Response;
-  }) as typeof fetch;
-}
+let fetchCalls: number;
 
 function mem(over: Partial<MemoryConfig> = {}): MemoryConfig {
   return {
@@ -58,28 +18,18 @@ function mem(over: Partial<MemoryConfig> = {}): MemoryConfig {
   };
 }
 
-async function render(m: MemoryConfig = mem(), onUpdate: (...a: unknown[]) => void = () => {}, onOpenGuide: (section: HelpSectionId) => void = () => {}) {
+async function render(m: MemoryConfig = mem(), onUpdate: (...a: unknown[]) => void = () => {}, onOpenAgentsSettings: () => void = () => {}) {
   await act(async () => {
-    root.render(<DecisionRerankCard mem={m} onUpdate={onUpdate as never} onOpenGuide={onOpenGuide} apiBase={API} apiHeaders={AUTH} />);
-  });
-}
-
-const q = <T extends Element = HTMLElement>(id: string) => host.querySelector<T>(`[data-testid="${id}"]`);
-const input = () => q<HTMLInputElement>("decision-rerank-token-input")!;
-
-async function typeAndSubmit(value: string) {
-  input().value = value;
-  await act(async () => {
-    q<HTMLFormElement>("decision-rerank-token-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    root.render(<DecisionRerankCard mem={m} onUpdate={onUpdate as never} onOpenAgentsSettings={onOpenAgentsSettings} />);
   });
 }
 
 beforeEach(() => {
-  calls = [];
-  statusBody = statusFixture(false);
-  writeStatus = 200;
-  writeRejects = false;
-  installFetch();
+  fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("the re-rank card must not fetch");
+  }) as typeof fetch;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -105,119 +55,20 @@ describe("DecisionRerankCard", () => {
     expect(updates[0][1]).toEqual({ ...mem({ decision_rerank: decision }), decision_rerank: { ...decision, enabled: true } });
   });
 
-  it("token_input_is_write_only", async () => {
-    await render();
-    expect(input().type).toBe("password");
-    expect(input().value).toBe("");
-    expect(input().autocomplete).toBe("off");
-
-    await typeAndSubmit(TOKEN);
-    expect(input().value).toBe("");
-
-    writeRejects = true;
-    await typeAndSubmit(TOKEN);
-    expect(input().value).toBe("");
-
-    writeRejects = false;
-    writeStatus = 500;
-    await typeAndSubmit(TOKEN);
-    expect(input().value).toBe("");
-    expect(host.innerHTML).not.toContain(TOKEN);
-  });
-
-  it("submit_posts_and_refreshes_status", async () => {
-    await render();
-    calls.length = 0;
-    await typeAndSubmit(TOKEN);
-    expect(calls).toHaveLength(2);
-    expect(calls[0].method).toBe("POST");
-    expect(calls[0].url).toBe(`${API}/api/mem/decision/token`);
-    expect(calls[0].headers).toMatchObject({ ...AUTH, "Content-Type": "application/json" });
-    expect(Object.keys(calls[0].body as object).sort()).toEqual(["adapter", "token"]);
-    expect(calls[0].body).toEqual({ adapter: ADAPTER, token: TOKEN });
-    expect(calls[1].method).toBe("GET");
-    expect(calls[1].url).toBe(`${API}/api/mem/decision/status`);
-    expect(calls[1].headers).toMatchObject(AUTH);
-  });
-
-  it("clear_deletes_and_refreshes_status", async () => {
-    await render(mem({ decision_rerank: { adapter: "a b/c" } as never }));
-    calls.length = 0;
-    await act(async () => q<HTMLButtonElement>("decision-rerank-token-clear")!.click());
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      `DELETE ${API}/api/mem/decision/token?adapter=a%20b%2Fc`,
-      `GET ${API}/api/mem/decision/status`,
-    ]);
-    expect(calls[0].headers).toMatchObject(AUTH);
-  });
-
-  it("status_renders_set_and_not_set", async () => {
-    await render();
-    expect(q("decision-rerank-token-state")!.textContent).toBe("not set");
-    expect(q("decision-rerank-mode-warning")).toBeNull();
-
-    statusBody = statusFixture(true, false, false);
-    await act(async () => q<HTMLButtonElement>("decision-rerank-token-clear")!.click());
-    expect(q("decision-rerank-token-state")!.textContent).toBe("set");
-    expect(q("decision-rerank-mode-warning")).not.toBeNull();
-    expect(q("decision-rerank-adapter-missing")).not.toBeNull();
-    expect(host.innerHTML).not.toContain(TOKEN);
-  });
-
-  it.each([
-    ["absent file, mode unknown", false, null, false],
-    ["present, mode unknown (non-Unix)", true, null, false],
-    ["present, mode not owner-only", true, false, true],
-  ] as const)("mode_warning: %s", async (_name, present, modeOk, warns) => {
-    statusBody = statusFixture(present, modeOk);
-    await render();
-    expect(q("decision-rerank-token-state")!.textContent).toBe(present ? "set" : "not set");
-    expect(q("decision-rerank-mode-warning") !== null).toBe(warns);
-  });
-
-  it("token_never_logged_or_rendered", async () => {
-    const spies = (["log", "info", "warn", "error", "debug"] as const).map((k) => vi.spyOn(console, k).mockImplementation(() => {}));
-    await render();
-    await typeAndSubmit(TOKEN);
-    writeRejects = true;
-    await typeAndSubmit(TOKEN);
-    for (const spy of spies) {
-      expect(JSON.stringify(spy.mock.calls)).not.toContain(TOKEN);
-    }
-    expect(document.body.innerHTML).not.toContain(TOKEN);
-    expect(host.querySelector('[value*="SECRET"]')).toBeNull();
-  });
-
-  it("help_links_present", async () => {
-    await render();
-    const help = q("decision-rerank-help")!;
-    const hrefs = Array.from(help.querySelectorAll("a")).map((a) => a.getAttribute("href"));
-    expect(hrefs).toEqual(["https://docs.typesafe.ai", "https://console.typesafe.ai/keys"]);
-  });
-
-  it("guide_link_opens_decision_rerank_section", async () => {
-    const onOpenGuide = vi.fn();
-    await render(mem(), () => {}, onOpenGuide);
-    await act(async () => q<HTMLButtonElement>("decision-rerank-guide-link")!.click());
-    expect(onOpenGuide).toHaveBeenCalledTimes(1);
-    expect(onOpenGuide).toHaveBeenCalledWith("decision-rerank");
-  });
-
-  it("accessible_names_and_focus_order", async () => {
-    await render();
+  it("rerank_card_has_toggle_and_agents_link_only", async () => {
+    const onOpenAgentsSettings = vi.fn();
+    await render(mem(), () => {}, onOpenAgentsSettings);
     const focusables = Array.from(host.querySelectorAll<HTMLElement>("button, input, a[href]"));
-    const names = focusables.map((el) => {
-      const labelled = el.getAttribute("aria-label");
-      const byFor = el.id ? host.querySelector(`label[for="${el.id}"]`)?.textContent : null;
-      return labelled || byFor || el.textContent?.trim() || "";
-    });
-    expect(names.every((n) => n.length > 0)).toBe(true);
-    const order = focusables.map((el) =>
-      el.getAttribute("role") === "switch" ? "toggle"
-        : el.tagName === "INPUT" ? "input"
-        : el.tagName === "A" ? "link"
-        : el.getAttribute("data-testid")?.replace("decision-rerank-token-", ""),
-    );
-    expect(order).toEqual(["toggle", "input", "save", "clear", "decision-rerank-guide-link", "link", "link"]);
+    expect(focusables.map((el) => el.getAttribute("data-testid"))).toEqual(["settings-toggle", "memory-rerank-agents-link"]);
+    expect(focusables.every((el) => (el.getAttribute("aria-label") || el.textContent?.trim() || "").length > 0)).toBe(true);
+    await act(async () => focusables[1].click());
+    expect(onOpenAgentsSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("rerank_card_has_no_token_input", async () => {
+    await render();
+    expect(host.querySelector("input, form, a[href]")).toBeNull();
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(fetchCalls).toBe(0);
   });
 });

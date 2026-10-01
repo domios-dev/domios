@@ -113,6 +113,7 @@ impl MemManager {
 impl MemManager {
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
         let manager = Self::open_with_queue(data_dir, embed_queue::EmbedQueue::start)?;
+        docs_source::start_background_build(data_dir);
         spawn_entity_embedding_backfill(manager.db_path.clone());
         Ok(manager)
     }

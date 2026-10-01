@@ -10,7 +10,7 @@ fn default_db_path() -> Result<std::path::PathBuf, String> {
     Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
 }
 
-fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, String> {
+pub(crate) fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, String> {
     let db_path = match db_path_arg {
         Some(p) => std::path::PathBuf::from(p),
         None => default_db_path()?,
@@ -23,7 +23,7 @@ fn open_conn(db_path_arg: Option<&str>) -> Result<rusqlite::Connection, String> 
     Ok(conn)
 }
 
-fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> ! {
+pub(crate) fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> ! {
     match result {
         Ok(v) => {
             let val = serde_json::to_value(&v).unwrap_or(serde_json::json!({}));
@@ -108,114 +108,6 @@ pub fn run_revive_broken(since: Option<&str>, dry_run: bool, db_path: Option<&st
             },
         )
         .map_err(|e| e.to_string())
-    })();
-    print_or_exit(result);
-}
-
-pub fn run_hubs(threshold: u32, sample: u32, db_path: Option<&str>) -> ! {
-    let result = (|| -> Result<serde_json::Value, String> {
-        let conn = open_conn(db_path)?;
-
-        // Hub list with degree (active edges only).
-        let mut stmt = conn
-            .prepare(
-                "SELECT node, COUNT(*) FROM (
-                SELECT from_id AS node FROM relations WHERE valid_to IS NULL
-                UNION ALL
-                SELECT to_id AS node FROM relations WHERE valid_to IS NULL
-             ) GROUP BY node HAVING COUNT(*) >= ?1 ORDER BY 2 DESC",
-            )
-            .map_err(|e| e.to_string())?;
-        let hubs: Vec<(String, i64)> = stmt
-            .query_map([threshold as i64], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-            })
-            .map_err(|e| e.to_string())?
-            .filter_map(Result::ok)
-            .collect();
-
-        // Existing topic_*/role_* anchors — Dreamer should prefer routing into these instead of inventing new slugs.
-        let mut anchor_stmt = conn
-            .prepare(
-                "SELECT id, entity_type FROM entities
-             WHERE id LIKE 'topic\\_%' ESCAPE '\\' OR id LIKE 'role\\_%' ESCAPE '\\'
-             ORDER BY id",
-            )
-            .map_err(|e| e.to_string())?;
-        let anchors: Vec<serde_json::Value> = anchor_stmt
-            .query_map([], |r| {
-                Ok(serde_json::json!({
-                    "id": r.get::<_, String>(0)?,
-                    "entity_type": r.get::<_, String>(1)?,
-                }))
-            })
-            .map_err(|e| e.to_string())?
-            .filter_map(Result::ok)
-            .collect();
-
-        // For each hub: relation_type histogram + neighbor sample.
-        let mut hub_objs = Vec::with_capacity(hubs.len());
-        for (id, degree) in hubs {
-            let rel_dist: Vec<(String, i64)> = conn
-                .prepare(
-                    "SELECT relation_type, COUNT(*) FROM relations
-                     WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1)
-                     GROUP BY relation_type ORDER BY 2 DESC",
-                )
-                .map_err(|e| e.to_string())?
-                .query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-                .map_err(|e| e.to_string())?
-                .filter_map(Result::ok)
-                .collect();
-
-            let neighbors: Vec<serde_json::Value> = conn
-                .prepare(
-                    "SELECT relation_type,
-                            CASE WHEN from_id = ?1 THEN to_id ELSE from_id END AS other,
-                            CASE WHEN from_id = ?1 THEN 'out' ELSE 'in' END AS dir
-                     FROM relations
-                     WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1)
-                     ORDER BY relation_type LIMIT ?2",
-                )
-                .map_err(|e| e.to_string())?
-                .query_map(rusqlite::params![&id, sample as i64], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })
-                .map_err(|e| e.to_string())?
-                .filter_map(Result::ok)
-                .map(|(rel, other, dir)| {
-                    let title: Option<String> = conn
-                        .query_row("SELECT title FROM mem_items WHERE id = ?1", [&other], |r| {
-                            r.get(0)
-                        })
-                        .ok();
-                    serde_json::json!({
-                        "id": other,
-                        "rel": rel,
-                        "dir": dir,
-                        "title": title,
-                    })
-                })
-                .collect();
-
-            hub_objs.push(serde_json::json!({
-                "id": id,
-                "degree": degree,
-                "rel_dist": rel_dist.into_iter().map(|(r, n)| serde_json::json!({"rel": r, "count": n})).collect::<Vec<_>>(),
-                "neighbors": neighbors,
-            }));
-        }
-
-        Ok(serde_json::json!({
-            "threshold": threshold,
-            "sample": sample,
-            "hubs": hub_objs,
-            "existing_anchors": anchors,
-        }))
     })();
     print_or_exit(result);
 }
@@ -562,7 +454,11 @@ pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
             reason.as_deref(),
             db_path.as_deref(),
         ),
-        MemGraphAction::Hubs { threshold, sample } => run_hubs(*threshold, *sample, None),
+        MemGraphAction::Hubs {
+            threshold,
+            limit,
+            sample,
+        } => crate::cmd::graph_hubs::run_hubs(*threshold, *limit, *sample, None),
         MemGraphAction::Islands { max_size, limit } => run_islands(*max_size, *limit, None),
         MemGraphAction::Orphans { limit } => run_orphans(*limit, None),
         MemGraphAction::Get { id } => run_entity_get(id, None),

@@ -52,12 +52,23 @@ test("renders guide sections from content module", async () => {
   assert(overview?.textContent?.includes("What is CodeTerm"), "overview copy missing");
 });
 
-test("initialSection renders and selects decision re-rank", async () => {
-  const { host } = await render(<HelpPanel config={config} initialSection="decision-rerank" />);
-  const section = host.querySelector('[data-help-section-id="decision-rerank"]');
-  const nav = host.querySelector('[data-help-nav="decision-rerank"]');
-  assert(!!section, "decision re-rank section did not render");
-  assert(nav?.className.includes("accent"), "decision re-rank section was not selected");
+test("initialSection renders, selects and scrolls to the supporter agent section", async () => {
+  const scrolled: string[] = [];
+  const proto = window.HTMLElement.prototype as unknown as { scrollIntoView: () => void };
+  const original = proto.scrollIntoView;
+  proto.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this.getAttribute("data-help-section") ?? "");
+  };
+  try {
+    const { host } = await render(<HelpPanel config={config} initialSection="supporter-agent" />);
+    const section = host.querySelector('[data-help-section-id="supporter-agent"]');
+    const nav = host.querySelector('[data-help-nav="supporter-agent"]');
+    assert(!!section, "supporter agent section did not render");
+    assert(nav?.className.includes("accent"), "supporter agent section was not selected");
+    assert(JSON.stringify(scrolled) === JSON.stringify(["supporter-agent"]), `expected one scroll to the section, got ${JSON.stringify(scrolled)}`);
+  } finally {
+    proto.scrollIntoView = original;
+  }
 });
 
 test("renders inline SVG figures without raster images", async () => {

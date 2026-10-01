@@ -18,5 +18,9 @@ pub(crate) fn handle_mem_calibration(
             "mem.calibration.sweep",
             Some(serde_json::json!({ "force": force })),
         ),
+        MemCalibrationAction::Stale { dry_run, limit } => client.call(
+            "mem.calibration.stale",
+            Some(serde_json::json!({ "dry_run": dry_run, "limit": limit })),
+        ),
     }
 }
