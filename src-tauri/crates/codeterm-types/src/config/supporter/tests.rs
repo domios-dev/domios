@@ -58,7 +58,7 @@ fn supporter_missing_table_keeps_tab_state_switch_off() {
 
     assert!(!config.supporter.memory_rerank.enabled);
     assert!(!config.supporter.tab_state.enabled);
-    assert!(config.supporter.tab_state.strong_actions);
-    assert!(config.supporter.tab_state.weak_hints);
+    assert!(!config.supporter.tab_state.strong_actions);
+    assert!(!config.supporter.tab_state.weak_hints);
     assert_eq!(config.supporter, SupporterConfig::default());
 }
