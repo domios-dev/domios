@@ -19,10 +19,10 @@ use crate::{
 
 use super::{load_one, JsProvider};
 
-#[path = "parity_test/model_catalogue.rs"]
-mod model_catalogue;
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
+#[path = "parity_test/model_catalogue.rs"]
+mod model_catalogue;
 
 type PluginsDir = PathBuf;
 

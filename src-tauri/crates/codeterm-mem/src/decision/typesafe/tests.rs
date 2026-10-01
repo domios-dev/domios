@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use codeterm_types::decision::NoulCriteria;
 use super::*;
+use codeterm_types::decision::NoulCriteria;
 
 const TOKEN: &str = "local-test-secret";
 const ANSWER_NOUL: &str = include_str!("../fixtures/answer_noul.json");

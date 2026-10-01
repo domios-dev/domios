@@ -165,7 +165,7 @@ declare const host: Host;
 const decisionModel: DecisionModelCapability = {
   primitives: () => ({ choice: true, noul: true, score: true }),
   models: () => [{ id: "loaded", display_name: "Loaded model" }],
-  decide(request) {
+  decide(request): DecisionAnswer {
     if (request.question.type === "noul") return { type: "noul", p: 0.8 };
     if (request.question.type === "choice") {
       return {

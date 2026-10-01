@@ -13,11 +13,11 @@ use codeterm_lib::mem::decision::{
     token_store::TokenStore,
     typesafe::TypeSafeAdapter,
 };
+use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
     DecisionRequest,
 };
-use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
 use serde::{Deserialize, Serialize};
 
 use super::{Fixture, SessionCandidateFixture, TestCase};

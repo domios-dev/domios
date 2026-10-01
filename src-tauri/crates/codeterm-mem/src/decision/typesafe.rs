@@ -4,11 +4,11 @@ use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::time::Instant;
 
-use serde_json::{json, Value};
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionQuestion, DecisionRequest,
 };
+use serde_json::{json, Value};
 
 use super::token_store::TokenStore;
 

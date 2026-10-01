@@ -175,9 +175,9 @@ pub(super) fn run_git(args: Vec<String>) -> Result<(), String> {
         .output()
         .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
     if !out.status.success() {
-        return Err(git_non_interactive_error(
-            &String::from_utf8_lossy(&out.stderr),
-        ));
+        return Err(git_non_interactive_error(&String::from_utf8_lossy(
+            &out.stderr,
+        )));
     }
     Ok(())
 }
@@ -190,9 +190,9 @@ pub(super) fn run_git_in(cwd: &Path, args: Vec<String>) -> Result<(), String> {
         .output()
         .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
     if !out.status.success() {
-        return Err(git_non_interactive_error(
-            &String::from_utf8_lossy(&out.stderr),
-        ));
+        return Err(git_non_interactive_error(&String::from_utf8_lossy(
+            &out.stderr,
+        )));
     }
     Ok(())
 }
