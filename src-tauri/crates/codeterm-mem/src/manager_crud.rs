@@ -347,27 +347,33 @@ impl MemManager {
             store::update(&conn, id, &patch, &self.blobs_dir)?
         };
         if updated && body_changed {
-            self.embed_queue.cancel(id);
-            #[cfg(feature = "embeddings")]
-            {
-                let conn = self.conn.lock();
-                if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
-                    drop(conn);
-                    // that shrank below the bar are swept by the dreamer's cleanup.
-                    if super::body_is_embeddable(&item.body) {
-                        let embed_text = compose_embed_text(
-                            &format!("{:?}", item.kind).to_lowercase(),
-                            &item.title,
-                            item.area.as_deref(),
-                            &item.tags,
-                            &item.body,
-                        );
-                        self.embed_queue.enqueue(id.to_string(), embed_text);
-                    }
+            self.refresh_embedding(id);
+        }
+        Ok(updated)
+    }
+
+    /// Re-queue an item's embedding after a write that went through the store
+    /// directly, such as a merge or restore committed in one transaction.
+    pub fn refresh_embedding(&self, id: &str) {
+        self.embed_queue.cancel(id);
+        #[cfg(feature = "embeddings")]
+        {
+            let conn = self.conn.lock();
+            if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
+                drop(conn);
+                // that shrank below the bar are swept by the dreamer's cleanup.
+                if super::body_is_embeddable(&item.body) {
+                    let embed_text = compose_embed_text(
+                        &format!("{:?}", item.kind).to_lowercase(),
+                        &item.title,
+                        item.area.as_deref(),
+                        &item.tags,
+                        &item.body,
+                    );
+                    self.embed_queue.enqueue(id.to_string(), embed_text);
                 }
             }
         }
-        Ok(updated)
     }
 }
 

@@ -132,7 +132,8 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
 | `mem.pinned` | `{limit?}` | List pinned items |
 | `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive) |
-| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body from the audit history. |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore from the audit history: an archived or merged item gets its prior kind back and its merge link invalidated; otherwise a prior body. |
+| `mem.merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Reversible merge: archive the lesser and link it to the keeper; never deletes (`codeterm docs API-MEMORY`). |
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
@@ -145,6 +146,7 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
 | `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
 | `mem.calibration.sweep` | `{force?}` | Trigger the dreamer's importance/archive sweep. |
+| `mem.calibration.stale` | `{dry_run?, limit?}` | Staleness archive, or list its ids and reasons with `dry_run`. |
 | `mem.worker.spawn` | `{intent, task, agent?, parent?}` | Spawn a hidden graph worker. |
 | `mem.worker.list` | — | List all graph workers. |
 | `mem.worker.get` | `{id}` | Fetch one graph worker by id. |
@@ -234,4 +236,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

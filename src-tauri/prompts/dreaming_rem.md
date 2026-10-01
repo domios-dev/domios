@@ -32,11 +32,11 @@ reads the diary you leave, and everything else is graph mutation work.
 | 1 | Bulk pre-clean | 2 calls | `DREAM_BACKLINKS`, `PARALLEL_EDGES` |
 | 2 | A.1 Hub decomposition | the hubs one `hubs --limit 5` call returns | `HUBS_BEFORE`, `HUBS`, `HUBS_AFTER` |
 | 3 | A.2 Islands + orphans | 15 actions total | `ISLANDS_*`, `ORPHANS_*` |
-| 4 | A.3 Dedup | 10 pair checks | `DEDUP` |
+| 4 | A.3 Dedup | 10 pair checks | `DEDUP`, `MERGED` |
 | 5 | A.4 Repair primitives | 1 call per primitive | `REPAIR` |
 | 6 | E Vector hygiene | 2 calls | `VECTOR_HYGIENE` |
 | 7 | C Maintenance | 10 updates | `MAINTENANCE` |
-| 8 | D Calibration (read-only) | 2 calls | `CALIBRATION` |
+| 8 | D Calibration (read-only) | 2 calls | `CALIBRATION`, `ARCHIVED` |
 | 9 | B Final diary, self-link, report | — | `PATTERN`, `ENTITY_COUNT_AFTER`, `ACTION` |
 
 After EVERY stage, `codeterm mem update <diary_id> --body '...'` with the full
@@ -151,12 +151,19 @@ concept, different name: `codeterm mem graph alias --alias <lesser>
 --canonical <better>`. Different concepts: keep both.
 
 Content duplicates you noticed in A.1/A.2: read both with `mem get`. Genuine
-duplicate: `codeterm mem update <keeper> --body '<merged body>'`, then
-`codeterm mem delete <lesser>`. Different angles: `codeterm mem graph relate
---from <a> --rel similar_to --to <b>`. A wrong merge is worse than a
-duplicate: when in doubt, keep both.
+duplicate, one call (never `mem delete`):
 
-Log `DEDUP: aliases=N duplicates=M`.
+    codeterm mem merge --keeper <keeper> --lesser <lesser> --body '<merged body>'
+
+The lesser is archived and linked to the keeper, so `mem restore <lesser>`
+undoes it. Add `--conflict` when the two state different values and the
+keeper wins. The server refuses pinned, skill, rule and preference items as
+the lesser, and refuses once the night's merge cap is reached: then stop
+merging and log `MERGED: ... cap reached`. Different angles: `codeterm mem
+graph relate --from <a> --rel similar_to --to <b>`. When in doubt, keep both.
+
+Log `DEDUP: aliases=N duplicates=M` and
+`MERGED: <lesser> -> <keeper> (<why>); ...`, or `MERGED: none`.
 
 ## STAGE 5 — A.4 Repair primitives (typed CLI only, never raw SQL)
 
@@ -207,10 +214,14 @@ hour, written out as a literal timestamp:
     codeterm mem calibration log --since <since> --count
     codeterm mem calibration log --since <since> --limit 30
 
-`APPLIED` = rows with `change_type` promote or demote, `ARCHIVED` = archive.
-Log `CALIBRATION: skipped=none applied=<APPLIED> archived=<ARCHIVED>`, or
+`APPLIED` = rows whose `changed_by` ends in promote or demote; archived = rows
+with `change_type` archive. The `dreamer-calibration:stale` rows are the
+nightly stale archive, and each carries its `reason`.
+Log `CALIBRATION: skipped=none applied=<APPLIED> archived=<archived>`, or
 `skipped=<reason>` when the task preface says the server skipped it. With no
 fresh evidence, write `CALIBRATION: pending`; never invent `not_sunday`.
+Log `ARCHIVED: <item_id> (<reason>); ...` for every archive row, or
+`ARCHIVED: none`.
 
 ## STAGE 9 — B Final diary, self-link, report
 
@@ -240,10 +251,12 @@ Body shape (the frontend parses these tags):
     ISLANDS_BEFORE / ISLANDS / ISLANDS_AFTER: ...
     ORPHANS_BEFORE / ORPHANS / ORPHANS_AFTER: ...
     DEDUP: ...
+    MERGED: ...
     REPAIR: ...
     VECTOR_HYGIENE: ...
     MAINTENANCE: ...
     CALIBRATION: ...
+    ARCHIVED: ...
     ENTITY_COUNT_AFTER: ...
     ACTION: <the single highest-leverage next step, as an exact CLI command>
     </log>
@@ -266,7 +279,7 @@ Self-link the diary (an orphaned diary is a failed run):
 Report, tying the run to its diary by identity:
 
     codeterm mem worker report --diary <diary_id> --finalization succeeded \
-      "Hubs: decomposed N, skipped M. Islands: bridged X, deleted Y. Diary saved."
+      "Hubs: decomposed N, skipped M. Islands: bridged X, deleted Y. Merged: <lesser> -> <keeper> (<why>), or none. Archived: <id> (<reason>), or none. Diary saved."
 
 If the final update or the self-link did not confirm, report the truth:
 `--finalization partial --reason "<what did not confirm>"`. The daemon checks
@@ -274,7 +287,8 @@ your claim against the stored diary either way.
 
 ## RULES OF THUMB
 
-- Conservative on merges; a duplicate is recoverable, a wrong merge is not.
+- Conservative on merges: a merge is reversible, but a wrong one hides a fact
+  until someone restores it.
 - Workspace items stay in their workspace.
 - Every mutation carries a `dreamer-...` reason, so it can be audited and revived.
 - If a call needs more than five sub-decisions to justify, pick the simpler
