@@ -34,9 +34,8 @@ struct LoadFingerprint {
 
 #[derive(Clone)]
 pub struct CapabilityRegistries {
-    pub decision_model: Arc<
-        crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>,
-    >,
+    pub decision_model:
+        Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,

@@ -1,13 +1,5 @@
 use super::*;
 
-fn parse_spawn_command(args: &[&str]) -> Commands {
-    let mut full = vec!["codeterm", "agent", "spawn"];
-    full.extend_from_slice(args);
-    <crate::Cli as clap::Parser>::try_parse_from(full)
-        .expect("agent spawn must parse")
-        .command
-}
-
 /// A generic task-less mesh Worker still relies on `role` for its Worker
 /// doctrine; plan-bound dispatch uses the separate origin-owned protocol.
 #[test]
