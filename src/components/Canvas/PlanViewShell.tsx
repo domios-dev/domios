@@ -85,16 +85,7 @@ export function useFrozenWhenHidden<T>(props: T, visible: boolean): T {
 export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [storedMode, setViewMode] = usePersistedPlanViewMode();
   const [segment, setSegment] = useTaskSegment(props.workspaceTarget, setViewMode);
-  // A draft must be readable to get reviewed and approved, so these views open on
-  // an unapproved plan too. An archived one is finished and opens nothing.
-  const hasPlanToRead = useMemo(
-    () =>
-      props.plans.some(
-        (plan) => plan.status !== "archived" && (!props.teamId || plan.team_id === props.teamId),
-      ),
-    [props.plans, props.teamId],
-  );
-  const viewMode: PlanViewMode = hasPlanToRead ? storedMode : "board";
+  const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
   const listProps = useFrozenWhenHidden(props, selected === "list");
   const specProps = useFrozenWhenHidden(props, selected === "spec");
@@ -178,7 +169,6 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         <PlanViewModeSwitch
           value={selected}
           onChange={selectMode}
-          planModesEnabled={hasPlanToRead}
           temporaryTab={temporaryTab}
         />
         <div className="flex shrink-0 items-center gap-2">

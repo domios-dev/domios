@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { planViewModeLabel, type ActivePlanViewMode, type PlanViewMode } from "./planViewMode";
 import { usePresence, type PresenceMotion } from "./usePresence";
 
-/** Board stands alone; the plan views share a group that needs an active plan. */
+/** Board stands alone; the plan views share a group and show their own empty state without a plan. */
 const MODE_GROUPS: ReadonlyArray<{ key: "board" | "plan"; modes: readonly ActivePlanViewMode[] }> = [
   { key: "board", modes: ["board"] },
   { key: "plan", modes: ["spec", "plan", "tasks"] },
@@ -30,12 +30,10 @@ interface ThumbBox {
 export function PlanViewModeSwitch({
   value,
   onChange,
-  planModesEnabled = true,
   temporaryTab,
 }: {
   value: PlanViewMode | string;
   onChange: (mode: PlanViewMode) => void;
-  planModesEnabled?: boolean;
   temporaryTab?: TemporaryModeTab | null;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +82,7 @@ export function PlanViewModeSwitch({
       root.removeEventListener("animationend", remeasure);
       root.removeEventListener("transitionend", remeasure);
     };
-  }, [value, planModesEnabled, temporaryItem?.label]);
+  }, [value, temporaryItem?.label]);
 
   return (
     <div
@@ -101,14 +99,8 @@ export function PlanViewModeSwitch({
         style={thumb ? { transform: `translateX(${thumb.left}px)`, width: thumb.width } : { opacity: 0 }}
       />
       {MODE_GROUPS.map((group) => {
-        const disabled = group.key === "plan" && !planModesEnabled;
         return (
-          <div
-            key={group.key}
-            data-group={group.key}
-            data-disabled={disabled ? "true" : undefined}
-            className="plan-view-modes__group"
-          >
+          <div key={group.key} data-group={group.key} className="plan-view-modes__group">
             {group.modes.map((mode) => (
               <button
                 key={mode}
@@ -116,7 +108,6 @@ export function PlanViewModeSwitch({
                 role="tab"
                 data-value={mode}
                 aria-selected={mode === value}
-                disabled={disabled}
                 className="plan-view-modes__option"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onChange(mode)}
