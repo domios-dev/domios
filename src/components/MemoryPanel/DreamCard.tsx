@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Check, Copy, X } from "lucide-react";
-import { iconForDream, iconBySlug, paletteFor, moodLabel, parseDream } from "./dreamVisuals";
+import { Check, Copy, X } from "lucide-react";
+import { dreamSummary, iconForDream, iconBySlug, paletteFor, moodLabel, parseDream } from "./dreamVisuals";
 import type { DiaryRecordState } from "./dreamRunStatus";
 
 export interface DreamDiaryEntry {
@@ -44,7 +44,7 @@ export function DreamCard({
   const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
   const mood = parsed.mood ?? moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
   const date = dreamDate(entry.created_at);
-  // Card surfaces the dream's voice (insight). The technical log lives in the modal — never on the card.
+  // Card surfaces the dream's voice (insight). The technical log stays behind the modal's raw copy, never on the card.
   const insight = parsed.insight || entry.body;
   const snippet = insight.length > 200 ? `${insight.slice(0, 200)}…` : insight;
   const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary").slice(0, 3);
@@ -103,7 +103,7 @@ export function DreamCard({
         </div>
       </div>
 
-      <div className="px-4 mt-3 flex items-center gap-1.5 flex-wrap">
+      <div className="px-4 mt-3 flex items-center justify-center gap-1.5 flex-wrap">
         <span
           className="inline-block text-[9px] uppercase tracking-[0.25em] px-2 py-0.5 rounded-full"
           style={{
@@ -134,13 +134,14 @@ export function DreamCard({
       </div>
 
       <div
-        className="relative flex-1 px-4 pt-2 pb-3 text-[12px] leading-relaxed overflow-hidden italic"
+        data-testid="memory-dream-card-body"
+        className="relative flex-1 min-h-0 px-4 pt-2 pb-3 flex items-center justify-center text-center text-[12px] leading-relaxed overflow-hidden italic"
         style={{ color: palette.ink, opacity: 0.92 }}
       >
         <span className="line-clamp-6">{snippet}</span>
       </div>
 
-      <div className="relative px-4 pb-3 pt-1 border-t border-white/5 flex items-center gap-1.5 flex-wrap">
+      <div className="relative px-4 pb-3 pt-1 border-t border-white/5 flex items-center justify-center gap-1.5 flex-wrap">
         {visibleTags.length > 0 ? (
           visibleTags.map((t) => (
             <span
@@ -169,9 +170,11 @@ export function DreamCard({
 
 export function DreamDetailModal({
   entry,
+  report,
   onClose,
 }: {
   entry: DreamDiaryEntry;
+  report?: string | null;
   onClose: () => void;
 }) {
   const parsed = parseDream(entry.body);
@@ -189,8 +192,10 @@ export function DreamDetailModal({
   const date = dreamDate(entry.created_at);
   const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary");
   const insight = parsed.insight || entry.body;
-  const [logOpen, setLogOpen] = useState(false);
+  const summary = dreamSummary({ report, log: parsed.log });
+  const summaryLabelId = useId();
   const [copied, setCopied] = useState<"insight" | "all" | null>(null);
+  const clearCopied = useCallback(() => setCopied(null), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -204,7 +209,6 @@ export function DreamDetailModal({
     try {
       await navigator.clipboard.writeText(insight);
       setCopied("insight");
-      setTimeout(() => setCopied(null), 1500);
     } catch { /* ignore */ }
   }, [insight]);
 
@@ -212,7 +216,6 @@ export function DreamDetailModal({
     try {
       await navigator.clipboard.writeText(entry.body);
       setCopied("all");
-      setTimeout(() => setCopied(null), 1500);
     } catch { /* ignore */ }
   }, [entry.body]);
 
@@ -285,6 +288,8 @@ export function DreamDetailModal({
           <div className="flex items-start gap-1.5">
             <button
               onClick={copyInsight}
+              onPointerLeave={clearCopied}
+              onBlur={clearCopied}
               data-testid="memory-dream-copy-insight"
               aria-label="Copy insight"
               title="Copy insight"
@@ -324,34 +329,27 @@ export function DreamDetailModal({
             )}
           </div>
 
-          {parsed.log && (
-            <div className="mt-6 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setLogOpen((v) => !v)}
-                data-testid="memory-dream-log-toggle"
-                className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] bg-transparent border-0 cursor-pointer hover:opacity-100"
+          {summary && (
+            <section
+              aria-labelledby={summaryLabelId}
+              className="mt-6 pt-4 border-t border-white/10"
+            >
+              <div
+                id={summaryLabelId}
+                className="text-[10px] uppercase tracking-[0.25em]"
                 style={{ color: palette.ink, opacity: 0.6 }}
               >
-                <ChevronDown
-                  size={12}
-                  className={`transition-transform ${logOpen ? "rotate-0" : "-rotate-90"}`}
-                />
-                what was done
-              </button>
-              {logOpen && (
-                <div
-                  data-testid="memory-dream-log"
-                  className="mt-2 px-3 py-2.5 rounded-md font-mono text-[10px] leading-[1.7] whitespace-pre-wrap break-words"
-                  style={{
-                    background: "rgba(0,0,0,0.25)",
-                    color: palette.ink,
-                    opacity: 0.78,
-                  }}
-                >
-                  {parsed.log}
-                </div>
-              )}
-            </div>
+                summary
+              </div>
+              <p
+                data-testid="memory-dream-summary"
+                data-summary-source={summary.source}
+                className="mt-1.5 text-[12px] leading-snug break-words"
+                style={{ color: palette.ink, opacity: 0.85 }}
+              >
+                {summary.text}
+              </p>
+            </section>
           )}
         </div>
 
@@ -379,7 +377,10 @@ export function DreamDetailModal({
           )}
           <button
             onClick={copyAll}
+            onPointerLeave={clearCopied}
+            onBlur={clearCopied}
             data-testid="memory-dream-copy-raw"
+            aria-label="Copy raw body"
             className="ml-auto h-6 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[9px] uppercase tracking-[0.2em]"
             style={{ color: palette.ink, opacity: 0.7 }}
             title="Copy raw body (insight + log)"
