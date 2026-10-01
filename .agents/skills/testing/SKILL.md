@@ -244,7 +244,7 @@ Git for Windows at its standard location and rerun the same command.
 
 ## Related documents
 
-End-to-end and cross-platform verification: `.agents/skills/testing/SKILL.md`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
+End-to-end and cross-platform verification: `.agents/skills/testing/SKILL.md`. Prompt detection: `.agents/skills/provider-authoring/prompt-detection.md`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
 ---
 

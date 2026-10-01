@@ -222,10 +222,7 @@ owning loader module (pub const &str)
 
 ## Related docs
 
-- [Core essence](../essences/core.md#general-agent) — General Agent lifecycle and behavior contract
+- [Core essence](../../../essences/core.md#general-agent) — General Agent lifecycle and behavior contract
 - `prod-docs/MEMORY.md` — memory system including the behavioral protocol from `bridge_mem.md`
-- `prod-docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
-- `prod-docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
-- `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
-
-<!-- revision: 43 -->
+- [tiers.md](tiers.md) — progressive-disclosure tiers and their evaluation boundary
+- `.agents/skills/prompt-evaluator/SKILL.md` — the harness it drives

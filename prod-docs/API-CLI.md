@@ -223,7 +223,7 @@ never by a role literal: `service/role_preset.rs` resolves `(role, role_profile)
 to a `RolePreset`, and `service/persona/occasion.rs` places its fragments per
 delivery occasion. Task personality, `role_guidance`, and `executor_role` enter
 as that preset's task overlay, so a Worker subtype and a Manager kind compose the
-same way. `codeterm docs PROMPTS` has the fragment/occasion tables.
+same way.
 
 ### Role preset inspection
 
@@ -237,4 +237,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
