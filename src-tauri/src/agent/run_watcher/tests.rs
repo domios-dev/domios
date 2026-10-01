@@ -636,3 +636,190 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
         "{evidence:?}"
     );
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
+    use codeterm_mem::dream_status::deadline::{APPROVAL_PROMPT_REASON, DREAM_DIARY_TAG};
+    use codeterm_mem::dream_status::{
+        diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,
+    };
+    use codeterm_types::pty::PromptKind;
+
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = format!("approval-prompt-{}", uuid::Uuid::new_v4().simple());
+    mux.link_pty(&tab_id, pty_id.clone());
+    let worker_id = format!("gw_test_{}", uuid::Uuid::new_v4().simple());
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.hidden = true;
+    tab.worker_id = Some(worker_id.clone());
+    tab.pending_prompt = Some(owner_prompt());
+    tab.pending_prompt_kind = Some(PromptKind::Provider);
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    svc.workers.register(crate::mem::workers::make_info(
+        worker_id.clone(),
+        tab_id.clone(),
+        "dreaming:rem".into(),
+        "system:dreaming".into(),
+        "hsl(0,0%,0%)".into(),
+    ));
+    let diary = svc
+        .mem
+        .save(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Daily,
+            scope: crate::mem::MemScope::Global,
+            title: "dream: approval prompt".into(),
+            summary: Some("WIP: dreaming".into()),
+            area: Some("_dreams".into()),
+            tags: vec![DREAM_DIARY_TAG.into()],
+            body: "<insight></insight><log>STARTED: t0\nHUBS_BEFORE: 3\nHUBS: pending\n</log>"
+                .into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let run = Arc::new(RunState {
+        pty_id: pty_id.clone(),
+        tab_id: tab_id.clone(),
+        kind: AgentRunKind::MemWorker {
+            worker_id: worker_id.clone(),
+        },
+        scanner: Mutex::new(ResultEventScanner::new()),
+        started_at: Instant::now(),
+        last_byte_at: Mutex::new(Instant::now() - Duration::from_secs(IDLE_COMPLETE_SECS + 1)),
+        completed: AtomicBool::new(false),
+        armed: AtomicBool::new(false),
+        saw_working: AtomicBool::new(false),
+        saw_post_session_progress: AtomicBool::new(false),
+        restart_count: AtomicU32::new(0),
+        last_restart_at: Mutex::new(Instant::now()),
+        resume_system_prompt: None,
+    });
+    svc.run_watcher
+        .runs
+        .lock()
+        .insert(pty_id.clone(), run.clone());
+
+    let completed = tauri::async_runtime::block_on(tokio::time::timeout(
+        Duration::from_secs(3),
+        watchdog_loop(svc.clone(), run.clone(), 3600),
+    ));
+    assert!(
+        completed.is_ok(),
+        "blocking prompt end should run on the first tick"
+    );
+    assert!(run.completed.load(Ordering::Acquire));
+
+    let worker = svc.workers.get(&worker_id).unwrap();
+    assert_eq!(
+        worker.execution_end,
+        Some(ExecutionEnd::TimedOut {
+            detail: APPROVAL_PROMPT_REASON.into(),
+        })
+    );
+    assert_eq!(
+        worker.finalization,
+        Some(DiaryFinalization::Partial {
+            diary_id: Some(diary.clone()),
+            reason: APPROVAL_PROMPT_REASON.into(),
+        })
+    );
+    assert_eq!(
+        worker.dream_run_status(),
+        DreamRunStatus::PartiallyFinalized {
+            reason: APPROVAL_PROMPT_REASON.into(),
+        }
+    );
+    let stored = svc.mem.get(&diary).unwrap().unwrap();
+    let evidence = diary_evidence(&diary, &stored.body);
+    assert!(evidence.is_complete() && evidence.cut_at_deadline);
+    assert!(!svc.run_watcher.runs.lock().contains_key(&pty_id));
+}
+
+#[test]
+fn run_watcher_mem_worker_busy_without_prompt_is_untouched() {
+    let kind = AgentRunKind::MemWorker {
+        worker_id: "worker".into(),
+    };
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        false,
+        Some(codeterm_types::pty::PromptKind::Provider)
+    ));
+    assert!(!should_end_on_blocking_prompt(&kind, false, None));
+}
+
+#[test]
+fn run_watcher_mem_worker_ends_on_pending_structured_prompt() {
+    let kind = AgentRunKind::MemWorker {
+        worker_id: "worker".into(),
+    };
+    assert!(should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::Structured)
+    ));
+}
+
+#[test]
+fn run_watcher_mem_worker_directory_trust_prompt_is_untouched() {
+    let kind = AgentRunKind::MemWorker {
+        worker_id: "worker".into(),
+    };
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+    ));
+}
+
+#[test]
+fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
+    let kind = AgentRunKind::Cron {
+        job_id: "job".into(),
+        run_id: "run".into(),
+    };
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::Provider)
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::Structured)
+    ));
+}
+
+#[test]
+fn run_watcher_blocking_prompt_end_is_idempotent_with_hard_timeout() {
+    let run = RunState {
+        pty_id: "approval-prompt-pty".into(),
+        tab_id: "approval-prompt-tab".into(),
+        kind: AgentRunKind::MemWorker {
+            worker_id: "worker".into(),
+        },
+        scanner: Mutex::new(ResultEventScanner::new()),
+        started_at: Instant::now(),
+        last_byte_at: Mutex::new(Instant::now()),
+        completed: AtomicBool::new(false),
+        armed: AtomicBool::new(false),
+        saw_working: AtomicBool::new(false),
+        saw_post_session_progress: AtomicBool::new(false),
+        restart_count: AtomicU32::new(0),
+        last_restart_at: Mutex::new(Instant::now()),
+        resume_system_prompt: None,
+    };
+
+    assert!(claim_run_end(&run));
+    assert!(!claim_run_end(&run));
+}
