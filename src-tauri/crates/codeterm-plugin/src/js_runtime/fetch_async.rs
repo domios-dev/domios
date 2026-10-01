@@ -5,9 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
-use codeterm_types::decision::{
-    DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest,
-};
+use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
 use serde_json::json;
 
 use super::host_api::PluginSandbox;
@@ -30,7 +28,7 @@ fn fetch_async_respects_network_allow() {
                 );
             }
         };"#
-            .into(),
+        .into(),
         None,
         sandbox,
     )
@@ -55,8 +53,7 @@ async fn fetch_async_releases_vm_during_request() {
                     {
                         return (StatusCode::GATEWAY_TIMEOUT, Json(json!({}))).into_response();
                     }
-                    (StatusCode::OK, Json(json!({ "type": "noul", "p": 0.65 })))
-                        .into_response()
+                    (StatusCode::OK, Json(json!({ "type": "noul", "p": 0.65 }))).into_response()
                 }
             }
         }),

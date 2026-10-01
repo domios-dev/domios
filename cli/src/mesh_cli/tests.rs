@@ -3,6 +3,14 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
+fn parse_spawn_command(args: &[&str]) -> Commands {
+    let mut full = vec!["codeterm", "agent", "spawn"];
+    full.extend_from_slice(args);
+    <crate::Cli as clap::Parser>::try_parse_from(full)
+        .expect("agent spawn must parse")
+        .command
+}
+
 mod delayed;
 #[path = "tests/mesh_worker.rs"]
 mod mesh_worker;

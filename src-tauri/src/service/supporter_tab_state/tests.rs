@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 
-use codeterm_types::decision::{DecisionError, DecisionPrimitives};
 use crate::service::pty_io::SendBatchItem;
+use codeterm_types::decision::{DecisionError, DecisionPrimitives};
 use parking_lot::Mutex;
 
 const TAB: &str = "tab-shadow-1";

@@ -199,15 +199,21 @@ fn js_decision_model_registers_and_unregisters_by_capability() {
                 primitives() { return { choice: true, noul: true, score: true }; },
                 decide() { return { type: "noul", p: 0.5 }; }
             };"#
-                .into(),
+            .into(),
         )
         .expect("vm"),
     );
 
     capabilities.register_plugin(&manifest, &vm);
-    assert!(capabilities.decision_model.get("decision-fixture").is_some());
+    assert!(capabilities
+        .decision_model
+        .get("decision-fixture")
+        .is_some());
     capabilities.deregister_plugin("decision-fixture");
-    assert!(capabilities.decision_model.get("decision-fixture").is_none());
+    assert!(capabilities
+        .decision_model
+        .get("decision-fixture")
+        .is_none());
 }
 
 #[test]

@@ -68,10 +68,7 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
             state: json!({ "fixture": "choice" }),
             instructions: "Choice fixture".into(),
             question: DecisionQuestion::Choice {
-                options: BTreeMap::from([
-                    ("no".into(), "No".into()),
-                    ("yes".into(), "Yes".into()),
-                ]),
+                options: BTreeMap::from([("no".into(), "No".into()), ("yes".into(), "Yes".into())]),
             },
         },
         DecisionRequest {
