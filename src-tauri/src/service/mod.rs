@@ -109,6 +109,7 @@ mod spawn_chatbackend;
 mod spawn_cli;
 pub(crate) mod spawn_cwd;
 mod spawn_factory;
+mod spawn_hidden_launch;
 pub(crate) mod spawn_launch_verdict;
 mod spawn_params;
 mod spawn_plan_task;
