@@ -191,6 +191,8 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 
 `memory.decision_rerank.enabled` (default `false`), `.adapter`, `.endpoint` and `.model` complete the section; see `codeterm docs MEMORY` for the behaviour and the runtime settings reference below.
 
+The user-facing name of this model is the Supporter Agent; its token is set in Settings > Agents or with `codeterm mem decision token set`, never in `config.toml`.
+
 Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
 
 ## When config.toml fails to load
@@ -222,4 +224,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

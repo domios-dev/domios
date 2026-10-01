@@ -13,7 +13,6 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
-import type { HelpSectionId } from "../../help/types";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -40,10 +39,10 @@ interface Props {
   onFocusTab?: (tabId: string) => void;
   config?: AppConfig;
   onConfigUpdate?: (config: AppConfig) => Promise<void>;
-  onOpenGuide: (section: HelpSectionId) => void;
+  onOpenAgentsSettings: () => void;
 }
 
-export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate, onOpenGuide }: Props) {
+export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
   const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
   const [inspectView, setInspectView] = useState<"graph" | "list">("graph");
@@ -272,7 +271,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           <div className="absolute inset-0 overflow-y-auto p-6">
             <MemorySettingsTab
               config={config}
-              onOpenGuide={onOpenGuide}
+              onOpenAgentsSettings={onOpenAgentsSettings}
               onUpdate={(section, patch) => {
                 const next = { ...config, [section]: Object.assign({}, config[section], patch) };
                 onConfigUpdate(next).catch(() => {});

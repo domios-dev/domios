@@ -6,7 +6,7 @@ export type HelpSectionId =
   | "agents"
   | "plans"
   | "memory"
-  | "decision-rerank"
+  | "supporter-agent"
   | "mesh"
   | "integrations"
   | "tips";
