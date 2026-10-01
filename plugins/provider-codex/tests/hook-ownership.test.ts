@@ -50,6 +50,7 @@ const ROG_PANE_SESSION_START =
   "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start "
   + "-H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' "
   + "--data-binary @- > /dev/null 2>&1 || true";
+const FOREIGN_PANE_ROUTE = "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
 
 const FOREIGN_COMMAND = "~/bin/codex-audit.sh --event session_start";
 
@@ -137,7 +138,9 @@ function ownedEntries(entries: CodexEntry[] | undefined): CodexEntry[] {
 {
   console.log("legacy_v2_codeterm_hook_is_owned");
   const files = hooksFile({
-    SessionStart: [hookEntry(ROG_PANE_SESSION_START, CODEX_MARKER, "startup|resume|clear|compact")],
+    SessionStart: [
+      hookEntry(ROG_PANE_SESSION_START, "codeterm-hook-v2", "startup|resume|clear|compact"),
+    ],
   });
   const p = loadCodex(files);
   assert(p.installIntegration(7686, { consent: true }).ok === true, "install over the pane-era entry succeeds");
@@ -145,6 +148,15 @@ function ownedEntries(entries: CodexEntry[] | undefined): CodexEntry[] {
   eq(written.hooks.SessionStart.length, 1, "the pane-era entry is replaced, not appended to");
   assert(JSON.stringify(written.hooks).indexOf("CODETERM_PANE_ID") === -1,
     "no pane-era command survives the migration");
+}
+
+{
+  const foreign = hookEntry(FOREIGN_PANE_ROUTE, "acme-audit", "startup");
+  const files = hooksFile({ SessionStart: [foreign] });
+  const p = loadCodex(files);
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "install alongside a pane-route lookalike succeeds");
+  const written = JSON.parse(files.get(HOOKS_PATH) as string);
+  eq(written.hooks.SessionStart[0], foreign, "the similar pane route stays byte-identical");
 }
 
 // ── route_and_provider_headers_do_not_claim_a_foreign_hook ─────────────────
