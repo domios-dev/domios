@@ -463,6 +463,13 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             let busy = provider_prompt_pending
                 || !ready_for_success
                 || agent_screen_busy(&svc, &state.pty_id);
+            if busy {
+                svc.observe_tab_state(
+                    &state.tab_id,
+                    crate::service::supporter_tab_state::ObservationTrigger::BusyNoOutput,
+                    "run_watcher_busy_without_output",
+                );
+            }
             if !busy {
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;

@@ -26,6 +26,7 @@ pub(super) fn should_end_on_blocking_prompt(
             Some(
                 codeterm_types::pty::PromptKind::Provider
                     | codeterm_types::pty::PromptKind::Structured
+                    | codeterm_types::pty::PromptKind::DirectoryTrust
             )
         )
 }
@@ -35,7 +36,11 @@ pub(super) fn claim_run_end(state: &RunState) -> bool {
 }
 
 pub(super) fn end_on_blocking_prompt(svc: &ServiceContext, state: &RunState) {
-    let summary = codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON.to_string();
+    let summary = match tab_pending_prompt_kind(svc, &state.tab_id) {
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust) => "folder_trust",
+        _ => codeterm_mem::dream_status::deadline::APPROVAL_PROMPT_REASON,
+    }
+    .to_string();
     log::warn!(
         "[run-watcher] ending mem worker on blocking prompt: tab={} reason={}",
         state.tab_id,

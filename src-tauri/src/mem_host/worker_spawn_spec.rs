@@ -27,6 +27,8 @@ pub(crate) struct MemWorkerSpawnInputs {
     pub(crate) worker_id: String,
     pub(crate) spawned_by: String,
     pub(crate) intent: String,
+    pub(crate) instance_cli_path: Option<std::ffi::OsString>,
+    pub(crate) inherited_path: std::ffi::OsString,
 }
 
 pub(crate) fn build_mem_worker_spawn_spec(
@@ -59,6 +61,22 @@ pub(crate) fn build_mem_worker_spawn_spec(
         })?;
     if let Some(agent) = spec.agent_launch_mut() {
         agent.spawned_by = Some(inputs.spawned_by);
+        if let Some(cli_path) = inputs.instance_cli_path {
+            if let Some(cli_dir) = crate::pty::manager::cli_dir_of(&cli_path) {
+                if let Some(path) = crate::pty::manager::path_with_cli_dir_first(
+                    &inputs.inherited_path,
+                    &cli_dir,
+                ) {
+                    agent.extra_env.insert(
+                        "CODETERM_CLI_PATH".into(),
+                        cli_path.to_string_lossy().into_owned(),
+                    );
+                    agent
+                        .extra_env
+                        .insert("PATH".into(), path.to_string_lossy().into_owned());
+                }
+            }
+        }
     }
     Ok(spec)
 }

@@ -770,11 +770,11 @@ fn run_watcher_mem_worker_ends_on_pending_structured_prompt() {
 }
 
 #[test]
-fn run_watcher_mem_worker_directory_trust_prompt_is_untouched() {
+fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
     let kind = AgentRunKind::MemWorker {
         worker_id: "worker".into(),
     };
-    assert!(!should_end_on_blocking_prompt(
+    assert!(should_end_on_blocking_prompt(
         &kind,
         true,
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
@@ -784,6 +784,111 @@ fn run_watcher_mem_worker_directory_trust_prompt_is_untouched() {
         true,
         Some(codeterm_types::pty::PromptKind::ManualUpdate)
     ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
+    use codeterm_mem::dream_status::{diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd};
+    use codeterm_types::pty::PromptKind;
+
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = format!("folder-trust-{}", uuid::Uuid::new_v4().simple());
+    mux.link_pty(&tab_id, pty_id.clone());
+    let worker_id = format!("gw_test_{}", uuid::Uuid::new_v4().simple());
+    let tab = mux.get_tab_mut(&tab_id).expect("mem worker tab");
+    tab.hidden = true;
+    tab.worker_id = Some(worker_id.clone());
+    tab.pending_prompt = Some(owner_prompt());
+    tab.pending_prompt_kind = Some(PromptKind::DirectoryTrust);
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    svc.workers.register(crate::mem::workers::make_info(
+        worker_id.clone(),
+        tab_id.clone(),
+        "dreaming:rem".into(),
+        "system:dreaming".into(),
+        "hsl(0,0%,0%)".into(),
+    ));
+    let diary = svc
+        .mem
+        .save(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Daily,
+            scope: crate::mem::MemScope::Global,
+            title: "dream: folder trust".into(),
+            summary: Some("WIP: dreaming".into()),
+            area: Some("_dreams".into()),
+            tags: vec![codeterm_mem::dream_status::deadline::DREAM_DIARY_TAG.into()],
+            body: "<insight></insight><log>STARTED: t0\nHUBS_BEFORE: 3\nHUBS: pending\n</log>"
+                .into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let state = RunState {
+        pty_id: pty_id.clone(),
+        tab_id: tab_id.clone(),
+        kind: AgentRunKind::MemWorker {
+            worker_id: worker_id.clone(),
+        },
+        scanner: Mutex::new(ResultEventScanner::new()),
+        started_at: Instant::now(),
+        last_byte_at: Mutex::new(Instant::now()),
+        completed: AtomicBool::new(false),
+        armed: AtomicBool::new(false),
+        saw_working: AtomicBool::new(false),
+        saw_post_session_progress: AtomicBool::new(false),
+        restart_count: AtomicU32::new(0),
+        last_restart_at: Mutex::new(Instant::now()),
+        resume_system_prompt: None,
+    };
+    svc.run_watcher
+        .runs
+        .lock()
+        .insert(pty_id.clone(), Arc::new(state));
+
+    let run = svc
+        .run_watcher
+        .runs
+        .lock()
+        .get(&pty_id)
+        .cloned()
+        .expect("registered run");
+    assert!(claim_run_end(&run));
+    end_on_blocking_prompt(svc, &run);
+
+    let worker = svc.workers.get(&worker_id).expect("worker finalization");
+    assert_eq!(
+        worker.execution_end,
+        Some(ExecutionEnd::TimedOut {
+            detail: "folder_trust".into(),
+        })
+    );
+    assert_eq!(
+        worker.finalization,
+        DiaryFinalization::Partial {
+            diary_id: Some(diary.clone()),
+            reason: "folder_trust".into(),
+        }
+    );
+    assert_eq!(
+        worker.dream_run_status(),
+        DreamRunStatus::PartiallyFinalized {
+            reason: "folder_trust".into(),
+        }
+    );
+    let stored = svc.mem.get(&diary).unwrap().unwrap();
+    let evidence = diary_evidence(&diary, &stored.body);
+    assert!(evidence.is_complete() && evidence.cut_at_deadline);
+    assert!(!svc.run_watcher.runs.lock().contains_key(&pty_id));
+    assert!(svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.pending_prompt.is_some()));
 }
 
 #[test]
@@ -801,6 +906,24 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
         &kind,
         true,
         Some(codeterm_types::pty::PromptKind::Structured)
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    ));
+}
+
+#[test]
+fn run_watcher_visible_tab_folder_trust_untouched() {
+    let kind = AgentRunKind::Cron {
+        job_id: "job".into(),
+        run_id: "run".into(),
+    };
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     ));
 }
 
