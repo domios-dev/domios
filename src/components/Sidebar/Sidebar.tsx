@@ -41,7 +41,6 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { declaredAttentionByTab } from "./declaredAttention";
@@ -675,7 +674,6 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
-                      {IS_WEB && <WebPeerPicker compact />}
                     </div>
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
