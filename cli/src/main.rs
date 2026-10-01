@@ -107,7 +107,6 @@ pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
 };
-pub use args::supporter::{SupporterAction, SupporterMode, SupporterTokenAction};
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
     WebAction, WorkspaceAction,
@@ -118,6 +117,7 @@ pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
+pub use args::supporter::{SupporterAction, SupporterMode, SupporterTokenAction};
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
 pub use args::team::TeamAction;

@@ -594,12 +594,9 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         let adapter_registered = models.contains(&cfg.adapter);
         let state = supporter_state(features_on, &selected_token, adapter_registered);
         let model = cfg.model.clone().or_else(|| {
-            models.get(&cfg.adapter).and_then(|model| {
-                model
-                    .models()
-                    .first()
-                    .map(|entry| entry.id.clone())
-            })
+            models
+                .get(&cfg.adapter)
+                .and_then(|model| model.models().first().map(|entry| entry.id.clone()))
         });
         Ok(json!({
             "state": state,

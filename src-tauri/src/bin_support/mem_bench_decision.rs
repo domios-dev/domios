@@ -276,8 +276,7 @@ pub(super) fn prepare_model(
                 .is_some();
             if !present {
                 return Err(
-                    "decision live token missing; store it before running --supporter live"
-                        .into(),
+                    "decision live token missing; store it before running --supporter live".into(),
                 );
             }
             Ok(Some(Arc::new(TypeSafeAdapter::new(store, None, None))))
