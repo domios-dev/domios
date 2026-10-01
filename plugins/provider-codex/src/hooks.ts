@@ -81,7 +81,7 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
   const fullCommand = command + "\n" + String(hook.commandWindows || "");
   if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1
     || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
-  if (hook._source !== undefined) return hook._source === CODETERM_CODEX_HOOK_MARKER;
+  if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
   return LEGACY_CODEX_HOOK_COMMANDS.has(command);
 }
 
@@ -155,4 +155,3 @@ export function isOwnedCodexWindowsHookScript(path: string): boolean {
   const text = host.fs.readFile(path);
   return typeof text === "string" && isOwnedCodexHookScriptContent(text);
 }
-

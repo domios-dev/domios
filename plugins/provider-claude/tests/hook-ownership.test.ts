@@ -55,6 +55,7 @@ const LEGACY_V2_SESSION_START =
 const LEGACY_V2_STOP =
   "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop "
   + "-H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
+const FOREIGN_PANE_ROUTE = "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
 
 const FOREIGN_LOCAL_HTTP = 'curl -s -X POST http://localhost:7686/api/telemetry/session -d \'{"kind":"start"}\'';
 const FOREIGN_SCRIPT = "~/bin/my-audit-hook.sh --event stop";
@@ -153,6 +154,9 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
     Stop: [entry("", LEGACY_V2_STOP), entry("", LEGACY_V2_STOP, "codeterm")],
   });
   const p = loadClaude(files);
+  const before = p.checkIntegration();
+  eq(before.integration_owned, true, "the exact pane fingerprint grants startup ownership");
+  eq(before.hook_contract_current, false, "the pane contract is stale before reconciliation");
   assert(p.installIntegration(7686, { consent: true, repair: true }).ok === true, "install over v2 succeeds");
   const written = JSON.parse(files.get(SETTINGS_PATH) as string);
   eq(written.hooks.SessionStart.length, 1, "marked and _source-stripped v2 both collapse into one entry");
@@ -161,6 +165,16 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
     JSON.stringify(written.hooks).indexOf("CODETERM_PANE_ID") === -1,
     "no pane-era command survives the migration",
   );
+}
+
+{
+  const files = settingsWith({ SessionStart: [entry("", FOREIGN_PANE_ROUTE)] });
+  const p = loadClaude(files);
+  const status = p.checkIntegration();
+  eq(status.integration_owned, false, "a similar pane route does not imply CodeTerm ownership");
+  p.installIntegration(7686, { consent: true, repair: true });
+  const hooks = JSON.parse(files.get(SETTINGS_PATH) as string).hooks.SessionStart;
+  eq(hooks[0], entry("", FOREIGN_PANE_ROUTE), "the foreign route is byte-identical after install");
 }
 
 // ── foreign_hook_is_not_owned ──────────────────────────────────────────────
@@ -235,6 +249,23 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   const files = new Map([[SETTINGS_PATH, "{"]]);
   const status = loadClaude(files).checkIntegration();
   eq(status.integration_state, "unreadable", "invalid settings are reported as unreadable");
+}
+
+{
+  const devFiles = settingsWith({});
+  const prodFiles = settingsWith({});
+  loadClaude(devFiles).installIntegration(7686, { consent: true, precompact_memory_export: true, repair: true });
+  loadClaude(prodFiles).installIntegration(7685, { consent: true, precompact_memory_export: true, repair: true });
+  const dev = JSON.parse(devFiles.get(SETTINGS_PATH) as string);
+  const prod = JSON.parse(prodFiles.get(SETTINGS_PATH) as string);
+  eq(dev.hooks, prod.hooks, "dev and prod receive byte-identical hook commands");
+  const written = JSON.stringify(dev.hooks);
+  assert(written.indexOf("$CODETERM_API_URL") !== -1, "hooks route through the agent environment");
+  assert(written.indexOf("$CODETERM_API_TOKEN") !== -1, "hooks read the token from the environment");
+  assert(written.indexOf("$CODETERM_TAB_ID") !== -1, "hooks read the tab identity from the environment");
+  assert(written.indexOf("localhost") === -1 && written.indexOf("7685") === -1
+    && written.indexOf("7686") === -1 && written.indexOf("CODETERM_API_PORT") === -1,
+  "hook commands contain no instance host or port");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
