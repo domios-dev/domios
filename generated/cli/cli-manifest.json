@@ -3428,17 +3428,27 @@
             },
             {
               "name": "hubs",
-              "about": "List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates",
+              "about": "List the top hub nodes by active degree (at or above threshold). Each hub returns its degree, relation_type distribution and `clusters`: inbound neighbours grouped by shared area, title keyword or kind, each with a `suggested_topic` and member ids ready for `introduce-topic`. The dreams anchor is reported under `excluded`, not as a hub",
               "aliases": [],
               "args": [
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIMIT",
+                  "possible_values": [],
+                  "default": "5",
+                  "help": "Return at most N hubs, highest degree first (default 5)",
+                  "aliases": []
+                },
                 {
                   "name": "sample",
                   "positional": false,
                   "required": false,
                   "value_name": "SAMPLE",
                   "possible_values": [],
-                  "default": "30",
-                  "help": "Per-hub neighbor sample size (default 30)",
+                  "default": "0",
+                  "help": "Per-hub raw neighbor sample with titles (default 0: clusters only)",
                   "aliases": []
                 },
                 {

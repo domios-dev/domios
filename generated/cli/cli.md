@@ -777,9 +777,10 @@ Inspect a graph entity: properties_json + degree summary. Filling the gap that m
 
 #### `codeterm mem graph hubs`
 
-List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates
+List the top hub nodes by active degree (at or above threshold). Each hub returns its degree, relation_type distribution and `clusters`: inbound neighbours grouped by shared area, title keyword or kind, each with a `suggested_topic` and member ids ready for `introduce-topic`. The dreams anchor is reported under `excluded`, not as a hub
 
-- `--sample` — Per-hub neighbor sample size (default 30)
+- `--limit` — Return at most N hubs, highest degree first (default 5)
+- `--sample` — Per-hub raw neighbor sample with titles (default 0: clusters only)
 - `--threshold`
 
 #### `codeterm mem graph introduce-topic`
