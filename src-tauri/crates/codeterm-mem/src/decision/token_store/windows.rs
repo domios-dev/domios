@@ -7,14 +7,13 @@ use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, DENY_ACCESS,
-    EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID,
-    TRUSTEE_IS_USER, TRUSTEE_W,
+    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, DENY_ACCESS, EXPLICIT_ACCESS_W,
+    GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
 };
 use windows_sys::Win32::Security::{
-    ACCESS_ALLOWED_ACE, ACCESS_ALLOWED_ACE_TYPE, DACL_SECURITY_INFORMATION, EqualSid, GetAce,
-    GetSecurityDescriptorControl, GetTokenInformation, ACL, NO_INHERITANCE,
-    PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenUser,
+    ACCESS_ALLOWED_ACE, ACCESS_ALLOWED_ACE_TYPE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
+    PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -154,13 +153,7 @@ impl CurrentUser {
         let token = TokenHandle(token);
         let mut required = 0;
         unsafe {
-            GetTokenInformation(
-                token.0,
-                TokenUser,
-                null_mut(),
-                0,
-                &mut required,
-            );
+            GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut required);
         }
         if required == 0 {
             return Err(io::Error::last_os_error());
