@@ -122,3 +122,9 @@ export function dreamRunLabel(worker: {
       return { label: "unverified", color: "#9ca3af", reason: null };
   }
 }
+
+// The run that produced a diary is found by diary identity, newest first.
+export function dreamRunReport(diaryId: string, workers: GraphWorkerInfo[]): string | null {
+  const run = workers.find((w) => w.diary_id === diaryId && (w.report ?? "").trim().length > 0);
+  return run?.report ?? null;
+}

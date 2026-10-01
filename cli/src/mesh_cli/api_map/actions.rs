@@ -242,6 +242,12 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             ("POST".into(), format!("/api/mem/items/{}/restore", enc(id)),
                 Some(serde_json::Value::Object(payload).to_string()))
         }
+        MemAction::Merge { keeper, lesser, body, body_file, conflict, changed_by } => {
+            let mut payload = json!({"keeper": keeper, "lesser": lesser, "conflict": conflict});
+            if let Some(v) = resolve_remote_text(body, body_file) { payload["body"] = json!(v); }
+            if let Some(v) = changed_by { payload["changed_by"] = json!(v.trim()); }
+            ("POST".into(), "/api/mem/merge".into(), Some(payload.to_string()))
+        }
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
                 Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),
@@ -541,6 +547,13 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
                     } else {
                         "/api/mem/calibration/sweep".to_string()
                     };
+                    ("POST".into(), path, None)
+                }
+                MemCalibrationAction::Stale { dry_run, limit } => {
+                    let mut path = format!("/api/mem/calibration/stale?dry_run={dry_run}");
+                    if let Some(l) = limit {
+                        path.push_str(&format!("&limit={l}"));
+                    }
                     ("POST".into(), path, None)
                 }
             }

@@ -64,7 +64,7 @@ async function main() {
   config.api = undefined as never;
 
   await act(async () => {
-    root.render(<MemorySettingsTab config={config} onUpdate={() => {}} onOpenGuide={() => {}} />);
+    root.render(<MemorySettingsTab config={config} onUpdate={() => {}} onOpenAgentsSettings={() => {}} />);
   });
 
   const extraction = host.querySelector('[data-testid="memory-settings-extraction-model"]') as HTMLSelectElement | null;

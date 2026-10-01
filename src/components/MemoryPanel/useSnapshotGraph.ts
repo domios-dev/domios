@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import {
@@ -23,6 +23,8 @@ export interface UseSnapshotGraphResult {
   status: SnapshotStatus;
   stats: GraphSnapshot["stats"] | null;
   error: string | null;
+  // Bumps on every full snapshot, so lazy per-node caches know to drop.
+  epoch: number;
   refresh: () => Promise<void>;
 }
 
@@ -31,18 +33,20 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
   const [status, setStatus] = useState<SnapshotStatus>("loading");
   const [stats, setStats] = useState<GraphSnapshot["stats"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [epoch, setEpoch] = useState(0);
   const indexRef = useRef<NodeIndex | null>(null);
   indexRef.current = index;
   const apiRef = useRef(api);
   apiRef.current = api;
 
   // Hard refresh: drop the IndexedDB cache and pull a fresh full snapshot.
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     await clearCachedSnapshot();
     try {
       const snap = await fetchSnapshot(apiRef.current);
       setIndex(indexSnapshot(snap));
       setStats(snap.stats);
+      setEpoch((e) => e + 1);
       setStatus("ready");
       setError(null);
       void saveCachedSnapshot(snap);
@@ -50,7 +54,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       if (e instanceof SnapshotUnavailableError) setStatus("unavailable");
       else setError(String(e));
     }
-  };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -60,41 +64,20 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
       if (!active) return;
       setIndex(indexSnapshot(snap));
       setStats(snap.stats);
+      setEpoch((e) => e + 1);
       setStatus("ready");
       setError(null);
       void saveCachedSnapshot(snap);
     };
 
-    const runDelta = async () => {
-      const cur = indexRef.current;
-      if (!cur) return;
-      try {
-        const delta = await fetchSnapshotDelta(apiRef.current, cur.layoutVersion, cur.seq, ctrl.signal);
-        if (!active) return;
-        if (isUnchanged(delta)) return;
-        if (isFullSnapshot(delta)) {
-          ingestFull(delta);
-          return;
-        }
-        const next = applyDelta(cur, delta);
-        setIndex(next);
-      } catch (e) {
-        if ((e as Error)?.name === "AbortError") return;
-        if (e instanceof SnapshotUnavailableError) {
-          if (active) setStatus("unavailable");
-        }
-      }
-    };
-
     const boot = async () => {
       const cached = await loadCachedSnapshot();
       if (!active) return;
+      // The cache paints instantly; deltas carry only moved positions, so a full fetch follows.
       if (cached) {
         setIndex(indexSnapshot(cached));
         setStats(cached.stats);
         setStatus("ready");
-        await runDelta();
-        return;
       }
       try {
         const snap = await fetchSnapshot(apiRef.current, ctrl.signal);
@@ -105,7 +88,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
           if (active) setStatus("unavailable");
           return;
         }
-        if (active) {
+        if (active && !cached) {
           setStatus("loading");
           setError(String(e));
         }
@@ -135,6 +118,7 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
         if (isFullSnapshot(delta)) {
           setIndex(indexSnapshot(delta));
           setStats(delta.stats);
+          setEpoch((e) => e + 1);
           void saveCachedSnapshot(delta);
           return;
         }
@@ -167,5 +151,5 @@ export function useSnapshotGraph(api: ApiConfig): UseSnapshotGraphResult {
     };
   }, [api.host, api.port, api.token]);
 
-  return { index, status, stats, error, refresh };
+  return { index, status, stats, error, epoch, refresh };
 }

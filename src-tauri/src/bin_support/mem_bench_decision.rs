@@ -101,6 +101,7 @@ pub(super) struct DocsQuery {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct DocsArm {
     pub sources_docs: usize,
+    pub hybrid: bool,
     pub metrics: RankingMetrics,
     pub added: usize,
     pub docs_top1: usize,
@@ -318,7 +319,7 @@ fn session_additions(
         .iter()
         .filter(|session| {
             let excerpt = session.excerpt.to_ascii_lowercase();
-            terms.iter().all(|term| excerpt.contains(term))
+            terms.iter().any(|term| excerpt.contains(term))
         })
         .cloned()
         .collect();
@@ -432,6 +433,7 @@ pub(super) fn evaluate(
     top_k: usize,
     graph: usize,
     docs: usize,
+    docs_hybrid: bool,
     sessions: usize,
 ) -> Result<DecisionReport, String> {
     let negatives_path = fixture_path
@@ -565,7 +567,8 @@ pub(super) fn evaluate(
             None
         };
         let docs_query = if docs > 0 {
-            let additions = codeterm_lib::mem::docs_source::search(query, docs);
+            let additions =
+                codeterm_lib::mem::docs_source::search_with_hybrid(query, docs, docs_hybrid);
             let pool_len = hits.len() + additions.len();
             let candidates = hits
                 .iter()
@@ -691,6 +694,7 @@ pub(super) fn evaluate(
         }),
         docs: (docs > 0).then(|| DocsArm {
             sources_docs: docs,
+            hybrid: docs_hybrid,
             metrics: ranking_metrics(&docs_ranks, top_k),
             added: docs_added,
             docs_top1,
@@ -793,32 +797,32 @@ mod tests {
     }
 
     #[test]
-    fn decision_session_candidates_match_all_terms_and_use_recent_order() {
+    fn decision_session_candidates_match_any_term_and_use_recent_order() {
         let fixtures = vec![
             SessionCandidateFixture {
                 session_id: "older".into(),
                 provider: "claude".into(),
                 title: "Deploy notes".into(),
-                excerpt: "Use codeterm sessions get for the deploy notes".into(),
+                excerpt: "Deploy the earlier change".into(),
                 modified_ts: Some(10),
             },
             SessionCandidateFixture {
                 session_id: "recent".into(),
                 provider: "codex".into(),
                 title: "Deploy command".into(),
-                excerpt: "Use codeterm sessions get to inspect deploy".into(),
+                excerpt: "Deploy the current change".into(),
                 modified_ts: Some(20),
             },
             SessionCandidateFixture {
                 session_id: "miss".into(),
                 provider: "claude".into(),
                 title: "Deploy command".into(),
-                excerpt: "Use codeterm sessions search instead".into(),
+                excerpt: "Search the session index".into(),
                 modified_ts: Some(30),
             },
         ];
 
-        let result = session_additions("codeterm sessions get", &fixtures, 1);
+        let result = session_additions("deploy lighthouse", &fixtures, 1);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].session_id, "recent");

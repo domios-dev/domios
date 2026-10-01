@@ -365,6 +365,32 @@ impl GraphWorkerRegistry {
         Ok(info)
     }
 
+    /// Record `finalization` only while none is recorded yet, checked under
+    /// the write lock, so a concurrent explicit report is never overwritten.
+    pub fn record_finalization_if_pending(
+        &self,
+        worker_id: &str,
+        diary_id: Option<String>,
+        finalization: DiaryFinalization,
+    ) -> Result<bool, String> {
+        {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            if w.finalization != DiaryFinalization::Pending {
+                return Ok(false);
+            }
+            if let Some(diary_id) = diary_id.or_else(|| finalization.diary_id().map(str::to_string))
+            {
+                w.diary_id = Some(diary_id);
+            }
+            w.finalization = finalization;
+        }
+        self.persist();
+        Ok(true)
+    }
+
     /// The live run that owns this diary, by identity. Never derived from the
     /// diary's own body text.
     pub fn live_owner_of_diary(&self, diary_id: &str) -> Option<String> {

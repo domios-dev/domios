@@ -138,6 +138,7 @@ pub(crate) mod tab_conditions;
 pub(crate) mod tab_lifecycle;
 pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
+mod tab_state_shadow;
 pub mod tab_transport;
 pub mod tab_transport_chat;
 mod team;
@@ -380,6 +381,8 @@ pub struct ServiceContext {
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
+    pub(crate) stalled_team_nudges:
+        Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>,
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,

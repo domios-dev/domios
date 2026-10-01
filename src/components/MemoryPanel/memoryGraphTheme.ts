@@ -4,6 +4,7 @@ export interface MemoryGraphPalette {
   clusterEdgeAlpha: number;
   egoEdgeAlpha: number;
   realEdgeAlpha: (confidence: number) => number;
+  edgeColor: (alpha: number) => string;
 }
 
 export function deriveMemoryGraphPalette(background: string, foreground: string): MemoryGraphPalette {
@@ -13,6 +14,7 @@ export function deriveMemoryGraphPalette(background: string, foreground: string)
 
   return {
     edgeRgb: fg.join(","),
+    edgeColor: (alpha: number) => premultipliedRgba(fg, alpha),
     labelColor: foreground,
     clusterEdgeAlpha: light ? 0.3 : 0.18,
     egoEdgeAlpha: light ? 0.62 : 0.55,
@@ -29,6 +31,12 @@ export function readMemoryGraphPalette(root: HTMLElement = document.documentElem
     style.getPropertyValue("--ct-bg").trim() || "#0d1117",
     style.getPropertyValue("--ct-fg").trim() || "#c9d1d9",
   );
+}
+
+// Sigma blends with ONE, ONE_MINUS_SRC_ALPHA, so a straight rgba() draws at full brightness.
+function premultipliedRgba([r, g, b]: [number, number, number], alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${Math.round(r * a)},${Math.round(g * a)},${Math.round(b * a)},${a})`;
 }
 
 function parseCssRgb(color: string): [number, number, number] | null {

@@ -62,7 +62,7 @@ Any OTHER `<word>` substring fails parsing — Telegram returns 400 and rejects 
 
 Inside `<code>` and `<pre>` blocks, escape `<` `>` `&` as `&lt;` `&gt;` `&amp;` — code blocks are NOT a safe haven for raw angle brackets, since Telegram still parses HTML inside them.
 
-The bridge has a sanitizer (`src-tauri/src/bridge/sanitize.rs`) that auto-fixes most of this transparently: stray `<word>` substrings get escaped, unclosed tags auto-closed, unsafe attributes stripped. But write clean HTML — the sanitizer is a safety net, not a band-aid.
+The bridge has a sanitizer that auto-fixes most of this transparently: stray `<word>` substrings get escaped, unclosed tags auto-closed, unsafe attributes stripped. But write clean HTML — the sanitizer is a safety net, not a band-aid.
 
 ## Long replies & continuation
 
@@ -125,4 +125,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

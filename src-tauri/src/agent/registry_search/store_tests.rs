@@ -131,6 +131,7 @@ fn store(
 fn opts(terms: &[&str], limit: usize) -> SessionSearchOpts {
     SessionSearchOpts {
         terms: terms.iter().map(|t| t.to_string()).collect(),
+        match_mode: super::SessionMatchMode::AllTerms,
         limit,
         max_snippets: 3,
         ..Default::default()
@@ -205,6 +206,35 @@ fn shared_store_is_read_per_session_within_the_byte_cap() {
         )],
         "limit 1 met by the newest session reads nothing older"
     );
+}
+
+#[test]
+fn shared_store_any_term_search_reads_unfiltered_content() {
+    let (stub, queries) = store(
+        "store",
+        "/shared.db",
+        &[
+            ("new", 300, content(&["alpha in the newest session"], false)),
+            ("old", 100, content(&["beta in the older session"], false)),
+        ],
+    );
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(stub));
+
+    let result = registry
+        .search_sessions(&SessionSearchOpts {
+            match_mode: super::SessionMatchMode::AnyTermRanked,
+            ..opts(&["alpha", "beta"], 2)
+        })
+        .unwrap();
+
+    assert_eq!(result.hits.len(), 2);
+    assert_eq!(result.hits[0].meta.session_id, "new");
+    assert_eq!(result.hits[1].meta.session_id, "old");
+    assert!(queries
+        .lock()
+        .iter()
+        .all(|(_, query)| query.hint_terms.is_empty()));
 }
 
 #[test]

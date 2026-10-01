@@ -206,6 +206,7 @@ impl ServiceFixture {
             loaded_plan_projects: Arc::new(Mutex::new(HashSet::new())),
             plan_startup_loaded: Arc::new(AtomicBool::new(false)),
             plan_turn_counter,
+            stalled_team_nudges: Arc::new(Default::default()),
             pending_delivery_payloads,
             chat_send_ledger: Arc::new(Default::default()),
             deferred_session_bindings: Arc::new(Default::default()),

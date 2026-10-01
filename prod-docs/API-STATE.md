@@ -36,7 +36,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Session Snapshot
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. A save that would drop workspaces/tabs vs the persisted `last.json` is refused unless it carries authorized-reduction intent (close verbs, Team close, policy closes, spawn rollbacks, boot cleanup of ghost/duplicate entries): the fuller persisted desk stays authoritative, the rejected snapshot is quarantined as `sessions/last.json.reduced-<epoch-ms>`, and the refusal is logged at error with drop counts. Refusal is protection, not failure — the endpoint still returns 200; only a genuine persist failure (I/O, serialization) errors. |
+| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; Call it before force-killing the daemon to make restart persistence deterministic. A save that would drop workspaces/tabs vs the persisted `last.json` is refused unless it carries authorized-reduction intent (close verbs, Team close, policy closes, spawn rollbacks, boot cleanup of ghost/duplicate entries): the fuller persisted desk stays authoritative, the rejected snapshot is quarantined as `sessions/last.json.reduced-<epoch-ms>`, and the refusal is logged at error with drop counts. Refusal is protection, not failure — the endpoint still returns 200; only a genuine persist failure (I/O, serialization) errors. |
 | GET | `/api/session/backups` | — | List rotated full-desk snapshots from `sessions/backups/`, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
 | POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
 
@@ -44,7 +44,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
-| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) — the browser bundle's `mux_get_state`. **Bounded:** at most `MAX_CONCURRENT_STATE_SNAPSHOTS` (`api::snapshot_bound`) snapshots build at once; over that, or while a lifecycle writer owns the mux/tracker lock, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
+| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) **Bounded:** only a few snapshots build at once; over that, or while a lifecycle change is being written, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
@@ -55,14 +55,13 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
-
 Snapshot refetch coalescing, the snapshot bound and its `503`, and the known event-order gap in the stream: `codeterm docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/debug/clock` | — | `{mocked, now_ms}` — whether cron runs on a mock clock, and its current time. |
-| POST | `/api/debug/clock/advance` | `{ms}` | Advance the mock cron clock and wake the scheduler so overdue jobs fire immediately. **409** unless the daemon is a debug build started with `CODETERM_TEST_CLOCK=1` (release builds never activate the mock). Powers the 07-cron e2e suite's time travel. |
+| POST | `/api/debug/clock/advance` | `{ms}` | Advance the mock cron clock and wake the scheduler so overdue jobs fire immediately. **409** unless the daemon is a debug build started with `CODETERM_TEST_CLOCK=1` (release builds never activate the mock). |
 
 #### Usage Tracker
 
@@ -77,22 +76,16 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe immediately. Returns `{queued, probe_id}`; `503` if the poller is not running. |
 | POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `codeterm usage rebuild-ledger`. |
 
-**KPI token identity.** Each `token_usage` row is keyed by the provider response it counts (`dedup_key`, required by the schema): `message.id` plus `requestId` for streamed transcripts, advancing cumulative totals for logs that re-emit running totals, the message row id for sqlite stores, and the source position otherwise. Re-reading a range merges into existing rows, keeping the largest figure per field.
+Usage refresh is quota-free, rebuild is idempotent, projections are estimates, and unsupported providers have no automatic usage probe.
 
-**Adaptive polling.** A single background scheduler ticks every 30 s and decides which provider/account is due. The cadence steps through `[600 s, 1200 s, 1800 s, 2400 s, 3000 s]` with ±10% jitter. A tab is active when `TabActivity::mark` records a recent keypress, send, or focus. Providers without a quota-free `fetchUsage` capability are not scheduled.
-
-**Projection algorithm.** The projection builds per-day-of-week medians from the last four weeks, projects today's curve from the elapsed shape, and rejects pair-noise jumps wider than four hours with more than 25% change. The frontend's `activeWeeklyCycle()` discards stale weekly-reset timestamps that lag the latest reset.
-
-#### Logs
-
-CodeTerm pipes daemon `tracing` output into a structured ring and SQLite store. Settings → Logs is the canonical UI; the REST shape is identical.
+CodeTerm keeps structured daemon logs. Settings → Logs is the canonical UI; the REST shape is identical.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/logs` | `?level=info\|warn\|error\|debug&source=<substr>&since=<ms>&limit=500` | Read recent app-log rows. `limit` is clamped to `[1, 5000]`. |
 | DELETE | `/api/logs` | `?before=<ms>` | Purge rows older than `before` in epoch milliseconds. Returns `{deleted: N}`. |
 
-Each row is `{id, ts, level, source, message, context_json}`. `source` is the `tracing` target. A 1000-entry in-memory ring drains into `logs/app_logs.db` once the WAL-mode SQL backend opens. The `log-emitted` Tauri event fires per record so the Logs tab can auto-tail without polling.
+Each row is `{id, ts, level, source, message, context_json}`. `source` is the `tracing` target. Logs are stored in `logs/app_logs.db` in the data directory. A `log-emitted` event fires per record.
 
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
@@ -101,13 +94,13 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
 | POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` or no body | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
-Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
+Provider-agnostic: every provider with stored sessions contributes them (Claude, Codex, OpenCode); providers without stored sessions contribute nothing.
 
 **GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`, `opencode`) to scope, and an id no provider owns is refused with 400. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
 
-Where a session's text is read from is the provider's `session_content_source` capability. A `session_file` provider (Claude, Codex) owns one file per session; a `shared_store` provider (OpenCode, whose sessions all live in one `opencode.db`) answers per session through `read_session_content`, a read-only query of that session's messages bounded to its newest 8 MiB. Core never opens a shared store as a file.
+A session's searchable text is bounded to its newest 8 MiB.
 
-The scan is bounded, not exhaustive. Providers are scanned in parallel on the blocking pool; each orders its sessions by recency and stops at `limit` hits, and the merged result keeps the newest `limit`. Session files are prefiltered on raw bytes in parallel batches, so only files that contain every ASCII term are parsed, and a file larger than 8 MiB is skipped rather than loaded. `sessions get`/`resume` still resolve a skipped session, since those read metadata only. Each provider logs `[sessions-search] provider=… sessions=… scanned=… parsed=… elapsed_ms=…`.
+The scan is bounded, not exhaustive. Each provider orders its sessions by recency and stops at `limit` hits, and the merged result keeps the newest `limit`. Search may skip or truncate unreadable or large sessions (over 8 MiB) with explicit warnings. `sessions get`/`resume` still resolve a skipped session, since those read metadata only. Each provider logs `[sessions-search] provider=… sessions=… scanned=… parsed=… elapsed_ms=…`.
 
 Nothing is skipped silently. `warnings` lists, per provider, the sessions it could not fully search: `{provider, reason, sessions, message}`, where `reason` is `no_content_source`, `over_byte_cap`, `unreadable`, `content_truncated` (a store session searched only in its newest 8 MiB), or `scan_failed`. The CLI prints each `message` after the hits, also when nothing matched.
 
@@ -135,13 +128,13 @@ Response shape:
 }
 ```
 
-**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record (`AgentProvider::find_session`: Claude probes `<project>/<id>.jsonl`, Codex reads its state-DB thread row); session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
+**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
 
 **POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
-1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
+1. Locate the session across providers and read its cwd and provider id from the session's own metadata.
 2. Reuse the workspace at `workspace_id` if given; otherwise create one at the recorded cwd, named `workspace_name` or the cwd basename.
 3. Restore authoritative role, profile, parent, and spawn authority from the exact provider session binding. A Worker or Manager is restored only while its Orchestrator parent is live.
-4. Spawn an identity-only agent tab with the provider resume command and `NoStarter`. Historical tasks, starter prompts, launch assignments, fallback input, and wake signals are never replayed.
+4. Spawn an identity-only agent tab with the provider resume command and no starter. Historical tasks, starter prompts, launch assignments, fallback input, and wake signals are never replayed.
 5. If authoritative identity is unavailable, return `identity.status = "roleless"` with exact promotion and relink commands. The CLI prints `resumed roleless` rather than claiming restoration.
 
 Response:
@@ -167,7 +160,6 @@ Roleless responses instead include `identity.actions.promotion` and `identity.ac
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
-Session binding model: [core essence](../essences/core.md#agents-and-providers) (provider-reported binding).
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -201,15 +193,15 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | POST | `/api/update/channel` | `{channel}` | Disabled while CodeTerm ships only the default update channel; returns `409 update channel switching is disabled`. |
 | GET | `/api/update/status` | — | Current updater state and last update result |
 
-**Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
+**Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
 
-**Auto install flow (`method=auto`).** The daemon spawns a background tokio runtime that calls `update::apply::check_and_apply`. This:
+**Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
 1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
-2. Downloads the platform asset, verifies the ed25519 signature, performs the platform-specific install (atomic binary swap on Windows, rsync into `.app` on macOS).
-3. Performs the 9-step graceful shutdown: tabs are signaled to exit, the mem WAL is checkpointed, the supervisor is stopped, then the app restarts.
+2. Downloads the selected platform artifact and verifies its signature before installing it.
+3. Shuts down gracefully and restarts the app.
 4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
 
-The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); progress is reported via Tauri events to the frontend (`UpdateBadge` + `UpdateModal`).
+The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); the app reports progress.
 
 **Manual install fallback.** Without `method=auto`, the response carries either:
 - `{"status": "command", "command": "..."}` — for package-manager installs (Homebrew, Scoop) where running a shell command is the right action.
@@ -220,4 +212,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
