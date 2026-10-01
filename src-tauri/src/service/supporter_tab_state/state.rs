@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 
@@ -9,6 +10,7 @@ pub(crate) const CALL_CAP_PER_EPISODE: usize = 4;
 pub(crate) enum ObservationEvent {
     SpawnReady,
     SpawnDeadline,
+    StartupEscalation,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
@@ -40,6 +42,18 @@ pub(crate) enum SignalAction {
     StrongAction,
     WeakHint,
     None,
+}
+
+pub(crate) fn launch_episode_key(
+    tab_id: &str,
+    pty_id: Option<&str>,
+    agent_set_at: Option<Instant>,
+) -> String {
+    let launch_identity = pty_id
+        .map(|pty_id| format!("pty:{pty_id}"))
+        .or_else(|| agent_set_at.map(|started| format!("agent-set:{started:?}")))
+        .unwrap_or_else(|| "tab-lifetime".to_string());
+    format!("{tab_id}:{launch_identity}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

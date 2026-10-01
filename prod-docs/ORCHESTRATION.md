@@ -103,6 +103,11 @@ the user, then recover with the named `codeterm plan task respawn` command.
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
+Tab-state hints carry `actionable: false` and are observations only. Do not treat
+one as an instruction to answer a prompt, notify the user, or change task state;
+an actionable tab-state event requires a second agreeing strong observation of
+the same launch.
+
 Discovery must produce decisions and follow-up implementation, review, or
 verification tasks; research alone does not complete the goal.
 
