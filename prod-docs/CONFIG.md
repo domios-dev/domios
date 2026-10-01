@@ -195,6 +195,7 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `memory.decision_rerank.max_body_chars` | integer from 256 to 100000; default 2000 |
 
 `memory.decision_rerank.enabled` (default `false`), `.adapter`, `.endpoint` and `.model` complete the section; see `codeterm docs MEMORY` for the behaviour and the runtime settings reference below.
+`memory.decision_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for decision-rerank documentation candidates.
 
 The user-facing name of this model is the Supporter Agent; its token is set in Settings > Agents or with `codeterm mem decision token set`, never in `config.toml`.
 

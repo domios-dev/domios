@@ -101,6 +101,7 @@ pub(super) struct DocsQuery {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct DocsArm {
     pub sources_docs: usize,
+    pub hybrid: bool,
     pub metrics: RankingMetrics,
     pub added: usize,
     pub docs_top1: usize,
@@ -432,6 +433,7 @@ pub(super) fn evaluate(
     top_k: usize,
     graph: usize,
     docs: usize,
+    docs_hybrid: bool,
     sessions: usize,
 ) -> Result<DecisionReport, String> {
     let negatives_path = fixture_path
@@ -565,7 +567,8 @@ pub(super) fn evaluate(
             None
         };
         let docs_query = if docs > 0 {
-            let additions = codeterm_lib::mem::docs_source::search(query, docs);
+            let additions =
+                codeterm_lib::mem::docs_source::search_with_hybrid(query, docs, docs_hybrid);
             let pool_len = hits.len() + additions.len();
             let candidates = hits
                 .iter()
@@ -691,6 +694,7 @@ pub(super) fn evaluate(
         }),
         docs: (docs > 0).then(|| DocsArm {
             sources_docs: docs,
+            hybrid: docs_hybrid,
             metrics: ranking_metrics(&docs_ranks, top_k),
             added: docs_added,
             docs_top1,
