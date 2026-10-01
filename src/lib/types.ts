@@ -614,6 +614,7 @@ export interface AgentConfig {
   idle_timeout_s: number;
   resume_sessions: boolean;
   full_access?: boolean;
+  tab_state_shadow?: { enabled: boolean };
 }
 
 export interface ApiConfig {

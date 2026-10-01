@@ -706,9 +706,8 @@ pub struct RestoreBody {
     pub changed_by: Option<String>,
 }
 
-/// Recover a prior body from `mem_item_history`. With `version` set, restore
-/// the body snapshot of that history row; otherwise undo the most recent body
-/// change (revert to the latest `old_body`).
+/// Recover from `mem_item_history`: an archived or merged item gets its prior
+/// kind back; otherwise `version` (or the latest body change) is restored.
 pub async fn mem_restore(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -716,36 +715,14 @@ pub async fn mem_restore(
     Json(b): Json<RestoreBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let history = state
-        .svc
-        .mem
-        .get_item_history(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    if history.is_empty() {
-        return Err((StatusCode::NOT_FOUND, format!("no history for {}", id)));
-    }
-    let restored_body = pick_restore_body(&history, b.version)?;
-    let patch = MemUpdate {
-        body: Some(restored_body.clone()),
-        ..Default::default()
-    };
-    let changed_by = b
-        .changed_by
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(sanitize_actor)
-        .unwrap_or_else(|| "restore".to_string());
-    let updated =
-        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    if !updated {
-        return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
-    }
-    emit_activity(&state, &headers, "update", vec![id.clone()]);
-    Ok(Json(
-        serde_json::json!({ "restored": id, "body_len": restored_body.len() }),
-    ))
+    let svc = state.svc.clone();
+    let target = id.clone();
+    let out =
+        tokio::task::spawn_blocking(move || super::mem_merge::restore_item(&svc, &target, &b))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))??;
+    emit_activity(&state, &headers, "update", vec![id]);
+    Ok(Json(out))
 }
 
 #[derive(Deserialize)]

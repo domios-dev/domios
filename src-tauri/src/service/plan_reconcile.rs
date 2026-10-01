@@ -98,14 +98,15 @@ impl ServiceContext {
             tab_id,
             crate::service::worker_loss::WorkerLossCause::TabGone,
         );
-        self.flag_bound_tasks_without_report(tab_id, now_ms);
+        let changed_plans = self.flag_bound_tasks_without_report(tab_id, now_ms);
+        self.nudge_stalled_teams_for_gone_tab(tab_id, &changed_plans);
         self.report_worker_losses(losses);
     }
 
-    fn flag_bound_tasks_without_report(&self, tab_id: &str, now_ms: u64) {
+    fn flag_bound_tasks_without_report(&self, tab_id: &str, now_ms: u64) -> Vec<String> {
         let bindings = self.plan_store.task_bindings_for_tab(tab_id);
         if bindings.is_empty() {
-            return;
+            return Vec::new();
         }
         let mut changed_plans = Vec::new();
         for (plan_id, task_id) in bindings {
@@ -122,9 +123,10 @@ impl ServiceContext {
         }
         changed_plans.sort();
         changed_plans.dedup();
-        for plan_id in changed_plans {
-            self.emit_plan_changed(&plan_id);
+        for plan_id in &changed_plans {
+            self.emit_plan_changed(plan_id);
         }
+        changed_plans
     }
 
     /// Periodic watchdog: release in_progress lanes whose tab is gone past the

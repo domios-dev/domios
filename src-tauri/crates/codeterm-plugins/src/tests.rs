@@ -2,6 +2,7 @@ use super::*;
 
 mod error_paths;
 mod id_validation;
+mod system_channel;
 
 mod store_index_tests {
     use super::*;
@@ -35,11 +36,14 @@ mod store_index_tests {
     fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
         let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
+        let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
         let root =
             std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
         std::env::set_var("CODETERM_DATA_DIR", &root);
+        std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", root.join("missing"));
         let result = f(root.clone());
         restore_env("CODETERM_DATA_DIR", prev);
+        restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
         let _ = std::fs::remove_dir_all(root);
         result
     }

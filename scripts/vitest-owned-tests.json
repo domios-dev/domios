@@ -51,5 +51,7 @@
   "src/components/Canvas/map_canvas.test.tsx",
   "src/components/Canvas/EssenceMapCanvas.gesture.test.tsx",
   "src/components/Canvas/essence_document_tree.test.tsx",
-  "src/components/MemoryPanel/DecisionRerankCard.test.tsx"
+  "src/components/MemoryPanel/DecisionRerankCard.test.tsx",
+  "src/components/Settings/SupporterAgentCard.test.tsx",
+  "src/components/MemoryPanel/useSnapshotGraph.test.tsx"
 ]

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::notification::{NotifyDestination, NotifyLevel};
 
 pub use super::decision_rerank::{DecisionRerankConfig, DecisionSources};
+pub use super::dream_hygiene::DreamHygieneConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -541,6 +542,7 @@ pub struct AgentConfig {
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
     pub full_access: Option<bool>,
+    pub tab_state_shadow: super::TabStateShadowConfig,
 }
 
 impl Default for AgentConfig {
@@ -550,6 +552,7 @@ impl Default for AgentConfig {
             idle_timeout_s: 2,
             resume_sessions: true,
             full_access: None,
+            tab_state_shadow: super::TabStateShadowConfig::default(),
         }
     }
 }
@@ -873,6 +876,8 @@ pub struct MemoryConfig {
     pub dreaming_telegram_notify: bool,
     #[serde(default)]
     pub decision_rerank: DecisionRerankConfig,
+    #[serde(default)]
+    pub dream_hygiene: DreamHygieneConfig,
 }
 
 impl Default for MemoryConfig {
@@ -894,6 +899,7 @@ impl Default for MemoryConfig {
             l1_budget_tokens: default_l1_budget_tokens(),
             dreaming_telegram_notify: true,
             decision_rerank: DecisionRerankConfig::default(),
+            dream_hygiene: DreamHygieneConfig::default(),
         }
     }
 }

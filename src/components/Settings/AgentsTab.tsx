@@ -2,9 +2,12 @@ import { useCallback, useEffect } from "react";
 import { invoke } from "../../lib/bridge";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
 import type { AppConfig, OrchestrationConfig, ProviderConfig } from "../../lib/types";
+import type { HelpSectionId } from "../../help/types";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
+import { DEFAULT_DECISION_ADAPTER, SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
 import { Button } from "../shared/Button";
@@ -13,12 +16,16 @@ export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
+  onOpenGuide,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
+  onOpenGuide: (section: HelpSectionId) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
+  const authToken = daemonAuthToken(config.api);
+  const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-agents-overview">
@@ -35,6 +42,13 @@ export function AgentsOverview({
       </SettingsCard>
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
+
+      <SupporterAgentCard
+        adapter={config.memory?.decision_rerank?.adapter ?? DEFAULT_DECISION_ADAPTER}
+        apiBase={daemonHttpBase(config.api)}
+        apiHeaders={apiHeaders}
+        onOpenGuide={onOpenGuide}
+      />
 
       <SettingsCard
         icon={<FolderTree size={16} />}

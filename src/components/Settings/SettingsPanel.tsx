@@ -43,7 +43,6 @@ interface SettingsPanelProps {
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId;
-  initialHelpSection?: HelpSectionId;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
@@ -51,7 +50,7 @@ const SETTINGS_TITLE_ID = "codeterm-settings-title";
 
 type Route =
   | { kind: "root" }
-  | { kind: "section"; id: SectionId }
+  | { kind: "section"; id: SectionId; helpSection?: HelpSectionId }
   | { kind: "agent-provider"; providerId: string };
 
 export function SettingsPanel({
@@ -59,7 +58,6 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
   initialSection,
-  initialHelpSection,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
@@ -434,6 +432,7 @@ export function SettingsPanel({
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
+                  onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })}
                 />
               </SettingsPage>
             )}
@@ -481,7 +480,7 @@ export function SettingsPanel({
                   What CodeTerm is and how to work with it.
                 </p>
                 <div className="flex-1 min-h-0">
-                  <HelpPanel config={localConfig} initialSection={initialHelpSection} />
+                  <HelpPanel config={localConfig} initialSection={top.helpSection} />
                 </div>
               </div>
             )}

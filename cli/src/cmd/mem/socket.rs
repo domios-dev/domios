@@ -273,6 +273,24 @@ pub(super) fn socket_request(
             "mem.restore",
             Some(serde_json::json!({ "id": id, "version": version, "changed_by": changed_by })),
         )),
+        MemAction::Merge {
+            keeper,
+            lesser,
+            body,
+            body_file,
+            conflict,
+            changed_by,
+        } => Some((
+            "mem.merge",
+            Some(serde_json::json!({
+                "keeper": keeper,
+                "lesser": lesser,
+                "body": resolve_or_exit(body.clone(), body_file.clone()),
+                "conflict": conflict,
+                "changed_by": changed_by,
+                "worker_id": std::env::var("CODETERM_WORKER_ID").ok(),
+            })),
+        )),
         MemAction::Reembed { scope } => {
             Some(("mem.reembed", Some(serde_json::json!({ "scope": scope }))))
         }
@@ -372,6 +390,10 @@ mod tests {
                 "mem.append",
             ),
             (vec!["codeterm", "mem", "restore", "fact_a"], "mem.restore"),
+            (
+                vec!["codeterm", "mem", "merge", "--keeper", "a", "--lesser", "b"],
+                "mem.merge",
+            ),
             (vec!["codeterm", "mem", "reembed"], "mem.reembed"),
         ];
         for (args, expected_method) in cases {

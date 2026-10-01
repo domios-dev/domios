@@ -60,3 +60,12 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 ## Dependency advisories
 
 Weekly audits (`cargo audit` + `pnpm audit`) flag known vulnerabilities. Assess reachability: if a vulnerability is in a transitive dependency your code never touches, document it with a bump-rationale comment in the PR; if reachable, upgrade or pin the affected version. Do not ignore advisories.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/web-state.md](references/web-state.md) — state snapshot, event stream, usage and log internals
+- [references/mesh-services.md](references/mesh-services.md) — mesh and service registry internals
+- [references/service-boundaries.md](references/service-boundaries.md) — the shared service layer behind REST, IPC and the socket
+- [references/notifications.md](references/notifications.md) — notification level routing rationale

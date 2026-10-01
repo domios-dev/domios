@@ -103,7 +103,7 @@ Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`, ju
 
 `POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and `503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
 
-A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are the constants in `codeterm-types` (`mesh::delivery`); `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline. The sender's own leg is classified the same way rather than collapsing to a bare `502` — `send_relay` returns a `TransportError` carrying a `mesh_transport_*` constant onto that same envelope, and only a connect-phase failure claims `bytes_written=false`.
+A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are stable constants; `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline. The sender's own leg is classified the same way rather than collapsing to a bare `502` with a stable `mesh_transport_*` code on the same envelope, and only a connect-phase failure claims `bytes_written=false`.
 
 `--mesh PEER` accepts, in order: an exact instance id, a unique instance-id prefix (the short id `mesh status` prints, 6+ hex characters), the advertised name, or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
 
@@ -161,11 +161,9 @@ Moving a Telegram bridge between peers (CLI, orchestration steps, secret localit
 
 When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path (other than `/api/mesh/ping`) with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path — so other peers attempting to relay into us also get rejected, not just the local UI. The local Bearer token (`api.token`) keeps working for non-mesh routes regardless.
 
-**Disabling mid-session** (PATCH `/api/config mesh.enabled=false`) additionally: stops the discovery broadcast, marks every paired peer `online = false`, clears the discovered-peers list, and emits `mesh-state-changed` so the UI updates immediately. Re-enabling restores the routes; broadcast and peer state pick back up on the next discovery / ping tick. (Code-side gap: `mesh::ping_scheduler` does not consult `mesh.enabled` itself — it keeps trying to ping paired peers regardless. Inbound to us is rejected by the middleware, so peers we ping still see us as offline. Functionally OK because the auth middleware is the kill-switch, but the outbound ping traffic continues. Tracked for follow-up.)
+**Disabling mid-session** (PATCH `/api/config mesh.enabled=false`) additionally: stops the discovery broadcast, marks every paired peer `online = false`, clears the discovered-peers list, and emits `mesh-state-changed` so the UI updates immediately. Re-enabling restores the routes; broadcast and peer state pick back up on the next discovery / ping tick. Mesh off rejects remote access, though outbound health pings to paired peers may continue.
 
-## Peer-ping scheduler
-
-`mesh::ping_scheduler` runs as a background tokio task. Every 20 s it pings every paired peer's `/api/mesh/ping` (4 s timeout) and flips the peer's `online` flag on transition. Coming back online refreshes `last_seen`. Any change emits `mesh-state-changed` so the UI re-renders without polling. The scheduler picks the lowest-tier reachable address per peer (Tailscale > LAN > public) so it doesn't burn bandwidth on the wrong path.
+Peer reachability updates automatically and emits `mesh-state-changed`.
 
 ## Related documents
 
@@ -175,4 +173,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->

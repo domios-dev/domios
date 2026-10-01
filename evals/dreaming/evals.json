@@ -60,6 +60,31 @@
         "Does NOT call codeterm mem graph introduce-topic — that command is for inventing NEW topic anchors, not reusing existing ones",
         "Does NOT try to invent a new topic_<theme> when topic_auth already covers the island"
       ]
+    },
+    {
+      "id": 6,
+      "name": "hub-clusters-drive-introduce-topic-no-scripts",
+      "prompt": "Stage A.1 of REM. You ran `codeterm mem graph hubs --threshold 20 --limit 5` and got:\n\n{\n  \"threshold\": 20,\n  \"limit\": 5,\n  \"sample\": 0,\n  \"total_hubs\": 2,\n  \"hubs\": [\n    {\n      \"id\": \"person_mira\",\n      \"degree\": 41,\n      \"rel_dist\": [\n        {\n          \"rel\": \"applies_to\",\n          \"count\": 30\n        },\n        {\n          \"rel\": \"about\",\n          \"count\": 8\n        },\n        {\n          \"rel\": \"owns\",\n          \"count\": 3\n        }\n      ],\n      \"popular_source\": false,\n      \"sub_anchors\": 2,\n      \"outbound_only\": 3,\n      \"unclustered\": 4,\n      \"clusters\": [\n        {\n          \"suggested_topic\": \"topic_mira_infra\",\n          \"entity_type\": \"Topic\",\n          \"existing\": false,\n          \"basis\": \"area\",\n          \"key\": \"infra\",\n          \"members\": [\n            \"fact_mira_k8s_cluster\",\n            \"fact_mira_terraform_state\",\n            \"fact_mira_vpn_setup\",\n            \"learning_mira_dns_ttl\"\n          ]\n        },\n        {\n          \"suggested_topic\": \"topic_cooking\",\n          \"entity_type\": \"Topic\",\n          \"existing\": true,\n          \"basis\": \"keyword\",\n          \"key\": \"cooking\",\n          \"members\": [\n            \"preference_mira_cooking_spicy\",\n            \"fact_mira_cooking_class\"\n          ]\n        },\n        {\n          \"suggested_topic\": \"topic_mira_skill\",\n          \"entity_type\": \"Topic\",\n          \"existing\": false,\n          \"basis\": \"kind\",\n          \"key\": \"skill\",\n          \"members\": [\n            \"skill_mira_pottery\",\n            \"skill_mira_bouldering\",\n            \"skill_mira_piano\"\n          ]\n        }\n      ],\n      \"neighbors\": []\n    },\n    {\n      \"id\": \"tech_redis\",\n      \"degree\": 22,\n      \"rel_dist\": [\n        {\n          \"rel\": \"uses\",\n          \"count\": 22\n        }\n      ],\n      \"popular_source\": false,\n      \"sub_anchors\": 0,\n      \"outbound_only\": 0,\n      \"unclustered\": 6,\n      \"clusters\": [\n        {\n          \"suggested_topic\": \"topic_redis_cache\",\n          \"entity_type\": \"Topic\",\n          \"existing\": false,\n          \"basis\": \"keyword\",\n          \"key\": \"cache\",\n          \"members\": [\n            \"fact_api_cache_ttl\",\n            \"fact_session_cache_eviction\"\n          ]\n        }\n      ],\n      \"neighbors\": []\n    }\n  ],\n  \"excluded\": [\n    {\n      \"id\": \"project_dreams\",\n      \"degree\": 88,\n      \"reason\": \"dreams anchor\"\n    }\n  ],\n  \"existing_anchors\": [\n    {\n      \"id\": \"topic_cooking\",\n      \"entity_type\": \"Topic\"\n    }\n  ]\n}\n\nList the exact commands you run next for Stage A.1, in order.",
+      "expected_output": "Decomposes person_mira first, one introduce-topic per cluster using suggested_topic, entity_type and members verbatim with --anchor person_mira, then tech_redis; never touches project_dreams and never writes a script or temp file.",
+      "expectations": [
+        "Handles person_mira (degree 41) before tech_redis (degree 22)",
+        "Calls codeterm mem graph introduce-topic with --topic-id topic_mira_infra and --sources listing the four infra member ids from the cluster, with --anchor person_mira",
+        "Reuses topic_cooking (the existing suggested_topic) rather than inventing a new slug for the cooking cluster",
+        "Does NOT decompose or route anything into project_dreams (it is listed under excluded as the dreams anchor)",
+        "Does NOT use python, jq, a heredoc, a pipe, a shell variable, or a /tmp file to process the hubs JSON — every command is a plain codeterm invocation"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "content-duplicate-merges-reversibly-never-deletes",
+      "prompt": "Stage A.3 of REM. While bridging islands you noticed two near-identical items and read both with `mem get`:\n\n{\"id\": \"fact_deploy_pipeline\", \"kind\": \"fact\", \"title\": \"Deploy pipeline runs on the build farm\", \"body\": \"Releases build on the self-hosted build farm; macOS artifacts are notarized there.\"}\n\n{\"id\": \"fact_deploy_pipeline_2\", \"kind\": \"fact\", \"title\": \"Deploy pipeline on build farm\", \"body\": \"Releases build on the self-hosted build farm. Windows installers are signed there too.\"}\n\nBoth describe the same release pipeline; together they say more than either alone. How do you resolve the duplicate, and what goes in the diary log?",
+      "expected_output": "One `codeterm mem merge --keeper fact_deploy_pipeline --lesser fact_deploy_pipeline_2 --body '<merged body>'` call carrying both facts; never `mem delete`; the diary log names the merged pair with a reason",
+      "expectations": [
+        "Uses a single codeterm mem merge call with --keeper and --lesser naming the two items",
+        "Passes a merged keeper body that keeps both the notarization and the Windows signing facts",
+        "Does NOT call codeterm mem delete on either item",
+        "Logs the merged lesser and keeper ids with a short reason in the diary log (a MERGED line or equivalent)"
+      ]
     }
   ]
 }

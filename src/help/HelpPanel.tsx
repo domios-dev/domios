@@ -22,7 +22,7 @@ const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   agents: Bot,
   plans: GitBranch,
   memory: Brain,
-  "decision-rerank": Sparkles,
+  "supporter-agent": Sparkles,
   mesh: Network,
   integrations: Plug,
   tips: Lightbulb,
@@ -42,7 +42,9 @@ export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelPr
   const tabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (initialSection) setActiveId(initialSection);
+    if (!initialSection) return;
+    setActiveId(initialSection);
+    tabRef.current?.querySelector(`[data-help-section="${initialSection}"]`)?.scrollIntoView?.({ block: "start" });
   }, [initialSection]);
 
   const scrollToSection = useCallback((id: HelpSectionId) => {

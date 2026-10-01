@@ -88,11 +88,9 @@ secret-backend plugin.
    with its own error discriminant.
 3. **The backend owns the credential.** Only the backend persists a master password, in its own
    host-provided bucket (`codeterm.plugin.<id>`, the same location `host.secretSet` writes).
-   CodeTerm writes no separate credential file. The retired
-   `~/.codeterm/secrets/bitwarden-master.env` had no reader; startup overwrites its bytes and
-   unlinks it. When the overwrite cannot be proven, startup still unlinks to cut exposure but logs a
-   warning that the old secret may remain recoverable and should be rotated — a removed directory
-   entry is never reported as a secure erasure.
+   CodeTerm writes no separate credential file. Startup removes the retired
+   `~/.codeterm/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
+   rotate that master password.
 4. **Persisting requires explicit consent, carried on the wire.** `POST /api/secrets/unlock` takes
    `persist_for_auto_unlock` (default `false`), forwarded to the backend as the JS
    `persistForAutoUnlock` argument. It is always serialized as a bool, so a plugin never has to infer
@@ -133,13 +131,13 @@ delete --name NAME [--yes]
 
 Exit codes: `0` success, `2` invalid arguments, `3` locked, `4` logged out, `5` not found, `6` unavailable, `7` mesh rejected.
 
-The full REST contract is in [API-STATE.md](API-STATE.md#secrets).
+The full REST contract is in `codeterm docs API-STATE` (Secrets).
 
 ## Storage and security
 
 The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used, in release or dev builds. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
 
-Item ids look like `local-0000002a`. They are allocated from a counter persisted in the index and never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
+Item ids look like `local-0000002a`. They are never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
 
 `codeterm mem secret delete` asks for confirmation on a terminal. Without a terminal on stdin it exits non-zero immediately and asks for `--yes`; it never waits for input.
 
@@ -147,16 +145,4 @@ Bitwarden owns vault encryption. CodeTerm passes the master password and session
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-## Adding a backend
-
-Implementation lives in `src-tauri/src/secrets/`:
-
-1. Implement `SecretStore` and map failures to `SecretError`.
-2. Implement `SecretBackendFactory`; keep `build` synchronous and use `init` for async warm-up.
-3. Add typed settings to `src-tauri/src/config/schema.rs` and expose them through `provider_config_for`.
-4. Register the factory in `secrets::factory::register_builtins`. Settings discovers registered factories automatically.
-5. Add deterministic tests using the patterns in `mock.rs`, `local.rs`, and Bitwarden's mocked executor. External binaries and networks do not belong in unit tests.
-
-Override optional organization, collection, sync, or init methods only when the backend supports them. The registry is currently built into the binary; there is no external plugin registration API.
-
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -397,7 +397,7 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 
 - `essences/` — internal stable product material. Start at `essences/begin_here.md`, then read `essences/capabilities.md`, `essences/core.md`, and `essences/vision.md`. Step-by-step procedures live in `.agents/skills/`.
 - `generated/cli/` — committed CLI contract artifacts: `cli.md` and `cli-manifest.json`, generated from the clap tree by `codeterm cli-manifest --write`.
-- `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/PROMPTS.md`, `prod-docs/TAB-LIFECYCLE.md`.
+- `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using CodeTerm; a doc about CodeTerm's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
 <!-- revision: 36 -->

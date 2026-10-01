@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct DecisionRerankConfig {
     pub enabled: bool,
+    pub docs_hybrid: bool,
     /// Registry id of the decision adapter resolved at search time.
     pub adapter: String,
     pub sources: DecisionSources,
@@ -20,6 +21,7 @@ impl Default for DecisionRerankConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            docs_hybrid: false,
             adapter: "typesafe-jev".into(),
             sources: DecisionSources::default(),
             max_concurrency: 16,
