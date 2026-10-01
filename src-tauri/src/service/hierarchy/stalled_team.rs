@@ -2,10 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use parking_lot::Mutex;
 
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::reminders::NudgeKind;
 use crate::service::ServiceContext;
 use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
+use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 use super::plan_reminder_nudge::PlanReminderTarget;
 
@@ -106,14 +108,32 @@ fn maybe_nudge_stalled_team(
     Ok(true)
 }
 
+fn idle_orchestrator_candidates(
+    is_orchestrator: bool,
+    load_candidates: impl FnOnce() -> Vec<Plan>,
+) -> Vec<Plan> {
+    if is_orchestrator {
+        load_candidates()
+    } else {
+        Vec::new()
+    }
+}
+
+fn is_orchestrator_tab(tab: &Tab) -> bool {
+    tab.role == Some(AgentRole::Manager) && tab.role_kind_id() == Some(ORCHESTRATOR)
+}
+
 impl ServiceContext {
     pub(crate) fn nudge_stalled_teams_for_idle_orchestrator(&self, tab_id: &str) {
-        for plan in self
-            .plan_store
-            .list_full()
-            .into_iter()
-            .filter(|plan| plan.owner.tab_id.as_deref() == Some(tab_id))
-        {
+        let is_orchestrator = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(is_orchestrator_tab);
+        for plan in idle_orchestrator_candidates(is_orchestrator, || {
+            self.plan_store
+                .list_full_reminder_candidates_for_owner(tab_id)
+        }) {
             self.nudge_stalled_team_for_plan(&plan, true, None);
         }
     }
@@ -194,7 +214,7 @@ impl ServiceContext {
         mux.resolve_tab_id(tab_id)
             .and_then(|resolved| mux.get_tab(&resolved))
             .is_some_and(|tab| {
-                tab.role == Some(AgentRole::Orchestrator)
+                is_orchestrator_tab(tab)
                     && tab
                         .agent_state
                         .as_ref()
