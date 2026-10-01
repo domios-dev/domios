@@ -203,7 +203,7 @@ librarian_enabled = true
 
 ## Past Agent Sessions
 
-There is no per-session config: each provider owns where its sessions live. Search and resume from the CLI with `codeterm sessions search|get|resume`; REST endpoints under `/api/sessions/*` mirror the CLI. See `codeterm docs API-STATE` for the full contract.
+There is no per-session config: each provider owns where its sessions live. The `codeterm sessions` commands and `/api/sessions/*` find and resume them; `codeterm docs API-STATE` has the contract.
 
 ## Dev/Prod Isolation
 
