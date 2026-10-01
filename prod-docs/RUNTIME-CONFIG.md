@@ -51,17 +51,14 @@ Contains workspace layout and tab arrangement metadata.
 
 CodeTerm tracks the current working directory of each tab via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
 
-**How it works per shell:**
-- **zsh** (macOS default): ZDOTDIR trick -- a temporary `.zshrc` in the integration directory sources the user's real config, then adds a `precmd` hook that emits OSC 7.
-- **bash** (Linux default): `PROMPT_COMMAND` env var is set at PTY spawn time, plus `BASH_ENV` points to an integration script that sources `~/.bashrc` first.
-- **PowerShell** (Windows default): Prompt injection after spawn (same as before).
+Generated integration files need no manual edits.
 
 Shell integration scripts are stored in the platform data directory:
 - **macOS:** `~/Library/Application Support/codeterm/shell-integration/`
 - **Linux:** `~/.local/share/codeterm/shell-integration/`
 - **Windows:** `%APPDATA%/codeterm/shell-integration/`
 
-Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
+CodeTerm creates these scripts at startup.
 
 ## Cron Jobs
 
@@ -129,13 +126,11 @@ mesh_tab_enabled = true
 
 Mem state lives in `~/.codeterm/mem.sqlite` (dev: `~/.codeterm-dev/mem.sqlite`). Config knobs that affect mem are under `[memory]` in `config.toml`.
 
-### Embedding indexer (`EmbedQueue`)
-
-Vector indexing uses a **single-worker** pattern: one background thread owns the sqlite writer and drains a bounded `sync_channel` (capacity 1024). Every `mem save` that needs embedding enqueues a job and returns immediately — no thread-per-save, no writer contention. Jobs dropped when the queue is full are logged and the item stays searchable via FTS5; it just won't appear in semantic-recall results until re-indexed.
+Saves can finish before semantic indexing; text search remains available meanwhile.
 
 ### Auto-extraction concurrency
 
-Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden tabs spawned through `workers::spawn_headless`, and is capped at **4 concurrent workers** globally via `ServiceContext::extract_semaphore` (a `tokio::sync::Semaphore` created at startup). A fifth concurrent save queues until one of the running extractions releases its permit.
+Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden workers and is limited to **4 concurrent workers**; a fifth concurrent save waits for a free slot.
 
 To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
 
@@ -143,7 +138,7 @@ To suppress extraction on a specific save — used by seed loaders to avoid re-e
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.worker_timeout_seconds` | `u64` | `300` | Hard timeout for non-dreaming hidden agent runs (extraction workers, generic cron). The auto-complete watcher marks the run `Failed` if the agent has not emitted a stream-json result event within this many seconds. Was `400` before v1.2.0; lowered because real-world extractions complete well under 5 min and the longer wait was just delaying retries on stuck workers. |
+| `memory.worker_timeout_seconds` | `u64` | `300` | Hard timeout for non-dreaming hidden agent runs (extraction workers, generic cron). The auto-complete watcher marks the run `Failed` if the agent has not emitted a stream-json result event within this many seconds. |
 | `memory.dreaming_timeout_seconds` | `u64` | `1800` | Hard timeout for the Dreamer (REM phase) specifically. Hub decomposition + diary + classification in one session needs room to think. Lower if your dreaming model is fast. |
 
 ### Wake-up budget
@@ -159,7 +154,7 @@ l1_budget_tokens = 300
 
 ### Dreamer schedule
 
-The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a 0..30 min delay-only jitter window — so it fires between 6:00 and 6:30 AM. Schedule and jitter are managed by `ensure_dreaming_cron` (`src-tauri/src/mem/dreaming.rs`) and not exposed as config keys. Legacy installs that still hold the v1.1 `0 3 * * *` schedule with 0..90 min delay-only jitter are auto-migrated to the new values on the next daemon startup. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated via `strftime('%w','now') == '0'`); the endpoints are documented in `codeterm docs API-MEMORY`.
+The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a 0..30 min delay-only jitter window — so it fires between 6:00 and 6:30 AM. Schedule and jitter are not config keys. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated); the endpoints are documented in `codeterm docs API-MEMORY`. Every night it can also archive year-untouched items, only when `[memory.dream_hygiene] stale_archive = true` (default `false`); `stale_archive_cap` (default 20) and `merge_cap` (default 10) bound the nightly stale archives and Dreamer merges (`codeterm docs CONFIG`).
 
 ### Decision re-rank
 
@@ -171,7 +166,7 @@ An optional second stage over `mem search`: recall fetches a candidate pool, a r
 | `memory.decision_rerank.adapter` | `string` | `"typesafe-jev"` | Registry id of the decision adapter. An unregistered id falls back with reason `no_adapter`. |
 | `memory.decision_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
 | `memory.decision_rerank.sources.graph` | `usize` | `3` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
-| `memory.decision_rerank.sources.docs` | `usize` | `3` | Extra embedded prod-docs sections and generated CLI command sections (`0..=10`), selected by an in-memory BM25 index built once; `0` disables docs candidates. |
+| `memory.decision_rerank.sources.docs` | `usize` | `3` | Extra embedded doc sections and CLI command sections (`0..=10`), selected by keyword match; `0` disables docs candidates. |
 | `memory.decision_rerank.sources.sessions` | `usize` | `0` | Top past-session snippets from the in-process sessions search (`0..=5`); skipped on error or deadline, and `0` disables session candidates. |
 | `memory.decision_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
 | `memory.decision_rerank.deadline_ms` | `u64` | `3000` | Failure deadline for the whole stage (`100..=30000`). |
@@ -208,12 +203,7 @@ librarian_enabled = true
 
 ## Past Agent Sessions
 
-There is no per-session config — every registered `AgentProvider` decides where its session files live and how to parse them. Today:
-
-- **Claude:** `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`. The encoded directory name is lossy (drops leading dots, mangles case), so CodeTerm reads the real cwd out of the JSONL content itself when enumerating sessions.
-- **Codex:** `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`. UUID v7 in the filename is used as the session id; first-line `session_meta` carries cwd.
-
-Search and resume from the CLI with `codeterm sessions search|get|resume`. REST endpoints under `/api/sessions/*` mirror the CLI. See `codeterm docs API-STATE` for the full contract and the [core essence](../essences/core.md#agents-and-providers) for the binding model.
+There is no per-session config: each provider owns where its sessions live. The `codeterm sessions` commands and `/api/sessions/*` find and resume them; `codeterm docs API-STATE` has the contract.
 
 ## Dev/Prod Isolation
 
@@ -227,6 +217,6 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 | Socket prefix | `codeterm-dev` | `codeterm` |
 | Single-instance | Disabled | Enabled |
 
-Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
+Both builds can run simultaneously.
 
-<!-- revision: 16 -->
+<!-- revision: 18 -->

@@ -1,4 +1,5 @@
-import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
+import { daemonFetch } from "../../lib/webApi";
+import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import { invoke, IS_WEB } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanMode, PlanStatus, Section } from "./types";
@@ -80,7 +81,7 @@ interface ResolveRefsResponse {
 
 export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
   if (!IS_WEB) return invokePlanRead("get_plan_full", { planId }, signal);
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
     headers: authHeaders(api),
     signal,
   });
@@ -89,7 +90,7 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
 }
 
 export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
-  const res = await fetch(`${baseUrl(api)}/api/specs/${encodeURIComponent(specId)}`, {
+  const res = await daemonFetch(api, `/api/specs/${encodeURIComponent(specId)}`, {
     headers: authHeaders(api),
     signal,
   });
@@ -99,7 +100,7 @@ export async function fetchSpecSections(api: ApiConfig, specId: string, signal?:
 }
 
 export async function fetchReconcile(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<DriftItem[]> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/reconcile`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/reconcile`, {
     headers: authHeaders(api),
     signal,
   });
@@ -112,7 +113,7 @@ export async function fetchReconcile(api: ApiConfig, planId: string, signal?: Ab
 // Lightweight index only — one request, no per-plan bodies.
 export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Promise<PlanIndexEntry[]> {
   if (!IS_WEB) return invokePlanRead("list_plan_index", undefined, signal);
-  const res = await fetch(`${baseUrl(api)}/api/plans`, {
+  const res = await daemonFetch(api, `/api/plans`, {
     headers: authHeaders(api),
     signal,
   });
@@ -126,7 +127,7 @@ export async function resolvePlanRefs(
   refs: readonly PlanRefRequest[],
   signal?: AbortSignal,
 ): Promise<ResolvedPlanRef[]> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/resolve-refs`, {
+  const res = await daemonFetch(api, `/api/plans/resolve-refs`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({ refs }),
@@ -148,7 +149,7 @@ export async function fetchPlans(
   }
   const params = new URLSearchParams({ full: "1" });
   if (opts?.project) params.set("project", opts.project);
-  const res = await fetch(`${baseUrl(api)}/api/plans?${params}`, {
+  const res = await daemonFetch(api, `/api/plans?${params}`, {
     headers: authHeaders(api),
     signal,
   });
@@ -161,7 +162,7 @@ export async function fetchUnownedPlanIndex(
   api: ApiConfig,
   signal?: AbortSignal,
 ): Promise<PlanIndexEntry[]> {
-  const res = await fetch(`${baseUrl(api)}/api/plans?unowned=1`, {
+  const res = await daemonFetch(api, `/api/plans?unowned=1`, {
     headers: authHeaders(api),
     signal,
   });
@@ -179,7 +180,7 @@ export interface CreatePlanParams {
 }
 
 export async function createPlan(api: ApiConfig, params: CreatePlanParams): Promise<Plan> {
-  const res = await fetch(`${baseUrl(api)}/api/plans`, {
+  const res = await daemonFetch(api, `/api/plans`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify(params),
@@ -198,7 +199,7 @@ export async function patchPlanLayout(
   x: number,
   y: number,
 ): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/layout`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/layout`, {
     method: "PATCH",
     headers: jsonHeaders(api),
     body: JSON.stringify({ element: elementId, x, y }),
@@ -207,7 +208,7 @@ export async function patchPlanLayout(
 }
 
 export async function archivePlan(api: ApiConfig, planId: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/archive`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/archive`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: "{}",
@@ -216,7 +217,7 @@ export async function archivePlan(api: ApiConfig, planId: string): Promise<void>
 }
 
 export async function setPlanMode(api: ApiConfig, planId: string, mode: PlanMode): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/mode`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/mode`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({ mode }),
@@ -225,7 +226,7 @@ export async function setPlanMode(api: ApiConfig, planId: string, mode: PlanMode
 }
 
 export async function deletePlan(api: ApiConfig, planId: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
     method: "DELETE",
     headers: authHeaders(api),
   });
@@ -233,15 +234,16 @@ export async function deletePlan(api: ApiConfig, planId: string): Promise<void> 
 }
 
 export async function deleteTask(api: ApiConfig, planId: string, taskId: string): Promise<void> {
-  const res = await fetch(
-    `${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
+  const res = await daemonFetch(
+    api,
+    `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
     { method: "DELETE", headers: authHeaders(api) },
   );
   if (!res.ok) throw new Error(`task delete failed: ${res.status} ${await res.text()}`);
 }
 
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/unarchive`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/unarchive`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: "{}",
@@ -250,7 +252,7 @@ export async function unarchivePlan(api: ApiConfig, planId: string): Promise<voi
 }
 
 export async function parkPlan(api: ApiConfig, planId: string, reason: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/pause`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/pause`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({ reason }),
@@ -263,7 +265,7 @@ export async function fetchPlanLifecyclePreview(
   planId: string,
   kind: PlanLifecycleKind,
 ): Promise<PlanLifecyclePreview> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/${kind}/preview`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/${kind}/preview`, {
     headers: authHeaders(api),
   });
   if (!res.ok) throw new Error(`plan ${kind} preview failed: ${res.status} ${await res.text()}`);
@@ -271,7 +273,7 @@ export async function fetchPlanLifecyclePreview(
 }
 
 export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/resume`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/resume`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: "{}",
@@ -280,7 +282,7 @@ export async function resumePlan(api: ApiConfig, planId: string): Promise<void> 
 }
 
 export async function renamePlan(api: ApiConfig, planId: string, title: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
     method: "PATCH",
     headers: jsonHeaders(api),
     body: JSON.stringify({ title }),
@@ -293,7 +295,7 @@ export async function claimPlan(
   planId: string,
   owner: OrchestratorRef,
 ): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/claim`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/claim`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({ owner }),

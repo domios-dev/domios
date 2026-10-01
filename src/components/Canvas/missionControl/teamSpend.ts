@@ -1,10 +1,11 @@
+import { daemonFetch } from "../../../lib/webApi";
 import { useEffect, useRef, useState } from "react";
 import { shortModelName } from "../../../lib/agentModelName";
 import { listen, type UnlistenFn } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import { createRefreshGate, type RefreshGate } from "../../../lib/refreshGate";
 import type { ApiConfig } from "../../../lib/types";
-import { authHeaders, baseUrl } from "../../MemoryPanel/memoryApi";
+import { authHeaders } from "../../MemoryPanel/memoryApi";
 import type { PlanStatus } from "../types";
 import { UNASSIGNED_MODEL_LABEL, type ModelSpendRow } from "./missionControlBoardModel";
 import {
@@ -128,8 +129,9 @@ export async function fetchTeamSpend(
   if (query.model) params.set("model", query.model);
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
-  const res = await fetch(
-    `${baseUrl(api)}/api/teams/${encodeURIComponent(teamId)}/mission-control/spend?${params.toString()}`,
+  const res = await daemonFetch(
+    api,
+    `/api/teams/${encodeURIComponent(teamId)}/mission-control/spend?${params.toString()}`,
     { headers: authHeaders(api), signal },
   );
   if (!res.ok) throw new Error(`team spend failed: ${res.status} ${await res.text()}`);

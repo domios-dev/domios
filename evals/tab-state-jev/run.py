@@ -51,6 +51,16 @@ ACTIONABLE = {
     "error_loop",
 }
 READY = {"ready_idle", "working_normally"}
+SHADOW_GATE_LABELS = (
+    "login_or_auth_required",
+    "trust_or_permission_prompt",
+    "model_unavailable_or_quota",
+    "provider_update_prompt",
+    "still_starting",
+    "error_loop",
+)
+SHADOW_GATE_BAR = 0.90
+MIN_GATE_SUPPORT = 4
 CRITERIA = {
     "ready_idle": "The agent TUI is ready, and its composer is waiting for user input.",
     "working_normally": "The agent TUI is making ordinary progress, such as thinking or running tools.",
@@ -282,6 +292,61 @@ def high_confidence_metrics(predictions: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
+def per_label_at_threshold(
+    samples: list[dict[str, Any]], predictions: list[dict[str, Any]]
+) -> dict[str, Any]:
+    support = Counter(sample["label"] for sample in samples)
+    selected = [item for item in predictions if item["confidence"] >= CONFIDENCE_BAR]
+    metrics: dict[str, Any] = {}
+    for label in LABELS:
+        predicted = [item for item in selected if item["prediction"] == label]
+        correct = sum(item["label"] == label for item in predicted)
+        metrics[label] = {
+            "support": support[label],
+            "predicted_at_threshold": len(predicted),
+            "correct": correct,
+            "precision": correct / len(predicted) if predicted else None,
+            "recall": correct / support[label] if support[label] else None,
+        }
+    return metrics
+
+
+def shadow_gate(
+    samples: list[dict[str, Any]], predictions: list[dict[str, Any]], failed_calls: int
+) -> dict[str, Any]:
+    support = Counter(sample["label"] for sample in samples)
+    selected = [
+        item
+        for item in predictions
+        if item["confidence"] >= CONFIDENCE_BAR and item["prediction"] in SHADOW_GATE_LABELS
+    ]
+    correct = sum(item["prediction"] == item["label"] for item in selected)
+    precision = correct / len(selected) if selected else None
+    under_supported = [label for label in SHADOW_GATE_LABELS if support[label] < MIN_GATE_SUPPORT]
+    if under_supported:
+        allowed, reason = False, f"Labels below {MIN_GATE_SUPPORT} screens: {', '.join(under_supported)}."
+    elif failed_calls:
+        allowed, reason = False, f"{failed_calls} Jev calls failed, so the run is incomplete."
+    elif precision is None or precision < SHADOW_GATE_BAR:
+        allowed, reason = False, "Actionable precision at confidence 0.8 is below the 0.90 bar."
+    else:
+        allowed, reason = True, "Actionable precision at confidence 0.8 clears the 0.90 bar with full support."
+    return {
+        "labels": list(SHADOW_GATE_LABELS),
+        "threshold": CONFIDENCE_BAR,
+        "bar": SHADOW_GATE_BAR,
+        "min_label_support": MIN_GATE_SUPPORT,
+        "label_support": {label: support[label] for label in SHADOW_GATE_LABELS},
+        "under_supported_labels": under_supported,
+        "failed_calls": failed_calls,
+        "predictions_at_threshold": len(selected),
+        "correct": correct,
+        "precision": precision,
+        "default_on_allowed": allowed,
+        "reason": reason,
+    }
+
+
 def structural_comparison(
     samples: list[dict[str, Any]], prediction_by_id: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
@@ -448,6 +513,8 @@ def evaluate(
         "failed_calls": dict(sorted(failures.items())),
         "metrics": metrics,
         "calibration_at_0_8": calibration,
+        "per_label_at_0_8": per_label_at_threshold(samples, successful),
+        "shadow_gate": shadow_gate(samples, successful, sum(failures.values())),
         "latency_ms": {
             "mean": statistics.fmean(latencies) if latencies else None,
             "p50": nearest_rank(latencies, 0.50),

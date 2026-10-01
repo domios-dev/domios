@@ -1,4 +1,5 @@
-import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
+import { daemonFetch } from "../../lib/webApi";
+import { jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig, ProviderDescriptor } from "../../lib/types";
 import type { CreatePlanParams } from "./plansApi";
 
@@ -22,7 +23,7 @@ export function resolveCanvasSpawnProvider(
 }
 
 export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorOptions): Promise<string | null> {
-  const res = await fetch(`${baseUrl(api)}/api/agents/spawn`, {
+  const res = await daemonFetch(api, `/api/agents/spawn`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({
@@ -40,7 +41,7 @@ export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorO
 }
 
 export async function createCanvasPlanRequest(api: ApiConfig, params: CreatePlanParams): Promise<unknown> {
-  const res = await fetch(`${baseUrl(api)}/api/plans`, {
+  const res = await daemonFetch(api, `/api/plans`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify(params),

@@ -296,7 +296,19 @@ pub fn spawn_headless_worker(
             handle.pty_id.as_deref().unwrap_or("?")
         );
 
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+        let memory_config = crate::config::memory_config();
+        let run_deadline_secs =
+            crate::mem::worker_deadline::worker_deadline_secs(&intent_for_spawn, &memory_config);
+        let watchdog_deadline_secs =
+            run_deadline_secs + crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS;
+        let watchdog_detail = format!(
+            "worker watchdog deadline {}s (run deadline {}s + {}s grace)",
+            watchdog_deadline_secs,
+            run_deadline_secs,
+            crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS
+        );
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(watchdog_deadline_secs);
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let Some(current) = svc_task.workers.get(&worker_id_task) else {
@@ -307,18 +319,30 @@ pub fn spawn_headless_worker(
             }
             if tokio::time::Instant::now() > deadline {
                 log::warn!(
-                    "[worker] {}/{} exceeded 30min watchdog, recording timeout + closing Tab",
+                    "[worker] {}/{} exceeded {}s watchdog (run deadline {}s + {}s grace), recording timeout + closing Tab",
                     intent_for_spawn,
-                    worker_id_task
+                    worker_id_task,
+                    watchdog_deadline_secs,
+                    run_deadline_secs,
+                    crate::mem::worker_deadline::WORKER_WATCHDOG_GRACE_SECS
                 );
                 let _ = svc_task.workers.finish_execution(
                     &worker_id_task,
                     None,
                     codeterm_mem::dream_status::ExecutionEnd::TimedOut {
-                        detail: "exceeded the 30min worker watchdog".into(),
+                        detail: watchdog_detail.clone(),
                     },
                 );
                 let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
+                let (svc_end, worker_end) = (svc_task.clone(), worker_id_task.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::mem::dream_runs::finalize_dream_at_deadline(
+                        &svc_end,
+                        &worker_end,
+                        &watchdog_detail,
+                    )
+                })
+                .await;
                 break;
             }
         }

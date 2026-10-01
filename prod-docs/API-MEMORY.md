@@ -16,6 +16,8 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partially update an item. Pin changes are audited. A nonblank `changed_by` overrides the actor header after sanitization. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item. |
 | GET | `/api/mem/items/{id}/history` | — | Read item history. |
+| POST | `/api/mem/items/{id}/restore` | `{version?, changed_by?}` | Restore from history. When the latest kind change archived the item (calibration archive or merge), the prior kind comes back, the body of `version` too when given, and the item's merge relation is invalidated: `{restored, kind, body_restored, invalidated_relations}`. Otherwise the body of `version` (or the latest body change) is restored: `{restored, body_len}`. |
+| POST | `/api/mem/merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Reversible merge in one transaction: optional new keeper `body`, the lesser archived with a `merge` history row, and a `merged_into` lesser → keeper relation (`supersedes` keeper → lesser with `conflict`), tagged `reason: "mem-merge"`. Never deletes. Pinned, `skill`, `rule`, `preference` and archived items are refused as the lesser (409). A dreaming worker (resolved from `X-CodeTerm-Worker-Id` or `worker_id`) is audited as `dreamer-rem:merge` and capped at `memory.dream_hygiene.merge_cap` merges per UTC day (429 past it). |
 | GET | `/api/mem/pinned` | `?limit=N` | List wake-up-pinned items by importance, evidence count, and update time. Default limit is 100; maximum is 500. |
 | GET | `/api/mem/taxonomy` | — | Read memory taxonomy. |
 | GET | `/api/mem/tail` | — | Tail recent memory events. |
@@ -36,9 +38,9 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 **Actor and worker headers:**
 
 - `X-CodeTerm-Worker-Id` is set automatically when the CLI inherits `CODETERM_WORKER_ID`. Worker reads skip the `evidence_count` bump so extraction and dream sweeps do not feed back into L1 scoring.
-- `X-CodeTerm-Actor` is stored as `mem_item_history.changed_by` and defaults to `user`. The calibration sweep uses `dreamer-calibration:{promote|demote|archive}`.
+- `X-CodeTerm-Actor` is stored as `mem_item_history.changed_by` and defaults to `user`. The calibration sweep uses `dreamer-calibration:{promote|demote|archive|stale}`; a Dreamer merge uses `dreamer-rem:merge`.
 
-**Extraction concurrency.** `ServiceContext::extract_semaphore` caps automatic extraction at four concurrent workers process-wide. Saves tagged `auto-extracted`, sourced from `extracted_from:*`, or carrying `skip_extract: true` do not schedule extraction.
+**Extraction concurrency.** Automatic extraction is capped at four concurrent workers process-wide. Saves tagged `auto-extracted`, sourced from `extracted_from:*`, or carrying `skip_extract: true` do not schedule extraction.
 
 #### Knowledge graph
 
@@ -83,7 +85,8 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
 | POST | `/api/mem/calibration/sweep` | `?force=true` | Run importance and archive calibration. Unless forced, it runs only on Sunday and rejects a repeat within six hours. It caps a session at 30 mutations and aborts candidate sets over 100. The `all` dream phase invokes it after the LLM phases. |
-| GET | `/api/mem/calibration/log` | `?since=ISO8601&limit=N&count=true` | Read calibration audit entries. `since` must be RFC3339; the default limit is 50 and maximum is 500. `count=true` returns only the count. |
+| GET | `/api/mem/calibration/log` | `?since=ISO8601&limit=N&count=true` | Read calibration audit entries, each with its `reason`. `since` must be RFC3339; the default limit is 50 and maximum is 500. `count=true` returns only the count. |
+| POST | `/api/mem/calibration/stale` | `?dry_run=true&limit=N` | Staleness archive: items created over 365 days ago with no access, update, history row, relation created or invalidated, or touched active neighbour (item or entity) in that year. Pinned, `skill`, `rule`, `preference`, archived and importance >= 4 are excluded. `dry_run` lists `selected` ids with reasons and `matching` (the total) and writes nothing; `limit` sizes that list (default: tonight's remaining cap, max 1000). An apply needs `memory.dream_hygiene.stale_archive` (else `skipped_reason: "disabled"`), archives at most `stale_archive_cap` per UTC day as `dreamer-calibration:stale`, and returns `archived: [{id, reason}]`. The `all` dream phase runs it nightly after the weekly sweep and reports it under `stale`. |
 
 #### Memory workers
 
@@ -101,4 +104,4 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 9 -->
+<!-- revision: 11 -->

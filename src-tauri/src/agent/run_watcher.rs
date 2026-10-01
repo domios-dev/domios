@@ -9,7 +9,11 @@ use serde::Deserialize;
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
+mod blocking_prompt;
 mod cron_end;
+use blocking_prompt::{
+    claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
+};
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
 // `memory.worker_timeout_seconds` can lower/higher this at runtime.
@@ -360,6 +364,23 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
         let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
             && surface_idle_provider_prompt(&svc, &state.tab_id, &state.pty_id);
+        let pending_prompt_kind =
+            if provider_prompt_pending && matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
+                tab_pending_prompt_kind(&svc, &state.tab_id)
+            } else {
+                None
+            };
+        if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
+        {
+            if claim_run_end(&state) {
+                let (svc_end, state_end) = (svc.clone(), state.clone());
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    end_on_blocking_prompt(&svc_end, &state_end)
+                })
+                .await;
+            }
+            return;
+        }
 
         // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
         if elapsed_total >= RESTART_GRACE_SECS
@@ -463,21 +484,14 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if elapsed_total >= timeout_secs {
-            if state.completed.swap(true, Ordering::AcqRel) {
+            if !claim_run_end(&state) {
                 return;
             }
-            log::warn!(
-                "[run-watcher] hard timeout: tab={} elapsed={}s",
-                state.tab_id,
-                elapsed_total
-            );
-            finish_run(
-                &svc,
-                &state,
-                false,
-                format!("hard timeout after {}s", elapsed_total),
-            );
-            svc.run_watcher.runs.lock().remove(&state.pty_id);
+            let (svc_end, state_end) = (svc.clone(), state.clone());
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
+            })
+            .await;
             return;
         }
     }
@@ -695,7 +709,40 @@ fn hidden_recovery_resume_command(
         .flatten()
 }
 
+/// The hard deadline ended this run: record it as timed out, then let the
+/// host finalize a dreaming run's diary, since the agent never will.
+fn end_on_hard_timeout(svc: &ServiceContext, state: &RunState, elapsed_secs: u64) {
+    log::warn!(
+        "[run-watcher] hard timeout: tab={} elapsed={}s",
+        state.tab_id,
+        elapsed_secs
+    );
+    let summary = format!("hard timeout after {}s", elapsed_secs);
+    finish_run_as(svc, state, RunEnd::TimedOut, summary.clone());
+    if let AgentRunKind::MemWorker { worker_id } = &state.kind {
+        crate::mem::dream_runs::finalize_dream_at_deadline(svc, worker_id, &summary);
+    }
+    svc.run_watcher.runs.lock().remove(&state.pty_id);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunEnd {
+    Success,
+    Failure,
+    TimedOut,
+}
+
 fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: String) {
+    let end = if success {
+        RunEnd::Success
+    } else {
+        RunEnd::Failure
+    };
+    finish_run_as(svc, state, end, summary);
+}
+
+fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summary: String) {
+    let success = run_end == RunEnd::Success;
     let raw = svc
         .output_buf
         .lock()
@@ -725,12 +772,14 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
             }
             // Execution ending is not the same fact as the run finishing its
             // work: a process that died or timed out never reports `done`.
-            let end = if success {
-                codeterm_mem::dream_status::ExecutionEnd::Reported
-            } else {
-                codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+            let end = match run_end {
+                RunEnd::Success => codeterm_mem::dream_status::ExecutionEnd::Reported,
+                RunEnd::TimedOut => codeterm_mem::dream_status::ExecutionEnd::TimedOut {
                     detail: summary.clone(),
-                }
+                },
+                RunEnd::Failure => codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                    detail: summary.clone(),
+                },
             };
             let _ = svc
                 .workers

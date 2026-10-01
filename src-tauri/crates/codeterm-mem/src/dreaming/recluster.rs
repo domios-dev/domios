@@ -247,23 +247,9 @@ fn collect_hubs(
 }
 
 fn relation_distribution(conn: &Connection, hub_id: &str) -> Result<Vec<(String, u32)>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT relation_type, COUNT(*) FROM relations \
-             WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1) \
-             GROUP BY relation_type ORDER BY COUNT(*) DESC",
-        )
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params![hub_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?))
-        })
-        .map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(|e| e.to_string())?);
-    }
-    Ok(out)
+    let dist =
+        codeterm_mem_store::hubs::relation_distribution(conn, hub_id).map_err(|e| e.to_string())?;
+    Ok(dist.into_iter().map(|r| (r.rel, r.count as u32)).collect())
 }
 
 fn neighbors_for(

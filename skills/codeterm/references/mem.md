@@ -14,6 +14,8 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 | `codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags T] [--body B] [--importance N] [--changed-by ACTOR]` | Patch an existing item. `--changed-by` sets the `X-CodeTerm-Actor` header so the change lands in `mem_item_history.changed_by` with that label (default `"user"`). |
 | `codeterm mem delete <id>` | Remove an item (also cleans vectors and relations). |
 | `codeterm mem forget <area>` | Batch delete every item in an area. |
+| `codeterm mem merge --keeper K --lesser L [--body B \| --body-file F] [--conflict]` | Reversible duplicate merge: new keeper body, lesser archived (never deleted) and linked `merged_into` K (`--conflict`: K `supersedes` L). Refuses pinned/skill/rule/preference lessers; Dreamer merges are capped per night. |
+| `codeterm mem restore <id> [--version N]` | Undo from history. An archived or merged item gets its prior kind back and its merge link invalidated; otherwise the body of `--version` (or the latest body change) returns. |
 | `codeterm mem history <id>` | Full audit trail (create/update/promote/delete) for one item. |
 | `codeterm mem taxonomy [--workspace W]` | Print `{area → {kind → count}}` for the store or one workspace. |
 | `codeterm mem tail [--follow] [--limit N]` | Recent mem writes, newest first. |
@@ -29,6 +31,7 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 | `codeterm mem extract-pending [--limit N]` | Re-queue extraction workers (after API quota or interrupted runs). |
 | `codeterm mem calibration log [--since ISO] [--limit N] [--count]` | Audit trail of the dreamer's Sunday calibration sweep (rows in `mem_item_history` with `changed_by LIKE 'dreamer-calibration%'`). |
 | `codeterm mem calibration sweep [--force]` | Manually run the sweep. Server-gated to Sunday unless `--force`; hard-capped at 30 mutations per session. |
+| `codeterm mem calibration stale [--dry-run] [--limit N]` | Staleness archive (see below). `--dry-run` lists ids and reasons and changes nothing. |
 
 ## Saving — what to use as what
 
@@ -113,7 +116,10 @@ codeterm mem calibration log                  # last 50 changes (default)
 codeterm mem calibration log --count          # just the row count
 codeterm mem calibration log --since "2026-05-01T00:00:00Z" --limit 100
 codeterm mem calibration sweep --force        # manual run (testing only)
+codeterm mem calibration stale --dry-run --limit 200 --json   # spot-check the stale list
 ```
+
+The nightly run also applies a **staleness archive**, every night, but only with `memory.dream_hygiene.stale_archive = true` (default off). It archives (`dreamer-calibration:stale`, reason in history) items created over 365 days ago with no access, update or history row, no relation created or invalidated, and no touched active neighbour in that year; pinned, skill, rule, preference, archived and importance >= 4 are excluded. At most `stale_archive_cap` (default 20) per UTC day. `codeterm mem restore <id>` brings any archived item back.
 
 ## Search strategy when results miss
 
@@ -185,4 +191,4 @@ codeterm keepawake stop
 codeterm keepawake status
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

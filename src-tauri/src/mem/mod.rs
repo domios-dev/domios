@@ -2,7 +2,9 @@
 
 #[cfg(feature = "embeddings")]
 pub use codeterm_mem::compose_embed_text;
+pub(crate) use codeterm_mem::search::is_stop_word;
 pub mod dream_runs;
+pub(crate) mod worker_deadline;
 
 #[cfg(test)]
 mod dream_status_tests;

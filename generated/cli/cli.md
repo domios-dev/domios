@@ -611,6 +611,13 @@ Show recent calibration changes (audit log)
 - `--limit` — Max rows (default 50, max 500)
 - `--since` — ISO8601 lower-bound for changed_at (default: epoch)
 
+#### `codeterm mem calibration stale`
+
+Archive items untouched for a year (no access, update, relation change or touched neighbour). Gated by memory.dream_hygiene.stale_archive
+
+- `--dry-run` — List the ids and reasons that would be archived; change nothing
+- `--limit` — Dry-run list size (default: tonight's remaining cap, max 1000)
+
 #### `codeterm mem calibration sweep`
 
 Manually trigger a calibration sweep (Sunday only unless --force)
@@ -777,9 +784,10 @@ Inspect a graph entity: properties_json + degree summary. Filling the gap that m
 
 #### `codeterm mem graph hubs`
 
-List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates
+List the top hub nodes by active degree (at or above threshold). Each hub returns its degree, relation_type distribution and `clusters`: inbound neighbours grouped by shared area, title keyword or kind, each with a `suggested_topic` and member ids ready for `introduce-topic`. The dreams anchor is reported under `excluded`, not as a hub
 
-- `--sample` — Per-hub neighbor sample size (default 30)
+- `--limit` — Return at most N hubs, highest degree first (default 5)
+- `--sample` — Per-hub raw neighbor sample with titles (default 0: clusters only)
 - `--threshold`
 
 #### `codeterm mem graph introduce-topic`
@@ -962,6 +970,17 @@ Promote a learning to a fact (raises importance)
 
 - `<id>`
 
+#### `codeterm mem merge`
+
+Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never deleted) and linked `merged_into` the keeper; `--conflict` links keeper `supersedes` lesser instead. Undo with `mem restore <lesser>`. Pinned, skill, rule and preference items are refused as the lesser
+
+- `--body` — New keeper body (the merged text). Use `-` to read stdin
+- `--body-file` — Read the new keeper body from a file instead of --body
+- `--changed-by` — Actor label for audit trail (defaults to "user")
+- `--conflict` — The two disagree: keeper supersedes lesser instead of merged_into
+- `--keeper` — Item that survives
+- `--lesser` — Item that is archived and linked to the keeper
+
 #### `codeterm mem pin`
 
 Pin a mem item so it always loads in L1 wake-up
@@ -982,7 +1001,7 @@ Re-embed mem_items and/or graph entities into mem_vectors. Use this after swappi
 
 #### `codeterm mem restore`
 
-Restore a prior body from the audit history (undo a bad replace). With no --version, reverts to the body before the most recent change
+Restore from the audit history. An archived or merged item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
 
 - `--changed-by` — Actor label for audit trail (defaults to "user")
 - `<id>` — Mem item id

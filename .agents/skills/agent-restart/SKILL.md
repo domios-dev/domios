@@ -214,3 +214,10 @@ from `codeterm tab list` shows the tab `absent`, then run `codeterm agent restar
 `agent_ready` with `recovered_in_place: true` and the prior `session_id`, the
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/lifecycle.md](references/lifecycle.md) — restore, liveness and lifecycle-journal internals
+- [references/shell-integration.md](references/shell-integration.md) — per-shell cwd integration

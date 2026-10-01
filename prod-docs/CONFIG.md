@@ -34,7 +34,6 @@ terminal_transport = false
 # [notifications] — levels, surfaces, sound, push channels.
 # Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
 
-
 [orchestration]
 plan_reminders = true
 nudge_interval_secs = 2700  # 45 minutes
@@ -69,8 +68,7 @@ open_settings = "Ctrl+,"
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
 # resume_sessions: auto-resume agent sessions on restart. When the JSONL referenced
-#                  by the saved session id is missing on disk (`AgentProvider::session_exists`
-#                  returns false), CodeTerm clears the stale id and launches fresh
+#                  by the saved session id is missing on disk, CodeTerm clears the stale id and launches fresh
 #                  instead of looping on "No conversation found".
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
@@ -78,6 +76,11 @@ poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
 full_access = true
+
+[agent.tab_state_shadow]
+# Observe-only: on each startup nudge, log a decision-model label of the tab's
+# screen beside the structural verdict. It never changes a nudge or delivery.
+enabled = false
 
 [api]
 enabled = true
@@ -190,6 +193,16 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `memory.decision_rerank.max_body_chars` | integer from 256 to 100000; default 2000 |
 
 `memory.decision_rerank.enabled` (default `false`), `.adapter`, `.endpoint` and `.model` complete the section; see `codeterm docs MEMORY` for the behaviour and the runtime settings reference below.
+`memory.decision_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for decision-rerank documentation candidates.
+
+| Key | Bounds |
+|-----|--------|
+| `memory.dream_hygiene.stale_archive_cap` | integer from 0 to 500; default 20 |
+| `memory.dream_hygiene.merge_cap` | integer from 0 to 100; default 10 |
+
+`memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. The caps count archives and Dreamer merges per UTC day.
+
+The user-facing name of this model is the Supporter Agent; its token is set in Settings > Agents or with `codeterm mem decision token set`, never in `config.toml`.
 
 Other numeric limits and accepted enum values are reported by `codeterm config set <key> <value>` when a value is refused.
 
@@ -222,4 +235,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 74 -->
+<!-- revision: 77 -->

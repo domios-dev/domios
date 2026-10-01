@@ -25,12 +25,41 @@ Current support is: 31 trust or permission, 9 working, 7 ready idle, 5 quota,
 3 update, 3 shell, and 2 auth screens. The trust-heavy mix is reported as
 collected; the harness does not rebalance or resample it.
 
-When read-only dev captures are available, add sanitized records to
-`live-captures.jsonl` with `id`, `provider`, `boot_stage`, `label`, `source`,
-and `screen`. `boot_stage_source` and `baselines` are optional. Then run
-`python3 evals/tab-state-jev/prepare_fixtures.py` to merge them into the fixed
-screen set. The assembler keeps only the final 40 lines and scrubs paths,
-UUIDs, tab ids, and emails.
+A second source sweep found no honest frame for either missing label. The
+provider fixtures hold no boot banner or spinner shown before the composer:
+the Codex `model: loading` header in `composer-readiness` already shows the
+composer. They also hold no repeated-error output. The `.cast` recordings
+under `tests/fixtures/agent-state` start after boot, because capture is armed
+once the agent is up. The two labels therefore come only from read-only dev
+captures labelled by a person.
+
+## Live captures
+
+`capture_screen.py` reads one dev tab through the bench lib's `dc` wrapper.
+It calls only `tab get-text` and `tab inspect`; it never sends input. Each
+capture is scrubbed and held in the git-ignored `pending-captures.jsonl` with
+`label: null`. A capture reaches `live-captures.jsonl` only when someone reads
+the screen and assigns a label with `label --by`:
+
+```bash
+python3 evals/tab-state-jev/capture_screen.py capture --tab TAB --note "codex boot, no composer yet"
+python3 evals/tab-state-jev/capture_screen.py pending
+python3 evals/tab-state-jev/capture_screen.py label --id live-codex-1a2b3c4d-1 --label still_starting --by orchestrator
+python3 evals/tab-state-jev/capture_screen.py drop --id live-codex-1a2b3c4d-2
+python3 evals/tab-state-jev/prepare_fixtures.py
+```
+
+For `still_starting`, capture a freshly spawned dev agent before its composer
+appears. Label only frames that show the provider's boot banner or spinner and
+no composer. For `error_loop`, capture a dev agent that shows the same runtime
+or tool error several times without making progress, for example one launched
+against a model id the provider rejects. Drop any frame that does not clearly
+show the state; never label one from the trigger alone.
+
+Records in `live-captures.jsonl` carry `id`, `provider`, `boot_stage`, `label`,
+`source`, and `screen`; `boot_stage_source` and `baselines` are optional.
+`prepare_fixtures.py` merges them into the fixed screen set, keeps only the
+final 40 lines, and scrubs paths, UUIDs, tab ids, and emails.
 
 Several fixture screens intentionally share provider-specific classifier
 tests. This corpus measures behavior on those real fixture frames; it is not a
@@ -65,6 +94,15 @@ latency, detector comparisons on rows with directly recorded outputs, raw
 `boot_stage` coverage, and one verdict for each use case. If Jev omits
 `confidence`, the chosen-label probability is used and marked as its source.
 Failed calls are counted and are never retried.
+
+`per_label_at_0_8` gives precision and recall per label at confidence 0.8;
+recall uses the full dataset support, so a failed call counts as a miss.
+`shadow_gate` pools precision at confidence 0.8 over the actionable set used
+by the spawn-health shadow: auth, trust or permission, quota, update,
+`still_starting`, and `error_loop`. It sets `default_on_allowed` only when every
+one of those labels has at least 4 screens, no call failed, and the pooled
+precision is at least 0.90. `[agent.tab_state_shadow]` may ship enabled by
+default only on that result.
 
 Structural outputs are not recomputed with a reimplementation. They are
 included only where a fixture-backed test directly gives an output for that

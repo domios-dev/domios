@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
-import type { HelpSectionId } from "../../help/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
@@ -66,10 +65,10 @@ function relativeFromNow(target: number): string {
 interface MemorySettingsTabProps {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
-  onOpenGuide: (section: HelpSectionId) => void;
+  onOpenAgentsSettings: () => void;
 }
 
-export function MemorySettingsTab({ config, onUpdate, onOpenGuide }: MemorySettingsTabProps) {
+export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: MemorySettingsTabProps) {
   const { providers, loading: modelCatalogLoading } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
@@ -427,7 +426,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenGuide }: MemorySetti
         </div>
       </SettingsCard>
 
-      <DecisionRerankCard mem={mem} onUpdate={onUpdate} onOpenGuide={onOpenGuide} apiBase={apiBase} apiHeaders={apiHeaders} />
+      <DecisionRerankCard mem={mem} onUpdate={onUpdate} onOpenAgentsSettings={onOpenAgentsSettings} />
     </SettingsPage>
   );
 }

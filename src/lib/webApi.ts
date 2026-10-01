@@ -145,6 +145,18 @@ export function daemonAuthToken(api?: DaemonApiConfig): string {
   return (IS_WEB ? currentToken() : api?.token) ?? "";
 }
 
+export function daemonFetch(
+  api: DaemonApiConfig,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  if (IS_WEB) return webFetch(path, init);
+  const headers = new Headers(init.headers);
+  const token = daemonAuthToken(api);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${daemonHttpBase(api)}${path}`, { ...init, headers });
+}
+
 export class WebApiError extends Error {
   constructor(
     public status: number,

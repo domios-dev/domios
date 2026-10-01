@@ -107,3 +107,9 @@ variants, so they appear in the manifest and docs. The `essence-map` command
 reads only `essences/capabilities.md` and `essences/core.md`; its JSONL contract
 and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
 reintroduce a separate hand-rolled arg parser.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/desktop-ipc.md](references/desktop-ipc.md) — desktop Tauri IPC commands

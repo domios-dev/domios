@@ -17,7 +17,7 @@ Daemon-kind services are registered here; cron jobs are projected as virtual `cr
 | DELETE | `/api/services/{id}` | — | Delete service + its push token + activity |
 | POST | `/api/services/{id}/regenerate-token` | — | Rotate push token. Returns `{token, push_enabled: true}` — old token is immediately invalidated, and `push_enabled` is auto-set to true (rotating implies you intend to push). |
 
-**Health modes:** `http` (HTTP GET to `url` + optional `health_path`, default `/healthz`), `tcp` (TCP connect to `host:port`), `process` (launchctl/systemd unit via `process_label`), `script` (exit 0 = healthy, `script_path`). The probe scheduler ticks every 30 s and requires **3 consecutive identical observations** before firing a transition event — single-tick blips never page the UI.
+**Health modes:** `http` (HTTP GET to `url` + optional `health_path`, default `/healthz`), `tcp` (TCP connect to `host:port`), `process` (launchctl/systemd unit via `process_label`), `script` (exit 0 = healthy, `script_path`). A transition requires **3 consecutive identical observations**; single blips never surface.
 
 **HTTP health response mapper** (per-service, all optional):
 - `health_json_field` — which JSON key to inspect (default: `"status"`). Ignored when body is empty or non-JSON (2xx alone → Healthy).
@@ -34,7 +34,7 @@ Daemon-kind services are registered here; cron jobs are projected as virtual `cr
 
 #### Activity Log
 
-Every service push, health transition, peer event, and cron lifecycle event is recorded in the bounded activity log (sqlite, capped at 10 000 rows / 30 days, evicted every 100 inserts).
+Every service push, health transition, peer event, and cron lifecycle event is recorded in the bounded activity log (10 000 rows / 30 days).
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -46,4 +46,4 @@ Each event: `{id, occurred_at, source, source_id?, target?, source_peer?, level:
 
 Bridge, setup-hook, and cron endpoints: `codeterm docs API-INTEGRATIONS`. Usage and log observability: `codeterm docs API-STATE`. Memory endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
