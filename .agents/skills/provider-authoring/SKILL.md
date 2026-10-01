@@ -366,3 +366,11 @@ The honest seam, in three parts:
 
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [prompt-detection.md](prompt-detection.md) — provider prompt detection architecture
+- [references/session-storage.md](references/session-storage.md) — provider session storage and search scanning
+- [references/secret-backends.md](references/secret-backends.md) — native secret backends and the retired credential erase

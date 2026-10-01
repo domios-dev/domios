@@ -1,10 +1,10 @@
 # Memory usage
 
-Agent behavior, CLI commands, REST access, UI, and design decisions.
+Agent behavior, CLI commands, REST access, and UI.
 
 ## Behavioral protocol
 
-Injected into every agent session via `src-tauri/prompts/bridge_mem.md`:
+Injected into every agent session:
 
 1. **BEFORE RESPONDING** about a person/project/past event — search first. Never guess. Wrong is worse than slow.
 2. **IF UNSURE** — say "let me check" and search.
@@ -13,12 +13,6 @@ Injected into every agent session via `src-tauri/prompts/bridge_mem.md`:
 5. **ON "remember"** — `codeterm mem save`; extraction workers handle graph automatically.
 6. **WHEN FACTS CHANGE** — save new fact; old stays in history.
 7. **SESSION END** — if the user enabled PreCompact export, the hook flushes the conversation.
-
-**Injection:**
-- Claude → `install_bridge_rule` writes `~/.claude/rules/codeterm.md`
-- Codex → inlined into `~/.codeterm/general/AGENTS.md` on GA start
-
-Files regenerate on every dev/prod start.
 
 ## CLI reference
 
@@ -84,9 +78,9 @@ Save identity is the exact kind and title. Saving an unchanged body after whites
 - `DELETE /items/{id}`, `/forget/{area}`
 - `GET /workers`, `/workers/{id}/log`
 
-Memory Tabl UI reads this directly.
+The Memory tab reads this directly.
 
-## Memory Tabl UI (`src/components/MemoryTabl/`)
+## Memory tab
 
 4 tabs:
 
@@ -95,26 +89,10 @@ Memory Tabl UI reads this directly.
 - **Activity** — live mem-activity event stream (writes/updates/deletes, not searches — would loop)
 - **Dreams** — next dream countdown, worker run history (with click-to-log), dream diary entries. Live updates via `graph-worker-*` events.
 
-**Worker tabl** — sidebar showing all hidden workers with status, model, click → `WorkerLogPopup`.
+**Workers** — sidebar showing all hidden workers with status and model; click one for its log.
 
-**Item editor** — click any item → modal with title/body/area/tags editing. `Cmd+S` saves (re-vectorizes body automatically, `DELETE + INSERT` in mem_vectors — no duplicates).
+**Item editor** — click any item → modal with title/body/area/tags editing. `Cmd+S` saves and re-indexes the body automatically.
 
-## Key design decisions
+Memory preserves the body you save; later edits retain history.
 
-1. **Single SQLite over specialized DBs** — operational simplicity beats peak performance for personal-scale memory
-2. **Blobs on disk for large bodies** — keeps the DB file small for fast opens
-3. **People+projects only as entities** — prevents star patterns; tech is searchable via FTS
-4. **Headless workers everywhere** — extraction and dreaming both live in Memory Tabl, never pollute tab bar
-5. **LLM only for REM phase** — SQL does deterministic work, LLM does pattern matching and narrative
-6. **Agent-agnostic via `AgentProvider` trait** — zero hardcoded `== "claude"` checks; providers declare their own CLI flags (`model_launch_args`, `build_launch_command`)
-7. **Protocol over format** — bridge_mem.md tells agents when/how to use memory, not just available commands
-8. **Verbatim storage** — never summarize writes; summaries are a read-time concern
-
-## References
-
-- `src-tauri/src/mem/` — all memory code
-- `src-tauri/src/api/mem_routes.rs` — REST API
-- `src-tauri/prompts/bridge_mem.md` — behavioral protocol
-- `src/components/MemoryTabl/` — UI
-
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -113,3 +113,9 @@ Tail the dev daemon log:
 ```bash
 tail -f ~/.codeterm-dev/logs/codeterm.log | grep "bridge\] voice"
 ```
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/dictation-design.md](references/dictation-design.md) — the historical native dictation proposal

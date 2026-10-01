@@ -34,7 +34,6 @@ terminal_transport = false
 # [notifications] — levels, surfaces, sound, push channels.
 # Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
 
-
 [orchestration]
 plan_reminders = true
 nudge_interval_secs = 2700  # 45 minutes
@@ -69,8 +68,7 @@ open_settings = "Ctrl+,"
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
 # resume_sessions: auto-resume agent sessions on restart. When the JSONL referenced
-#                  by the saved session id is missing on disk (`AgentProvider::session_exists`
-#                  returns false), CodeTerm clears the stale id and launches fresh
+#                  by the saved session id is missing on disk, CodeTerm clears the stale id and launches fresh
 #                  instead of looping on "No conversation found".
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
@@ -237,4 +235,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->
