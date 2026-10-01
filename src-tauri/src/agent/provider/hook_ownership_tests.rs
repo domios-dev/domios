@@ -215,7 +215,11 @@ fn reconcile_current_hooks_twice_keeps_one_entry_per_event() {
 
         let foreign: Vec<&Json> = entries.iter().filter(|e| !is_codeterm_hook(e)).collect();
         let expected_foreign = if event == "SessionStart" { 2 } else { 1 };
-        assert_eq!(foreign.len(), expected_foreign, "{event}: foreign entries survive");
+        assert_eq!(
+            foreign.len(),
+            expected_foreign,
+            "{event}: foreign entries survive"
+        );
         assert_eq!(
             command_of(foreign[0]),
             command_of(&foreign_entry(event)),
