@@ -55,7 +55,12 @@ impl RpcClient for Recorder {
 
 fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
     vec![
-        ("plan.resume", PlanAction::Resume { plan_id: "pl_recovered".into() }),
+        (
+            "plan.resume",
+            PlanAction::Resume {
+                plan_id: "pl_recovered".into(),
+            },
+        ),
         (
             "plan.update",
             PlanAction::Update {
@@ -76,16 +81,36 @@ fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
                 reason: "owner decision".into(),
             },
         ),
-        ("plan.unarchive", PlanAction::Unarchive { plan_id: "pl_recovered".into() }),
-        ("plan.disown", PlanAction::Disown { plan_id: "pl_recovered".into() }),
-        ("plan.claim", PlanAction::Claim { plan_id: "pl_recovered".into() }),
+        (
+            "plan.unarchive",
+            PlanAction::Unarchive {
+                plan_id: "pl_recovered".into(),
+            },
+        ),
+        (
+            "plan.disown",
+            PlanAction::Disown {
+                plan_id: "pl_recovered".into(),
+            },
+        ),
+        (
+            "plan.claim",
+            PlanAction::Claim {
+                plan_id: "pl_recovered".into(),
+            },
+        ),
     ]
 }
 
 #[test]
 fn lifecycle_rpcs_forward_the_callers_binding_with_optional_session() {
-    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
-    for (tab, nonce) in [("recovered-owner", "owner-nonce"), ("foreign-tab", "foreign-nonce")] {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (tab, nonce) in [
+        ("recovered-owner", "owner-nonce"),
+        ("foreign-tab", "foreign-nonce"),
+    ] {
         for session in [None, Some("caller-session")] {
             let _env = CallerEnv::set(Some(tab), session, Some(nonce));
             for (method, action) in lifecycle_actions() {
@@ -97,7 +122,10 @@ fn lifecycle_rpcs_forward_the_callers_binding_with_optional_session() {
                 assert_eq!(params["plan_id"], "pl_recovered");
                 assert_eq!(params["caller_tab_id"], tab);
                 assert_eq!(params["session_binding_nonce"], nonce);
-                assert_eq!(params.get("session_id"), session.map(|value| json!(value)).as_ref());
+                assert_eq!(
+                    params.get("session_id"),
+                    session.map(|value| json!(value)).as_ref()
+                );
                 assert!(params.get("human_confirmation").is_none());
                 if method == "plan.pause" {
                     assert_eq!(params["reason"], "owner decision");
@@ -113,27 +141,46 @@ fn lifecycle_rpcs_forward_the_callers_binding_with_optional_session() {
 
 #[test]
 fn lifecycle_rpcs_do_not_invent_identity_or_human_confirmation() {
-    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let _env = CallerEnv::set(None, None, None);
     for (_, action) in lifecycle_actions() {
         let mut recorder = Recorder::default();
         run_plan(&mut recorder, true, action).unwrap();
         let params = &recorder.calls[0].1;
-        for field in ["caller_tab_id", "session_id", "session_binding_nonce", "human_confirmation"] {
+        for field in [
+            "caller_tab_id",
+            "session_id",
+            "session_binding_nonce",
+            "human_confirmation",
+        ] {
             assert!(params.get(field).is_none());
         }
     }
 }
 
 #[test]
-fn plan_reads_keep_their_request_free_of_caller_authority() {
-    let _lock = crate::test_env_lock().lock().unwrap_or_else(|error| error.into_inner());
+fn plan_reads_do_not_gain_binding_authority() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let _env = CallerEnv::set(Some("owner"), Some("session"), Some("nonce"));
     let mut recorder = Recorder::default();
     run_plan(
         &mut recorder,
         true,
-        PlanAction::Get { plan_id: Some("pl_recovered".into()), sections: false },
-    ).unwrap();
-    assert_eq!(recorder.calls, vec![("plan.get".into(), json!({ "plan_id": "pl_recovered" }))]);
+        PlanAction::Get {
+            plan_id: Some("pl_recovered".into()),
+            sections: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        recorder.calls,
+        vec![(
+            "plan.get".into(),
+            json!({ "plan_id": "pl_recovered", "caller_tab_id": "owner" })
+        )]
+    );
 }

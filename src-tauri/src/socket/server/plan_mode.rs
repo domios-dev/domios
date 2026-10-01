@@ -248,7 +248,10 @@ mod tests {
 
         let (mut mux, old_owner) = MultiplexerState::new();
         let source = mux.find_workspace_for_tab(&old_owner).unwrap();
-        let team = mux.resolve_or_mint_team_for_parent(&old_owner).unwrap().team_id;
+        let team = mux
+            .resolve_or_mint_team_for_parent(&old_owner)
+            .unwrap()
+            .team_id;
         let owner = mux.create_tab(&source).unwrap();
         mux.set_orchestrator_role(&owner).unwrap();
         mux.get_tab_mut(&owner).unwrap().team_id = Some(team.clone());
@@ -273,14 +276,22 @@ mod tests {
         );
         plan.team_id = Some(team.clone());
         svc.plan_store.save(&mut plan, 1).unwrap();
-        svc.plan_store.pause_plan(&plan.id, "owner decision", Default::default(), 2).unwrap();
+        svc.plan_store
+            .pause_plan(&plan.id, "owner decision", Default::default(), 2)
+            .unwrap();
         {
             let mut mux = svc.mux.write();
             mux.close_tab(&old_owner).unwrap();
             crate::service::agent_transition::recover_plan_ownership_for_new_orchestrator(
-                &mut mux, &svc.plan_store, &plan.id, OrchestratorRef::from_tab(&owner),
-                &team, "supported recovery", 3,
-            ).unwrap();
+                &mut mux,
+                &svc.plan_store,
+                &plan.id,
+                OrchestratorRef::from_tab(&owner),
+                &team,
+                "supported recovery",
+                3,
+            )
+            .unwrap();
             let destination = mux.create_workspace("Moved".into(), None);
             mux.move_tab(&owner, &source, &destination.id).unwrap();
         }
