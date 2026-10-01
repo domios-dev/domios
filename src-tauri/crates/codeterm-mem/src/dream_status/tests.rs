@@ -153,7 +153,7 @@ fn dream_deadline_finalization_is_idempotent_with_agent_report() {
     // The host finalized first: a repeat is a no-op, and a late success claim
     // over the cut-short diary still reconciles to the deadline partial.
     let mem = MemManager::open_in_memory().unwrap();
-    let registry = registry();
+    let registry = self::registry();
     rem_worker(&registry);
     let diary = save_diary(&mem, "dream: host first", SKELETON, DREAMS_AREA);
     time_out(&registry);

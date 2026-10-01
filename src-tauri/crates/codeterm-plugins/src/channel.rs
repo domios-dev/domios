@@ -142,9 +142,7 @@ fn materialize_view_channel(channel: &ChannelRecord) -> Result<ChannelRecord, St
     ensure_system_channel()?;
     channels_view()
         .into_iter()
-        .find(|registered| {
-            registered.name == SYSTEM_CHANNEL_NAME && !registered.path.is_empty()
-        })
+        .find(|registered| registered.name == SYSTEM_CHANNEL_NAME && !registered.path.is_empty())
         .ok_or_else(|| "failed to register system plugin channel".to_string())
 }
 
@@ -152,8 +150,8 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
     let channels = selected_channels(name)?;
     let mut rows = Vec::new();
     for ch in channels {
-        let result = materialize_view_channel(&ch)
-            .and_then(|registered| diff_channel_rows(&registered));
+        let result =
+            materialize_view_channel(&ch).and_then(|registered| diff_channel_rows(&registered));
         match result {
             Ok(mut channel_rows) => rows.append(&mut channel_rows),
             Err(err) => {

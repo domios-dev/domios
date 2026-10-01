@@ -75,16 +75,10 @@ fn nudge(
     tracker: &StallEpisodeTracker,
     deliveries: &mut Vec<StallKey>,
 ) {
-    let _ = maybe_nudge_stalled_team(
-        plan,
-        live_worker_tabs,
-        orchestrator_idle,
-        tracker,
-        |key| {
-            deliveries.push(key.clone());
-            Ok(())
-        },
-    );
+    let _ = maybe_nudge_stalled_team(plan, live_worker_tabs, orchestrator_idle, tracker, |key| {
+        deliveries.push(key.clone());
+        Ok(())
+    });
 }
 
 #[test]

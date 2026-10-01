@@ -45,10 +45,7 @@ impl StallEpisodeTracker {
     }
 }
 
-pub(crate) fn stall_episode(
-    plan: &Plan,
-    live_worker_tabs: &HashSet<String>,
-) -> Option<StallKey> {
+pub(crate) fn stall_episode(plan: &Plan, live_worker_tabs: &HashSet<String>) -> Option<StallKey> {
     if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
         return None;
     }
@@ -138,11 +135,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn nudge_stalled_teams_for_gone_tab(
-        &self,
-        gone_tab_id: &str,
-        plan_ids: &[String],
-    ) {
+    pub(crate) fn nudge_stalled_teams_for_gone_tab(&self, gone_tab_id: &str, plan_ids: &[String]) {
         for plan_id in plan_ids {
             let Some(plan) = self.plan_store.get(plan_id) else {
                 continue;

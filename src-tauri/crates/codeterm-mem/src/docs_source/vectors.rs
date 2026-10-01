@@ -45,7 +45,8 @@ pub(super) fn start_background_build(data_dir: &Path) {
             .name("docs-vector-build".into())
             .spawn(move || {
                 let sections = super::corpus_sections();
-                build_and_publish(&data_dir, sections);
+                // A failure is already logged as unavailable; search keeps BM25.
+                let _ = build_and_publish(&data_dir, sections);
             })
         {
             log_unavailable(&error.to_string());
@@ -668,7 +669,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let sections = vec![section("A", "Vault", "vault", "unlock secret")];
         let calls = std::sync::atomic::AtomicUsize::new(0);
-        let embedder = |_| {
+        let embedder = |_: &str| {
             calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(vec![1.0, 2.0])
         };
