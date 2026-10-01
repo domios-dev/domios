@@ -9,6 +9,7 @@ import {
   BookOpen,
   type LucideIcon,
 } from "lucide-react";
+import type { HelpSettingsTarget } from "../../help/types";
 
 export type SectionId =
   | "general"
@@ -57,4 +58,19 @@ export function sectionTitle(id: SectionId): string {
 // "notifications" was a deep-link alias for Agents; the section is real now, so the link resolves to itself.
 export function normalizeSection(id: SectionId | undefined): SectionId | undefined {
   return id;
+}
+
+export type SettingsCardAnchorId = "supporter-agent";
+
+export interface SettingsCardRoute {
+  section: SectionId;
+  card: SettingsCardAnchorId;
+}
+
+const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {
+  "supporter-agent": { section: "agents", card: "supporter-agent" },
+};
+
+export function settingsRouteForHelpTarget(target: HelpSettingsTarget): SettingsCardRoute {
+  return HELP_SETTINGS_ROUTES[target];
 }
