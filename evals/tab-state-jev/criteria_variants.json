@@ -23,5 +23,5 @@
       "still_starting": "The provider is initializing and has not reached a usable agent TUI state."
     }
   },
-  "canonical_winner": null
+  "canonical_winner": "auth-first-run"
 }

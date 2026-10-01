@@ -65,7 +65,7 @@ through --token-file for the named dev instance. The token is never printed.
 The screen arm sends the screen string as state. The context arm sends
 state: {screen, context}. Each JSON report includes per-label precision and
 recall, strong and weak band precision, per-provider and per-transport
-precision, call counts, and a pass/fail verdict for each gate:
+precision, call counts, and a coverage-qualified verdict for each gate:
 
 - Strong actionable predictions use confidence at least 0.80; precision must
   be at least 0.90.
@@ -74,15 +74,14 @@ precision, call counts, and a pass/fail verdict for each gate:
 - Lower confidence predictions are ignored by both gates.
 
 The criteria variants compare the current auth criterion with a criterion that
-includes first-run setup before sign-in. Record both context-arm reports. After
-the Orchestrator selects the measured winner, save that variant's label map as
-criteria.json; Phase 2 embeds that file. No winner is selected in this source
-lane because it has no real labelled captures or evaluation results.
+includes first-run setup before sign-in. Record both context-arm reports. Save
+the A/B winner's label map as criteria.json; Phase 2 embeds that file. An
+incomplete set can produce exploratory measurements with `--allow-incomplete`,
+but its gate is ineligible and cannot authorize runtime actions.
 
 ## Deferred data and model run
 
-No live captures or human labels are checked in yet. The prior fixture-derived
-screens were not independent real tab observations, so they are not used as
-ground truth for this gate. Capture and label the required set on the named dev
-instance, then run the commands above and record both arm reports, the auth
-A/B result, and the per-band gate verdict in a plan stride.
+The default evaluator refuses an incomplete provider/label matrix before any
+Jev call. `--allow-incomplete` permits interim measurements for a partial set;
+reports retain missing coverage and mark the gate ineligible. Use it to inspect
+exploratory results, never to authorize runtime actions.

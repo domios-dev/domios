@@ -108,7 +108,7 @@ def coverage_gaps(samples: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
-def read_dataset(path: Path) -> list[dict[str, Any]]:
+def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     required = {
         "id",
@@ -174,7 +174,7 @@ def read_dataset(path: Path) -> list[dict[str, Any]]:
     if not rows:
         raise ValueError("screens.jsonl has no labelled real dev captures")
     gaps = coverage_gaps(rows)
-    if gaps:
+    if gaps and require_coverage:
         raise ValueError(
             f"the labelled set needs at least {MIN_FRAMES_PER_GROUP} real frames per label/provider; "
             f"missing: {', '.join(gaps)}"
@@ -392,6 +392,21 @@ def aggregate_precision(
     return report
 
 
+def aggregate_band_precision(
+    samples: list[dict[str, Any]],
+    predictions: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    return {
+        band: aggregate_precision(
+            samples,
+            [item for item in predictions if band_for_confidence(item["confidence"]) == band],
+            field,
+        )
+        for band in ("strong", "weak", "ignored")
+    }
+
+
 def gate_verdict(
     strong_actionable_precision: float | None,
     weak_precision: float | None,
@@ -462,6 +477,15 @@ def evaluate(
 
     successful = [item for item in predictions if "prediction" in item]
     bands = band_metrics(samples, successful)
+    coverage_missing = coverage_gaps(samples)
+    observed_gate = gate_verdict(
+        bands["strong_actionable"]["precision"],
+        bands["weak"]["precision"],
+    )
+    gate = dict(observed_gate)
+    gate["eligible"] = not coverage_missing
+    if coverage_missing:
+        gate["verdict"] = "inconclusive"
     return {
         "arm": arm,
         "model": model,
@@ -475,10 +499,14 @@ def evaluate(
         "bands": bands,
         "per_provider": aggregate_precision(samples, successful, "provider"),
         "per_transport": aggregate_precision(samples, successful, "transport"),
-        "gate": gate_verdict(
-            bands["strong_actionable"]["precision"],
-            bands["weak"]["precision"],
-        ),
+        "per_band_per_provider": aggregate_band_precision(samples, successful, "provider"),
+        "per_band_per_transport": aggregate_band_precision(samples, successful, "transport"),
+        "coverage": {
+            "complete": not coverage_missing,
+            "missing_groups": coverage_missing,
+        },
+        "observed_gate": observed_gate,
+        "gate": gate,
         "latency_ms": {
             "mean": statistics.fmean(latencies) if latencies else None,
             "p50": nearest_rank(latencies, 0.50),
@@ -496,6 +524,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--criteria-variant", choices=("current", "auth-first-run"), default="current")
     parser.add_argument("--arm", choices=("screen", "context"), default="screen")
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="run an exploratory measurement; incomplete coverage makes the gate ineligible",
+    )
     parser.add_argument("--endpoint", default=os.environ.get("JEV_ENDPOINT", DEFAULT_ENDPOINT))
     parser.add_argument("--model", default=os.environ.get("JEV_MODEL", DEFAULT_MODEL))
     parser.add_argument("--offset", type=int, default=0)
@@ -513,7 +546,7 @@ def main() -> int:
     if args.timeout <= 0:
         raise SystemExit("--timeout must be positive")
     try:
-        all_samples = read_dataset(args.dataset)
+        all_samples = read_dataset(args.dataset, require_coverage=not args.allow_incomplete)
         criteria = load_criteria(args.criteria_file, args.criteria_variant)
         samples = all_samples[args.offset :]
         if args.limit is not None:
