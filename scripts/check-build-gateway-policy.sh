@@ -171,4 +171,16 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 }
 JS
 
+# tauri bundles every src/bin entry as a binary, so a module directory there breaks every release bundle.
+bin_dirs="$(find src-tauri/src/bin -mindepth 1 -maxdepth 1 -type d)"
+if [ -n "$bin_dirs" ]; then
+  echo "guard assertion failed: directories under src-tauri/src/bin become bogus bundle binaries: $bin_dirs" >&2
+  exit 1
+fi
+# A positional build.ps1 parameter swallows the build command (`.\build.ps1 release-inputs`).
+if ! grep -q 'PositionalBinding = \$false' build.ps1 || grep -q 'Position *=' build.ps1; then
+  echo "guard assertion failed: build.ps1 parameters must stay named-only" >&2
+  exit 1
+fi
+
 echo "PASS build gateway serialization, restart ordering, CLI independence, cache, release freshness, and SHA policy"

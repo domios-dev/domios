@@ -1,7 +1,8 @@
+# A positional parameter would take the build command itself, so every parameter is named-only.
+[CmdletBinding(PositionalBinding = $false)]
 param(
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]] $BuildArgs,
-  [Parameter(Position = 100)]
   [string] $NotifyTab
 )
 
