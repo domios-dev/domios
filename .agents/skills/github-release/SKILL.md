@@ -114,7 +114,9 @@ End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --rep
 - macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
 
 If a stage fails before publishing: `gh run view <id> --log-failed`, fix the runner/build-farm issue,
-and rerun the same workflow/tag only when the tag still points at the intended master SHA. Do not
+and rerun the same workflow/tag only when the tag still points at the intended master SHA. Rerun only
+the failed platform (`gh run rerun <id> --failed`); each platform job clears its own incomplete
+uploads, so the green platforms keep their assets. Do not
 move or overwrite a published release tag/artifact by default. If a public bad release was deleted
 intentionally, cut the correction as a new patch version through the normal PR flow, then push only
 the new `release-X.Y.Z` trigger tag.
@@ -210,9 +212,12 @@ git checkout "release/$VER"
 git fetch origin --prune
 git pull --ff-only origin "release/$VER"
 
-npm run sync:versions -- "$VER"
-./build.sh check                      # refreshes Cargo.lock
+# Edit package.json "version" to $VER first: sync reads it from there and ignores an argument.
+npm run sync:versions
+cargo update --workspace --offline --manifest-path src-tauri/Cargo.toml   # lockfile entries only,
+cargo update --workspace --offline --manifest-path cli/Cargo.toml         # no build, no gateway
 npm run check:versions
+node scripts/check-release-locks.mjs
 
 # check:versions covers root package.json, src-tauri/Cargo.toml,
 # cli/Cargo.toml, src-tauri/tauri.conf.json, provider plugin manifests,
@@ -234,9 +239,31 @@ Run this on the exact release head before opening the master PR:
 git diff --check               # whitespace; not owned by preflight
 ```
 
-`./build.sh check` refreshes Cargo.lock during the version bump. It is NOT PR
-qualification: it never runs formatting or the test/lint matrix, so a green
-`check` says nothing about whether CI will pass.
+`./build.sh check` is NOT PR qualification: it never runs formatting or the
+test/lint matrix, so a green `check` says nothing about whether CI will pass.
+Commit both lockfiles before preflight, so the gate runs on the SHA you will merge.
+
+**Bundle dry run, before the master PR merges.** Preflight and PR CI never run
+`tauri build`, NSIS or the Linux engines; 1.12.1 was tagged green and then failed
+in all three bundle jobs, which cost a whole extra release cycle. Push the release
+head and build every platform from the branch without drafts, uploads, tags or a
+manifest:
+
+```bash
+gh workflow run release.yml --repo rollacode/codeterm --ref "release/$VER" \
+  -f tag="release/$VER" -f dry_run=true -f mirror=false
+gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rollacode/codeterm \
+  --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+```
+
+Merge the release PR only after the dry run is green on its head SHA. The dry run
+shares the runners with PR CI, so start it right after the PR checks finish.
+
+**Iterating on a red release branch.** Reproduce a failing test with the focused
+oracle (`./build.sh test-one ...`, one TS file) and fix it there. Do not re-dispatch
+the whole `tests.yml` matrix to learn whether a single fix worked: every matrix run
+holds the one `linux-build` runner that each lint check and the release also need.
+A newer push to the PR cancels the superseded matrix run automatically.
 
 Then start dev from the main checkout and visually confirm the app:
 

@@ -35,6 +35,10 @@ name: Release Windows platforms
       mirror:
         required: true
         type: boolean
+      dry_run:
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -148,6 +152,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -288,7 +293,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ steps.tag.outputs.name }}
+          # Without a tag name tauri-action only builds and signs, which is the dry run.
+          tagName: ${{ !inputs.dry_run && steps.tag.outputs.name || '' }}
           releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
@@ -301,6 +307,7 @@ jobs:
           args: --target ${{ env.TARGET }} --features ${{ env.CODETERM_RELEASE_FEATURES }}
 
       - name: Publish per-platform updater fragment
+        if: ${{ !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -347,7 +354,7 @@ jobs:
 
       # Mirror the updater bundle so the caller can publish the manifest after all builds pass.
       - name: Mirror to public release repo
-        if: inputs.mirror
+        if: ${{ inputs.mirror && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
