@@ -42,7 +42,7 @@ struct Args {
     baseline: Option<PathBuf>,
     save_baseline: bool,
     top_k: usize,
-    decision_rerank: Mode,
+    supporter: Mode,
     decision_data_dir: Option<PathBuf>,
     decision_graph: usize,
     decision_docs: usize,
@@ -60,7 +60,7 @@ impl Args {
         let mut baseline: Option<PathBuf> = None;
         let mut save_baseline = false;
         let mut top_k: usize = 10;
-        let mut decision_rerank = Mode::Off;
+        let mut supporter = Mode::Off;
         let mut decision_data_dir = None;
         let mut decision_graph = 0;
         let mut decision_docs = 0;
@@ -87,9 +87,8 @@ impl Args {
                 "--save-baseline" => {
                     save_baseline = true;
                 }
-                "--decision-rerank" => {
-                    decision_rerank =
-                        Mode::parse(&it.next().ok_or("--decision-rerank needs value")?)?;
+                "--supporter" => {
+                    supporter = Mode::parse(&it.next().ok_or("--supporter needs value")?)?;
                 }
                 "--decision-data-dir" => {
                     decision_data_dir =
@@ -134,23 +133,23 @@ impl Args {
             }
         }
 
-        if decision_graph > 0 && decision_rerank == Mode::Off {
-            return Err("--decision-graph requires --decision-rerank stub|live".into());
+        if decision_graph > 0 && supporter == Mode::Off {
+            return Err("--decision-graph requires --supporter stub|live".into());
         }
-        if decision_docs > 0 && decision_rerank == Mode::Off {
-            return Err("--decision-docs requires --decision-rerank stub|live".into());
+        if decision_docs > 0 && supporter == Mode::Off {
+            return Err("--decision-docs requires --supporter stub|live".into());
         }
         if decision_docs > 10 {
             return Err("--decision-docs must be 0..=10".into());
         }
-        if docs_hybrid && decision_rerank == Mode::Off {
-            return Err("--docs-hybrid requires --decision-rerank stub|live".into());
+        if docs_hybrid && supporter == Mode::Off {
+            return Err("--docs-hybrid requires --supporter stub|live".into());
         }
         if docs_hybrid && decision_docs == 0 {
             return Err("--docs-hybrid requires --decision-docs > 0".into());
         }
-        if decision_sessions > 0 && decision_rerank == Mode::Off {
-            return Err("--decision-sessions requires --decision-rerank stub|live".into());
+        if decision_sessions > 0 && supporter == Mode::Off {
+            return Err("--decision-sessions requires --supporter stub|live".into());
         }
         if decision_sessions > 5 {
             return Err("--decision-sessions must be 0..=5".into());
@@ -163,7 +162,7 @@ impl Args {
             baseline,
             save_baseline,
             top_k,
-            decision_rerank,
+            supporter,
             decision_data_dir,
             decision_graph,
             decision_docs,
@@ -185,7 +184,7 @@ fn print_help() {
            --baseline PATH     Baseline results JSON for diff\n  \
            --save-baseline     Also write baseline-<commit>.json to baselines/\n  \
            --top-k N           Top-K to fetch per query (default 10)\n  \
-           --decision-rerank MODE  off|stub|live (default off)\n  \
+           --supporter MODE  off|stub|live (default off)\n  \
            --decision-data-dir PATH  Data directory for live token\n  \
            --decision-graph M  Add a re-rank+graph arm with up to M graph candidates (default 0)\n  \
            --decision-docs M  Add a re-rank+docs arm with up to M prod-docs sections (default 0)\n  \
@@ -325,7 +324,7 @@ fn run() -> Result<(), String> {
     let args = Args::parse()?;
 
     let decision_model =
-        mem_bench_decision::prepare_model(args.decision_rerank, args.decision_data_dir.as_deref())?;
+        mem_bench_decision::prepare_model(args.supporter, args.decision_data_dir.as_deref())?;
 
     let fixture_raw = fs::read_to_string(&args.fixture)
         .map_err(|e| format!("read fixture {}: {}", args.fixture.display(), e))?;
@@ -431,7 +430,7 @@ fn run() -> Result<(), String> {
     let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let decision = match decision_model {
         Some(model) => Some(mem_bench_decision::evaluate(
-            args.decision_rerank,
+            args.supporter,
             model,
             &fixture,
             &args.fixture,

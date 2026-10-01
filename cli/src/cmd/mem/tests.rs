@@ -2,7 +2,7 @@ use crate::{Cli, Commands, MemAction};
 use serde_json::json;
 
 #[test]
-fn mem_search_human_output_is_compact_and_json_is_machine_complete() {
+fn mem_search_human_output_keeps_full_search_details() {
     let value = json!({"hits": [
         {"item": {"id": "mem_1", "title": "First", "kind": "fact", "summary": "short summary", "body": "ignored"}, "score": 0.8754},
         {"item": {"id": "mem_2", "title": "Second", "kind": "note", "body": "line one\nline two"}, "score": 0.5},
@@ -110,6 +110,118 @@ fn mem_skill_list_json_mode_bypasses_the_column_renderer() {
     assert!(!super::wants_human_skill_list(false, &new));
 }
 use clap::Parser;
+
+#[test]
+fn mem_search_json_limits_memory_hits_to_ids_and_scores() {
+    let response = json!({
+        "query": "question",
+        "hits": [{
+            "source": "mem",
+            "item": {
+                "id": "memory-1",
+                "title": "Private title",
+                "body": "Private body",
+                "summary": "Private summary",
+                "tags": ["private"],
+            },
+            "score": 0.82,
+            "relevance": 0.91,
+            "via": "recall",
+        }],
+        "supporter": {
+            "status": "applied",
+            "low_confidence": false,
+            "max_relevance": 0.91,
+            "adapter": "fixture",
+        },
+    });
+
+    let compact = super::compact_search_json(&response);
+
+    assert_eq!(
+        compact["hits"][0],
+        json!({
+            "id": "memory-1",
+            "source": "mem",
+            "via": "recall",
+            "score": 0.82,
+            "relevance": 0.91,
+        })
+    );
+    assert_eq!(compact["supporter"], response["supporter"]);
+    let serialized = serde_json::to_string(&compact).unwrap();
+    assert!(!serialized.contains("Private title"));
+    assert!(!serialized.contains("Private body"));
+    assert!(!serialized.contains("Private summary"));
+    assert!(!serialized.contains("private"));
+}
+
+#[test]
+fn mem_search_json_limits_doc_hits_to_pointer_and_result() {
+    let response = json!({
+        "hits": [{
+            "source": "doc",
+            "doc": "CLI",
+            "section": "codeterm supporter",
+            "anchor": "supporter",
+            "pointer": "codeterm supporter --help",
+            "title": "Private documentation title",
+            "body": "Private documentation body",
+            "score": 0.4,
+            "relevance": 0.88,
+            "via": "docs",
+        }],
+        "supporter": { "status": "fallback", "reason": "deadline", "low_confidence": true },
+    });
+
+    let compact = super::compact_search_json(&response);
+
+    assert_eq!(
+        compact["hits"][0],
+        json!({
+            "pointer": "codeterm supporter --help",
+            "source": "doc",
+            "via": "docs",
+            "score": 0.4,
+            "relevance": 0.88,
+        })
+    );
+    assert_eq!(compact["supporter"]["status"], "fallback");
+    assert_eq!(compact["supporter"]["reason"], "deadline");
+    assert_eq!(compact["supporter"]["low_confidence"], true);
+    let serialized = serde_json::to_string(&compact).unwrap();
+    assert!(!serialized.contains("Private documentation"));
+}
+
+#[test]
+fn mem_archive_parses_required_reason_and_actor() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "archive",
+        "fact_a",
+        "--reason",
+        "stale duplicate",
+        "--changed-by",
+        "curator",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action:
+                MemAction::Archive {
+                    id,
+                    reason,
+                    changed_by,
+                },
+        } => {
+            assert_eq!(id, "fact_a");
+            assert_eq!(reason, "stale duplicate");
+            assert_eq!(changed_by.as_deref(), Some("curator"));
+        }
+        _ => panic!("expected Archive"),
+    }
+}
 
 #[test]
 fn pin_subcommand_parses_id() {

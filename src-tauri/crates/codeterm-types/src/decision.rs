@@ -8,11 +8,23 @@ use serde_json::Value;
 pub trait DecisionModel: Send + Sync {
     fn id(&self) -> &str;
     fn primitives(&self) -> DecisionPrimitives;
+    fn models(&self) -> Vec<DecisionModelInfo> {
+        Vec::new()
+    }
+    fn select_model(&self, id: &str) -> bool {
+        self.models().iter().any(|model| model.id == id)
+    }
     fn decide(
         &self,
         request: &DecisionRequest,
         deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionModelInfo {
+    pub id: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

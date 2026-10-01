@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::schema::{MemoryRerankConfig, SupporterConfig};
 use crate::mem::decision::rerank::RerankCandidate;
 
 fn session_candidate() -> SessionCandidate {
@@ -20,9 +21,9 @@ fn session_candidate() -> SessionCandidate {
     }
 }
 
-fn sessions_cfg(sessions: usize) -> DecisionRerankConfig {
+fn sessions_cfg(sessions: usize) -> SupporterConfig {
     let mut config = enabled_cfg();
-    config.sources.sessions = sessions;
+    config.memory_rerank.sources.sessions = sessions;
     config
 }
 
@@ -30,7 +31,7 @@ fn request(query: &str, limit: usize) -> SearchParams {
     SearchParams {
         q: query.into(),
         limit: Some(limit),
-        decision_rerank: Some(true),
+        supporter: Some(true),
         ..SearchParams::default()
     }
 }
@@ -45,7 +46,7 @@ fn session_candidate_can_win_and_recall_hits_remain_in_the_pool() {
     let expected_recall = baseline_oracle(
         &backend,
         &SearchParams {
-            limit: Some(sessions_cfg(1).sources.recall),
+            limit: Some(sessions_cfg(1).memory_rerank.sources.recall),
             ..query.clone()
         },
     )["hits"]
@@ -62,7 +63,7 @@ fn session_candidate_can_win_and_recall_hits_remain_in_the_pool() {
     assert_eq!(returned_mem.len(), expected_recall);
     assert_eq!(returned_mem.len(), TITLES.len());
     assert_eq!(
-        output["decision_rerank"]["sources"],
+        output["supporter"]["sources"],
         json!({
             "recall": expected_recall,
             "graph": 0,
@@ -85,10 +86,13 @@ fn sessions_source_does_not_change_disabled_decision_output() {
     let mut backend = seeded();
     backend.sessions.push(session_candidate());
     let mut query = request("release command", 2);
-    query.decision_rerank = Some(false);
+    query.supporter = Some(false);
     let expected = baseline_oracle(&backend, &query);
-    let mut config = DecisionRerankConfig::default();
-    config.sources.sessions = 1;
+    let mut config = SupporterConfig {
+        memory_rerank: MemoryRerankConfig::default(),
+        ..SupporterConfig::default()
+    };
+    config.memory_rerank.sources.sessions = 1;
 
     let output = resolve_search(&backend, &relevance_registry(&[]), &config, query).unwrap();
 
@@ -138,7 +142,7 @@ fn fallback_omits_session_candidates_and_matches_baseline() {
     .unwrap();
 
     assert_eq!(
-        output["decision_rerank"],
+        output["supporter"],
         json!({ "status": "fallback", "reason": "unavailable" })
     );
     assert_eq!(

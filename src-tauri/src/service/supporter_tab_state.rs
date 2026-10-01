@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
 use super::ServiceContext;
-use crate::api::mem_routes::decision::DecisionRegistry;
+use crate::api::mem_routes::decision::SupporterRegistry;
 use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
-use codeterm_types::config::TabStateShadowConfig;
+use codeterm_types::config::SupporterTabStateConfig;
 
 pub(crate) const SCREEN_LINES: usize = 40;
 pub(crate) const DEADLINE: Duration = Duration::from_secs(5);
@@ -102,7 +102,7 @@ pub(crate) struct ShadowVerdict {
 /// What the observer thread needs from the daemon; a test supplies a stub.
 pub(crate) trait ShadowHost: Clone + Send + 'static {
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String>;
-    fn decision_models(&self) -> Arc<DecisionRegistry>;
+    fn supporter_models(&self) -> Arc<SupporterRegistry>;
     fn tally(&self) -> &ShadowTally;
     fn record(&self, line: &str);
 }
@@ -112,8 +112,8 @@ impl ShadowHost for ServiceContext {
         self.tab_transport(tab_id)
     }
 
-    fn decision_models(&self) -> Arc<DecisionRegistry> {
-        self.decision_models.clone()
+    fn supporter_models(&self) -> Arc<SupporterRegistry> {
+        self.supporter_models.clone()
     }
 
     fn tally(&self) -> &ShadowTally {
@@ -128,7 +128,7 @@ impl ShadowHost for ServiceContext {
 impl ServiceContext {
     /// Shadow hook for the spawn-health event. Returns at once and changes nothing.
     pub(crate) fn shadow_tab_state(&self, tab_id: &str, structural: StartupNudge) {
-        let config = crate::config::load_config().agent.tab_state_shadow;
+        let config = crate::config::load_config().supporter.tab_state;
         drop(spawn_observer(self, &config, tab_id, structural));
     }
 }
@@ -136,7 +136,7 @@ impl ServiceContext {
 /// Starts the detached observer when enabled. The handle exists only so tests can join it.
 pub(crate) fn spawn_observer<H: ShadowHost>(
     host: &H,
-    config: &TabStateShadowConfig,
+    config: &SupporterTabStateConfig,
     tab_id: &str,
     structural: StartupNudge,
 ) -> Option<JoinHandle<Option<ShadowVerdict>>> {
@@ -187,7 +187,7 @@ fn classify<H: ShadowHost>(
     structural: StartupNudge,
     deadline: Instant,
 ) -> Result<ShadowVerdict, String> {
-    let model = choice_model(&host.decision_models())
+    let model = choice_model(&host.supporter_models())
         .ok_or("no registered decision model has the choice primitive")?;
     let screen = {
         let transport = host.transport(tab_id)?;
@@ -219,7 +219,7 @@ fn classify<H: ShadowHost>(
 }
 
 /// The first registered model, by sorted id, that declares the `choice` primitive.
-pub(crate) fn choice_model(models: &DecisionRegistry) -> Option<Arc<dyn DecisionModel>> {
+pub(crate) fn choice_model(models: &SupporterRegistry) -> Option<Arc<dyn DecisionModel>> {
     let mut ids = models.ids();
     ids.sort();
     ids.iter()
@@ -252,5 +252,5 @@ fn chosen_label(answer: DecisionAnswer) -> Result<(String, f64), String> {
 }
 
 #[cfg(test)]
-#[path = "tab_state_shadow/tests.rs"]
+#[path = "supporter_tab_state/tests.rs"]
 mod tests;

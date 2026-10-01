@@ -14,13 +14,13 @@ struct StubHost {
     screen: String,
     reads: Arc<AtomicUsize>,
     writes: Arc<AtomicUsize>,
-    models: Arc<DecisionRegistry>,
+    models: Arc<SupporterRegistry>,
     tally: Arc<ShadowTally>,
     lines: Arc<Mutex<Vec<String>>>,
 }
 
 impl StubHost {
-    fn new(screen: &str, models: DecisionRegistry) -> Self {
+    fn new(screen: &str, models: SupporterRegistry) -> Self {
         Self {
             screen: screen.to_owned(),
             reads: Arc::default(),
@@ -49,7 +49,7 @@ impl ShadowHost for StubHost {
         Ok(Box::new(StubTransport { host: self }))
     }
 
-    fn decision_models(&self) -> Arc<DecisionRegistry> {
+    fn supporter_models(&self) -> Arc<SupporterRegistry> {
         self.models.clone()
     }
 
@@ -164,16 +164,16 @@ fn choice(label: &str, confidence: Option<f64>) -> DecisionAnswer {
     }
 }
 
-fn registry(entries: Vec<(&str, StubModel)>) -> DecisionRegistry {
-    let registry = DecisionRegistry::new();
+fn registry(entries: Vec<(&str, StubModel)>) -> SupporterRegistry {
+    let registry = SupporterRegistry::new();
     for (id, model) in entries {
         registry.register(id, Arc::new(model));
     }
     registry
 }
 
-fn enabled() -> TabStateShadowConfig {
-    TabStateShadowConfig { enabled: true }
+fn enabled() -> SupporterTabStateConfig {
+    SupporterTabStateConfig { enabled: true }
 }
 
 fn run(host: &StubHost, structural: StartupNudge) -> Option<ShadowVerdict> {
@@ -184,15 +184,15 @@ fn run(host: &StubHost, structural: StartupNudge) -> Option<ShadowVerdict> {
 }
 
 #[test]
-fn tab_state_shadow_disabled_makes_no_read_or_call() {
+fn supporter_tab_state_disabled_makes_no_read_or_call() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, Some(0.99))));
     let calls = model.calls.clone();
     let host = StubHost::new("❯ ", registry(vec![("stub", model)]));
 
     let default_config = crate::config::schema::AppConfig::default()
-        .agent
-        .tab_state_shadow;
-    assert!(!default_config.enabled, "the shadow ships default-off");
+        .supporter
+        .tab_state;
+    assert!(!default_config.enabled, "tab-state ships default-off");
     for structural in [StartupNudge::Deliver, StartupNudge::BlockedOnPrompt] {
         assert!(spawn_observer(&host, &default_config, TAB, structural).is_none());
     }
@@ -208,7 +208,7 @@ fn tab_state_shadow_disabled_makes_no_read_or_call() {
 }
 
 #[test]
-fn tab_state_shadow_logs_structural_and_model_verdict() {
+fn supporter_tab_state_logs_structural_and_model_verdict() {
     let screen: String = (1..=50).map(|n| format!("boot line {n}\r\n")).collect();
     let (release, gate) = mpsc::channel();
     let mut model = StubModel::answering(Ok(choice(STILL_STARTING, Some(0.93))));
@@ -273,7 +273,7 @@ fn tab_state_shadow_logs_structural_and_model_verdict() {
 }
 
 #[test]
-fn tab_state_shadow_model_error_changes_nothing() {
+fn supporter_tab_state_model_error_changes_nothing() {
     let failures = [
         Err(DecisionError::Deadline),
         Err(DecisionError::Http(500)),
@@ -303,7 +303,7 @@ fn tab_state_shadow_model_error_changes_nothing() {
 }
 
 #[test]
-fn tab_state_shadow_requires_choice_primitive() {
+fn supporter_tab_state_requires_choice_primitive() {
     let mut scoring = StubModel::answering(Ok(choice(READY_IDLE, Some(0.99))));
     scoring.primitives = DecisionPrimitives {
         choice: false,
@@ -316,7 +316,7 @@ fn tab_state_shadow_requires_choice_primitive() {
     assert_eq!(scoring_calls.load(Ordering::SeqCst), 0);
     assert_eq!(host.reads(), 0, "no choice model means no screen read");
 
-    let empty = StubHost::new("❯ ", DecisionRegistry::new());
+    let empty = StubHost::new("❯ ", SupporterRegistry::new());
     assert_eq!(run(&empty, StartupNudge::Deliver), None);
     assert_eq!(empty.reads(), 0);
 
