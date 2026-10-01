@@ -81,7 +81,9 @@ fn tab_state_strong_auth_emits_orchestrator_event() {
         SignalAction::StrongAction,
     );
 
-    let event = events.try_recv().expect("Orchestrator auth event is published");
+    let event = events
+        .try_recv()
+        .expect("Orchestrator auth event is published");
     let SystemEvent::Generic { event_type, data } = event.event else {
         panic!("tab-state auth signal is a generic Orchestrator event");
     };
