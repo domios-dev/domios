@@ -17,8 +17,8 @@ mod delivery;
 mod state;
 
 pub(crate) use state::{
-    apply_observed_verdict, claim_observation, confidence_band, note_output, permit_is_current,
-    ConfidenceBand, ObservationEvent, SignalAction, CALL_CAP_PER_EPISODE,
+    apply_observed_verdict, claim_observation, confidence_band, launch_episode_key, note_output,
+    permit_is_current, ConfidenceBand, ObservationEvent, SignalAction, CALL_CAP_PER_EPISODE,
 };
 
 pub(crate) const SCREEN_LINES: usize = 40;
@@ -51,6 +51,7 @@ fn criteria() -> &'static BTreeMap<String, String> {
 pub(crate) enum ObservationTrigger {
     SpawnReady,
     SpawnDeadline,
+    StartupEscalation,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
@@ -61,6 +62,7 @@ impl ObservationTrigger {
         match self {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
+            Self::StartupEscalation => ObservationEvent::StartupEscalation,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
@@ -71,6 +73,7 @@ impl ObservationTrigger {
         match self {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
+            Self::StartupEscalation => "startup_escalation",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
@@ -191,12 +194,8 @@ impl ShadowHost for ServiceContext {
             .agent_set_at
             .map(|started| now.saturating_duration_since(started).as_secs())
             .unwrap_or_default();
-        let session_key = tab
-            .session_binding_nonce
-            .clone()
-            .or_else(|| tab.pty_id.clone())
-            .or_else(|| tab.agent_session_id.clone())
-            .unwrap_or_else(|| format!("{}:{:?}", tab.id, tab.agent_set_at));
+        let session_key =
+            launch_episode_key(&tab.id, tab.pty_id.as_deref(), tab.agent_set_at);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         screen.hash(&mut hasher);
         let changed = state::screen_changed(&tab.id, &session_key, hasher.finish());
