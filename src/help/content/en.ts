@@ -167,54 +167,65 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
-      id: "decision-rerank",
-      title: "Decision re-rank",
-      subtitle: "An optional second step for memory search",
+      id: "supporter-agent",
+      title: "Supporter Agent",
+      subtitle: "A fast decision model that helps CodeTerm choose",
       blocks: [
         {
           type: "paragraph",
-          text: "Decision re-rank is an optional second step in memory search. A fast decision model reads the top memory candidates and moves the ones that answer your question toward the top. The decision-model interface can use different models; TypeSafe's Jev is the default.",
+          text: "The Supporter Agent is a small, fast decision model. It does not run tasks or write code: it answers quick judgement questions for CodeTerm, such as which memory best answers a search. The decision interface can use different models; TypeSafe's Jev is the default.",
+        },
+        {
+          type: "list",
+          items: [
+            "Memory re-rank — it reads the top memory candidates and re-orders them so the ones that answer come first. It never removes results, and a low-confidence flag means nothing in the pool looks like a good answer. Agent and CLI searches keep the same commands.",
+            "Tab state — shadow logging only. When enabled, it reads a starting tab's recent screen and writes one log line beside CodeTerm's own verdict. It changes nothing yet and is off by default.",
+          ],
         },
         {
           type: "paragraph",
-          text: "It never filters results out: you get the same number of results as before, re-ordered so the ones that actually answer come first. A low-confidence flag means nothing in the candidate pool looks like a good answer; it does not hide results. Agent and CLI searches keep the same commands and interface.",
+          text: "Optional candidate sources add more to the re-rank pool. Each source has its own setting:",
+        },
+        {
+          type: "list",
+          items: [
+            "Graph — related memories linked through the knowledge graph. memory.decision_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
+            "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. memory.decision_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
+            "Sessions — matching snippets from past agent sessions. memory.decision_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "It only needs an API token. Set it up in one of two ways:",
+        },
+        {
+          type: "list",
+          items: [
+            "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
+            "From a terminal, pipe it in: pbpaste | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true. Run codeterm mem decision status to check it.",
+          ],
+        },
+        {
+          type: "paragraph",
+          text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at memory.decision_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
+        },
+        {
+          type: "paragraph",
+          text: "Cost is about $0.0007 per search. The whole step runs under one deadline, memory.decision_rerank.deadline_ms (3000 ms by default).",
         },
         {
           type: "tip",
-          text: "Decision re-rank is off by default. Without a TypeSafe API token, or if the decision model times out after 3 seconds or returns an error, CodeTerm uses the normal search results.",
+          text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set memory.decision_rerank.enabled false; one search can skip it with --decision-rerank off. Clear token removes the token entirely.",
         },
         {
           type: "paragraph",
-          text: "Optional candidate sources can add memories to the pool. Each source has its own setting and starts off:",
-        },
-        {
-          type: "list",
-          items: [
-            "Graph — adds related memories linked through the knowledge graph. Configure it with memory.decision_rerank.sources.graph; it adds up to 3 candidates by default, and 0 turns it off.",
-            "CodeTerm docs — adds matching sections of the built-in CodeTerm documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. Configure it with memory.decision_rerank.sources.docs; it adds up to 3 sections by default, and 0 turns it off.",
-          ],
-        },
-        {
-          type: "list",
-          items: [
-            "In Memory > Settings, turn on Re-rank memory recall and enter your API token.",
-            "From a terminal, run codeterm mem secret get --name typesafe-jev-api-key | codeterm mem decision token set, then codeterm config set memory.decision_rerank.enabled true.",
-            "Run codeterm mem decision status to check the adapter and token status.",
-          ],
-        },
-        {
-          type: "paragraph",
-          text: "Get a TypeSafe API key from https://docs.typesafe.ai or https://console.typesafe.ai/keys.",
-        },
-        {
-          type: "paragraph",
-          text: "When enabled, the text of candidate memories is sent to TypeSafe's decision API. The API token is stored locally with owner-only 0600 permissions and is never written to logs.",
+          text: "Learn more at https://docs.typesafe.ai and get a token at https://console.typesafe.ai/keys.",
         },
         {
           type: "ask",
-          label: "Ask the General Agent: should I enable decision re-rank?",
+          label: "Ask the General Agent: should I set up the Supporter Agent?",
           question:
-            "A user is reading the CodeTerm guide (decision re-rank section) and pressed 'Ask the agent'. Check whether decision re-rank is enabled in memory settings, whether its token is available with codeterm mem decision status, and whether the graph source is enabled. Explain what candidate text is sent when the feature is on. Keep it short and practical.",
+            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm mem decision status whether a token is set, and whether memory.decision_rerank.enabled and its graph, docs and sessions sources are on. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
         },
       ],
     },

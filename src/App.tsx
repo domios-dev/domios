@@ -8,7 +8,6 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
-import type { HelpSectionId } from "./help/types";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
@@ -116,7 +115,6 @@ function AppInner() {
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
-  const [settingsHelpSection, setSettingsHelpSection] = useState<HelpSectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
@@ -150,9 +148,8 @@ function AppInner() {
       return open ? "settings" : "workspace";
     });
   }, []);
-  const openGuideSection = useCallback((section: HelpSectionId) => {
-    setSettingsSection("guide");
-    setSettingsHelpSection(section);
+  const openAgentsSettings = useCallback(() => {
+    setSettingsSection("agents");
     setSettingsOpen(true);
   }, [setSettingsOpen]);
   const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
@@ -443,7 +440,7 @@ function AppInner() {
             })
             .catch(() => {});
         },
-        openSettings: () => { setSettingsSection(undefined); setSettingsHelpSection(undefined); setSettingsOpen(true); },
+        openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
         toggleSidebar,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
@@ -557,7 +554,7 @@ function AppInner() {
         showSidebarToggle={!sidebarOpen}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettings={(section) => { setSettingsSection(section); setSettingsHelpSection(undefined); setSettingsOpen(true); }}
+        onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         analyticsOpen={mainView === "analytics"}
         onToggleAnalytics={toggleAnalytics}
@@ -628,9 +625,8 @@ function AppInner() {
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
-                onClose={() => { setSettingsSection(undefined); setSettingsHelpSection(undefined); setSettingsOpen(false); }}
+                onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
-                initialHelpSection={settingsHelpSection}
               />
             </div>
           )}
@@ -651,7 +647,7 @@ function AppInner() {
                 onFocusTab={handleMemoryFocusTab}
                 config={config}
                 onConfigUpdate={updateConfig}
-                onOpenGuide={openGuideSection}
+                onOpenAgentsSettings={openAgentsSettings}
               />
             </div>
           )}

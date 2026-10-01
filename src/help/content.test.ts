@@ -16,7 +16,7 @@ test("english content exposes all guide sections", () => {
   const ids = getHelpSectionIds("en");
   assert(ids.length === 9, `expected 9 sections, got ${ids.length}`);
   assert(ids.includes("plans"), "missing plans section");
-  assert(ids.includes("decision-rerank"), "missing decision re-rank section");
+  assert(ids.includes("supporter-agent"), "missing supporter agent section");
   assert(ids.includes("tips"), "missing tips section");
 });
 
