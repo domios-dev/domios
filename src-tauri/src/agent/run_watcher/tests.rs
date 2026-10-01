@@ -704,10 +704,14 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         .lock()
         .insert(pty_id.clone(), run.clone());
 
-    let completed = tauri::async_runtime::block_on(tokio::time::timeout(
-        Duration::from_secs(3),
-        watchdog_loop(svc.clone(), run.clone(), 3600),
-    ));
+    // The timer must be created inside the runtime, so it lives in the async block.
+    let completed = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            watchdog_loop(svc.clone(), run.clone(), 3600),
+        )
+        .await
+    });
     assert!(
         completed.is_ok(),
         "blocking prompt end should run on the first tick"
