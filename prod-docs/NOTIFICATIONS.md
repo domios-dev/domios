@@ -11,37 +11,12 @@ sound = false       # the chime's master mute; each level below says whether it 
 toast_duration = 5  # seconds
 show_bell = true    # false removes the indicator; every record is still kept
 
-# Where each level may go BEYOND the panel. The panel is the complete log and
-# keeps every record whatever is written here — there is no column for it, and
-# no way to route a level away from it. Rows are generated from the same closed
-# level set the push channels use, and are reconciled on read: a level added to
-# that set appears here on its own, and a row naming no known level is dropped.
-# Any combination of columns is legal, including none — that level is kept in
-# the panel and interrupts nowhere. A fresh install ships what is written below,
-# which interrupts nowhere at every level. An agent notification that names no
-# level is kept too, and never reaches the system or a push channel.
-# `bell` is RETAINED AND INERT. Nothing routes on it and settings does not offer
-# it; it stays a named field because the channel keys are flattened into the
-# row, so dropping it would make a stored `bell = true` read back as a push
-# channel called "bell" that no registry will ever resolve. `notifications.
-# show_bell` is a different field and still works: it hides the indicator.
-# `sound` on a ROW is that level's own chime answer, and is a named field for the
-# same reason `bell` is: a `sound` key in the flattened map would read back as a
-# push channel called "sound". Omit it and the level keeps the chime that shipped
-# — `action_needed` and `failure` chime, `verbose` does not — so a config written
-# before the field sounds exactly as it did. Write it and the answer wins, in
-# both directions. `notifications.sound` above is the master mute over all of
-# them; it is not a destination and cannot widen where a level goes.
-# This used to be argued the other way: a per-level chime was refused because it
-# would allow a level that reaches nothing yet still makes a noise, with the noise
-# as its only trace. The bell gate has since been retired and EVERY level reaches
-# the panel unconditionally, so no such configuration exists any more and the
-# objection is gone.
-# Settings offers the system notification as a toggle and the push channels as
-# ONE picker per level, so a registered channel widens that picker instead of
-# adding a row. Only a channel the daemon reports as able to carry a message is
-# offered. Unpicking a channel REMOVES its key from the row rather than writing
-# `false`; both read as closed, which is what an unnamed channel has always been.
+# Where each level may go BEYOND the panel. Every notification is kept in the
+# panel whatever is written here. Any combination of columns is legal, including
+# none. `bell` is inert; `show_bell` controls the indicator; a row's `sound`
+# selects that level's chime (default: `action_needed` and `failure` chime) and
+# `notifications.sound` is the master mute. Settings offers one channel picker per
+# level; unpicking a channel removes its key, which reads as closed.
 [[notifications.agent_levels]]
 level = "verbose"
 bell = true
@@ -142,4 +117,4 @@ does an offer to turn a surface on, which must be sent again.
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

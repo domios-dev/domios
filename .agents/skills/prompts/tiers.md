@@ -17,6 +17,4 @@ change, with sandboxes outside the repository. In-repo sandboxes feed agents the
 checked-in `AGENTS.md` instead of the generated instruction set and invalidate
 the run.
 
-Related: `codeterm docs PROMPTS`.
-
-<!-- revision: 2 -->
+Related: [the prompt inventory](inventory.md).

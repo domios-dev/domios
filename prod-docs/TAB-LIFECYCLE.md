@@ -7,27 +7,25 @@ CodeTerm keeps one append-only journal of every authoritative tab lifecycle tran
 ## The restore contract
 
 1. `sessions/last.json` is loaded and every tab it holds is rebuilt with its persisted `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, and chatBackend binding intact. Prior binding lineage is restored for every restored tab, whether or not it claims a session.
-2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation; `commands::pty::spawn_pty` owns the choice). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair preserves the session and checks the tab's identity again before committing; it never replays a historical task. Missing or ambiguous ownership retains the saved session and refuses agent materialization. A provider proves ownership from its authoritative per-session record, which exists from the session's first turn, never only from a secondary index the provider writes later: a session that has not reached that index yet still resumes. On an OpenCode resume, its plugin validates only the explicit `--session` id with `client.session.get`; it does not infer a session from the latest record for a cwd.
+2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair preserves the session and checks the tab's identity again before committing; it never replays a historical task. Missing or ambiguous ownership retains the saved session and refuses agent materialization. A provider proves ownership from its authoritative per-session record, which exists from the session's first turn, never only from a secondary index the provider writes later: a session that has not reached that index yet still resumes. On an OpenCode resume only the explicit `--session` id is validated; no session is inferred from the latest record for a cwd.
 3. If a claimed session has no unique provider record, the tab comes back as a shell with a null provider label. A snapshot with no claimed session may still fresh-launch its explicitly persisted provider. Restore never chooses a claimed session's provider from another tab, the newest session for a cwd, or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are optional telemetry, not an admission ticket.
-5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
+5. A rebuilt record is not a restored agent. The restore report counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
 6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The shutdown killed that process, so the snapshot written at exit still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place with the launch arguments its spawn recorded (model, effort, arguments, identity instructions). A provider started by hand in that surviving shell inherits the exited launch's nonce; when its session-start hook reports that newest retired nonce and no launch owns the tab, the tab adopts it as a verified binding and reaches `agent_ready`.
-7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it (`.agents/skills/agent-restart/SKILL.md`).
+7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
 8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
 
 ## Restore reporting and observed liveness
 
 `state/recovery/last_restore_report.json` is written when the wave is armed and whenever lifecycle evidence changes. A dropped or unobserved pane remains eligible for reconciliation, so a later live observation corrects an earlier absence in the report. The daemon logs one pane line per tab for the wave. The report also records `previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` — so a restore that lost every agent to a planned update reads as that, and an unexplained one cannot hide behind a plausible story.
 
-Restored agent PTYs are materialized by the backend once the frontend reports ready, and still when it misses its readiness deadline: the deadline is never a reason to abandon relaunch. The visible and backend paths take the same per-tab PTY claim, so a late frontend reuses the live PTY. A wave materialized without the frontend records `backend_materialization: "frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the restore was waiting on.
+Restored agent PTYs are materialized by the backend once the frontend reports ready, and still when it misses its readiness deadline: the deadline is never a reason to abandon relaunch. A wave materialized without the frontend records `backend_materialization: "frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the restore was waiting on.
 
-Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its inputs are facts: a live PtyManager session, a boot stage emitted at a real launch transition, a shell reporting its foreground command with a matching nonce and then finished (OSC 633 `E` → `D`), an open plugin session. Elapsed time is never an input.
+Elapsed time or a rebuilt tab record alone never proves a live restored agent: liveness is observed from a live PTY session, a real launch transition, the shell's own finished-command report, or an open plugin session.
 
 A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. The prompt stays in tab state and does not create a notification; an agent that needs owner attention must explicitly run `codeterm notify send "<title>" --level action_needed`.
 
-A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it. In-tab provider relaunch, exit recovery and routed-slash behaviour: `.agents/skills/agent-restart/SKILL.md`.
-
-Role strings still pass through the literal legacy migration (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a format upgrade, not a gate.
+A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it.
 
 ## Where the journal lives
 
@@ -82,7 +80,7 @@ A tab's own persisted lineage (`agent_identity.lifecycle_epoch` and `agent_ident
 
 `seq` is a single monotonic sequence across the whole file. It is the **only** ordering authority. `recorded_at` and `sealed_at` are UTC stamps for reading the journal by eye — they are never consulted for ordering, checkpoint selection, or conflict resolution.
 
-A line that fails to parse, or whose `seq` does not advance, refuses itself and everything after it: `JournalLoad::tail` reports the refused line and reason so the corruption is visible instead of silently becoming history. Opening the journal at daemon start, or compacting it, moves a refused tail verbatim into `tab-lifecycle.refused.jsonl` beside it and rewrites the intact prefix, so later appends replay again; quarantined lines are never replayed. Restore never reads the journal, but exit recovery proves a session only from replayable `session_bound` or checkpoint records.
+A line that fails to parse, or whose `seq` does not advance, refuses itself and everything after it, and the corruption is reported. The refused tail moves into `tab-lifecycle.refused.jsonl` beside the journal and is never replayed. Restore never reads the journal, but exit recovery proves a session only from replayable `session_bound` or checkpoint records.
 
 ### Transitions
 
@@ -101,22 +99,15 @@ A line that fails to parse, or whose `seq` does not advance, refuses itself and 
 | `closed` | Tab gone. |
 | `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
 
-Each transition is written by the code that commits the mutation, in the same operation that performs it. Nothing observes tab state afterwards and infers a transition from it. Only PTY transport commits authoritative lifecycle transitions. Provider-label writes without an open lifecycle operation use a detached audit key and cannot produce a checkpoint.
+Transitions are recorded when the mutation commits, never inferred afterwards from tab state.
 
 ### Checkpoints
 
-An operation becomes a **checkpoint** when `launch_ready` sealed it, `provider_identity_committed` and `session_bound` both landed in that same operation, and no `rolled_back` or `closed` followed. Checkpoints exist so the journal can be compacted and so inspection can show what a launch actually committed — they carry no restore authority.
+A **checkpoint** is a sealed launch that committed its provider and session and was not rolled back or closed. Checkpoints show what a launch actually committed; they carry no restore authority.
 
 ## Retention and compaction
 
-The journal is bounded by explicit compaction, never by age:
-
-- Compaction triggers automatically past 4096 records, and can be performed directly through `TabLifecycleJournal::compact`.
-- It rewrites the file as one checkpoint per tab, a bounded 16-entry lineage of prior identity checkpoints, the latest provider-label attempt, each live tab's newest verified binding that no emitted checkpoint carries (a rolled-back checkpoint included), and the transitions belonging to operations no checkpoint covers. Every `seq` in the result is unique.
-- Closed tabs leave nothing behind.
-- Replaying a compacted journal reaches exactly the checkpoints replaying the full history reaches.
-
-The shared atomic write (unique temp, fsync, replace) is the only pruning path.
+The journal is bounded, read-only diagnostic history; corruption is reported, checkpoints do not authorize restore, and compaction preserves surviving evidence.
 
 ## Inspecting it
 
@@ -142,13 +133,11 @@ Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way. F
 
 ## Attempt retirement fences a closed tab's dispatch
 
-Closing a tab flags every task bound to it (`flag_tab_gone`). That now sets `retired_at` on the tab's live execution attempts as well as `closed_at`, in the same write. Retirement is a one-way fence: `finish_task_dispatch`, `mark_task_attempt_runtime_ready`, and the startup-attempt lookup that backs `agent ack` all refuse a retired attempt. A `dispatch_ready` that lands after the tab is gone therefore fails its commit instead of settling the task into `in_progress` with no tab behind it. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. An attributed `tab close` of such a Worker is refused (`busy worker close refused`, `409`) unless `--force`; a human close proceeds and returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
-
-The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the stale attempts, clears the dead owner identity, and supersedes the epoch in one transaction, so the intermediate state is never observable.
+Closed attempts cannot become ready or be reactivated; recover through the Plan owner. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. An attributed `tab close` of such a Worker is refused (`busy worker close refused`, `409`) unless `--force`; a human close proceeds and returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
 
 ## Not in scope
 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 31 -->
+<!-- revision: 32 -->

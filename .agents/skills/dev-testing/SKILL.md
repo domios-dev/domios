@@ -293,3 +293,9 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 
 If a test fails or a command doesn't work as expected, edit this SKILL.md to fix it.
 The skill lives at: `.agents/skills/dev-testing/SKILL.md`
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/memory-internals.md](references/memory-internals.md) — memory storage, ranking, wake-up selection, workers and dreaming internals

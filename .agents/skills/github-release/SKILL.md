@@ -1001,3 +1001,9 @@ node scripts/sync-release-notes.mjs --backfill 10
 
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
+
+## Internal references
+
+Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+
+- [references/updater-internals.md](references/updater-internals.md) — the auto-install flow
