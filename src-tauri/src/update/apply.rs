@@ -4,6 +4,7 @@ use url::Url;
 use super::channel::{
     default_endpoints_for_install_method, immutable_endpoint_for_release, Channel,
 };
+use super::debian_verify::{inspect_package_state, DebianPackageState};
 use super::manifest;
 use super::shutdown;
 use super::{InstallMethod, UpdatePhase, UpdateState};
@@ -540,7 +541,7 @@ fn install_verified_deb_with(
         ));
     }
 
-    let mut state = inspect_debian_package_state(runner);
+    let mut state = inspect_package_state(runner);
     if result.success && state.is_consistent(target_version) {
         return Ok(());
     }
@@ -548,7 +549,7 @@ fn install_verified_deb_with(
     if !result.success {
         let _ = run_elevated(runner, &elevation, &["dpkg", "--configure", "-a"]);
         let _ = run_elevated(runner, &elevation, &["apt-get", "install", "-f", "-y"]);
-        state = inspect_debian_package_state(runner);
+        state = inspect_package_state(runner);
         if state.is_consistent(target_version) {
             return Ok(());
         }
@@ -601,46 +602,6 @@ fn run_elevated(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DebianPackageState {
-    installed_version: Option<String>,
-    status: Option<String>,
-    audit: CommandResult,
-}
-
-impl DebianPackageState {
-    fn is_consistent(&self, target_version: &str) -> bool {
-        self.installed_version.as_deref() == Some(target_version)
-            && self.status.as_deref() == Some("install ok installed")
-            && self.audit.success
-            && self.audit.stdout.trim().is_empty()
-    }
-}
-
-fn inspect_debian_package_state(runner: &dyn CommandRunner) -> DebianPackageState {
-    let version = runner.run("dpkg-query", &["-W", "-f=${Version}", "codeterm"]);
-    let status = runner.run(
-        "dpkg-query",
-        &["-W", "-f=${db:Status-Abbrev} ${Status}", "codeterm"],
-    );
-    let audit = runner.run("dpkg", &["--audit"]);
-    DebianPackageState {
-        installed_version: version.success.then(|| version.stdout.trim().to_string()),
-        status: status
-            .success
-            .then(|| normalize_dpkg_status(&status.stdout)),
-        audit,
-    }
-}
-
-fn normalize_dpkg_status(raw: &str) -> String {
-    raw.trim()
-        .strip_prefix("ii ")
-        .unwrap_or(raw.trim())
-        .trim()
-        .to_string()
-}
-
 fn repair_required_message(
     path: &std::path::Path,
     target_version: &str,
@@ -668,16 +629,17 @@ fn has_graphical_session() -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CommandResult {
-    success: bool,
-    code: Option<i32>,
-    stdout: String,
-    stderr: String,
+pub(super) struct CommandResult {
+    pub(super) success: bool,
+    pub(super) code: Option<i32>,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
 }
 
-trait CommandRunner {
+pub(super) trait CommandRunner {
     fn exists(&self, program: &str) -> bool;
     fn run(&self, program: &str, args: &[&str]) -> CommandResult;
+    fn run_with_env(&self, program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandResult;
 }
 
 struct RealCommandRunner;
@@ -688,23 +650,31 @@ impl CommandRunner for RealCommandRunner {
     }
 
     fn run(&self, program: &str, args: &[&str]) -> CommandResult {
-        let mut command = std::process::Command::new(program);
-        command.args(args);
-        crate::process_util::no_window_std(&mut command);
-        match command.output() {
-            Ok(out) => CommandResult {
-                success: out.status.success(),
-                code: out.status.code(),
-                stdout: String::from_utf8_lossy(&out.stdout).trim().to_string(),
-                stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
-            },
-            Err(e) => CommandResult {
-                success: false,
-                code: None,
-                stdout: String::new(),
-                stderr: e.to_string(),
-            },
-        }
+        run_command(program, args, &[])
+    }
+
+    fn run_with_env(&self, program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandResult {
+        run_command(program, args, env)
+    }
+}
+
+fn run_command(program: &str, args: &[&str], env: &[(&str, &str)]) -> CommandResult {
+    let mut command = std::process::Command::new(program);
+    command.args(args).envs(env.iter().copied());
+    crate::process_util::no_window_std(&mut command);
+    match command.output() {
+        Ok(out) => CommandResult {
+            success: out.status.success(),
+            code: out.status.code(),
+            stdout: String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        },
+        Err(e) => CommandResult {
+            success: false,
+            code: None,
+            stdout: String::new(),
+            stderr: e.to_string(),
+        },
     }
 }
 
@@ -794,6 +764,15 @@ mod debian_tests {
                 stderr: String::new(),
             })
         }
+
+        fn run_with_env(
+            &self,
+            program: &str,
+            args: &[&str],
+            _env: &[(&str, &str)],
+        ) -> CommandResult {
+            self.run(program, args)
+        }
     }
 
     fn ok(stdout: &str) -> CommandResult {
@@ -816,10 +795,9 @@ mod debian_tests {
 
     fn clean_state(runner: FakeRunner, version: &str) -> FakeRunner {
         runner
-            .with_result("dpkg-query -W -f=${Version} codeterm", ok(version))
             .with_result(
-                "dpkg-query -W -f=${db:Status-Abbrev} ${Status} codeterm",
-                ok("ii install ok installed"),
+                "dpkg-query -W -f=${Status}\\t${Version} code-term",
+                ok(&format!("install ok installed\t{version}")),
             )
             .with_result("dpkg --audit", ok(""))
     }
@@ -963,11 +941,7 @@ mod debian_tests {
             .with_result("sudo -n dpkg --configure -a", fail(1, "still broken"))
             .with_result("sudo -n apt-get install -f -y", fail(1, "no fix"))
             .with_result(
-                "dpkg-query -W -f=${Version} codeterm",
-                fail(1, "not installed"),
-            )
-            .with_result(
-                "dpkg-query -W -f=${db:Status-Abbrev} ${Status} codeterm",
+                "dpkg-query -W -f=${Status}\\t${Version} code-term",
                 fail(1, "not installed"),
             )
             .with_result("dpkg --audit", ok("codeterm is half-configured"));
@@ -990,12 +964,27 @@ mod debian_tests {
     }
 
     #[test]
+    fn half_configured_package_is_repair_required_after_successful_install() {
+        let runner = FakeRunner::new(&["sudo"])
+            .with_result("sudo -n dpkg -i /tmp/a.deb", ok(""))
+            .with_result(
+                "dpkg-query -W -f=${Status}\\t${Version} code-term",
+                ok("install ok half-configured\t1.7.1"),
+            )
+            .with_result("dpkg --audit", ok("code-term is half-configured"));
+        let err =
+            install_verified_deb_with(std::path::Path::new("/tmp/a.deb"), "1.7.1", &runner, false)
+                .unwrap_err();
+        assert!(err.contains("repair_required"));
+        assert!(err.contains("status=install ok half-configured"));
+    }
+
+    #[test]
     fn failed_empty_audit_is_repair_required() {
         let runner = FakeRunner::new(&["sudo"])
-            .with_result("dpkg-query -W -f=${Version} codeterm", ok("1.7.1"))
             .with_result(
-                "dpkg-query -W -f=${db:Status-Abbrev} ${Status} codeterm",
-                ok("ii install ok installed"),
+                "dpkg-query -W -f=${Status}\\t${Version} code-term",
+                ok("install ok installed\t1.7.1"),
             )
             .with_result("dpkg --audit", fail(2, "audit backend failed"));
         let err =
@@ -1011,11 +1000,7 @@ mod debian_tests {
     fn dpkg_query_failure_is_repair_required() {
         let runner = FakeRunner::new(&["sudo"])
             .with_result(
-                "dpkg-query -W -f=${Version} codeterm",
-                fail(1, "query failed"),
-            )
-            .with_result(
-                "dpkg-query -W -f=${db:Status-Abbrev} ${Status} codeterm",
+                "dpkg-query -W -f=${Status}\\t${Version} code-term",
                 fail(1, "query failed"),
             )
             .with_result("dpkg --audit", ok(""));
@@ -1048,11 +1033,9 @@ mod debian_tests {
             }
 
             fn run(&self, program: &str, args: &[&str]) -> CommandResult {
-                if program == "dpkg-query" && args.contains(&"-f=${Version}") {
-                    return ok("1.7.1");
-                }
                 if program == "dpkg-query" {
-                    return ok("ii install ok installed");
+                    assert_eq!(args, &["-W", "-f=${Status}\\t${Version}", "code-term"]);
+                    return ok("install ok installed\t1.7.1");
                 }
                 if program == "dpkg" {
                     return ok("");
@@ -1065,6 +1048,15 @@ mod debian_tests {
                     stdout: String::new(),
                     stderr: String::new(),
                 }
+            }
+
+            fn run_with_env(
+                &self,
+                program: &str,
+                args: &[&str],
+                _env: &[(&str, &str)],
+            ) -> CommandResult {
+                self.run(program, args)
             }
         }
 
