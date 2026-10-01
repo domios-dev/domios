@@ -168,4 +168,4 @@ and every verdict requires `--note`, never `--reason`. Review credit repair,
 task-less evidence reporters, and Planner parent resolution are plan surface
 contracts (API-PLAN).
 
-<!-- revision: 97 -->
+<!-- revision: 98 -->

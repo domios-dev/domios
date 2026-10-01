@@ -166,4 +166,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->
