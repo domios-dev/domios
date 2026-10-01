@@ -28,16 +28,37 @@ impl ServiceContext {
         let Some(tab_id) = tab_id else {
             return;
         };
-        let tree_observation = self.observe_provider_process_tree(tab_id, pty_id);
+        let launch_attempt =
+            crate::service::launch_readiness::LaunchAttempt::current(&self.mux, tab_id, pty_id);
+        let cron_launch_pending = launch_attempt
+            .as_ref()
+            .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
+        let tree_observation = (!cron_launch_pending)
+            .then(|| self.observe_provider_process_tree(tab_id, pty_id))
+            .flatten();
         for event in &events {
             if let crate::agent::command_detection::CommandLifecycle::Finished {
                 exit_code, ..
             } = event
             {
+                let cron_launch_pending =
+                    self.run_watcher.cron_launch_exit_eligibility(self, pty_id) == Some(false)
+                        || launch_attempt
+                            .as_ref()
+                            .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
                 let tree = tree_observation.as_ref();
-                let proof = tree.and_then(|tree| {
-                    self.command_finished_proves_provider_exit(tab_id, pty_id, event, tree)
-                });
+                let proof = if cron_launch_pending {
+                    None
+                } else {
+                    tree.and_then(|tree| {
+                        self.command_finished_proves_provider_exit(tab_id, pty_id, event, tree)
+                    })
+                };
+                if cron_launch_pending {
+                    log::info!(
+                        "[launch-readiness] ignored Finished marker before cron provider launch tab={tab_id} pty={pty_id}"
+                    );
+                }
                 if let Some(proof) = proof {
                     self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
                     let exited = self.claim_launch_exit(tab_id, Some(pty_id), *exit_code, &proof);
@@ -65,7 +86,7 @@ impl ServiceContext {
                     if note_surviving_shell_exit {
                         self.notify_surviving_shell_restart_required(tab_id, pty_id);
                     }
-                } else if tree.is_none() {
+                } else if tree.is_none() && !cron_launch_pending {
                     log::info!(
                         "[launch-readiness] refused verdict_source=finished-marker tree_evidence=provider_tree_unavailable tab={tab_id} pty={pty_id}"
                     );

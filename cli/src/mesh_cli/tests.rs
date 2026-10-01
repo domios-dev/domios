@@ -3,7 +3,17 @@ use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
 use crate::{BridgeAction, Commands, TabAction, UpdateAction};
 
+fn parse_spawn_command(args: &[&str]) -> Commands {
+    let mut full = vec!["codeterm", "agent", "spawn"];
+    full.extend_from_slice(args);
+    <crate::Cli as clap::Parser>::try_parse_from(full)
+        .expect("agent spawn must parse")
+        .command
+}
+
 mod delayed;
+#[path = "tests/mesh_worker.rs"]
+mod mesh_worker;
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -418,7 +428,7 @@ fn mem_search_relays_to_search_endpoint_with_query() {
             project: None,
             limit: 5,
             rerank: false,
-            decision_rerank: None,
+            supporter: None,
         },
     };
     let (m, p, b) = cli_command_to_api(&cmd);
@@ -1159,42 +1169,5 @@ fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
     );
 }
 
-fn parse_spawn_command(args: &[&str]) -> Commands {
-    let mut full = vec!["codeterm", "agent", "spawn"];
-    full.extend_from_slice(args);
-    <crate::Cli as clap::Parser>::try_parse_from(full)
-        .expect("agent spawn must parse")
-        .command
-}
-
-/// A generic task-less mesh Worker still relies on `role` for its Worker
-/// doctrine; plan-bound dispatch uses the separate origin-owned protocol.
-#[test]
-fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
-    let _guard = crate::test_env_lock().lock().unwrap();
-    let (method, path, body) = cli_command_to_api(&parse_spawn_command(&[
-        "claude",
-        "--cwd",
-        "D:/peer/workspace",
-        "--role",
-        "Worker",
-        "--task",
-        "check out the repo, build it, serve it",
-    ]));
-
-    assert_eq!(method, "POST");
-    assert_eq!(path, "/api/agents/spawn");
-    let body: serde_json::Value =
-        serde_json::from_str(&body.expect("agent spawn carries a body")).unwrap();
-    assert_eq!(body["role"], "Worker");
-    assert!(
-        body.get("plan_task").is_none() && body.get("task_id").is_none(),
-        "the mesh Worker owns no binding: {body}"
-    );
-    assert!(
-        body.get("execution_intent").is_none(),
-        "no declared intent is its own shape: {body}"
-    );
-}
 #[path = "tests/mesh_spawn_close.rs"]
 mod mesh_spawn_close;

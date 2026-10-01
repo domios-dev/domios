@@ -1,1 +1,4 @@
 pending-captures.jsonl
+capture-state.json
+live-captures.jsonl
+results-*.json

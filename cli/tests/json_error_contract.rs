@@ -77,6 +77,8 @@ fn run_cli(env: &CliEnv, args: &[String]) -> Output {
     }
     command
         .env("CODETERM_INSTANCE", &env.instance)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
         .env("CODETERM_DATA_DIR", env.data_dir.path())
         .env("HOME", env.data_dir.path())
         .env("USERPROFILE", env.data_dir.path())

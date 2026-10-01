@@ -400,10 +400,91 @@ fn cron_reap_requires_a_seen_then_absent_provider_tree() {
         worker_id: "worker".into(),
     };
 
-    assert!(cron_provider_exit_is_proven(&cron, Some(&exited)));
-    assert!(!cron_provider_exit_is_proven(&cron, Some(&unseen)));
-    assert!(!cron_provider_exit_is_proven(&memory, Some(&exited)));
-    assert!(!cron_provider_exit_is_proven(&cron, None));
+    assert!(cron_provider_exit_is_proven(&cron, Some(&exited), true));
+    assert!(!cron_provider_exit_is_proven(&cron, Some(&exited), false));
+    assert!(!cron_provider_exit_is_proven(&cron, Some(&unseen), true));
+    assert!(!cron_provider_exit_is_proven(&cron, Some(&unseen), false));
+    assert!(!cron_provider_exit_is_proven(&memory, Some(&exited), true));
+    assert!(!cron_provider_exit_is_proven(&cron, None, true));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn cron_run_not_failed_before_own_launch_issued() {
+    use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
+    use crate::service::process_tree::{
+        ProviderProcessTreeSnapshot, ProviderTreeKey, ProviderTreeState, ProviderTreeWitnesses,
+    };
+
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "cron-prelaunch-pty".to_string();
+    mux.link_pty(&tab_id, pty_id.clone());
+    mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some("cron-prelaunch-nonce".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let attempt = LaunchAttempt::current(&fixture.service.mux, &tab_id, &pty_id)
+        .expect("the cron tab already owns its launch PTY");
+    launch_readiness::arm_cron_run(attempt.clone());
+    let key = ProviderTreeKey {
+        tab_id: tab_id.clone(),
+        pty_id: pty_id.clone(),
+        binding_nonce: Some(attempt.binding_nonce.clone()),
+        executable_name: "provider-binary".into(),
+    };
+    let absence =
+        ProviderTreeWitnesses::default().record_for_test(&key, ProviderProcessTreeSnapshot::Absent);
+    assert_eq!(absence.state(), ProviderTreeState::AbsentBeforeSeen);
+    assert!(
+        LaunchExitProof::from_finished_marker(&attempt, &absence, Some(1), true, None).is_some()
+    );
+    assert!(launch_readiness::attempt_is_armed(&attempt));
+    assert!(launch_readiness::cron_launch_is_pending(&attempt));
+
+    let run = Arc::new(RunState {
+        pty_id: pty_id.clone(),
+        tab_id,
+        kind: AgentRunKind::Cron {
+            job_id: "job-prelaunch".into(),
+            run_id: "run-prelaunch".into(),
+        },
+        scanner: Mutex::new(ResultEventScanner::new()),
+        started_at: Instant::now(),
+        last_byte_at: Mutex::new(Instant::now()),
+        completed: AtomicBool::new(false),
+        armed: AtomicBool::new(false),
+        saw_working: AtomicBool::new(false),
+        saw_post_session_progress: AtomicBool::new(false),
+        restart_count: AtomicU32::new(0),
+        last_restart_at: Mutex::new(Instant::now()),
+        resume_system_prompt: None,
+    });
+    fixture
+        .service
+        .run_watcher
+        .runs
+        .lock()
+        .insert(pty_id.clone(), run.clone());
+
+    assert_eq!(
+        fixture
+            .service
+            .run_watcher
+            .cron_launch_exit_eligibility(&fixture.service, &pty_id),
+        Some(false)
+    );
+
+    assert!(!fixture.service.run_watcher.fail_cron_on_process_exit(
+        &fixture.service,
+        &pty_id,
+        "provider process exited to a surviving shell".into(),
+    ));
+    assert!(!run.completed.load(Ordering::Acquire));
+    assert!(fixture
+        .service
+        .run_watcher
+        .runs
+        .lock()
+        .contains_key(&pty_id));
+    assert!(launch_readiness::retire_attempt(&attempt));
 }
 
 #[test]
@@ -455,7 +536,19 @@ fn dead_cron_run_is_reaped_on_process_exit() {
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
     mux.link_pty(&tab_id, pty_id.clone());
+    mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce =
+        Some("cron-process-exit-nonce".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let attempt = crate::service::launch_readiness::LaunchAttempt::current(
+        &fixture.service.mux,
+        &tab_id,
+        &pty_id,
+    )
+    .expect("the cron tab owns its PTY");
+    crate::service::launch_readiness::arm_cron_run(attempt.clone());
+    assert!(crate::service::launch_readiness::mark_launch_issued(
+        &attempt
+    ));
     let cron = std::sync::Arc::new(parking_lot::Mutex::new(
         crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("crons.json")),
     ));
@@ -770,13 +863,13 @@ fn run_watcher_mem_worker_ends_on_pending_structured_prompt() {
 }
 
 #[test]
-fn run_watcher_mem_worker_directory_trust_prompt_is_untouched() {
+fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
     let kind = AgentRunKind::MemWorker {
         worker_id: "worker".into(),
     };
-    assert!(!should_end_on_blocking_prompt(
+    assert!(should_end_on_blocking_prompt(
         &kind,
-        true,
+        false,
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     ));
     assert!(!should_end_on_blocking_prompt(
@@ -784,6 +877,131 @@ fn run_watcher_mem_worker_directory_trust_prompt_is_untouched() {
         true,
         Some(codeterm_types::pty::PromptKind::ManualUpdate)
     ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
+    use codeterm_mem::dream_status::{
+        diary_evidence, DiaryFinalization, DreamRunStatus, ExecutionEnd,
+    };
+    use codeterm_types::pty::PromptKind;
+
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = format!("folder-trust-{}", uuid::Uuid::new_v4().simple());
+    mux.link_pty(&tab_id, pty_id.clone());
+    let worker_id = format!("gw_test_{}", uuid::Uuid::new_v4().simple());
+    let tab = mux.get_tab_mut(&tab_id).expect("mem worker tab");
+    tab.hidden = true;
+    tab.worker_id = Some(worker_id.clone());
+    tab.agent_type = Some("folder-trust-fixture".into());
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        crate::service::boot_stage::BootStage::AgentReady,
+        None,
+    );
+
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    fixture
+        .service
+        .worker_ack
+        .supervise_startup_for_test(&tab_id, "folder-trust-owner");
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("folder-trust-fixture")
+            .with_directory_trust_prompt(owner_prompt()),
+    ));
+    svc.workers.register(crate::mem::workers::make_info(
+        worker_id.clone(),
+        tab_id.clone(),
+        "dreaming:rem".into(),
+        "system:dreaming".into(),
+        "hsl(0,0%,0%)".into(),
+    ));
+    svc.screen_state.lock().process(
+        &pty_id,
+        b"opaque-question-62\r\n\xe2\x9d\xaf 1. opaque-choice-62\r\n  2. opaque-choice-63\r\nPress Enter to confirm",
+    );
+    assert!(surface_idle_provider_prompt(svc, &tab_id, &pty_id));
+    {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(&tab_id).expect("surfaced prompt tab");
+        assert!(tab.pending_prompt.is_some());
+        assert_eq!(tab.pending_prompt_kind, Some(PromptKind::DirectoryTrust));
+    }
+    let diary = svc
+        .mem
+        .save(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Daily,
+            scope: crate::mem::MemScope::Global,
+            title: "dream: folder trust".into(),
+            summary: Some("WIP: dreaming".into()),
+            area: Some("_dreams".into()),
+            tags: vec![codeterm_mem::dream_status::deadline::DREAM_DIARY_TAG.into()],
+            body: "<insight></insight><log>STARTED: t0\nHUBS_BEFORE: 3\nHUBS: pending\n</log>"
+                .into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        })
+        .unwrap();
+    let state = Arc::new(RunState {
+        pty_id: pty_id.clone(),
+        tab_id: tab_id.clone(),
+        kind: AgentRunKind::MemWorker {
+            worker_id: worker_id.clone(),
+        },
+        scanner: Mutex::new(ResultEventScanner::new()),
+        started_at: Instant::now(),
+        last_byte_at: Mutex::new(Instant::now() - Duration::from_secs(IDLE_COMPLETE_SECS + 1)),
+        completed: AtomicBool::new(false),
+        armed: AtomicBool::new(false),
+        saw_working: AtomicBool::new(false),
+        saw_post_session_progress: AtomicBool::new(false),
+        restart_count: AtomicU32::new(0),
+        last_restart_at: Mutex::new(Instant::now()),
+        resume_system_prompt: None,
+    });
+    svc.run_watcher
+        .runs
+        .lock()
+        .insert(pty_id.clone(), state.clone());
+
+    let completed = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            watchdog_loop(svc.clone(), state.clone(), 0),
+        )
+        .await
+    });
+    assert!(completed.is_ok(), "folder trust must win over hard timeout");
+    assert!(state.completed.load(Ordering::Acquire));
+
+    let worker = svc.workers.get(&worker_id).expect("worker finalization");
+    assert_eq!(
+        worker.execution_end,
+        Some(ExecutionEnd::TimedOut {
+            detail: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
+        })
+    );
+    assert_eq!(
+        worker.finalization,
+        DiaryFinalization::Partial {
+            diary_id: Some(diary.clone()),
+            reason: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
+        }
+    );
+    assert_eq!(
+        worker.dream_run_status(),
+        DreamRunStatus::PartiallyFinalized {
+            reason: crate::mem::dream_runs::FOLDER_TRUST_REASON.into(),
+        }
+    );
+    let stored = svc.mem.get(&diary).unwrap().unwrap();
+    let evidence = diary_evidence(&diary, &stored.body);
+    assert!(evidence.is_complete() && evidence.cut_at_deadline);
+    assert!(!svc.run_watcher.runs.lock().contains_key(&pty_id));
 }
 
 #[test]
@@ -801,6 +1019,24 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
         &kind,
         true,
         Some(codeterm_types::pty::PromptKind::Structured)
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    ));
+}
+
+#[test]
+fn run_watcher_visible_tab_folder_trust_untouched() {
+    let kind = AgentRunKind::Cron {
+        job_id: "job".into(),
+        run_id: "run".into(),
+    };
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        true,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     ));
 }
 

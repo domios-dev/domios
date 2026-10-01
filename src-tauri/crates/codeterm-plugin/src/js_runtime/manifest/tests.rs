@@ -64,6 +64,40 @@ fn webhook_receiver_contract_rejects_unknown_field() {
 }
 
 #[test]
+fn manifest_unknown_capability_is_ignored_and_known_ones_load() {
+    let manifest = PluginManifest::from_json_str(
+        r#"{
+            "id":"future-capability-fixture",
+            "version":"0.1.0",
+            "displayName":"Future capability fixture",
+            "capabilities":{"decisionModel":true,"futureCapability":{"flag":true}}
+        }"#,
+    )
+    .expect("unknown capabilities are ignored");
+    assert!(manifest.capabilities.decision_model);
+    assert_eq!(
+        manifest
+            .capabilities
+            .unknown_capabilities()
+            .collect::<Vec<_>>(),
+        vec!["futureCapability"]
+    );
+}
+
+#[test]
+fn manifest_top_level_unknown_fields_remain_strict() {
+    assert!(PluginManifest::from_json_str(
+        r#"{
+            "id":"strict-fixture",
+            "version":"0.1.0",
+            "displayName":"Strict fixture",
+            "futureField":true
+        }"#,
+    )
+    .is_err());
+}
+
+#[test]
 fn plugin_icon_svg_load_falls_back_from_item_to_plugin_asset() {
     let root = std::env::temp_dir().join(format!("ct-manifest-icon-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

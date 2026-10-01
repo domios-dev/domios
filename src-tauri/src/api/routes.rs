@@ -747,14 +747,26 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route(
-            "/api/mem/decision/token",
-            get(mem_routes::decision::decision_token_status)
-                .post(mem_routes::decision::decision_token_set)
-                .delete(mem_routes::decision::decision_token_clear),
+            "/api/supporter/token",
+            get(mem_routes::decision::supporter_token_status)
+                .post(mem_routes::decision::supporter_token_set)
+                .delete(mem_routes::decision::supporter_token_clear),
         )
         .route(
-            "/api/mem/decision/status",
-            get(mem_routes::decision::decision_status),
+            "/api/supporter/status",
+            get(mem_routes::decision::supporter_status),
+        )
+        .route(
+            "/api/supporter/models",
+            get(mem_routes::decision::supporter_models),
+        )
+        .route(
+            "/api/supporter/use",
+            post(mem_routes::decision::supporter_use),
+        )
+        .route(
+            "/api/supporter/features",
+            post(mem_routes::decision::supporter_features),
         )
         .route("/api/mem/items", post(mem_routes::mem_save))
         .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))
@@ -766,6 +778,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/items/{id}/history", get(mem_routes::mem_history))
         .route("/api/mem/items/{id}/append", post(mem_routes::mem_append))
+        .route("/api/mem/items/{id}/archive", post(mem_routes::mem_archive))
         .route("/api/mem/items/{id}/restore", post(mem_routes::mem_restore))
         .route("/api/mem/merge", post(mem_routes::mem_merge))
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))

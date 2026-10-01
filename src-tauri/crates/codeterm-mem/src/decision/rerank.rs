@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use super::{DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest};
+use codeterm_types::decision::{
+    DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
+};
 
 pub const NOUL_INSTRUCTIONS_TEMPLATE: &str =
     "Does this memory directly and usefully answer: {query}?";
@@ -186,7 +188,7 @@ fn spawn_worker(
     deadline: Instant,
 ) {
     let spawned = std::thread::Builder::new()
-        .name("mem-decision-rerank".into())
+        .name("mem-supporter-rerank".into())
         .spawn(move || loop {
             if Instant::now() >= deadline {
                 break;

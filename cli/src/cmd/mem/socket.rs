@@ -31,7 +31,7 @@ pub(super) fn socket_request(
             project,
             limit,
             rerank,
-            decision_rerank,
+            supporter,
         } => {
             let project = project.clone().or_else(|| {
                 std::env::current_dir()
@@ -47,13 +47,25 @@ pub(super) fn socket_request(
                 "limit": limit,
                 "rerank": rerank,
             });
-            if let Some(mode) = decision_rerank {
-                params["decision_rerank"] = serde_json::json!(mode.enabled());
+            if let Some(mode) = supporter {
+                params["supporter"] = serde_json::json!(mode.enabled());
             }
             Some(("mem.search", Some(params)))
         }
         MemAction::Get { id } => Some(("mem.get", Some(serde_json::json!({ "id": id })))),
         MemAction::Delete { id } => Some(("mem.delete", Some(serde_json::json!({ "id": id })))),
+        MemAction::Archive {
+            id,
+            reason,
+            changed_by,
+        } => Some((
+            "mem.archive",
+            Some(serde_json::json!({
+                "id": id,
+                "reason": reason,
+                "changed_by": changed_by
+            })),
+        )),
         MemAction::Forget { area, yes } => {
             if let Err(e) = item::validate_mem_forget_confirmation(area, *yes) {
                 crate::cmd::print::fail(1, e.to_string());
@@ -390,6 +402,10 @@ mod tests {
                 "mem.append",
             ),
             (vec!["codeterm", "mem", "restore", "fact_a"], "mem.restore"),
+            (
+                vec!["codeterm", "mem", "archive", "fact_a", "--reason", "stale"],
+                "mem.archive",
+            ),
             (
                 vec!["codeterm", "mem", "merge", "--keeper", "a", "--lesser", "b"],
                 "mem.merge",

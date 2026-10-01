@@ -35,6 +35,8 @@ import {
   SETTINGS_SECTIONS,
   sectionTitle,
   normalizeSection,
+  settingsRouteForHelpTarget,
+  type SettingsCardAnchorId,
 } from "./sections";
 import { UI_PANEL } from "../shared/design";
 
@@ -50,7 +52,7 @@ const SETTINGS_TITLE_ID = "codeterm-settings-title";
 
 type Route =
   | { kind: "root" }
-  | { kind: "section"; id: SectionId; helpSection?: HelpSectionId }
+  | { kind: "section"; id: SectionId; helpSection?: HelpSectionId; card?: SettingsCardAnchorId }
   | { kind: "agent-provider"; providerId: string };
 
 export function SettingsPanel({
@@ -433,6 +435,7 @@ export function SettingsPanel({
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
                   onOpenGuide={(helpSection) => push({ kind: "section", id: "guide", helpSection })}
+                  focusCard={top.card}
                 />
               </SettingsPage>
             )}
@@ -480,7 +483,14 @@ export function SettingsPanel({
                   What CodeTerm is and how to work with it.
                 </p>
                 <div className="flex-1 min-h-0">
-                  <HelpPanel config={localConfig} initialSection={top.helpSection} />
+                  <HelpPanel
+                    config={localConfig}
+                    initialSection={top.helpSection}
+                    onOpenSettings={(target) => {
+                      const route = settingsRouteForHelpTarget(target);
+                      push({ kind: "section", id: route.section, card: route.card });
+                    }}
+                  />
                 </div>
               </div>
             )}

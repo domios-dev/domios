@@ -1,32 +1,64 @@
 #!/usr/bin/env python3
 """Expanded bench: full 189-item loaded.py + 50+ queries across all projects."""
 
-import json, os, sys, time, urllib.request, urllib.parse
+import json, os, subprocess, sys, time
+from pathlib import Path
 
-API = os.environ.get("CODETERM_API_URL", "http://127.0.0.1:7686")
-TOKEN = os.environ.get("CODETERM_API_TOKEN", "")
-
-if not TOKEN:
-    import subprocess
-    r = subprocess.run(
-        ["grep", "^token", os.path.expanduser("~/.codeterm-dev/config.toml")],
-        capture_output=True, text=True
-    )
-    TOKEN = r.stdout.strip().split('"')[1] if '"' in r.stdout else ""
-
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+EVAL_LIB = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+RECORD_CACHE = {}
 
 
 def api(method, path, body=None):
-    data = json.dumps(body).encode() if body else None
-    req = urllib.request.Request(f"{API}{path}", data=data, headers=HEADERS, method=method)
-    resp = urllib.request.urlopen(req)
-    return json.loads(resp.read())
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; case "$2" in GET) dev_get "$3" ;; POST) dev_post "$3" "$4" ;; *) exit 2 ;; esac',
+            "mem-recall-full",
+            str(EVAL_LIB),
+            method,
+            path,
+            json.dumps(body or {}),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return json.loads(result.stdout)
 
 
 def search(query, limit=10):
-    q = urllib.parse.quote(query)
-    return api("GET", f"/api/mem/search?q={q}&limit={limit}")
+    return dc_json("mem", "search", query, "--limit", str(limit), "--json")
+
+
+def dc_json(*args):
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; shift; dc "$@"', "mem-recall", str(EVAL_LIB), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    return json.loads(result.stdout)
+
+
+def hydrate_hits(hits):
+    hydrated = []
+    for hit in hits:
+        item_id = hit.get("id")
+        if not isinstance(item_id, str) or hit.get("source") == "doc":
+            hydrated.append({**hit, "record": {}})
+            continue
+        if item_id not in RECORD_CACHE:
+            record = dc_json("mem", "get", item_id, "--json")
+            if record.get("id") != item_id:
+                raise RuntimeError(f"mem get returned a mismatched record for {item_id}")
+            RECORD_CACHE[item_id] = record
+        hydrated.append({**hit, "record": RECORD_CACHE[item_id]})
+    return hydrated
 
 
 TESTS = [
@@ -105,7 +137,8 @@ TESTS = [
 
 def check_hit(hits, expect_words):
     for h in hits[:3]:
-        text = (h["item"]["title"] + " " + h["item"].get("body", "")).lower()
+        record = h["record"]
+        text = (record.get("title", "") + " " + record.get("body", "")).lower()
         matches = sum(1 for w in expect_words if w.lower() in text)
         if matches >= 2 or (len(expect_words) <= 2 and matches >= 1):
             return True
@@ -114,7 +147,8 @@ def check_hit(hits, expect_words):
 
 def check_hit_rank(hits, expect_words):
     for rank, h in enumerate(hits[:10], 1):
-        text = (h["item"]["title"] + " " + h["item"].get("body", "")).lower()
+        record = h["record"]
+        text = (record.get("title", "") + " " + record.get("body", "")).lower()
         matches = sum(1 for w in expect_words if w.lower() in text)
         if matches >= 2 or (len(expect_words) <= 2 and matches >= 1):
             return rank
@@ -178,11 +212,12 @@ for i, tc in enumerate(TESTS):
     t0 = time.time()
     try:
         resp = search(tc["q"])
-        hits = resp.get("hits", [])
+        elapsed = (time.time() - t0) * 1000
+        hits = hydrate_hits(resp.get("hits", []))
     except Exception as e:
         hits = []
+        elapsed = (time.time() - t0) * 1000
         print(f"  ERROR {tc['q']}: {e}")
-    elapsed = (time.time() - t0) * 1000
     latencies.append(elapsed)
 
     rank = check_hit_rank(hits, tc["expect"])
@@ -203,7 +238,7 @@ for i, tc in enumerate(TESTS):
             passed_at_5 += 1
 
     status = f"@{rank}" if rank else "MISS"
-    top2 = [h["item"]["title"][:35] for h in hits[:2]]
+    top2 = [h["record"].get("title", "")[:35] for h in hits[:2]]
     print(f"  [{status:5}] {tc['cat']:9} | {tc['q'][:38]:38} | {', '.join(top2)[:55]}")
 
 n = len(TESTS)

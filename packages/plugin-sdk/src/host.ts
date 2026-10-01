@@ -87,6 +87,7 @@ export interface FetchStreamPoll {
 
 export interface HostFetch {
   (optsJson: string): string;
+  async: <T>(opts: FetchOpts, then: (result: FetchResult) => T) => T;
   stream(opts: FetchOpts): FetchStreamStart;
   streamPoll(jobId: string): FetchStreamPoll;
   streamClose(jobId: string): void;
@@ -403,8 +404,9 @@ export interface Host {
   execPoll(jobId: string): string;
   execClose(jobId: string): void;
   // The VM must yield while the job completes so a plugin cannot block other calls.
-  awaitJob<T>(jobId: string, then: (result: ExecPollResult) => T): T;
+  awaitJob<T, R = ExecPollResult>(jobId: string, then: (result: R) => T): T;
   fetch: HostFetch;
+  fetchStart(optsJson: string): string;
   fetchStream(optsJson: string): string;
   fetchStreamPoll(jobId: string): string;
   fetchStreamClose(jobId: string): void;

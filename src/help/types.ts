@@ -11,7 +11,14 @@ export type HelpSectionId =
   | "integrations"
   | "tips";
 
-export type HelpFigureId = "agent-hierarchy" | "plan-pipeline" | "task-status-flow";
+export type HelpFigureId =
+  | "agent-hierarchy"
+  | "plan-pipeline"
+  | "task-status-flow"
+  | "supporter-recall"
+  | "supporter-tab-state";
+
+export type HelpSettingsTarget = "supporter-agent";
 
 export type HelpShortcutSource =
   | { kind: "config"; key: keyof KeybindingsConfig }
@@ -27,10 +34,14 @@ export type HelpAppShortcutId =
 
 export type HelpBlock =
   | { type: "paragraph"; text: string }
-  | { type: "list"; items: string[] }
+  | { type: "heading"; text: string }
+  | { type: "list"; items: string[]; ordered?: boolean }
   | { type: "figure"; figureId: HelpFigureId }
   | { type: "tip"; text: string }
   | { type: "ask"; label: string; question: string }
+  | { type: "settings-link"; label: string; target: HelpSettingsTarget }
+  | { type: "details"; summary: string; blocks: HelpBlock[] }
+  | { type: "measurement"; label: string; text: string }
   | {
       type: "shortcut-table";
       rows: Array<{ label: string; source: HelpShortcutSource }>;

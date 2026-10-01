@@ -1,6 +1,6 @@
 # Live memory decision re-rank evaluation
 
-This evaluation compares the `decision-rerank off` baseline with decision
+This evaluation compares the `supporter off` baseline with decision
 re-rank on a private copy of production memory. It never stores personal snapshot,
 question, import-map, or result data in the repository.
 
@@ -100,13 +100,13 @@ instance with the CLI-reference corpus:
 python3 evals/mem-rerank-live/cli_eval.py --dev-instance memrerank
 ```
 
-The runner requires `memory.decision_rerank.sources.docs >= 3` and the shipping
+The runner requires `supporter.memory_rerank.sources.docs >= 3` and the shipping
 `sessions = 0` default. It only reads those settings, then sends one
-`--decision-rerank on` query per fixture through `dc`; it does not change config.
+`--supporter on` query per fixture through `dc`; it does not change config.
 Results stay under the private `mem-eval-local/results/cli-mistakes/` directory,
 and the summary is sent to the parent Orchestrator tab. The fixture's expected
-values are CLI heading titles such as `codeterm plan task add`: the re-rank
-response's `section` field is that title, not the generated anchor.
+values are CLI heading titles such as `codeterm plan task add`: the compact
+response's `pointer` field carries that title with a trailing ` --help` suffix.
 
 The summary reports hit@1 and hit@3, the median top-1 relevance for correct and
 wrong results, confident-but-wrong counts at 0.50/0.70/0.85, and p50 latency.

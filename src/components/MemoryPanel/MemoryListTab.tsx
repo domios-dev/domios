@@ -50,7 +50,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ q: search, limit: "50" });
+        const params = new URLSearchParams({ q: search, limit: "50", supporter: "false" });
         const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
           headers: authHeaders(api),
           signal: ctrl.signal,

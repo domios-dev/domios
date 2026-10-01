@@ -153,6 +153,14 @@ impl RunWatcherRegistry {
         else {
             return false;
         };
+        if !cron_provider_launch_is_issued(svc, &state) {
+            log::info!(
+                "[run-watcher] ignored cron exit before provider launch: tab={} pty={}",
+                state.tab_id,
+                state.pty_id
+            );
+            return false;
+        }
         let finish = !state.completed.swap(true, Ordering::AcqRel);
         self.runs.lock().remove(pty_id);
         if finish {
@@ -164,6 +172,12 @@ impl RunWatcherRegistry {
             finish_run(svc, &state, false, reason);
         }
         true
+    }
+
+    pub fn cron_launch_exit_eligibility(&self, svc: &ServiceContext, pty_id: &str) -> Option<bool> {
+        let state = self.runs.lock().get(pty_id).cloned()?;
+        matches!(&state.kind, AgentRunKind::Cron { .. })
+            .then(|| cron_provider_launch_is_issued(svc, &state))
     }
 
     pub fn arm(&self, pty_id: &str) {
@@ -348,10 +362,12 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         if state.completed.load(Ordering::Acquire) {
             return;
         }
-        let observation = matches!(&state.kind, AgentRunKind::Cron { .. })
+        let launch_issued = cron_provider_launch_is_issued(&svc, &state);
+        let observation = launch_issued
             .then(|| svc.observe_provider_process_tree(&state.tab_id, &state.pty_id))
             .flatten();
-        let provider_exit = cron_provider_exit_is_proven(&state.kind, observation.as_ref());
+        let provider_exit =
+            cron_provider_exit_is_proven(&state.kind, observation.as_ref(), launch_issued);
         if provider_exit {
             svc.run_watcher.fail_cron_on_process_exit(
                 &svc,
@@ -364,12 +380,11 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
         let provider_prompt_pending = idle_secs >= IDLE_COMPLETE_SECS
             && surface_idle_provider_prompt(&svc, &state.tab_id, &state.pty_id);
-        let pending_prompt_kind =
-            if provider_prompt_pending && matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
-                tab_pending_prompt_kind(&svc, &state.tab_id)
-            } else {
-                None
-            };
+        let pending_prompt_kind = if matches!(&state.kind, AgentRunKind::MemWorker { .. }) {
+            tab_pending_prompt_kind(&svc, &state.tab_id)
+        } else {
+            None
+        };
         if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
         {
             if claim_run_end(&state) {
@@ -463,6 +478,13 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             let busy = provider_prompt_pending
                 || !ready_for_success
                 || agent_screen_busy(&svc, &state.pty_id);
+            if busy {
+                svc.observe_tab_state(
+                    &state.tab_id,
+                    crate::service::supporter_tab_state::ObservationTrigger::BusyNoOutput,
+                    "run_watcher_busy_without_output",
+                );
+            }
             if !busy {
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;
@@ -500,9 +522,26 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
 fn cron_provider_exit_is_proven(
     kind: &AgentRunKind,
     observation: Option<&crate::service::process_tree::ProviderTreeObservation>,
+    launch_issued: bool,
 ) -> bool {
-    matches!(kind, AgentRunKind::Cron { .. })
+    launch_issued
+        && matches!(kind, AgentRunKind::Cron { .. })
         && observation.is_some_and(|observation| observation.proves_exit_from_lifecycle_clear())
+}
+
+fn cron_provider_launch_is_issued(svc: &ServiceContext, state: &RunState) -> bool {
+    if !matches!(&state.kind, AgentRunKind::Cron { .. }) {
+        return false;
+    }
+    let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
+        &svc.mux,
+        &state.tab_id,
+        &state.pty_id,
+    ) else {
+        return false;
+    };
+    crate::service::launch_readiness::attempt_is_armed(&attempt)
+        && crate::service::launch_readiness::launch_was_issued(&attempt)
 }
 
 fn surface_idle_provider_prompt(svc: &ServiceContext, tab_id: &str, pty_id: &str) -> bool {
@@ -787,6 +826,13 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
             let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
         }
         AgentRunKind::Cron { job_id, run_id } => {
+            if let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
+                &svc.mux,
+                &state.tab_id,
+                &state.pty_id,
+            ) {
+                crate::service::launch_readiness::retire_attempt(&attempt);
+            }
             cron_end::finish(
                 svc,
                 cron_end::EndedCronRun {

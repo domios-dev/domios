@@ -811,6 +811,7 @@ fn worker_lifecycle_notice(
     provider_output: Option<&str>,
     payload: &Value,
 ) -> String {
+    const TAB_STATE_SPAWN_OK_ACTION: &str = "spawn ok";
     let title = compact_notice_text(title, 32);
     let provider = provider
         .map(|provider| compact_notice_text(provider, 32))
@@ -839,6 +840,7 @@ fn worker_lifecycle_notice(
         .and_then(Value::as_str)
         .unwrap_or_default();
     let action = match kind {
+        "tab_state_spawn_ok" => TAB_STATE_SPAWN_OK_ACTION.to_string(),
         "worker_ack" => format!(
             "acknowledged task {}",
             task_id.as_deref().unwrap_or("unknown task")

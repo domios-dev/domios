@@ -459,6 +459,21 @@ impl ReportStore {
             .unwrap_or(false)
     }
 
+    pub fn has_report_from_after(
+        &self,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
+        timestamp_secs: u64,
+    ) -> bool {
+        self.reports
+            .get(orchestrator_tab_id)
+            .is_some_and(|reports| {
+                reports.iter().any(|report| {
+                    report.from_tab_id == from_tab_id && report.timestamp >= timestamp_secs
+                })
+            })
+    }
+
     /// Get report count for an orchestrator.
     pub fn count(&self, orchestrator_tab_id: &str) -> usize {
         self.reports
@@ -574,6 +589,25 @@ mod tests {
         assert!(!store.has_report_from("cond-1", "w2"));
         // Same reporter under a different target is not a match.
         assert!(!store.has_report_from("cond-2", "w1"));
+    }
+
+    #[test]
+    fn has_report_from_after_uses_the_worker_turn_boundary() {
+        let mut store = ReportStore::new(100);
+        let before_report = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_sub(1);
+        store.add("cond-1", "w1", "W1", "done");
+        assert!(store.has_report_from_after("cond-1", "w1", before_report));
+
+        let after_report = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_add(30);
+        assert!(!store.has_report_from_after("cond-1", "w1", after_report));
     }
 
     #[test]

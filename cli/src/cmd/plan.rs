@@ -652,6 +652,7 @@ fn run_plan(
                 };
                 params["planner"] = planner_ref;
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.update", params)
         }
 
@@ -703,14 +704,17 @@ fn run_plan(
             call(client, "plan.mode.set", params)
         }
 
-        PlanAction::Pause { plan_id, reason } => call(
-            client,
-            "plan.pause",
-            json!({ "plan_id": plan_id, "reason": reason, "from": owner_from_env() }),
-        ),
+        PlanAction::Pause { plan_id, reason } => {
+            let mut params =
+                json!({ "plan_id": plan_id, "reason": reason, "from": owner_from_env() });
+            inject_trusted_session(&mut params);
+            call(client, "plan.pause", params)
+        }
 
         PlanAction::Resume { plan_id } => {
-            call(client, "plan.resume", json!({ "plan_id": plan_id }))
+            let mut params = json!({ "plan_id": plan_id });
+            inject_trusted_session(&mut params);
+            call(client, "plan.resume", params)
         }
 
         PlanAction::Archive { plan_id, yes } => {
@@ -720,7 +724,9 @@ fn run_plan(
         }
 
         PlanAction::Unarchive { plan_id } => {
-            call(client, "plan.unarchive", json!({ "plan_id": plan_id }))
+            let mut params = json!({ "plan_id": plan_id });
+            inject_trusted_session(&mut params);
+            call(client, "plan.unarchive", params)
         }
 
         PlanAction::Delete { plan_id, yes } => {
@@ -740,14 +746,16 @@ fn run_plan(
         }
 
         PlanAction::Disown { plan_id } => {
-            call(client, "plan.disown", json!({ "plan_id": plan_id }))
+            let mut params = json!({ "plan_id": plan_id });
+            inject_trusted_session(&mut params);
+            call(client, "plan.disown", params)
         }
 
-        PlanAction::Claim { plan_id } => call(
-            client,
-            "plan.claim",
-            json!({ "plan_id": plan_id, "owner": owner_from_env() }),
-        ),
+        PlanAction::Claim { plan_id } => {
+            let mut params = json!({ "plan_id": plan_id, "owner": owner_from_env() });
+            inject_trusted_session(&mut params);
+            call(client, "plan.claim", params)
+        }
 
         PlanAction::Record {
             plan_id,

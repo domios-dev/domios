@@ -299,6 +299,8 @@ struct Armed {
     /// One observer already took this exit. Both exit sources claim before
     /// either publishes, so the published verdict cannot be the dedup key.
     exit_claimed: bool,
+    cron_run: bool,
+    launch_issued: bool,
     /// A verdict already published for this attempt. Kept so the launch thread
     /// can see it and never claims ready over a launch known to be gone.
     failure: Option<String>,
@@ -364,7 +366,7 @@ static OBSERVATIONS: LazyLock<Observations> = LazyLock::new(|| Observations {
 /// observation for the tab: only the newest launch is observable.
 #[cfg(test)]
 pub(crate) fn arm(attempt: LaunchAttempt) {
-    arm_inner(attempt, None);
+    arm_inner(attempt, None, false);
 }
 
 fn route_pre_ready_exit(
@@ -397,7 +399,15 @@ pub(crate) fn arm_with_origin(
     attempt: LaunchAttempt,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) {
-    arm_inner(attempt, Some(origin));
+    arm_inner(attempt, Some(origin), false);
+}
+
+pub(crate) fn arm_cron_run(attempt: LaunchAttempt) {
+    arm_inner(
+        attempt,
+        Some(crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn),
+        true,
+    );
 }
 
 pub(crate) fn attempt_is_armed(attempt: &LaunchAttempt) -> bool {
@@ -407,6 +417,53 @@ pub(crate) fn attempt_is_armed(attempt: &LaunchAttempt) -> bool {
         .armed
         .get(&attempt.tab_id)
         .is_some_and(|observed| &observed.attempt == attempt)
+}
+
+pub(crate) fn mark_launch_issued(attempt: &LaunchAttempt) -> bool {
+    let mut state = OBSERVATIONS.state.lock();
+    let Some(observed) = state.armed.get_mut(&attempt.tab_id) else {
+        return false;
+    };
+    if &observed.attempt != attempt {
+        return false;
+    }
+    observed.launch_issued = true;
+    OBSERVATIONS.changed.notify_all();
+    true
+}
+
+pub(crate) fn launch_was_issued(attempt: &LaunchAttempt) -> bool {
+    OBSERVATIONS
+        .state
+        .lock()
+        .armed
+        .get(&attempt.tab_id)
+        .is_some_and(|observed| &observed.attempt == attempt && observed.launch_issued)
+}
+
+pub(crate) fn cron_launch_is_pending(attempt: &LaunchAttempt) -> bool {
+    OBSERVATIONS
+        .state
+        .lock()
+        .armed
+        .get(&attempt.tab_id)
+        .is_some_and(|observed| {
+            &observed.attempt == attempt && observed.cron_run && !observed.launch_issued
+        })
+}
+
+pub(crate) fn retire_attempt(attempt: &LaunchAttempt) -> bool {
+    let mut state = OBSERVATIONS.state.lock();
+    if !state
+        .armed
+        .get(&attempt.tab_id)
+        .is_some_and(|observed| &observed.attempt == attempt)
+    {
+        return false;
+    }
+    state.armed.remove(&attempt.tab_id);
+    OBSERVATIONS.changed.notify_all();
+    true
 }
 
 pub(crate) fn register_input_wake(
@@ -427,6 +484,7 @@ pub(crate) fn register_input_wake(
 fn arm_inner(
     attempt: LaunchAttempt,
     origin: Option<crate::service::launch_diagnostics::AgentLaunchOrigin>,
+    cron_run: bool,
 ) {
     let mut state = OBSERVATIONS.state.lock();
     let owner_prompt = state.owner_prompts.get(&attempt.tab_id).cloned();
@@ -437,6 +495,8 @@ fn arm_inner(
             origin,
             evidence: None,
             exit_claimed: false,
+            cron_run,
+            launch_issued: false,
             failure: None,
             owner_prompt,
             prompt_revision: 0,
@@ -805,6 +865,7 @@ impl ServiceContext {
                 );
             }
         }
+        self.observe_launch_settlement_tab_state(&attempt.tab_id, &settlement);
         settlement
     }
 

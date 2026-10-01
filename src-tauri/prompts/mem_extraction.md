@@ -35,9 +35,8 @@ TASK — execute each step as Bash tool calls, in order:
    a. Read the full body: `codeterm mem get <id>`
    b. Compare with SOURCE TEXT above
    c. If one is a subset of the other → merge into the more complete one:
-        codeterm mem update <keeper_id> --body "<merged content>"
-        codeterm mem delete <lesser_id>
-      If the SOURCE item ({id}) is the lesser, delete it and STOP (skip steps 2-4, go to step 5).
+        codeterm mem merge --keeper <keeper_id> --lesser <lesser_id> --body "<merged content>"
+      If the SOURCE item ({id}) is the lesser, merge it into the keeper and STOP (skip steps 2-4, go to step 5).
    d. If they cover the same topic from different angles → link them:
         codeterm mem graph relate --from {id} --rel similar_to --to <other_id>
    e. If they state conflicting values for the same fact → keep both and mark the newer one current:
