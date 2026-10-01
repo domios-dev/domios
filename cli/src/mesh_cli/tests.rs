@@ -833,9 +833,9 @@ fn mem_graph_local_only_reads_are_rejected_not_misrouted_to_stats() {
     use crate::{MemAction, MemGraphAction};
     let cmd = Commands::Mem {
         action: MemAction::Graph {
-            action: MemGraphAction::Hubs {
-                threshold: 20,
-                sample: 30,
+            action: MemGraphAction::Islands {
+                max_size: 6,
+                limit: 50,
             },
         },
     };

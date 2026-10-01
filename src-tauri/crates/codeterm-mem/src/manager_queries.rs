@@ -64,6 +64,12 @@ impl MemManager {
         store::tail_recent(&conn, since, limit)
     }
 
+    /// Dream diaries created at or after `since_ms` (epoch millis), newest first.
+    pub fn dream_diaries_since(&self, since_ms: u64) -> Result<Vec<String>, String> {
+        let conn = self.conn.lock();
+        store::dream_diaries_since(&conn, since_ms)
+    }
+
     pub fn seed_bundled_if_needed(&self) -> Result<seed::SeedOutcome, String> {
         seed::seed_bundled(self)
     }

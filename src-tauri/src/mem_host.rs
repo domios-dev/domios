@@ -319,6 +319,15 @@ pub fn spawn_headless_worker(
                     },
                 );
                 let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
+                let (svc_end, worker_end) = (svc_task.clone(), worker_id_task.clone());
+                let _ = tokio::task::spawn_blocking(move || {
+                    crate::mem::dream_runs::finalize_dream_at_deadline(
+                        &svc_end,
+                        &worker_end,
+                        "exceeded the 30min worker watchdog",
+                    )
+                })
+                .await;
                 break;
             }
         }
