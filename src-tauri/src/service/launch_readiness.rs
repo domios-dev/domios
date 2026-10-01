@@ -805,6 +805,7 @@ impl ServiceContext {
                 );
             }
         }
+        self.observe_launch_settlement_tab_state(&attempt.tab_id, &settlement);
         settlement
     }
 

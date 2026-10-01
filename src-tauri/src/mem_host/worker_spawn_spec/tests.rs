@@ -13,6 +13,8 @@ fn inputs(agent: &str) -> MemWorkerSpawnInputs {
         worker_id: "wk-42".into(),
         spawned_by: "mem:auto".into(),
         intent: "extract".into(),
+        instance_cli_path: None,
+        inherited_path: std::ffi::OsString::new(),
     }
 }
 
@@ -102,4 +104,50 @@ fn headless_mem_worker_cwd_is_instance_owned() {
 
     assert!(std::path::Path::new(&cwd).starts_with(root));
     assert!(!std::path::Path::new(&cwd).starts_with(std::env::current_dir().unwrap()));
+}
+
+#[test]
+fn hidden_worker_path_prefers_instance_cli_dir() {
+    let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
+    let temp = tempfile::tempdir().unwrap();
+    let instance_dir = temp.path().join("tabstate").join("bin");
+    let prod_dir = temp.path().join("prod").join("bin");
+    std::fs::create_dir_all(&instance_dir).unwrap();
+    std::fs::create_dir_all(&prod_dir).unwrap();
+    let cli_name = format!("codeterm{}", std::env::consts::EXE_SUFFIX);
+    let instance_cli = instance_dir.join(&cli_name);
+    std::fs::write(&instance_cli, b"").unwrap();
+    std::fs::write(prod_dir.join(&cli_name), b"").unwrap();
+    let inherited = std::env::join_paths([
+        prod_dir.clone(),
+        std::path::PathBuf::from("/usr/bin"),
+    ])
+    .unwrap();
+    let spec = build_mem_worker_spawn_spec(
+        &chatbackends,
+        worker_cwd(),
+        MemWorkerSpawnInputs {
+            instance_cli_path: Some(instance_cli.clone().into_os_string()),
+            inherited_path: inherited,
+            ..inputs("pty-agent")
+        },
+    )
+    .expect("a PTY agent carries the worker identity");
+    let TabCommand::Agent(agent) = spec.command else {
+        panic!("memory worker uses a PTY agent");
+    };
+    assert_eq!(
+        std::path::PathBuf::from(&agent.extra_env["CODETERM_CLI_PATH"]),
+        instance_cli
+    );
+    let path = std::env::split_paths(std::ffi::OsStr::new(&agent.extra_env["PATH"]))
+        .collect::<Vec<_>>();
+    assert_eq!(path.first(), Some(&instance_dir));
+    assert!(path.iter().skip(1).any(|entry| entry == &prod_dir));
+    let resolved_cli = path
+        .iter()
+        .map(|directory| directory.join(&cli_name))
+        .find(|candidate| candidate.is_file())
+        .expect("a codeterm executable resolves on the configured PATH");
+    assert_eq!(resolved_cli, instance_cli);
 }

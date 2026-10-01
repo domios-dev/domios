@@ -267,6 +267,13 @@ impl ServiceContext {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
+        if provider_id.is_some() {
+            self.observe_tab_state(
+                &canonical_tab_id,
+                super::supporter_tab_state::ObservationTrigger::TabExit,
+                "tab_close",
+            );
+        }
         let pty_ids = self
             .mux
             .write()

@@ -250,6 +250,13 @@ pub fn spawn_headless_worker(
                     worker_id: worker_id_blocking,
                     spawned_by: spawned_by_for_spawn,
                     intent: intent_title,
+                    instance_cli_path: Some(
+                        crate::paths::data_dir()
+                            .join("bin")
+                            .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX))
+                            .into_os_string(),
+                    ),
+                    inherited_path: std::env::var_os("PATH").unwrap_or_default(),
                 },
             )?;
             svc_blocking.spawn_tab(spec)

@@ -47,6 +47,9 @@ impl ServiceContext {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
+        if let Some(tab_id) = self.mux.read().tab_id_for_pty(pty_id) {
+            super::supporter_tab_state::note_output(&tab_id);
+        }
         crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();
         self.run_watcher.feed(self, pty_id, data);
