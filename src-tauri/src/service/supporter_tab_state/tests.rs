@@ -19,6 +19,7 @@ struct StubHost {
     writes: Arc<AtomicUsize>,
     models: Arc<SupporterRegistry>,
     token: bool,
+    metadata_service: Option<ServiceContext>,
     deliveries: Arc<Mutex<Vec<(ObservationTrigger, String, SignalAction)>>>,
     records: Arc<Mutex<Vec<String>>>,
 }
@@ -39,6 +40,7 @@ impl StubHost {
                 writes: Arc::default(),
                 models: Arc::new(registry),
                 token: true,
+                metadata_service: None,
                 deliveries: Arc::default(),
                 records: Arc::default(),
             },
@@ -63,11 +65,20 @@ impl ShadowHost for StubHost {
 
     fn metadata(
         &self,
-        _tab_id: &str,
+        tab_id: &str,
         trigger: ObservationTrigger,
         structural_verdict: &str,
         screen: &str,
     ) -> Result<TabStateMetadata, String> {
+        if let Some(service) = &self.metadata_service {
+            return <ServiceContext as ShadowHost>::metadata(
+                service,
+                tab_id,
+                trigger,
+                structural_verdict,
+                screen,
+            );
+        }
         Ok(TabStateMetadata {
             context: serde_json::json!({
                 "provider_capability": {"transport": "chat_backend", "display_name": "Fixture"},
@@ -417,28 +428,21 @@ fn tab_state_context_header_fields_present() {
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("tab-state-provider"),
     ));
-    fixture
-        .service
-        .screen_state
-        .lock()
-        .process(&pty_id, b"opaque terminal screen");
-    let screen = fixture
-        .service
-        .tab_transport(&tab_id)
-        .expect("PTY transport")
-        .read_screen(false)
-        .expect("PTY screen")["text"]
-        .as_str()
-        .expect("screen text")
-        .to_owned();
-    let metadata = <ServiceContext as ShadowHost>::metadata(
-        &fixture.service,
+    let model = StubModel::answering(Ok(choice(WORKING_NORMALLY, 0.91)));
+    let (mut host, _, _) = StubHost::new("opaque terminal screen", model);
+    host.metadata_service = Some(fixture.service.clone());
+    let (request, metadata) = prepare_observation(
+        &host,
+        "fixture",
         &tab_id,
         ObservationTrigger::SpawnReady,
         "ready-verdict",
-        &screen,
     )
-    .expect("runtime context");
+    .expect("stub transport provides the screen and runtime context");
+    assert_eq!(request.state["screen"], "opaque terminal screen");
+    assert_eq!(host.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    assert_eq!(request.state["context"], metadata.context);
 
     assert_eq!(metadata.context["provider_capability"]["transport"], "pty");
     assert_eq!(metadata.context["requested_model"], "requested-model");
