@@ -170,8 +170,10 @@ fn main_impl() {
 
     if let Some(mesh_target) = cli.mesh.clone() {
         if matches!(&cli.command, Commands::Supporter { .. }) {
-            eprintln!("Error: Supporter Agent settings and tokens are local-only; run the command on the owning machine.");
-            std::process::exit(7);
+            cmd::print::fail(
+                7,
+                "Supporter Agent settings and tokens are local-only; run the command on the owning machine.",
+            );
         }
         if matches!(
             &cli.command,

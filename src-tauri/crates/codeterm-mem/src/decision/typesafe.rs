@@ -186,11 +186,8 @@ impl DecisionModel for TypeSafeAdapter {
     }
 
     fn select_model(&self, id: &str) -> bool {
-        let mut model = self.model.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if model.as_str() == id {
-            return true;
-        }
-        false
+        let model = self.model.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        model.as_str() == id
     }
 
     fn decide(

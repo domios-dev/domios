@@ -4,7 +4,9 @@
 use axum::http::StatusCode;
 
 use crate::api::mem_routes::calibration::stale::{stale_from_params, StaleParams};
-use crate::api::mem_routes::items::{archive_mem_item, validate_archive_reason, ArchiveBody, RestoreBody};
+use crate::api::mem_routes::items::{
+    archive_mem_item, validate_archive_reason, ArchiveBody, RestoreBody,
+};
 use crate::api::mem_routes::mem_merge::{merge_items, restore_item, MergeBody, MergeError};
 use crate::service::ServiceState;
 
@@ -46,7 +48,8 @@ pub(super) fn mem_archive(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
     let body: ArchiveBody = parse_params(params)?;
-    let reason = validate_archive_reason(&body.reason).map_err(|(_, message)| invalid_params(message))?;
+    let reason = validate_archive_reason(&body.reason)
+        .map_err(|(_, message)| invalid_params(message))?;
     let actor = body
         .changed_by
         .as_deref()
@@ -54,10 +57,12 @@ pub(super) fn mem_archive(
         .filter(|value| !value.is_empty())
         .map(crate::api::mem_routes::sanitize_actor)
         .unwrap_or_else(|| "user".to_string());
-    let output = archive_mem_item(svc, &id, &reason, &actor).map_err(|(status, message)| match status {
-        StatusCode::NOT_FOUND => not_found(message),
-        StatusCode::BAD_REQUEST | StatusCode::CONFLICT => invalid_params(message),
-        _ => internal_error(message),
+    let output = archive_mem_item(svc, &id, &reason, &actor).map_err(|(status, message)| {
+        match status {
+            StatusCode::NOT_FOUND => not_found(message),
+            StatusCode::BAD_REQUEST | StatusCode::CONFLICT => invalid_params(message),
+            _ => internal_error(message),
+        }
     })?;
     emit_activity(svc, "update", vec![id]);
     Ok(output)

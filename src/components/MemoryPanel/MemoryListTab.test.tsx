@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
+import { Window as HappyWindow } from "happy-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
@@ -21,18 +21,28 @@ let host: HTMLElement;
 let root: Root;
 let urls: string[];
 let originalFetch: typeof fetch;
+let testWindow: InstanceType<typeof HappyWindow>;
 
 beforeEach(() => {
-  const window = new Window({ url: "http://localhost/" });
-  for (const key of ["window", "document", "HTMLElement", "HTMLInputElement", "SVGElement", "Element", "Node", "Event"] as const) {
+  testWindow = new HappyWindow({ url: "http://localhost/" });
+  for (const key of [
+    "window",
+    "document",
+    "HTMLElement",
+    "HTMLInputElement",
+    "SVGElement",
+    "Element",
+    "Node",
+    "Event",
+  ] as const) {
     Object.defineProperty(globalThis, key, {
-      value: (window as never as Record<string, unknown>)[key],
+      value: (testWindow as never as Record<string, unknown>)[key],
       configurable: true,
     });
   }
   const getComputedStyle = (() => ({ getPropertyValue: () => "" })) as unknown as typeof globalThis.getComputedStyle;
   Object.defineProperty(globalThis, "getComputedStyle", { value: getComputedStyle, configurable: true });
-  (window as never as Record<string, unknown>).getComputedStyle = getComputedStyle;
+  (testWindow as never as Record<string, unknown>).getComputedStyle = getComputedStyle;
   vi.useFakeTimers();
   originalFetch = globalThis.fetch;
   urls = [];
@@ -69,9 +79,13 @@ describe("MemoryListTab", () => {
     });
 
     const search = host.querySelector<HTMLInputElement>('[data-testid="memory-list-search"]')!;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "supporter browse");
+    Object.getOwnPropertyDescriptor(testWindow.HTMLInputElement.prototype, "value")?.set?.call(
+      search,
+      "supporter browse",
+    );
     await act(async () => {
-      search.dispatchEvent(new Event("input", { bubbles: true }));
+      search.dispatchEvent(new testWindow.Event("input", { bubbles: true }));
+      search.dispatchEvent(new testWindow.Event("change", { bubbles: true }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);

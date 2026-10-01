@@ -85,7 +85,11 @@ pub(super) fn error_message(reply: &Reply, secret: Option<&str>) -> String {
         Some(secret) if !secret.is_empty() => message.replace(secret, "[redacted]"),
         _ => message,
     };
-    if message.is_empty() { format!("HTTP {}", reply.status) } else { message }
+    if message.is_empty() {
+        format!("HTTP {}", reply.status)
+    } else {
+        message
+    }
 }
 
 fn ok_body_or_exit(reply: Reply, secret: Option<&str>) -> Value {
@@ -152,20 +156,29 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
         SupporterAction::Enable => {
             let status = status_request(&http, base);
             if status.pointer("/token/present").and_then(Value::as_bool) != Some(true) {
-                fail(1, "cannot enable Supporter Agent features: no token is stored; run `codeterm supporter token set` first");
+                fail(
+                    1,
+                    "cannot enable Supporter Agent features: no token is stored; run `codeterm supporter token set` first",
+                );
             }
             let features = write_features(&http, base, true, true);
-            emit(json_mode, &features, |value| format!(
-                "memory re-rank: {}\ntab-state: {}\n",
-                on_off(value.get("memory_rerank")), on_off(value.get("tab_state"))
-            ));
+            emit(json_mode, &features, |value| {
+                format!(
+                    "memory re-rank: {}\ntab-state: {}\n",
+                    on_off(value.get("memory_rerank")),
+                    on_off(value.get("tab_state"))
+                )
+            });
         }
         SupporterAction::Disable => {
             let features = write_features(&http, base, false, false);
-            emit(json_mode, &features, |value| format!(
-                "memory re-rank: {}\ntab-state: {}\n",
-                on_off(value.get("memory_rerank")), on_off(value.get("tab_state"))
-            ));
+            emit(json_mode, &features, |value| {
+                format!(
+                    "memory re-rank: {}\ntab-state: {}\n",
+                    on_off(value.get("memory_rerank")),
+                    on_off(value.get("tab_state"))
+                )
+            });
         }
         SupporterAction::Status => {
             let status = status_request(&http, base);
@@ -179,19 +192,27 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
             let body = json!({ "adapter": adapter, "model": model });
             let reply = send(http.post(format!("{base}{USE_ROUTE}")).json(&body), base);
             let selected = ok_body_or_exit(reply, None);
-            emit(json_mode, &selected, |value| format!(
-                "selected {}{}\n",
-                value.get("adapter").and_then(Value::as_str).unwrap_or("?"),
-                value.get("model").and_then(Value::as_str).map(|model| format!(" / {model}")).unwrap_or_default()
-            ));
+            emit(json_mode, &selected, |value| {
+                format!(
+                    "selected {}{}\n",
+                    value.get("adapter").and_then(Value::as_str).unwrap_or("?"),
+                    value
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(|model| format!(" / {model}"))
+                        .unwrap_or_default()
+                )
+            });
         }
         SupporterAction::Features { memory_rerank: None, tab_state: None } => {
             let status = status_request(&http, base);
-            emit(json_mode, &status, |value| format!(
-                "memory re-rank: {}\ntab-state: {}\n",
-                on_off(value.pointer("/features/memory_rerank")),
-                on_off(value.pointer("/features/tab_state"))
-            ));
+            emit(json_mode, &status, |value| {
+                format!(
+                    "memory re-rank: {}\ntab-state: {}\n",
+                    on_off(value.pointer("/features/memory_rerank")),
+                    on_off(value.pointer("/features/tab_state"))
+                )
+            });
         }
         SupporterAction::Features { memory_rerank, tab_state } => {
             let mut body = serde_json::Map::new();
@@ -203,10 +224,13 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
             }
             let request = http.post(format!("{base}{FEATURES_ROUTE}")).json(&body);
             let features = ok_body_or_exit(send(request, base), None);
-            emit(json_mode, &features, |value| format!(
-                "memory re-rank: {}\ntab-state: {}\n",
-                on_off(value.get("memory_rerank")), on_off(value.get("tab_state"))
-            ));
+            emit(json_mode, &features, |value| {
+                format!(
+                    "memory re-rank: {}\ntab-state: {}\n",
+                    on_off(value.get("memory_rerank")),
+                    on_off(value.get("tab_state"))
+                )
+            });
         }
         SupporterAction::Token { action } => match action {
             SupporterTokenAction::Set { adapter } => {
@@ -253,7 +277,11 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
 }
 
 fn on_off(value: Option<&Value>) -> &'static str {
-    if value.and_then(Value::as_bool) == Some(true) { "on" } else { "off" }
+    if value.and_then(Value::as_bool) == Some(true) {
+        "on"
+    } else {
+        "off"
+    }
 }
 
 #[cfg(test)]
