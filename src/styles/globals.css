@@ -1216,9 +1216,6 @@ button,
   background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
   transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
-.plan-view-modes__group[data-disabled="true"] {
-  opacity: 0.45;
-}
 .plan-view-modes__thumb {
   position: absolute;
   z-index: 1;
