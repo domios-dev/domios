@@ -24,19 +24,19 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 
 ### Text input routes: `/send` vs `/chat-send`
 
-Both routes exist; no new agent send primitive is needed. `src-tauri/src/api/tab_agent_routes.rs:16` mounts `/api/tabs/{id}/chat-send` next to `/api/tabs/{id}/send` as distinct handlers, so choosing is route selection.
+Both routes exist as distinct handlers; choosing is route selection.
 
-| Route | Handler | Returns |
-|-------|---------|---------|
-| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when an enveloped send is accepted in the background, or a structured delivery error with its `bytes_written` status. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
-| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`, and optional `pad_file`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
-| `GET /api/tabs/{id}/chat-send` | `tab_routes::chat_send_status` (`src-tauri/src/api/tab_routes/send.rs:50`) | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
+| Route | Returns |
+|-------|---------|
+| `POST /api/tabs/{id}/send` | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when an enveloped send is accepted in the background, or a structured delivery error with its `bytes_written` status. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
+| `POST /api/tabs/{id}/chat-send` | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`, and optional `pad_file`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
+| `GET /api/tabs/{id}/chat-send` | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
 
-`POST .../send` is the synchronous REST write path for mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input; its `delivery` values are in the table above. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`) documented in `.agents/skills/pty-delivery/SKILL.md`.
+`POST .../send` is the synchronous REST write path for mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input; its `delivery` values are in the table above. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
 Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
-`POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed` (`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
+`POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
 Local and mesh `codeterm send` open no Chat send ledger entry, so `GET .../chat-send` never lists them.
 
@@ -204,7 +204,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 
 Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the peer-ping scheduler: `codeterm docs MESH`.
 
-**Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (exempted from bearer middleware by an exact prefix allowlist in `auth.rs`'s `is_custom_auth`), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
+**Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (an exact path allowlist exempts it from bearer auth), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
 **Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset reject peers whose announced `relay_protocol_version` is not `1` with `426 Upgrade Required`.
 
@@ -219,4 +219,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->

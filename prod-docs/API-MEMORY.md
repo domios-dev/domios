@@ -40,7 +40,7 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 - `X-CodeTerm-Worker-Id` is set automatically when the CLI inherits `CODETERM_WORKER_ID`. Worker reads skip the `evidence_count` bump so extraction and dream sweeps do not feed back into L1 scoring.
 - `X-CodeTerm-Actor` is stored as `mem_item_history.changed_by` and defaults to `user`. The calibration sweep uses `dreamer-calibration:{promote|demote|archive|stale}`; a Dreamer merge uses `dreamer-rem:merge`.
 
-**Extraction concurrency.** `ServiceContext::extract_semaphore` caps automatic extraction at four concurrent workers process-wide. Saves tagged `auto-extracted`, sourced from `extracted_from:*`, or carrying `skip_extract: true` do not schedule extraction.
+**Extraction concurrency.** Automatic extraction is capped at four concurrent workers process-wide. Saves tagged `auto-extracted`, sourced from `extracted_from:*`, or carrying `skip_extract: true` do not schedule extraction.
 
 #### Knowledge graph
 
@@ -104,4 +104,4 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

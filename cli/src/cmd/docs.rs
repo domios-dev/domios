@@ -155,16 +155,6 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/HTML.md"
     ),
     doc!(
-        "PROMPTS",
-        "Prompt sources and assembly",
-        "../../../prod-docs/PROMPTS.md"
-    ),
-    doc!(
-        "PROMPT-TIERS",
-        "Prompt progressive-disclosure tiers",
-        "../../../prod-docs/PROMPT-TIERS.md"
-    ),
-    doc!(
         "SKILLS",
         "CodeTerm skills and agent integration",
         "../../../prod-docs/SKILLS.md"
@@ -173,11 +163,6 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "AGENT-CONTROL",
         "Agent hierarchy, command palette, and session integration",
         "../../../prod-docs/AGENT-CONTROL.md"
-    ),
-    doc!(
-        "PROMPT-DETECTION",
-        "Prompt detection architecture and verification",
-        "../../../prod-docs/PROMPT-DETECTION.md"
     ),
     doc!(
         "TELEGRAM-SETUP",

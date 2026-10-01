@@ -10,7 +10,7 @@ platform-specific, and multi-GB. Keep it a daemon, point at it by URL.
 
 | Direction | What it is | Owner |
 |-----------|-----------|-------|
-| **Inbound** | Telegram/Discord voice message → text before it reaches the GA | already native (`voice_transcribe.rs`) |
+| **Inbound** | Telegram/Discord voice message → text before it reaches the GA | native |
 | **Outbound** | Local mic → text injected into a tab (dictation) | external driver today; native is planned |
 
 Both speak the **same `/transcribe` contract**, so one STT daemon serves both.
@@ -36,8 +36,7 @@ proxy can accept one and forward the other — see "Proxy layer" below.
 
 ## Inbound: already wired
 
-CodeTerm's bridge calls the daemon via `voice_transcribe.rs` (a thin client +
-per-URL health cache). Config:
+CodeTerm's bridge calls the daemon directly. Config:
 
 ```toml
 [integrations.voice_transcribe]
@@ -101,58 +100,14 @@ Until native support lands, dictation is an external driver you run. Recipe:
 
 Targeting "the tab the user is looking at" is **not reliable today**:
 `codeterm tab current` is stale and `tab focus` doesn't update it (issue #123).
-Workarounds for an external driver:
-- Inject into a **fixed tab id** (`MIC_TAB`) — reliable now.
-- Or skip tab targeting entirely and type into the **focused OS window** via
-  synthesized keystrokes (`keyboard.write` + an `Enter`). Works in any app
-  (terminal, Paint, browser) but is app-specific on submit and fights held
-  hotkey modifiers — release ctrl/alt/shift before typing, and pause ~150 ms
-  before the submit Enter.
+An external driver should inject into a **fixed tab id** (`MIC_TAB`) through the
+supported tab send API (`codeterm send` or `POST /api/tabs/{id}/send`).
 
 A working prototype lives in the `transcribe-telegram-voice` skill scripts
 (`mic-dictation.py` + `start-mic-dictation.ps1`).
 
-## Where this is going (native)
+## Today
 
-Tracked in issues #123 (focus) and #124 (native pluggable voice input). Intended
-end-state keeps the split — **engine external & swappable, glue native** — and
-adds first-class UX handles CodeTerm alone can provide:
+Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-- **Trigger seam**: a native button/hotkey *dispatches outward* (it never
-  transcribes). Either CodeTerm emits a `dictation.requested {tab_id}` event a
-  driver subscribes to, or config declares a `start_cmd`/`driver_url` to invoke
-  (mirrors `text_hooks`).
-- **Live render**: stream partial transcripts into the focused tab's input
-  buffer as you speak, instead of a one-shot paste at the end.
-- **Lifecycle handles** for the driver: `begin(tab)` / `partial(text)` /
-  `commit()` / `cancel()`, plus a real recording/transcribing **state
-  indicator** (tab-border pulse / status-line glyph), not a tooltip.
-- **Config** `[integrations.voice_input]`: `enabled`, `hotkey`, `device`,
-  `language`, `daemon_url` (defaults to `voice_transcribe`), `auto_submit`,
-  `target`.
-
-### The right home: a plugin, not a bespoke integration
-
-CodeTerm has a plugin system (`src-tauri/src/plugin/`, design in
-`../essences/core.md#plugin-host`): `plugin.toml` manifests, tiers
-(`Native`/`Process`/`Wasm`), and a `PluginManager` whose `dispatch_event` routes
-`SystemEvent`s to plugins by their declared `capabilities.hooks`. Dictation is a
-natural **Process-tier plugin** — the plugin process owns mic capture + the
-`/transcribe` client (no ML deps in core), and the host gives it handles:
-
-- **Trigger** via `capabilities.hooks`: subscribe to a dictation-request event
-  the native button/hotkey publishes (typed `SystemEvent` or the `Generic`
-  escape hatch). `dispatch_event` already does the filtered routing.
-- **Focus** without the stale `tab current` CLI: subscribe to
-  `SystemEvent::TabFocused { tab_id }` — the host already emits it, so the
-  plugin always knows the focused tab (relevant to issue #123).
-- **Settings** via `capabilities.settings`, **CLI** via `capabilities.commands`.
-- **Live render + state indicator**: the one new host surface to add — a
-  tab-input API (`begin/partial/commit/cancel`) the plugin streams partials into.
-
-So: to add a new STT backend, implement `/transcribe` and point a URL at it.
-To drive dictation today, run an external driver and inject via `codeterm send` or
-the tab send API. To do it *right*, build it as a Process-tier plugin on the
-existing plugin contract. Either way — don't put the model in the binary.
-
-<!-- revision: 1 -->
+<!-- revision: 2 -->
