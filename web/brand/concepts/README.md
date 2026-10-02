@@ -1,5 +1,7 @@
 # Domios logo concepts
 
+**Latest: [round two — Joinery, Tandem, Sling, Patch](round-2/README.md).** It explores domestic and material metaphors for a distributed OS, without letter-based marks. The first-round proposals below remain available for comparison.
+
 Four directions for **the OS for AI agents**. Tagline: **Agents live here.**
 These are proposals, with no winner selected and no changes to the live site's header or favicon.
 
@@ -54,7 +56,7 @@ Both blue values and the background colors come from `web/src/tokens.css`. The w
 
 From `web/`, run `python brand/render-concepts.py`. It needs Pillow, installed Segoe UI / Consolas fonts, and headless Microsoft Edge. No web server or project build is involved. For other environments, `--browser` accepts a Chromium-compatible executable and `--font-dir` accepts a directory containing the same font filenames; fonts are not bundled here.
 
-The script renders all marks at 512 px in a single transparent browser atlas, then uses Pillow's Lanczos resampling for the 64, 32 and 16 px images. Those exact rasters appear in the sheets and mock tabs without any per-size geometry edits. Temporary browser files stay in the ignored `web/brand/.render/` folder.
+The script renders all marks at 512 px in a single transparent browser atlas, then uses Pillow's Lanczos resampling for the 64, 32 and 16 px images. Those exact rasters appear in the sheets and mock tabs without any per-size geometry edits. Temporary browser files stay in the ignored `web/brand/.render/` folder. Add `--round 2` to render the latest concepts; the default preserves round one.
 
 The first rendering attempt found the Python CairoSVG package but no native Cairo runtime on this Windows machine. The generator therefore uses the installed headless browser, avoiding an additional native dependency.
 
