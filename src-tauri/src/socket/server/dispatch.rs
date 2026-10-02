@@ -161,6 +161,10 @@ pub(super) fn dispatch(
                 "task.add",
                 "canvas.focus",
                 "canvas.filter",
+                "sentinel.create",
+                "sentinel.list",
+                "sentinel.show",
+                "sentinel.stop",
                 "cron.list",
                 "cron.get",
                 "cron.create",
@@ -320,6 +324,7 @@ pub(super) fn dispatch(
             receiver_target::dispatch(method, &params, svc)
         }
         "plugin" => agent_commands::dispatch(method, &params, svc),
+        "sentinel" => sentinel::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),
         "bridge" => bridge::dispatch(method, &params, svc),

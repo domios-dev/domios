@@ -488,6 +488,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::Sentinel { action } => {
+            cmd::sentinel::handle_sentinel(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Cron { action } => {
             cmd::cron::handle_cron(&mut client, cli.json, action);
             return;

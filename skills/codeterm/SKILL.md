@@ -55,6 +55,7 @@ specific shell id).
 Specialized reference docs alongside this skill:
 - `references/mem.md` — full mem command catalog, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API
 - `references/roles.md` — agent-role rules, decision tree, common mistakes, task templates
+- `references/sentinels.md` — bounded status probes, hash-gated classification, transition routes and Team cleanup
 - `references/cron.md` — full cron flag set, oneshot schedules, lifecycle
 - `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
 - `references/themes.md` — custom theme TOML format
@@ -65,4 +66,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->
