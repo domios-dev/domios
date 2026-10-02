@@ -1,4 +1,4 @@
-//! Stage-2 re-rank: one decision per candidate, all-or-nothing, bounded by a failure deadline.
+//! Stage-2 re-rank: selectable shared-state requests, all-or-nothing, bounded by a failure deadline.
 
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde_json::Value;
+
+use codeterm_types::config::RerankRequestMode;
+
+mod shared_state;
 
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
@@ -34,6 +38,7 @@ pub struct RerankCandidate {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StageConfig {
     pub max_concurrency: usize,
+    pub request_mode: RerankRequestMode,
     pub deadline: Duration,
     pub low_confidence_threshold: f64,
     pub max_body_chars: usize,
@@ -56,6 +61,7 @@ pub enum StageOutcome {
 pub enum FallbackReason {
     NoAdapter,
     Budget,
+    Credits,
     Unsupported,
     Unavailable,
     Deadline,
@@ -66,6 +72,7 @@ impl FallbackReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Budget => "budget",
+            Self::Credits => "credits",
             Self::NoAdapter => "no_adapter",
             Self::Unsupported => "unsupported",
             Self::Unavailable => "unavailable",
@@ -79,6 +86,7 @@ impl FallbackReason {
             DecisionError::Unavailable(_) => Self::Unavailable,
             DecisionError::Unsupported => Self::Unsupported,
             DecisionError::Budget => Self::Budget,
+            DecisionError::CreditExhausted => Self::Credits,
             DecisionError::Deadline => Self::Deadline,
             DecisionError::Http(_) | DecisionError::Transport(_) | DecisionError::Parse(_) => {
                 Self::AdapterError
@@ -132,6 +140,10 @@ pub fn run_stage_until(
         return fallback(FallbackReason::Unsupported);
     };
 
+    if cfg.request_mode == RerankRequestMode::SharedState {
+        return shared_state::run(model, primitive, query, candidates, cfg, deadline);
+    }
+
     let n = candidates.len();
     let jobs: VecDeque<Job> = candidates
         .iter()
@@ -167,14 +179,18 @@ pub fn run_stage_until(
         return fallback(reason);
     }
 
-    let mut order: Vec<usize> = (0..n).collect();
+    applied(relevance, cfg.low_confidence_threshold)
+}
+
+fn applied(relevance: Vec<f64>, threshold: f64) -> StageOutcome {
+    let mut order: Vec<usize> = (0..relevance.len()).collect();
     order.sort_by(|&a, &b| relevance[b].total_cmp(&relevance[a]).then(a.cmp(&b)));
     let sorted: Vec<f64> = order.iter().map(|&i| relevance[i]).collect();
     let max_relevance = sorted[0];
     StageOutcome::Applied {
         order,
         relevance: sorted,
-        low_confidence: max_relevance < cfg.low_confidence_threshold,
+        low_confidence: max_relevance < threshold,
         max_relevance,
     }
 }

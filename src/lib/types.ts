@@ -85,9 +85,7 @@ export interface PendingPrompt {
 
 /** What backs a tab's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
  *  the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
-export type TabBacking =
-  | { kind: "pty" }
-  | { kind: "chat_backend"; plugin_id: string; session_id: string };
+export type TabBacking = { kind: "pty" } | { kind: "chat_backend"; plugin_id: string; session_id: string };
 
 /** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
 export interface WatcherPolicy {
@@ -122,15 +120,7 @@ export interface TabAgentState {
   phase?: string | null;
   /** Parsed elapsed time for the provider status line, in milliseconds. */
   elapsed_ms?: number | null;
-  subtype?:
-    | "model_choice"
-    | "model_picker"
-    | "permission"
-    | "auth"
-    | "rate_limit"
-    | "update"
-    | "error"
-    | "unknown";
+  subtype?: "model_choice" | "model_picker" | "permission" | "auth" | "rate_limit" | "update" | "error" | "unknown";
 }
 
 /** Truthful tab-boot progress, emitted by the daemon at real launch
@@ -310,7 +300,7 @@ export interface PtyInfo {
 
 /** What one notification button does, as the daemon stores and emits it. */
 export type NotificationAction =
-  { type: "url"; label: string; value: string }
+  | { type: "url"; label: string; value: string }
   | { type: "dismiss"; label: string }
   | { type: "answer"; label: string }
   | {
@@ -771,6 +761,7 @@ export interface MemoryRerankConfig {
   sources: SupporterSources;
   candidates: number;
   max_concurrency: number;
+  request_mode: "per_candidate" | "shared_state";
   low_confidence_threshold: number;
   max_body_chars: number;
 }
@@ -898,10 +889,7 @@ export type BehaviorConfig =
   | { model: "graph" };
 
 /** How a system prompt reaches the provider. */
-export type SystemPromptDelivery =
-  | { cli_flag: string }
-  | "session_config"
-  | "external";
+export type SystemPromptDelivery = { cli_flag: string } | "session_config" | "external";
 
 export type NoteLevel = "info" | "warn" | "error";
 export type BadgeStyle = "green" | "orange" | "red" | "gray";
@@ -917,11 +905,44 @@ export interface BadgeVariant {
 /// Discriminated union — `kind` field tags the variant. Mirror of
 /// `SettingField` enum (snake_case rename) on the Rust side.
 export type SettingField =
-  | { kind: "section"; title: string; description?: string; fields: SettingField[] }
-  | { kind: "toggle"; key: string; label: string; default: boolean; description?: string }
-  | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-  | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
-  | { kind: "select"; key: string; label: string; options: [string, string][]; default?: string; description?: string }
+  | {
+      kind: "section";
+      title: string;
+      description?: string;
+      fields: SettingField[];
+    }
+  | {
+      kind: "toggle";
+      key: string;
+      label: string;
+      default: boolean;
+      description?: string;
+    }
+  | {
+      kind: "text";
+      key: string;
+      label: string;
+      default?: string;
+      placeholder?: string;
+      description?: string;
+    }
+  | {
+      kind: "number";
+      key: string;
+      label: string;
+      default?: number;
+      min?: number;
+      max?: number;
+      description?: string;
+    }
+  | {
+      kind: "select";
+      key: string;
+      label: string;
+      options: [string, string][];
+      default?: string;
+      description?: string;
+    }
   | {
       kind: "array";
       key: string;
@@ -932,10 +953,38 @@ export type SettingField =
       item: {
         kind: "object";
         fields: Array<
-          | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-          | { kind: "textarea"; key: string; label: string; default?: string; placeholder?: string; description?: string }
-          | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
-          | { kind: "json"; key: string; label: string; default?: Record<string, unknown>; description?: string }
+          | {
+              kind: "text";
+              key: string;
+              label: string;
+              default?: string;
+              placeholder?: string;
+              description?: string;
+            }
+          | {
+              kind: "textarea";
+              key: string;
+              label: string;
+              default?: string;
+              placeholder?: string;
+              description?: string;
+            }
+          | {
+              kind: "number";
+              key: string;
+              label: string;
+              default?: number;
+              min?: number;
+              max?: number;
+              description?: string;
+            }
+          | {
+              kind: "json";
+              key: string;
+              label: string;
+              default?: Record<string, unknown>;
+              description?: string;
+            }
         >;
       };
     }

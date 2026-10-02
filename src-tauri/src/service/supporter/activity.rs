@@ -1,14 +1,23 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
-use codeterm_types::decision::{DecisionAnswer, DecisionError};
+use codeterm_types::decision::{DecisionAnswer, DecisionError, DecisionPricing, DecisionResponse};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
 use super::journal::{ActionRecord, Journal, VerdictKind};
+use super::spend::{SpendAlert, SpendBook};
 
 const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
+
+pub(crate) struct DecisionEvidence<'a> {
+    pub(crate) model_id: Option<String>,
+    pub(crate) criteria_version: &'a str,
+    pub(crate) state_hash: &'a str,
+    pub(crate) question_set_hash: &'a str,
+}
 
 #[derive(Default)]
 struct Activity {
@@ -22,10 +31,13 @@ struct Activity {
 pub(crate) struct SupporterRuntime {
     activity: Mutex<Activity>,
     journal: Mutex<Journal>,
+    spend: SpendBook,
+    alert_sink: OnceLock<Arc<dyn Fn(SpendAlert) + Send + Sync>>,
 }
 
 impl SupporterRuntime {
     pub(crate) fn new(dir: PathBuf) -> Self {
+        let spend = SpendBook::new(dir.clone());
         let journal = Journal::new(dir);
         let loaded = journal.load_calls();
         let storage_ready = loaded.is_ok();
@@ -40,7 +52,113 @@ impl SupporterRuntime {
                 ..Default::default()
             }),
             journal: Mutex::new(journal),
+            spend,
+            alert_sink: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn attach_alert_sink(&self, sink: Arc<dyn Fn(SpendAlert) + Send + Sync>) {
+        let _ = self.alert_sink.set(sink);
+    }
+
+    fn alerts(&self, adapter: &str, alerts: Vec<SpendAlert>) {
+        for alert in alerts {
+            let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(), "kind": "spend_alert",
+                "adapter": adapter, "action": "notify", "reason": alert.level.as_str(), "title": alert.title,
+                "event_key": alert.event_key }));
+            if let Some(sink) = self.alert_sink.get() {
+                sink(alert);
+            }
+        }
+    }
+
+    pub(crate) fn reserve_request(
+        &self,
+        cap: usize,
+        kind: VerdictKind,
+        tab: Option<&str>,
+        questions: usize,
+        adapter: &str,
+    ) -> Result<(), DecisionError> {
+        self.spend
+            .admit(adapter, chrono::Utc::now().timestamp_millis())?;
+        self.reserve(cap, kind, tab, questions)
+    }
+
+    pub(crate) fn record_spend(
+        &self,
+        adapter: &str,
+        price: Option<&DecisionPricing>,
+        response: &Result<DecisionResponse, DecisionError>,
+    ) {
+        let usage = response.as_ref().ok().and_then(|response| response.usage);
+        let name = price.map_or(adapter, |price| price.display_name.as_str());
+        match self.spend.finish(
+            adapter,
+            name,
+            usage,
+            price,
+            response.as_ref().err(),
+            chrono::Utc::now().timestamp_millis(),
+        ) {
+            Ok(alerts) => self.alerts(adapter, alerts),
+            Err(_) => log::warn!("[supporter] spend persistence failed"),
+        }
+    }
+
+    pub(crate) fn set_balance(
+        &self,
+        adapter: &str,
+        price: Option<&DecisionPricing>,
+        balance: Option<f64>,
+    ) -> Result<(), DecisionError> {
+        let name = price.map_or(adapter, |price| price.display_name.as_str());
+        let alerts = self.spend.set_balance(
+            adapter,
+            name,
+            price,
+            balance,
+            chrono::Utc::now().timestamp_millis(),
+        )?;
+        let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(), "kind": "balance",
+            "adapter": adapter, "action": "balance_set", "reason": "owner_value", "balance_usd": balance }));
+        self.alerts(adapter, alerts);
+        Ok(())
+    }
+
+    pub(crate) fn spend_status(&self, adapter: &str) -> Value {
+        self.spend
+            .status(adapter, chrono::Utc::now().timestamp_millis())
+    }
+
+    pub(crate) fn response(
+        &self,
+        kind: VerdictKind,
+        tab: Option<&str>,
+        response: &DecisionResponse,
+        evidence: DecisionEvidence<'_>,
+    ) {
+        let (label, confidence) = if let Some(answer) = response.answers.get("label") {
+            answer_signal(answer)
+        } else {
+            (
+                None,
+                response
+                    .answers
+                    .values()
+                    .next()
+                    .and_then(|answer| answer_signal(answer).1),
+            )
+        };
+        let value = json!({ "time": chrono::Utc::now().timestamp(), "kind": kind, "tab": tab,
+            "label": label, "confidence": confidence, "action": "verdict", "reason": "model_answer",
+            "distribution": journal_answers(&response.answers), "usage": response.usage, "model_id": evidence.model_id,
+            "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
+            "question_count": response.answers.len() });
+        let mut state = self.activity.lock();
+        state.last_activity = Some(chrono::Utc::now().timestamp_millis());
+        state.last_verdict.insert(kind.name().into(), value.clone());
+        let _ = self.append(value);
     }
 
     fn append(&self, value: Value) -> std::io::Result<()> {
@@ -143,38 +261,6 @@ impl SupporterRuntime {
         Ok(())
     }
 
-    pub(crate) fn verdict(
-        &self,
-        kind: VerdictKind,
-        tab: Option<&str>,
-        answer: &DecisionAnswer,
-        model_id: Option<String>,
-        criteria_version: &str,
-        state_hash: &str,
-    ) {
-        let now = chrono::Utc::now().timestamp_millis();
-        let (label, confidence) = match answer {
-            DecisionAnswer::Choice {
-                choice,
-                probabilities,
-                confidence,
-            } => (
-                Some(choice.as_str()),
-                confidence.or_else(|| probabilities.get(choice).copied()),
-            ),
-            DecisionAnswer::Noul { p } => (None, Some(*p)),
-            DecisionAnswer::Score { confidence, .. } => (None, *confidence),
-        };
-        let value = json!({ "time": now / 1000, "kind": kind, "tab": tab, "label": label,
-            "confidence": confidence, "action": "verdict", "reason": "model_answer",
-            "distribution": answer, "model_id": model_id, "criteria_version": criteria_version,
-            "state_hash": state_hash, "question_count": 1 });
-        let mut state = self.activity.lock();
-        state.last_activity = Some(now);
-        state.last_verdict.insert(kind.name().into(), value.clone());
-        let _ = self.append(value);
-    }
-
     pub(crate) fn action(&self, record: ActionRecord<'_>) {
         let now = chrono::Utc::now().timestamp_millis();
         let mut value = serde_json::to_value(record).unwrap_or(Value::Null);
@@ -193,6 +279,47 @@ impl SupporterRuntime {
         json!({ "last_activity": state.last_activity.map(|time| time / 1000), "calls_last_hour": hour,
             "calls_last_day": state.calls.len(), "last_verdict": state.last_verdict,
             "budget": { "reached": state.budget_reached, "calls_per_hour": cap, "free_at": free_at.map(|time| (time + 999) / 1000), "storage_ready": state.storage_ready } })
+    }
+}
+
+fn journal_answers(
+    answers: &codeterm_types::decision::DecisionAnswers,
+) -> codeterm_types::decision::DecisionAnswers {
+    answers
+        .iter()
+        .map(|(name, answer)| {
+            let answer = match answer {
+                DecisionAnswer::Choice {
+                    choice,
+                    probabilities,
+                    confidence,
+                } if name != "label" => DecisionAnswer::Choice {
+                    choice: super::criteria_hash(choice.as_bytes()),
+                    probabilities: probabilities
+                        .iter()
+                        .map(|(option, p)| (super::criteria_hash(option.as_bytes()), *p))
+                        .collect(),
+                    confidence: *confidence,
+                },
+                answer => answer.clone(),
+            };
+            (name.clone(), answer)
+        })
+        .collect()
+}
+
+fn answer_signal(answer: &DecisionAnswer) -> (Option<&str>, Option<f64>) {
+    match answer {
+        DecisionAnswer::Choice {
+            choice,
+            probabilities,
+            confidence,
+        } => (
+            Some(choice.as_str()),
+            confidence.or_else(|| probabilities.get(choice).copied()),
+        ),
+        DecisionAnswer::Noul { p } => (None, Some(*p)),
+        DecisionAnswer::Score { confidence, .. } => (None, *confidence),
     }
 }
 

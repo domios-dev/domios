@@ -16,8 +16,33 @@ export interface SupporterAdapter {
   token: SupporterTokenStatus;
 }
 
+export interface SupporterSpendTotals {
+  input_tokens: number;
+  output_tokens: number;
+  estimated_usd: number | null;
+}
+
+export interface SupporterSpend {
+  today: SupporterSpendTotals;
+  month: SupporterSpendTotals;
+  since_balance: SupporterSpendTotals;
+  balance_usd: number | null;
+  balance_set_at: number | null;
+  remaining_usd: number | null;
+  exhausted: boolean;
+  next_probe_at: number | null;
+  storage_ready: boolean;
+}
+
 export interface SupporterStatus {
-  state: "active" | "budget_reached" | "not_connected" | "no_token" | "token_unusable" | "adapter_unavailable";
+  state:
+    | "active"
+    | "credit_exhausted"
+    | "budget_reached"
+    | "not_connected"
+    | "no_token"
+    | "token_unusable"
+    | "adapter_unavailable";
   token_mode: SupporterTokenStatus["token_mode"];
   adapter: string;
   model: string | null;
@@ -26,8 +51,16 @@ export interface SupporterStatus {
   last_activity: number | null;
   calls_last_hour: number;
   calls_last_day: number;
-  last_verdict: Partial<Record<"rerank" | "tab_state", { time: number; label: string | null; confidence: number | null }>>;
-  budget: { reached: boolean; calls_per_hour: number; free_at: number | null; storage_ready: boolean };
+  last_verdict: Partial<
+    Record<"rerank" | "tab_state", { time: number; label: string | null; confidence: number | null }>
+  >;
+  budget: {
+    reached: boolean;
+    calls_per_hour: number;
+    free_at: number | null;
+    storage_ready: boolean;
+  };
+  spend: SupporterSpend;
   token: SupporterTokenStatus;
   adapter_registered: boolean;
   adapters: SupporterAdapter[];
@@ -44,9 +77,11 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
 
   const refreshStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${apiBase}/api/supporter/status`, { headers: authRef.current });
+      const response = await fetch(`${apiBase}/api/supporter/status`, {
+        headers: authRef.current,
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setStatus(await response.json() as SupporterStatus);
+      setStatus((await response.json()) as SupporterStatus);
       setStatusFailed(false);
     } catch {
       setStatusFailed(true);
@@ -65,9 +100,14 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(url, { ...init, headers: { ...authRef.current, ...init.headers } });
+      const response = await fetch(url, {
+        ...init,
+        headers: { ...authRef.current, ...init.headers },
+      });
       if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
         const message = body?.error?.message?.replace(secret ?? "\u0000", "[redacted]");
         setError(message || `Could not ${verb} (HTTP ${response.status}).`);
       }
@@ -118,6 +158,19 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     );
   };
 
+  const setBalance = async (balance: number | null) => {
+    if (busy || !status) return;
+    await write(
+      `${apiBase}/api/supporter/balance`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adapter: status.adapter, balance_usd: balance }),
+      },
+      "save the balance",
+    );
+  };
+
   return {
     tokenRef,
     status,
@@ -131,5 +184,6 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     saveToken,
     clearToken,
     select,
+    setBalance,
   };
 }

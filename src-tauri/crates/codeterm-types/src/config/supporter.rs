@@ -33,6 +33,7 @@ pub struct MemoryRerankConfig {
     pub sources: SupporterSources,
     pub candidates: usize,
     pub max_concurrency: usize,
+    pub request_mode: RerankRequestMode,
     pub low_confidence_threshold: f64,
     pub max_body_chars: usize,
 }
@@ -44,10 +45,19 @@ impl Default for MemoryRerankConfig {
             sources: SupporterSources::default(),
             candidates: 50,
             max_concurrency: 16,
+            request_mode: RerankRequestMode::default(),
             low_confidence_threshold: 0.15,
             max_body_chars: 2000,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RerankRequestMode {
+    #[default]
+    PerCandidate,
+    SharedState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

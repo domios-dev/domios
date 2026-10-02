@@ -105,7 +105,7 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
         1,
         VerdictKind::Rerank,
         None,
-        "version".into(),
+        None,
     );
     let request = DecisionRequest {
         state: json!("screen-and-token-must-not-be-recorded"),
@@ -122,6 +122,7 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
         body: "body".into(),
     };
     let stage = StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         max_concurrency: 1,
         deadline: Duration::from_secs(1),
         low_confidence_threshold: 0.15,
@@ -150,7 +151,7 @@ fn supporter_journal_records_distribution_model_id_and_criteria_version() {
         10,
         VerdictKind::TabState,
         Some("tab".into()),
-        criteria_hash(b"criteria"),
+        Some(criteria_hash(b"criteria")),
     );
     model
         .decide(
@@ -170,7 +171,10 @@ fn supporter_journal_records_distribution_model_id_and_criteria_version() {
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .find(|line| line["action"] == "verdict")
         .unwrap();
-    assert_eq!(verdict["distribution"], json!({ "type": "noul", "p": 0.8 }));
+    assert_eq!(
+        verdict["distribution"]["q"],
+        json!({ "type": "noul", "p": 0.8 })
+    );
     assert_eq!(verdict["model_id"], "reported-model");
     assert_eq!(verdict["criteria_version"], criteria_hash(b"criteria"));
     assert_eq!(verdict["state_hash"].as_str().unwrap().len(), 64);

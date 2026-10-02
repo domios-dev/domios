@@ -11,12 +11,22 @@ pub trait DecisionModel: Send + Sync {
     fn model_id(&self) -> Option<String> {
         None
     }
+    fn pricing(&self) -> Option<DecisionPricing> {
+        None
+    }
     fn primitives(&self) -> DecisionPrimitives;
     fn models(&self) -> Vec<DecisionModelInfo> {
         Vec::new()
     }
     fn select_model(&self, id: &str) -> bool {
         self.models().iter().any(|model| model.id == id)
+    }
+    fn decide_questions(
+        &self,
+        request: &DecisionQuestionsRequest,
+        deadline: Instant,
+    ) -> Result<DecisionResponse, DecisionError> {
+        decide_questions_sequentially(self, request, deadline)
     }
     fn decide(
         &self,
@@ -71,6 +81,146 @@ pub struct DecisionRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedDecisionQuestion {
+    pub instructions: String,
+    pub question: DecisionQuestion,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionQuestionsRequest {
+    pub state: Value,
+    pub questions: BTreeMap<String, NamedDecisionQuestion>,
+}
+
+pub type DecisionAnswers = BTreeMap<String, DecisionAnswer>;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionPricing {
+    pub display_name: String,
+    pub input_usd_per_million: f64,
+    pub output_usd_per_million: f64,
+}
+
+impl DecisionPricing {
+    pub fn estimated_usd(&self, usage: DecisionUsage) -> Option<f64> {
+        if !self.input_usd_per_million.is_finite()
+            || self.input_usd_per_million < 0.0
+            || !self.output_usd_per_million.is_finite()
+            || self.output_usd_per_million < 0.0
+        {
+            return None;
+        }
+        let value = (usage.input_tokens as f64 * self.input_usd_per_million
+            + usage.output_tokens as f64 * self.output_usd_per_million)
+            / 1_000_000.0;
+        value.is_finite().then_some(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecisionResponse {
+    pub answers: DecisionAnswers,
+    pub usage: Option<DecisionUsage>,
+}
+
+impl DecisionQuestionsRequest {
+    pub fn validate_answers(&self, answers: &DecisionAnswers) -> Result<(), DecisionError> {
+        if self.questions.is_empty() || answers.len() != self.questions.len() {
+            return Err(DecisionError::Parse("invalid_answer_set".into()));
+        }
+        for (name, spec) in &self.questions {
+            let answer = answers
+                .get(name)
+                .ok_or_else(|| DecisionError::Parse("missing_answer".into()))?;
+            spec.question.validate_answer(answer)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn decide_questions_sequentially<M: DecisionModel + ?Sized>(
+    model: &M,
+    request: &DecisionQuestionsRequest,
+    deadline: Instant,
+) -> Result<DecisionResponse, DecisionError> {
+    let mut answers = BTreeMap::new();
+    for (name, spec) in &request.questions {
+        if Instant::now() >= deadline {
+            return Err(DecisionError::Deadline);
+        }
+        let single = DecisionRequest {
+            state: request.state.clone(),
+            instructions: spec.instructions.clone(),
+            question: spec.question.clone(),
+        };
+        answers.insert(name.clone(), model.decide(&single, deadline)?);
+    }
+    if Instant::now() >= deadline {
+        return Err(DecisionError::Deadline);
+    }
+    request.validate_answers(&answers)?;
+    Ok(DecisionResponse {
+        answers,
+        usage: None,
+    })
+}
+
+impl DecisionQuestion {
+    pub fn validate_answer(&self, answer: &DecisionAnswer) -> Result<(), DecisionError> {
+        let probability = |p: f64| p.is_finite() && (0.0..=1.0).contains(&p);
+        let valid = match (self, answer) {
+            (
+                Self::Choice { options },
+                DecisionAnswer::Choice {
+                    choice,
+                    probabilities,
+                    confidence,
+                },
+            ) => {
+                options.contains_key(choice)
+                    && !probabilities.is_empty()
+                    && probabilities.keys().all(|key| options.contains_key(key))
+                    && probabilities.values().all(|p| probability(*p))
+                    && confidence.is_none_or(probability)
+            }
+            (Self::Noul { .. }, DecisionAnswer::Noul { p }) => probability(*p),
+            (
+                Self::Score { levels },
+                DecisionAnswer::Score {
+                    score,
+                    probabilities,
+                    confidence,
+                },
+            ) => {
+                let mut indexes = std::collections::BTreeSet::new();
+                score.is_finite()
+                    && !probabilities.is_empty()
+                    && probabilities.iter().all(|(key, p)| {
+                        key.parse::<usize>()
+                            .ok()
+                            .filter(|index| *index < levels.len() && indexes.insert(*index))
+                            .is_some()
+                            && probability(*p)
+                    })
+                    && confidence.is_none_or(probability)
+            }
+            _ => false,
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(DecisionError::Parse("invalid_answer".into()))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum DecisionAnswer {
     Choice {
@@ -94,6 +244,7 @@ pub enum DecisionError {
     Unsupported,
     Deadline,
     Budget,
+    CreditExhausted,
     Http(u16),
     Transport(String),
     Parse(String),
@@ -104,6 +255,7 @@ impl fmt::Display for DecisionError {
         match self {
             Self::Unavailable(reason) => write!(f, "decision model unavailable: {reason}"),
             Self::Unsupported => f.write_str("decision primitive unsupported"),
+            Self::CreditExhausted => f.write_str("supporter credits exhausted"),
             Self::Budget => f.write_str("supporter call budget reached"),
             Self::Deadline => f.write_str("decision deadline exceeded"),
             Self::Http(status) => write!(f, "decision http status {status}"),
@@ -166,3 +318,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod questions_tests;

@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionQuestion, DecisionRequest, TokenMode,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
+    DecisionPrimitives, DecisionQuestion, DecisionQuestionsRequest, DecisionRequest,
+    NamedDecisionQuestion, TokenMode,
 };
 use serde_json::json;
 
@@ -19,6 +20,14 @@ impl DecisionModel for NativeDecisionModel {
 
     fn model_id(&self) -> Option<String> {
         Some("fixture-model".into())
+    }
+
+    fn pricing(&self) -> Option<DecisionPricing> {
+        Some(DecisionPricing {
+            display_name: "local fixture".into(),
+            input_usd_per_million: 0.0,
+            output_usd_per_million: 0.0,
+        })
     }
 
     fn token_mode(&self) -> TokenMode {
@@ -93,6 +102,7 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
         modelId() { return "fixture-model"; },
+        pricing() { return { display_name: "local fixture", input_usd_per_million: 0, output_usd_per_million: 0 }; },
         primitives() { return { choice: true, noul: true, score: true }; },
         models() { return [{ id: "fixture-model", display_name: "Fixture model" }]; },
         decide(request) {
@@ -122,6 +132,7 @@ fn parity_decision_model_matches_shared_fixtures() {
         assert_eq!(native.primitives(), javascript.primitives());
         assert_eq!(native.models(), javascript.models());
         assert_eq!(native.model_id(), javascript.model_id());
+        assert_eq!(native.pricing(), javascript.pricing());
         assert!(native.select_model("fixture-model"));
         assert_eq!(
             native.select_model("fixture-model"),
@@ -138,5 +149,52 @@ fn parity_decision_model_matches_shared_fixtures() {
                 javascript.decide(&request, deadline),
             );
         }
+    }
+}
+
+#[test]
+fn parity_decision_model_multi_question_shared_state_and_sequential_local_adapter() {
+    let decide = r#"decide(request) {
+        if (JSON.stringify(request.state) !== JSON.stringify({ fixture: "shared" })) throw new Error("state mismatch");
+        if (request.question.type === "noul") return { type: "noul", p: 0.8 };
+        if (request.question.type === "choice") return { type: "choice", choice: "yes", probabilities: { no: 0.2, yes: 0.8 }, confidence: 0.8 };
+        return { type: "score", score: 2, probabilities: { "0": 0.1, "1": 0.2, "2": 0.7 }, confidence: 0.7 };
+    }"#;
+    let multi = r#"decideQuestions(request) {
+        var answers = {};
+        for (var name of Object.keys(request.questions)) {
+            var spec = request.questions[name];
+            answers[name] = this.decide({ state: request.state, instructions: spec.instructions, question: spec.question });
+        }
+        return { answers: answers, usage: null };
+    }"#;
+    let request = DecisionQuestionsRequest {
+        state: json!({ "fixture": "shared" }),
+        questions: shared_fixtures()
+            .into_iter()
+            .enumerate()
+            .map(|(index, single)| {
+                (
+                    format!("question_{index}"),
+                    NamedDecisionQuestion {
+                        instructions: single.instructions,
+                        question: single.question,
+                    },
+                )
+            })
+            .collect(),
+    };
+    for extension in ["", multi] {
+        let source = format!("module.exports.default = {{ {decide}, {extension} }};");
+        let vm = Arc::new(PluginVm::from_source("shared-fixture", source).unwrap());
+        let js = JsDecisionModel::new(vm, "shared-fixture", TokenMode::None);
+        let native = NativeDecisionModel(TokenMode::None);
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        let response = js.decide_questions(&request, deadline).unwrap();
+        assert_eq!(
+            response,
+            native.decide_questions(&request, deadline).unwrap()
+        );
+        assert_eq!(response.answers.len(), 3);
     }
 }

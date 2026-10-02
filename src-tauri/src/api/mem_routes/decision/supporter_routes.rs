@@ -111,6 +111,7 @@ pub async fn supporter_token_status(
 pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
     let models = state.svc.supporter_models.clone();
     let cfg = state.config.lock().supporter.clone();
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
     token_io(move || {
         let store = token_store();
         let mut adapters = registered_adapters(&models);
@@ -158,12 +159,17 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
             "adapter_registered": adapter_registered,
             "adapters": adapters,
         });
-        let activity = crate::service::supporter::activity_status(
-            &crate::service::supporter::runtime(),
-            cfg.calls_per_hour,
-        );
+        let activity = crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour);
+        let price = selected_model.and_then(|model| model.pricing());
+        output["spend"] = spend_snapshot(&runtime, &cfg.adapter, price.as_ref());
+        output["pricing"] = selected_model
+            .and_then(|model| model.pricing())
+            .map_or(Value::Null, |price| json!(price));
         if output["connected"] == true && activity["budget"]["reached"] == true {
             output["state"] = json!("budget_reached");
+        }
+        if output["connected"] == true && output["spend"]["exhausted"] == true {
+            output["state"] = json!("credit_exhausted");
         }
         if let (Some(output), Some(activity)) = (output.as_object_mut(), activity.as_object()) {
             output.extend(activity.clone());
@@ -311,4 +317,56 @@ where
             };
             (status, format!("supporter token store: {error}"))
         })
+}
+
+#[derive(Deserialize)]
+pub struct SupporterBalanceBody {
+    adapter: Option<String>,
+    balance_usd: Option<f64>,
+}
+
+pub async fn supporter_balance(
+    AxumState(state): AxumState<AppState>,
+    Json(body): Json<SupporterBalanceBody>,
+) -> RouteResult {
+    let adapter = body
+        .adapter
+        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
+    let Some(model) = state.svc.supporter_models.get(&adapter) else {
+        return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
+    };
+    if body
+        .balance_usd
+        .is_some_and(|value| !value.is_finite() || value < 0.0)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "balance must be a nonnegative USD value".into(),
+        ));
+    }
+    let price = model.pricing();
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
+    token_io(move || {
+        runtime
+            .set_balance(&adapter, price.as_ref(), body.balance_usd)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok(spend_snapshot(&runtime, &adapter, price.as_ref()))
+    })
+    .await
+    .map(Json)
+}
+
+fn spend_snapshot(
+    runtime: &crate::service::supporter::SupporterRuntime,
+    adapter: &str,
+    price: Option<&codeterm_types::decision::DecisionPricing>,
+) -> Value {
+    let mut spend = runtime.spend_status(adapter);
+    if price.is_none() {
+        for period in ["today", "month", "since_balance"] {
+            spend[period]["estimated_usd"] = Value::Null;
+        }
+        spend["remaining_usd"] = Value::Null;
+    }
+    spend
 }

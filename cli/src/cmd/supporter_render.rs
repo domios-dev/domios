@@ -58,6 +58,7 @@ fn state_text(status: &Value) -> String {
     match status.get("state").and_then(Value::as_str) {
         Some("active") => "Active".into(),
         Some("budget_reached") => "Budget reached".into(),
+        Some("credit_exhausted") => "Balance exhausted".into(),
         Some("not_connected") => "Not connected".into(),
         Some("token_unusable") => "Token file needs attention".into(),
         Some("no_token") => "No token".into(),
@@ -132,6 +133,26 @@ pub(super) fn render_status(status: &Value) -> String {
             out.push_str(&format!(
                 "Last {kind}: {} at {}\n",
                 verdict["label"], verdict["time"]
+            ));
+        }
+    }
+    if let Some(spend) = status.get("spend") {
+        for (key, label) in [("today", "Today"), ("month", "This month")] {
+            out.push_str(&format!(
+                "{label}: {} input / {} output tokens; estimated USD {}\n",
+                spend[key]["input_tokens"],
+                spend[key]["output_tokens"],
+                spend[key]["estimated_usd"]
+            ));
+        }
+        out.push_str(&format!(
+            "Balance USD: {}; remaining USD: {} (estimate)\n",
+            spend["balance_usd"], spend["remaining_usd"]
+        ));
+        if spend["exhausted"] == true {
+            out.push_str(&format!(
+                "Credit exhausted; next request probe after {}\n",
+                spend["next_probe_at"]
             ));
         }
     }
