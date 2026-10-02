@@ -93,7 +93,7 @@ impl Fixture {
             cfg: &mut self.cfg,
             registry: &self.registry,
             store: &self.store,
-            persist: move |cfg| {
+            persist: move |cfg: &SupporterConfig| {
                 std::fs::write(&path, toml::to_string(cfg).unwrap())
                     .map_err(|_| ConnectionError::unavailable())
             },

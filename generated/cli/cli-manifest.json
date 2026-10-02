@@ -14086,6 +14086,24 @@
       "args": [],
       "subcommands": [
         {
+          "name": "disconnect",
+          "about": "Remove a saved connection and its token; removing the active one stops the Supporter",
+          "aliases": [],
+          "args": [
+            {
+              "name": "adapter",
+              "positional": true,
+              "required": true,
+              "value_name": "ADAPTER",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "models",
           "about": "List registered adapters and their discovered models",
           "aliases": [],
@@ -14163,7 +14181,7 @@
         },
         {
           "name": "use",
-          "about": "Select a registered adapter and optionally one of its listed models",
+          "about": "Connect or activate an adapter, remembering its own model and token",
           "aliases": [],
           "args": [
             {
