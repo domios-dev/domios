@@ -185,12 +185,7 @@ def mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_
                       unchangedMusicSampleRange=[excerpt_samples, count],
                       voicePcmPreserved=True, postOpeningMusicPcmPreserved=True,
                       globalNormalization=False, reusedPriorMastering=True)
-    enriched_credit = dict(credit)
-    enriched_credit['credit'] = credit['credit'].rstrip() + (
-        f' Derived opening edit: source excerpt {opening_source_start:.3f}–'
-        f'{opening_source_start + opening_end:.3f}s is layered at 0.000–{opening_end:.3f}s; '
-        f'the approved arrangement resumes at {opening_end:.3f}s.')
-    exported_credit = credit_payload(enriched_credit, private_review) if credit else None
+    exported_credit = credit_payload(credit, private_review) if credit else None
     markers = PRIVATE_MARKERS if private_review else {}
     write_json(proof_dir / 'soundtrack-balance.json', dict(
         mixGraph='baseline mastered voice + bounded source excerpt over baseline mastered music; no shared gain change',
@@ -219,15 +214,18 @@ def mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_
         manifest[kind]['bytes'] = (output_dir / f'trailer.{kind}').stat().st_size
     if exported_credit:
         manifest['music'] = exported_credit
-        manifest['musicEditLineage'] = dict(sourceAudioSha256=audio_edit['openingSource']['sha256'],
-                                            arrangedMusicSha256=audio_edit['arrangedMusic']['sha256'],
-                                            outputSeconds=opening_end)
+        manifest['musicEditLineage'] = dict(
+            openingSourceSha256=audio_edit['openingSource']['sha256'],
+            arrangedMusicSha256=audio_edit['arrangedMusic']['sha256'],
+            sourceExcerpt=audio_edit['sourceExcerpt'], outputRange=audio_edit['outputRange'],
+            crossfade=audio_edit['crossfade'], antiClickRamp=audio_edit['antiClickRamp'],
+            gain=audio_edit['gain'], changedSampleRange=audio_edit['changedSampleRange'])
         write_json(output_dir / 'credits.json', manifest['music'])
         (output_dir / 'credits.txt').write_text(exported_credit['credit'] + '\n', encoding='utf-8', newline='\n')
     proof = dict(timingSha256=sha256(timing_path), sourceAudio=prior['sourceAudio'],
                  sourceAlignment=prior['sourceAlignment'], alignedVoice=prior['alignedVoice'],
                  finalAudio=final_record, sourceMusic=prior['sourceMusic'], narration=timing['narration'],
-                 music=enriched_credit, loudnessFirstPass=prior['loudnessFirstPass'],
+                 music=credit, loudnessFirstPass=prior['loudnessFirstPass'],
                  mixGraph='baseline mastered voice + bounded source excerpt over baseline mastered music',
                  mixStems=new_stems, mastering=mastering, phraseBalance=balance,
                  musicInput=prior.get('musicInput'), openingEditLineage=audio_edit,

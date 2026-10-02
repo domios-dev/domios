@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -155,6 +156,7 @@ def lineage_audit(baseline_proof_path, candidate_proof_path, timing_path):
     require(edit['baselineMasteredVoice'] == baseline['mixStems']['voiceMastered'], 'Original mastered voice record changed')
     require(edit['baselineMasteredMusic'] == baseline['mixStems']['musicMastered'], 'Original mastered music record changed')
     require(candidate['music']['sha256'] == baseline['music']['sha256'], 'Approved arrangement SHA changed')
+    require(candidate['music'] == baseline['music'], 'Visible music attribution or source credit changed')
     for key, value in baseline['music'].items():
         if key != 'credit':
             require(candidate['music'].get(key) == value, f'Original music provenance changed: {key}')
