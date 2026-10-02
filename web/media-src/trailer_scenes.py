@@ -1,6 +1,6 @@
-import math
 import hashlib
 import json
+import math
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -19,6 +19,7 @@ OPENING_FRAMES = 48
 ENDING_START_FRAME = round(37.0666666667 * FPS)
 ENDING_END_FRAME = 45 * FPS
 BRAND_DURATION = 1.6
+OPENING_FADE_START_FRAME = 40
 
 
 def shot(name, at, duration, source, start, end, camera, target, title='', scene='footage'):
@@ -367,6 +368,14 @@ def agent_ending(global_frame, frame, font, brand_rest):
     return image
 
 
+def opening_mark_opacity(frame):
+    if frame < OPENING_FADE_START_FRAME:
+        return 1.0
+    progress = min(1.0, (frame - OPENING_FADE_START_FRAME) /
+                   (OPENING_FRAMES - OPENING_FADE_START_FRAME))
+    return 0.5 + 0.5 * math.cos(math.pi * progress)
+
+
 def render(edit, time, frame, font):
     if edit['scene']=='desktop':
         return desktop(frame,time,font,edit['duration'])
@@ -385,6 +394,8 @@ def render_timeline_frame(edit, time, frame, font, brand_frames):
     if 0 <= frame_number < OPENING_FRAMES:
         image = render(edit, time, frame, font)
         mark = brand_frames['images'][frame_number].resize((164, 164), Image.Resampling.LANCZOS)
+        opacity = opening_mark_opacity(frame_number)
+        mark.putalpha(mark.getchannel('A').point(lambda value: round(value * opacity)))
         image.paste(mark, (92, 276), mark)
         return image
     if ENDING_START_FRAME <= frame_number < ENDING_END_FRAME:

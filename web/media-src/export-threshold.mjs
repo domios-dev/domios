@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -65,6 +65,11 @@ const browser = spawn(browserPath, [
 ], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
 const lines = createInterface({ input: browser.stderr });
 let socket;
+let spawned = false;
+let spawnFailed = false;
+let closeBrowser = async () => {};
+browser.once('spawn', () => { spawned = true; });
+browser.on('error', () => { if (!spawned) spawnFailed = true; });
 
 try {
   const endpoint = await new Promise((resolve, reject) => {
@@ -100,15 +105,16 @@ try {
     pending.clear();
   });
 
-  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+  const send = (method, params = {}, sessionId, timeoutMs = 60000) => new Promise((resolve, reject) => {
     const id = ++sequence;
-    const deadline = AbortSignal.timeout(60000);
+    const deadline = AbortSignal.timeout(timeoutMs);
     deadline.addEventListener('abort', () => {
       if (pending.delete(id)) reject(new Error(`${method} deadline exceeded.`));
     }, { once: true });
     pending.set(id, { resolve, reject });
     socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
+  closeBrowser = () => send('Browser.close', {}, undefined, 5000);
   const event = (method, sessionId) => new Promise((resolve, reject) => {
     const listener = message => {
       if (message.method === method && message.sessionId === sessionId) {
@@ -166,11 +172,40 @@ try {
   await writeFile(path.join(outputDirectory, 'brand-frames.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(`Exported ${poses.length} authoritative Threshold poses (${sourceSha256}).\n`);
 } finally {
-  if (socket?.readyState === WebSocket.OPEN) await socket.close();
   lines.close();
-  if (browser.exitCode === null) {
-    browser.kill();
-    await once(browser, 'exit', { signal: AbortSignal.timeout(10000) }).catch(() => {});
+  const tempRoot = path.resolve(os.tmpdir());
+  const workPath = path.resolve(work);
+  const relativeWork = path.relative(tempRoot, workPath);
+  if (!relativeWork || path.isAbsolute(relativeWork) || relativeWork === '..'
+    || relativeWork.startsWith(`..${path.sep}`) || relativeWork.includes(path.sep)
+    || !path.basename(workPath).startsWith('domios-threshold-')) {
+    throw new Error(`Refusing to remove a work directory outside the generated temp scope: ${workPath}`);
   }
-  await rm(work, { recursive: true, force: true });
+  if (socket?.readyState === WebSocket.OPEN) {
+    await closeBrowser().catch(() => {});
+    socket.close();
+  }
+  const waitForExit = async timeoutMs => {
+    if (spawnFailed || browser.exitCode !== null || browser.signalCode !== null) return true;
+    try {
+      await once(browser, 'exit', { signal: AbortSignal.timeout(timeoutMs) });
+      return true;
+    } catch (error) {
+      if (error.name !== 'AbortError') throw error;
+      return false;
+    }
+  };
+  let exited = await waitForExit(10000);
+  if (!exited) {
+    browser.kill();
+    exited = await waitForExit(10000);
+  }
+  if (!exited) throw new Error(`Edge did not exit; retaining its generated temp profile at ${workPath}`);
+  await rm(workPath, { recursive: true });
+  try {
+    await access(workPath);
+    throw new Error(`Generated temp profile remains after cleanup: ${workPath}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
 }

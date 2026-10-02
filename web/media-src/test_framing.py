@@ -7,7 +7,7 @@ from array import array
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 import trailer_scenes
 from media_contract import prepare_output
@@ -48,9 +48,9 @@ class OpeningMixTests(unittest.TestCase):
         self.assertEqual(candidate_music[0], baseline_music[0])
         self.assertEqual(report['selectedLinearGain'], gain)
 
-        near_silence = shape_excerpt(tone(end_sample, .00001, 431), crossfade_start, ramp_samples)
-        with self.assertRaisesRegex(ValueError, 'phrase separation allows'):
-            choose_gain(baseline_music, near_silence, voice, timing, 4, count)
+        digital_silence = shape_excerpt(array('f', [0]) * end_sample, crossfade_start, ramp_samples)
+        with self.assertRaisesRegex(ValueError, 'no measurable material at the beginning'):
+            choose_gain(baseline_music, digital_silence, voice, timing, 4, count)
 
         with tempfile.TemporaryDirectory(prefix='domios-opening-proof-') as temporary:
             root = Path(temporary)
@@ -98,14 +98,21 @@ class FramingBoundaryTests(unittest.TestCase):
         with patch.object(trailer_scenes, 'render', side_effect=lambda *args: base.copy()), \
              patch.object(trailer_scenes, 'agent_ending', return_value=ending) as ending_render:
             frame0 = trailer_scenes.render_timeline_frame(edit, 0 / 30, source, None, brand_frames)
-            frame47 = trailer_scenes.render_timeline_frame(edit, 47 / 30, source, None, brand_frames)
+            fade_frames = [trailer_scenes.render_timeline_frame(edit, frame / 30, source, None, brand_frames)
+                           for frame in range(trailer_scenes.OPENING_FADE_START_FRAME, 49)]
+            frame47 = fade_frames[-2]
             frame48 = trailer_scenes.render_timeline_frame(edit, 48 / 30, source, None, brand_frames)
             frame1111 = trailer_scenes.render_timeline_frame(edit, 1111 / 30, source, None, brand_frames)
             frame1112 = trailer_scenes.render_timeline_frame(edit, 1112 / 30, source, None, brand_frames)
             frame1349 = trailer_scenes.render_timeline_frame(edit, 1349 / 30, source, None, brand_frames)
             frame1350 = trailer_scenes.render_timeline_frame(edit, 45, source, None, brand_frames)
         self.assertNotEqual(frame0.tobytes(), base.tobytes())
-        self.assertNotEqual(frame47.tobytes(), base.tobytes())
+        fade_residuals = [sum(ImageStat.Stat(ImageChops.difference(frame, base)).mean) / 3
+                          for frame in fade_frames]
+        self.assertTrue(all(later < earlier for earlier, later in zip(fade_residuals, fade_residuals[1:])))
+        self.assertGreater(fade_residuals[-2], 0)
+        self.assertLessEqual(fade_residuals[-2] / fade_residuals[-3], .4)
+        self.assertLess(fade_residuals[-2] / fade_residuals[0], .05)
         self.assertEqual(frame48.tobytes(), base.tobytes())
         self.assertEqual(frame1111.tobytes(), base.tobytes())
         self.assertEqual(frame1112.tobytes(), ending.tobytes())
