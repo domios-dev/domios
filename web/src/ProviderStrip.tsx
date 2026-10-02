@@ -1,22 +1,26 @@
-import { useEffect, useRef } from 'react';
-import { Icon } from './Icon';
-import type { IconName } from './Icon';
+import { useEffect, useRef, useState } from 'react';
+import { ProviderLogo } from './ProviderLogo';
+import type { ProviderLogoId } from './ProviderLogo';
 import { useMediaQuery } from './usePreferences';
 import './providers.css';
 
-const providers: { name: string; icon: IconName }[] = [
-  { name: 'Claude Code', icon: 'branch' },
-  { name: 'Codex', icon: 'terminal' },
-  { name: 'OpenCode', icon: 'grid' },
-  { name: 'Cursor', icon: 'arrow' },
-  { name: 'Grok Build', icon: 'mesh' },
-  { name: 'LM Studio', icon: 'layers' },
-  { name: 'Your agent', icon: 'plus' },
+type ProviderTheme = 'light' | 'dark';
+type Provider = { name: string; logo: ProviderLogoId | null; plus?: boolean };
+
+const providers: Provider[] = [
+  { name: 'Claude Code', logo: 'claude' },
+  { name: 'Codex', logo: 'codex' },
+  { name: 'OpenCode', logo: 'opencode' },
+  { name: 'Cursor', logo: 'cursor' },
+  { name: 'Grok Build', logo: 'grok' },
+  { name: 'LM Studio', logo: 'lmstudio' },
+  { name: 'Your agent', logo: null, plus: true },
 ];
 
 function useProviderMarquee() {
   const viewport = useRef<HTMLDivElement>(null);
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const [theme, setTheme] = useState<ProviderTheme>(() => document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 
   useEffect(() => {
     const element = viewport.current;
@@ -29,6 +33,7 @@ function useProviderMarquee() {
       const staticMotion = reducedMotion || site?.getAttribute('data-motion') === 'paused';
       const canAnimate = visible && !document.hidden && site?.getAttribute('data-entrance') !== 'pending';
       strip.dataset.providerMotion = staticMotion ? 'static' : canAnimate ? 'running' : 'paused';
+      setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
     };
 
     const intersection = new IntersectionObserver(([entry]) => {
@@ -38,6 +43,7 @@ function useProviderMarquee() {
     const motion = new MutationObserver(sync);
     intersection.observe(element);
     if (site) motion.observe(site, { attributes: true, attributeFilter: ['data-motion', 'data-entrance'] });
+    motion.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     document.addEventListener('visibilitychange', sync);
     sync();
 
@@ -49,21 +55,24 @@ function useProviderMarquee() {
     };
   }, [reducedMotion]);
 
-  return { viewport, reducedMotion };
+  return { viewport, reducedMotion, theme };
 }
 
-function ProviderEntry({ name, icon }: { name: string; icon: IconName }) {
-  return <><Icon name={icon} size={20} /><span>{name}</span></>;
+function ProviderEntry({ provider, theme }: { provider: Provider; theme: ProviderTheme }) {
+  return <>
+    {provider.plus ? <span className="provider-neutral-plus" aria-hidden="true">+</span> : provider.logo && <ProviderLogo mark={provider.logo} theme={theme} />}
+    <span className="provider-name">{provider.name}</span>
+  </>;
 }
 
 export function ProviderStrip() {
-  const { viewport, reducedMotion } = useProviderMarquee();
+  const { viewport, reducedMotion, theme } = useProviderMarquee();
   return <section className="provider-strip section-wrap" aria-labelledby="providers-title">
     <h2 id="providers-title">BRING YOUR AGENTS</h2>
     <div className="provider-viewport" ref={viewport}>
       <div className="provider-track">
-        <ul className="provider-list provider-cycle" role="list">{providers.map((provider) => <li className="provider-entry" key={provider.name}><ProviderEntry {...provider} /></li>)}</ul>
-        {!reducedMotion && <div className="provider-cycle provider-copy" aria-hidden="true" inert>{providers.map((provider) => <div className="provider-entry" key={provider.name}><ProviderEntry {...provider} /></div>)}</div>}
+        <ul className="provider-list provider-cycle" role="list">{providers.map((provider) => <li className="provider-entry" key={provider.name}><ProviderEntry provider={provider} theme={theme} /></li>)}</ul>
+        {!reducedMotion && <div className="provider-cycle provider-copy" aria-hidden="true" inert>{providers.map((provider) => <div className="provider-entry" key={provider.name}><ProviderEntry provider={provider} theme={theme} /></div>)}</div>}
       </div>
     </div>
     <p>Add other agents with provider plugins—ask your agent to write one and share it.</p>
