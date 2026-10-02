@@ -67,7 +67,7 @@ def loudness(path):
     result = subprocess.run(['ffmpeg', '-hide_banner', '-i', str(path), '-vn', '-af',
                              'loudnorm=I=-18:TP=-1:LRA=9:print_format=json', '-f', 'null', '-'],
                             check=True, timeout=300, capture_output=True, text=True)
-    report = json.loads(result.stderr[result.stderr.rfind('{'):])
+    report = json.JSONDecoder().raw_decode(result.stderr[result.stderr.rfind('{'):])[0]
     require(abs(float(report['input_i']) + 18) <= 1, 'Programme loudness outside-18LUFS +/-1')
     require(float(report['input_tp']) <= -1, 'True peak exceeds-1dBTP')
     return report
