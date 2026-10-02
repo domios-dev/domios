@@ -142,7 +142,16 @@ fn docs_are_absent_from_off_and_fallback_results() {
         ..SearchParams::default()
     };
     let baseline = baseline_oracle(&backend, &plain);
-    let off = resolve_search(&backend, &relevance_registry(&[]), &docs_cfg(3), plain).unwrap();
+    let off = resolve_search(
+        &backend,
+        &relevance_registry(&[]),
+        &docs_cfg(3),
+        SearchParams {
+            supporter: Some(false),
+            ..plain
+        },
+    )
+    .unwrap();
     assert_eq!(normalized(off), normalized(baseline));
 
     let request = applied_query(query, 2);

@@ -44,8 +44,7 @@ let writeStatus: number;
 let writeRejects: boolean;
 
 function statusFixture(
-  state: "ready" | "no_token" | "token_only" | "active" = "no_token",
-  features = { memory_rerank: false, tab_state: false },
+  state: "no_token" | "active" | "budget_reached" = "no_token",
   present = state !== "no_token",
   tokenMode: "required" | "optional" | "none" = "required",
 ) {
@@ -56,7 +55,10 @@ function statusFixture(
     adapter: ADAPTER,
     model: "fixture-model",
     deadline_ms: 3000,
-    features,
+    connected: state !== "no_token",
+    calls_last_hour: 12, calls_last_day: 45, last_activity: 1700000000,
+    last_verdict: { tab_state: { time: 1700000000, label: "ready_idle", confidence: 0.9 } },
+    budget: { reached: state === "budget_reached", calls_per_hour: 600, free_at: state === "budget_reached" ? 1700003600 : null, storage_ready: true },
     token,
     adapter_registered: true,
     adapters: [{ id: ADAPTER, token_mode: tokenMode, primitives: { choice: true, noul: true, score: true }, models: MODELS.adapters[0].models, token }],
@@ -70,19 +72,11 @@ function installFetch() {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
     calls.push({ method, url, headers: { ...(init?.headers as Record<string, string> | undefined) }, body });
     if (method !== "GET" && writeRejects) throw new Error("network down");
-    if (method === "POST" && url.endsWith("/api/supporter/features") && writeStatus < 400 && body) {
-      const features = { ...statusBody.features, ...body };
-      statusBody = statusFixture(
-        features.memory_rerank || features.tab_state ? "active" : "token_only",
-        features,
-        true,
-      );
-    }
     if (method === "DELETE" && url.includes("/api/supporter/token") && writeStatus < 400) {
       statusBody = statusFixture();
     }
     if (method === "POST" && url.endsWith("/api/supporter/token") && writeStatus < 400) {
-      statusBody = statusFixture("token_only");
+      statusBody = statusFixture("active");
     }
     if (method === "POST" && url.endsWith("/api/supporter/use") && writeStatus < 400 && body) {
       statusBody = {
@@ -96,8 +90,6 @@ function installFetch() {
       ? MODELS
       : method === "POST" && url.endsWith("/api/supporter/token")
         ? { adapter: ADAPTER, present: true, path: "/x/y.json", mode_ok: true }
-        : isWrite && url.endsWith("/api/supporter/features")
-          ? statusBody.features
           : isWrite && url.endsWith("/api/supporter/use")
             ? { adapter: statusBody.adapter, model: statusBody.model }
             : method === "DELETE" && url.includes("/api/supporter/token")
@@ -177,22 +169,22 @@ describe("SupporterAgentCard", () => {
     expect(invokes.every((invoke) => !/decision|token/i.test(invoke.cmd))).toBe(true);
   });
 
-  it("supporter_no_token_state_shows_off_features_and_write_only_input", async () => {
+  it("supporter_no_token_state_shows_connection_and_write_only_input", async () => {
     await render();
     expect(q("supporter-agent-overall-status")?.textContent).toBe("No token");
     expect(q("supporter-agent-token-state")?.textContent).toBe("No token");
     expect(q("supporter-agent-selection")?.textContent).toBe("fixture-adapter · fixture-model");
-    expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')?.getAttribute("aria-checked")).toBe("false");
-    expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')).toBeNull();
+    expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')).toBeNull();
     expect(input().type).toBe("password");
     expect(input().value).toBe("");
     expect(input().autocomplete).toBe("off");
   });
 
-  it("supporter_optional_token_mode_shows_write_only_optional_field_when_ready", async () => {
-    statusBody = statusFixture("ready", undefined, false, "optional");
+  it("supporter_optional_token_mode_connects_with_write_only_optional_field", async () => {
+    statusBody = statusFixture("active", false, "optional");
     await render();
-    expect(q("supporter-agent-overall-status")?.textContent).toBe("Ready");
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
     expect(q("supporter-agent-token-state")?.textContent).toBe("No token");
     expect(host.querySelector('[aria-label="API token (optional)"]')).not.toBeNull();
     expect(input().type).toBe("password");
@@ -201,36 +193,38 @@ describe("SupporterAgentCard", () => {
   });
 
   it("supporter_none_token_mode_hides_token_form", async () => {
-    statusBody = statusFixture("ready", undefined, false, "none");
+    statusBody = statusFixture("active", false, "none");
     await render();
     expect(q("supporter-agent-token-state")?.textContent).toBe("No token needed");
     expect(q("supporter-agent-token-form")).toBeNull();
   });
 
-  it("supporter_token_only_state_explicitly_says_token_set", async () => {
-    statusBody = statusFixture("token_only");
+  it("supporter_connected_state_explicitly_says_token_set", async () => {
+    statusBody = statusFixture("active");
     await render();
-    expect(q("supporter-agent-overall-status")?.textContent).toBe("Token set, all features off");
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
     expect(q("supporter-agent-token-state")?.textContent).toBe("Token set");
     expect(host.querySelector('label[for="supporter-agent-token-input"]')?.textContent).toContain("Replace token");
     expect(q<HTMLButtonElement>("supporter-agent-token-save")?.textContent).toContain("Replace token");
     expect(input().value).toBe("");
   });
 
-  it("supporter_active_state_shows_each_enabled_feature", async () => {
-    statusBody = statusFixture("active", { memory_rerank: true, tab_state: true });
+  it("supporter_card_shows_activity_and_budget_without_toggles", async () => {
+    statusBody = statusFixture("budget_reached");
     await render();
-    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
-    expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')?.getAttribute("aria-checked")).toBe("true");
-    expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')?.getAttribute("aria-checked")).toBe("true");
-    expect(q("supporter-agent-features")?.textContent).toContain("On");
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Budget reached");
+    expect(host.querySelector('[role="switch"]')).toBeNull();
+    expect(q("supporter-agent-activity")?.textContent).toContain("12 in the last hour");
+    expect(q("supporter-agent-activity")?.textContent).toContain("45 in the last day");
+    expect(q("supporter-agent-activity")?.textContent).toContain("Available again:");
+    expect(q("supporter-agent-activity")?.textContent).toContain("ready_idle");
   });
 
   it("supporter_token_input_is_write_only_and_refreshed", async () => {
     await render();
     await typeAndSubmit(TOKEN);
     expect(input().value).toBe("");
-    expect(statusBody.state).toBe("token_only");
+    expect(statusBody.state).toBe("active");
 
     writeRejects = true;
     await typeAndSubmit(TOKEN);
@@ -253,12 +247,11 @@ describe("SupporterAgentCard", () => {
     expect(use?.body).toEqual({ adapter: ADAPTER, model: "second-model" });
   });
 
-  it("supporter_feature_toggle_posts_one_feature_and_refreshes_status", async () => {
-    statusBody = statusFixture("token_only");
+  it("supporter_activity_refresh_reads_new_evidence", async () => {
     await render();
-    await act(async () => host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Memory re-rank"]')!.click());
-    expect(calls.find((call) => call.url.endsWith("/api/supporter/features"))?.body).toEqual({ memory_rerank: true });
-    expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
+    statusBody = { ...statusBody, calls_last_hour: 23 };
+    await act(async () => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Refresh activity")!.click());
+    expect(q("supporter-agent-activity")?.textContent).toContain("23 in the last hour");
   });
 
   it("supporter_status_has_accessible_names_and_token_never_renders", async () => {

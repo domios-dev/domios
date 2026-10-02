@@ -17,6 +17,10 @@ impl DecisionModel for NativeDecisionModel {
         "native-fixture"
     }
 
+    fn model_id(&self) -> Option<String> {
+        Some("fixture-model".into())
+    }
+
     fn token_mode(&self) -> TokenMode {
         self.0
     }
@@ -88,6 +92,7 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 #[test]
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
+        modelId() { return "fixture-model"; },
         primitives() { return { choice: true, noul: true, score: true }; },
         models() { return [{ id: "fixture-model", display_name: "Fixture model" }]; },
         decide(request) {
@@ -116,6 +121,7 @@ fn parity_decision_model_matches_shared_fixtures() {
         assert_eq!(native.token_mode(), javascript.token_mode());
         assert_eq!(native.primitives(), javascript.primitives());
         assert_eq!(native.models(), javascript.models());
+        assert_eq!(native.model_id(), javascript.model_id());
         assert!(native.select_model("fixture-model"));
         assert_eq!(
             native.select_model("fixture-model"),

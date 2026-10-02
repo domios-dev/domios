@@ -8,10 +8,9 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 
 | Command | Purpose |
 |---------|---------|
-| `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank] [--supporter on\|off]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. `--supporter` forces Supporter memory re-rank on or off for this call (absent = config decides, default off; exclusive with `--rerank`). When it ran, hits carry `relevance` (shown as `rel N%`) and the response a `supporter` envelope: `applied` (`low_confidence: true` means nothing relevant was found, so treat hits as weak leads), `fallback` or `skipped` with a reason. |
-| `codeterm supporter enable|disable|status|models` | Enable or disable both features, inspect the shared status, or list registered adapters and discovered models. `enable` requires a usable token. |
+| `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank] [--supporter on\|off]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. `--supporter` forces Supporter memory re-rank on or off for this call (absent = connected adapter decides; exclusive with `--rerank`). When it ran, hits carry `relevance` (shown as `rel N%`) and the response a `supporter` envelope: `applied` (`low_confidence: true` means nothing relevant was found, so treat hits as weak leads), `fallback` or `skipped` with a reason. |
+| `codeterm supporter status|models` | Inspect connection, activity and budget, or list registered adapters and discovered models. |
 | `codeterm supporter use <adapter> [--model ID]` | Select a registered adapter and one of its discovered models; unknown adapters and unlisted models are refused. |
-| `codeterm supporter features [--memory-rerank on\|off] [--tab-state on\|off]` | Read or update the feature switches independently. Enabling a feature requires a usable token. |
 | `codeterm supporter token status [--adapter ID]` / `token clear [--adapter ID]` | Inspect adapter token presence/path/`mode_ok`, or clear it; never show the value. |
 | `printf %s "$TOKEN" \| codeterm supporter token set [--adapter ID]` | Store an adapter token. Stdin only (no value flag, refuses a terminal), default adapter `typesafe-jev`. Local machine only; it never crosses `--mesh`. |
 | `codeterm mem get <id>` | Print the full body of one item. Bumps `evidence_count` for `skill\|lesson\|rule\|fact\|preference` (skipped automatically when called from a worker tab via `$CODETERM_WORKER_ID`). |
@@ -197,4 +196,4 @@ codeterm keepawake stop
 codeterm keepawake status
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
