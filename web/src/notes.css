@@ -1,0 +1,35 @@
+.builder-notes { padding-top: 82px; }
+.notes-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 32px; }
+.builder-note { display: flex; flex-direction: column; min-width: 0; padding: 25px; border: 1px solid var(--ct-border); border-radius: 4px 14px 14px 14px; background: var(--ct-bg); }
+.note-meta { display: flex; justify-content: space-between; gap: 15px; color: var(--ct-muted-fg); font: 10px var(--ct-font-mono); }
+.note-meta > span { color: var(--ct-accent); }
+.builder-note blockquote { margin: 23px 0 27px; }
+.builder-note blockquote p { font-size: 14px; line-height: 1.8; color: var(--ct-fg); }
+.note-author { display: flex; align-items: center; gap: 11px; margin-top: auto; font-size: 12px; }
+.note-avatar { display: grid; place-items: center; flex: 0 0 32px; height: 32px; border: 1px solid var(--ct-border); border-radius: 50%; color: var(--ct-muted-fg); font: 10px var(--ct-font-mono); }
+.note-author small { display: block; color: var(--ct-muted-fg); font-size: 11px; margin-top: 5px; }
+.builder-note[data-featured] { grid-column: 1 / -1; padding: 31px 36px; border-left: 3px solid var(--ct-accent); background: color-mix(in srgb, var(--ct-surface) 45%, var(--ct-bg)); }
+.builder-note[data-featured] blockquote { max-width: 900px; margin-block: 24px 28px; }
+.builder-note[data-featured] blockquote p { font-size: clamp(21px, 2.2vw, 27px); line-height: 1.5; letter-spacing: -.45px; color: var(--ct-heading); }
+.builder-note[data-entered="true"] { animation: note-settle var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) both; }
+@keyframes note-settle {
+  0% { transform: translateY(16px); }
+  62% { transform: translateY(-1px); }
+  100% { transform: translateY(0); }
+}
+[data-motion="paused"] .builder-note { animation: none; }
+@media (max-width: 800px) {
+  .notes-grid { grid-template-columns: 1fr; }
+  .builder-note { padding: 23px; }
+  .builder-note[data-featured] { padding: 27px; }
+}
+@media (max-width: 650px) {
+  .builder-notes { padding-top: 60px; }
+  .notes-grid { margin-top: 25px; gap: 12px; }
+  .builder-note, .builder-note[data-featured] { padding: 23px 20px; }
+  .builder-note blockquote { margin-block: 20px 23px; }
+  .note-meta { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .builder-note[data-entered="true"] { animation: none; }
+}

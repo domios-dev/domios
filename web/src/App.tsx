@@ -2,18 +2,21 @@ import { useState } from 'react';
 import { AgentNetwork } from './AgentNetwork';
 import { BrandMark, Icon } from './Icon';
 import type { IconName } from './Icon';
+import { ProviderStrip } from './ProviderStrip';
+import { GatherLink } from './GatherLink';
+import { BuilderNotes } from './BuilderNotes';
 import { Showcase } from './Showcase';
 import { useMediaQuery, useTheme } from './usePreferences';
 
 const download = 'https://github.com/rollacode/codeterm-releases/releases/latest';
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
-  { icon: 'terminal', title: 'A home for every agent.', text: 'Give each agent a tab, a workspace, and a purpose. Move between conversations without losing the thread.', detail: 'TABS & WORKSPACES' },
-  { icon: 'grid', title: 'A team with a plan.', text: 'Orchestrators coordinate. Planners shape the work. Workers execute with a clear role and a task of their own.', detail: 'META-TEAMS' },
-  { icon: 'branch', title: 'Room to work in parallel.', text: 'Agents build in isolated lanes. Work comes together through real merges, with verification where it lands.', detail: 'ISOLATED LANES' },
-  { icon: 'mesh', title: 'Across your machines.', text: 'Connect a trusted mesh. Reach agents and workspaces on another machine from the one in front of you.', detail: 'DISTRIBUTED BY DESIGN' },
-  { icon: 'memory', title: 'Context that stays.', text: 'Durable memory and reusable skills live with the host. Secrets stay on their machine, under your control.', detail: 'MEMORY & SECRETS' },
-  { icon: 'layers', title: 'Your choice of intelligence.', text: 'Claude, Codex, OpenCode, and local models. Extend your environment with providers and capability plugins.', detail: 'PROVIDERS & PLUGINS' },
+  { icon: 'mesh', title: 'One mesh. Your machines.', text: 'Pair your machines into a trusted mesh. Agents reach across it to send commands, hand over work, and return reports.', detail: 'DISTRIBUTED BY DESIGN' },
+  { icon: 'terminal', title: 'A place to pick up the thread.', text: 'Agents live in tabs, grouped into project workspaces. Each has a name that stays, a conversation, and a place to return to.', detail: 'TABS & WORKSPACES' },
+  { icon: 'grid', title: 'A team shaped for the task.', text: 'The Orchestrator coordinates and verifies. The Planner designs tasks and gives each Worker a fitted personality. Named colleagues, with a purpose.', detail: 'META-TEAMS' },
+  { icon: 'branch', title: 'Separate desks. Shared work.', text: 'Workers build in isolated lanes. Accepted work lands through real merges in the main checkout, where it is verified together.', detail: 'ISOLATED LANES' },
+  { icon: 'memory', title: 'Context that stays with you.', text: 'Your host keeps durable memory, reusable skills, secrets, and plugins. Agents can change. The environment remains yours. Secrets stay on their machine.', detail: 'MEMORY & SECRETS' },
+  { icon: 'layers', title: 'Your choice of intelligence.', text: 'Claude, Codex, OpenCode, Cursor, Grok Build, LM Studio, local models, or a provider plugin you write. One environment for your mix of agents.', detail: 'PROVIDERS & PLUGINS' },
 ];
 
 export function App() {
@@ -29,20 +32,26 @@ export function App() {
     </header>
     <main id="main">
       <section className="hero section-wrap" aria-labelledby="hero-title">
-        <a className="hero-badge" href="#explore"><span className="status-dot" />THE OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
+        <a className="hero-badge" href="#explore">THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
-        <p className="hero-copy">A home for your agents. A workspace for their work.<br className="desktop-break" /> Bring your teams, tools, and machines together.</p>
+        <p className="hero-copy">Domios runs on every machine you own, joined in one trusted mesh. Agents on your laptop, desktop, and servers reach each other and work as one team.</p>
         <div className="hero-actions"><a className="button primary" href={download}>Download Domios<Icon name="download" size={18} /></a><a className="button secondary" href={github}><Icon name="github" size={18} />Find us on GitHub<Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
         <AgentNetwork />
         {!reducedMotion && <button className="motion-control" aria-pressed={motionPaused} onClick={() => setMotionPaused(!motionPaused)}><Icon name={motionPaused ? 'play' : 'pause'} size={12} />{motionPaused ? 'Resume' : 'Pause'} animation</button>}
       </section>
-      <div className="provider-strip section-wrap"><span>BRING YOUR AGENTS</span><div><span className="provider-claude">✳</span> Claude</div><div><Icon name="terminal" size={20} /> Codex</div><div><span className="provider-open">⌘</span> OpenCode</div><div><Icon name="layers" size={20} /> Local models</div></div>
+      <ProviderStrip />
+      <BuilderNotes staticMotion={reducedMotion || motionPaused} />
       <Showcase reducedMotion={reducedMotion} />
       <section id="foundation" className="foundation section-wrap" aria-labelledby="foundation-title"><div className="section-heading"><div><p className="eyebrow">THE ENVIRONMENT MATTERS</p><h2 id="foundation-title">Let your agents get to work.</h2></div><p>The infrastructure around the intelligence.<br className="desktop-break" /> Built to keep everything connected.</p></div>
         <div className="pillar-grid">{pillars.map((pillar, index) => <article className="pillar" key={pillar.title}><div className="pillar-top"><Icon name={pillar.icon} size={25} /><span>0{index + 1}</span></div><h3>{pillar.title}</h3><p>{pillar.text}</p><span className="pillar-detail">{pillar.detail}</span></article>)}</div>
+        <div className="field-notes">
+          <article><span className="eyebrow">WITHIN REACH</span><h3>Leave the desk. Stay in touch.</h3><p>Talk to your agents through Telegram, send voice through a transcription plugin, or open the full interface in a browser over your private Tailnet.</p></article>
+          <article><span className="eyebrow">THE ENVIRONMENT AT WORK</span><h3>Keep an eye on the whole.</h3><p>See health, agent usage, and quotas. Check and install signed updates, then return to your work.</p></article>
+        </div>
+        <aside className="coming-note"><span className="eyebrow">COMING / THE MESH FABRIC</span><p>Shared memory across machines. Project awareness across your mesh. Delegation that finds the right machine for the task.</p></aside>
       </section>
-      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><a className="button primary" href={download}>Get Domios<Icon name="arrow" size={18} /></a><p>Available for macOS, Windows, and Linux.</p></section>
+      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink href={download}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
     <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
   </div>;

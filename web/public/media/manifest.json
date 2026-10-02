@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalBytes": 2164309,
+  "totalBytes": 3576740,
   "clips": [
     {
       "id": "board",
@@ -17,15 +17,15 @@
       ],
       "mp4": {
         "src": "/media/board.mp4",
-        "bytes": 67108
+        "bytes": 190889
       },
       "webm": {
         "src": "/media/board.webm",
-        "bytes": 43653
+        "bytes": 329586
       },
       "poster": {
         "src": "/media/board-poster.webp",
-        "bytes": 17886
+        "bytes": 134390
       }
     },
     {
@@ -58,15 +58,15 @@
       ],
       "mp4": {
         "src": "/media/mesh.mp4",
-        "bytes": 145450
+        "bytes": 350871
       },
       "webm": {
         "src": "/media/mesh.webm",
-        "bytes": 138962
+        "bytes": 334661
       },
       "poster": {
         "src": "/media/mesh-poster.webp",
-        "bytes": 20882
+        "bytes": 32498
       }
     },
     {
@@ -99,15 +99,15 @@
       ],
       "mp4": {
         "src": "/media/plugins.mp4",
-        "bytes": 586376
+        "bytes": 596841
       },
       "webm": {
         "src": "/media/plugins.webm",
-        "bytes": 438344
+        "bytes": 466056
       },
       "poster": {
         "src": "/media/plugins-poster.webp",
-        "bytes": 51530
+        "bytes": 53084
       }
     },
     {
@@ -150,15 +150,15 @@
       ],
       "mp4": {
         "src": "/media/mesh-talk.mp4",
-        "bytes": 281885
+        "bytes": 443162
       },
       "webm": {
         "src": "/media/mesh-talk.webm",
-        "bytes": 345761
+        "bytes": 604183
       },
       "poster": {
         "src": "/media/mesh-talk-poster.webp",
-        "bytes": 21534
+        "bytes": 35578
       }
     }
   ]
