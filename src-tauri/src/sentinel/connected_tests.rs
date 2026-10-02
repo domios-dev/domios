@@ -5,6 +5,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use super::provenance::{Classification, Scope, Stage};
 use super::{classify, machine, scheduler};
 use crate::service::supporter::{self, SupporterRuntime, VerdictKind};
 use codeterm_types::decision::{
@@ -75,12 +76,14 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
         .enumerate()
     {
         let request = classify::request(&job, output);
+        let scope = Scope::from(&job);
         let outcome = machine::evaluate(
             &mut job.machine,
             output.as_bytes(),
             &job.buckets,
             &job.routes,
             None,
+            scope,
             || {
                 classify::decide(
                     model.clone(),
@@ -101,7 +104,7 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
             outcome.reason,
             ["transition", "unchanged", "budget_exhausted"][index]
         );
-        scheduler::record(&runtime, &job, &outcome, "decision").unwrap();
+        scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let journal = std::fs::read_to_string(dir.path().join("supporter/journal.jsonl")).unwrap();
@@ -145,15 +148,22 @@ fn sentinel_feed_scrubs_job_name_and_declared_bucket_without_probe_text() {
     job.id = format!("CODETERM_API_TOKEN={secret}");
     let bucket = "supplied_bucket";
     job.buckets = vec![bucket.into()];
-    let outcome = machine::Outcome {
-        reason: "transition",
-        verdict: Some(machine::Verdict {
-            bucket: bucket.into(),
-            confidence: 0.9,
-        }),
-        route: None,
-    };
-    scheduler::record(&runtime, &job, &outcome, "decision").unwrap();
+    let scope = Scope::from(&job);
+    let outcome = machine::evaluate(
+        &mut job.machine,
+        b"opaque-output",
+        &job.buckets,
+        &job.routes,
+        None,
+        scope,
+        || {
+            Classification::adapter(Ok(machine::Verdict {
+                bucket: bucket.into(),
+                confidence: 0.9,
+            }))
+        },
+    );
+    scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
     let feed = runtime.feed(10, None).unwrap();
     assert_eq!(feed.len(), 1);
     assert_eq!(feed[0]["asked"][0]["answer"], bucket.replace('_', " "));
@@ -185,12 +195,14 @@ pub(super) fn assert_budget_skip_is_journaled() {
         super::tests::store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
     let mut job = super::tests::create(&mut store, "team");
     let request = classify::request(&job, "private");
+    let scope = Scope::from(&job);
     let outcome = machine::evaluate(
         &mut job.machine,
         b"private",
         &job.buckets,
         &job.routes,
         None,
+        scope,
         || {
             classify::decide(
                 model.clone(),
@@ -202,7 +214,7 @@ pub(super) fn assert_budget_skip_is_journaled() {
     assert_eq!(outcome.reason, "budget_exhausted");
     assert!(outcome.route.is_none());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    scheduler::record(&runtime, &job, &outcome, "skip").unwrap();
+    scheduler::record(&runtime, &job, &outcome, Stage::Skip).unwrap();
     let journal = std::fs::read_to_string(dir.path().join("supporter/journal.jsonl")).unwrap();
     let entries: Vec<serde_json::Value> = journal
         .lines()
@@ -215,5 +227,15 @@ pub(super) fn assert_budget_skip_is_journaled() {
             .count(),
         1
     );
+    let skipped = entries
+        .iter()
+        .find(|entry| entry["reason"] == "budget_exhausted" && entry["action"] == "skip")
+        .unwrap();
+    assert_eq!(skipped["classification_source"], "adapter");
+    assert_eq!(skipped["classification_reason"], "budget_exhausted");
+    assert!(skipped["observation_id"].is_string());
+    assert!(skipped["label"].is_null());
+    assert_eq!(skipped["route_status"], "not_attempted");
+    assert!(skipped["route"].is_null());
     assert!(!journal.contains("private"));
 }
