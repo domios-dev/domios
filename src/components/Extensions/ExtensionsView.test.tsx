@@ -1,9 +1,8 @@
 // Run: npx tsx src/components/Extensions/ExtensionsView.test.tsx
 
 import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ExtensionsView } from "./ExtensionsView";
 import type { PluginSnapshot } from "./types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { __resetPluginSnapshotStoreForTest } from "../../lib/pluginSnapshotStore";
@@ -37,6 +36,8 @@ function setupDom() {
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
+  // React DOM detects native input-event support when its client entrypoint loads.
+  const { createRoot } = await import("react-dom/client");
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -44,6 +45,13 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
     root.render(ui);
   });
   return { host, root };
+}
+
+async function renderExtensionsView(): Promise<{ host: HTMLDivElement; root: Root }> {
+  const { ExtensionsView } = await import("./ExtensionsView");
+  return render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
 }
 
 async function flush() {
@@ -156,13 +164,7 @@ function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT, config: unknown 
 async function renderExtensions(snapshot: PluginSnapshot = SNAPSHOT) {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock(snapshot);
-  const view = await render(
-    <ExtensionsView
-      visible
-      pluginActivities={new Map()}
-      pluginActivityDisplayMap={new Map()}
-    />,
-  );
+  const view = await renderExtensionsView();
   await flush();
   return { ...view, calls };
 }
@@ -231,9 +233,7 @@ test("Allowed hosts editor adds and removes grants through plugin settings actio
   const calls = installInvokeMock(NETWORK_SNAPSHOT, {
     plugins: { lmstudio: { baseUrl: "http://localai.example.test:1234" } },
   });
-  const { host, root } = await render(
-    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
-  );
+  const { host, root } = await renderExtensionsView();
   await flush();
   await act(async () => {
     host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="lmstudio"]')?.click();
@@ -247,7 +247,9 @@ test("Allowed hosts editor adds and removes grants through plugin settings actio
   const hostInput = host.querySelector<HTMLInputElement>('[aria-label="Host or host:port"]');
   assert(hostInput, "host entry control should have an accessible name");
   await act(async () => changeInput(hostInput, "new.example.test:9443"));
-  await act(async () => button(host, '[aria-label="Allow host"]').click());
+  const allowHost = button(host, '[aria-label="Allow host"]');
+  assert(!allowHost.disabled, "typing a host should enable the allow control");
+  await act(async () => allowHost.click());
   await flush();
 
   const actionCalls = calls.filter((call) => call.cmd === "plugin_manager_action");
@@ -279,9 +281,7 @@ test("successful update immediately clears stale update state", async () => {
     if (cmd === "plugin_manager_action") return UPDATED_SNAPSHOT as T;
     throw new Error(`unexpected invoke: ${cmd}`);
   });
-  const { host, root } = await render(
-    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
-  );
+  const { host, root } = await renderExtensionsView();
   await flush();
 
   await act(async () => {
@@ -349,6 +349,7 @@ test("Add channel toggles the inline form", async () => {
 test("opening Extensions refreshes a snapshot changed outside the view", async () => {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock();
+  const { ExtensionsView } = await import("./ExtensionsView");
   const { root } = await render(
     <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
   );
@@ -432,9 +433,7 @@ test("first loading state renders before snapshot resolves", async () => {
     throw new Error(`unexpected invoke: ${cmd}`);
   });
 
-  const { host, root } = await render(
-    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
-  );
+  const { host, root } = await renderExtensionsView();
   assert(host.querySelector('[data-testid="extensions-loading"]'), "loading state should render before first snapshot resolves");
 
   await act(async () => {
@@ -463,6 +462,7 @@ test("refresh failure preserves cached rows and shows error", async () => {
     throw new Error(`unexpected invoke: ${cmd}`);
   });
 
+  const { ExtensionsView } = await import("./ExtensionsView");
   const { host, root } = await render(
     <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
   );
