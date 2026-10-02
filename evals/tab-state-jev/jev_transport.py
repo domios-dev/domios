@@ -98,7 +98,7 @@ def identity_hash(path, end, clock):
 
 
 def native_support():
-    require(sys.implementation.name == "cpython" and (3, 11) <= sys.version_info[:2] <= (3, 14),
+    require(sys.implementation.name == "cpython" and (3, 9) <= sys.version_info[:2] <= (3, 14),
             "unsupported_interpreter")
     require(os.name == "posix" and sys.platform in ("linux", "darwin"), "private_directory_unsupported")
     if sys.platform == "linux":
