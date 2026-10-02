@@ -9,13 +9,14 @@ export function useLiquidMesh() {
     if (!element) return;
     const scene = createMeshScene(element);
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const motionOwner = element.closest('[data-motion]');
+    const motionOwner = element.closest('.site') ?? element.closest('[data-motion]');
     let visible = false;
     let frame = 0;
     let previous = 0;
     let disposed = false;
 
-    const staticMotion = () => preference.matches || motionOwner?.getAttribute('data-motion') === 'paused';
+    const staticMotion = () => preference.matches || motionOwner?.getAttribute('data-motion') === 'paused'
+      || motionOwner?.getAttribute('data-entrance') === 'pending';
     const canAnimate = () => !disposed && visible && !document.hidden && !staticMotion();
 
     function tick(timestamp: number) {
@@ -28,6 +29,7 @@ export function useLiquidMesh() {
     }
 
     function sync() {
+      if (disposed) return;
       if (canAnimate()) {
         if (!frame) {
           previous = 0;
@@ -46,9 +48,10 @@ export function useLiquidMesh() {
       sync();
     });
     const resize = new ResizeObserver(() => {
+      if (disposed) return;
       scene.resize();
       if (staticMotion()) scene.still();
-      else scene.render(0);
+      else if (canAnimate()) scene.render(0);
     });
     const motion = new MutationObserver(sync);
     scene.resize();
@@ -56,7 +59,7 @@ export function useLiquidMesh() {
     intersection.observe(element);
     resize.observe(element);
     element.querySelectorAll('.machine-home').forEach((card) => resize.observe(card));
-    if (motionOwner) motion.observe(motionOwner, { attributes: true, attributeFilter: ['data-motion'] });
+    if (motionOwner) motion.observe(motionOwner, { attributes: true, attributeFilter: ['data-motion', 'data-entrance'] });
     document.addEventListener('visibilitychange', sync);
     preference.addEventListener('change', sync);
 
