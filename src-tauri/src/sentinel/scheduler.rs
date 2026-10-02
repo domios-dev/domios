@@ -7,7 +7,9 @@ use serde_json::json;
 use tauri::Manager;
 
 use super::{
-    classify, machine, probe, routes,
+    classify, machine, probe,
+    provenance::{Evidence, Scope, Stage},
+    routes,
     store::{Lease, Sentinel, Store},
 };
 use crate::cron::clock::SharedClock;
@@ -85,13 +87,13 @@ fn journal(
     svc: &ServiceState,
     job: &Sentinel,
     outcome: &machine::Outcome,
-    action: &str,
+    stage: Stage,
 ) -> std::io::Result<()> {
     record(
         &supporter::runtime_with_notifications(svc),
         job,
         outcome,
-        action,
+        stage,
     )
 }
 
@@ -99,14 +101,57 @@ pub fn record(
     runtime: &supporter::SupporterRuntime,
     job: &Sentinel,
     outcome: &machine::Outcome,
-    action: &str,
+    stage: Stage,
 ) -> std::io::Result<()> {
+    if !outcome.evidence.matches(job) {
+        return Err(std::io::Error::other(
+            "sentinel observation scope or state hash mismatch",
+        ));
+    }
+    let route_stage = matches!(
+        stage,
+        Stage::RouteClaim | Stage::RouteCompleted | Stage::RouteFailed
+    );
+    if route_stage
+        && (outcome.reason != "transition" || outcome.route.is_none() || outcome.verdict.is_none())
+    {
+        return Err(std::io::Error::other(
+            "sentinel route stage requires a confident transition",
+        ));
+    }
+    let action = match stage {
+        Stage::Decision => "decision",
+        Stage::RouteClaim => "route_claim",
+        Stage::RouteCompleted => outcome
+            .route
+            .as_ref()
+            .map(routes::action_name)
+            .unwrap_or("skip"),
+        Stage::RouteFailed | Stage::Skip => "skip",
+    };
+    let reason = if stage == Stage::RouteFailed {
+        "route_failed"
+    } else {
+        outcome.reason
+    };
+    let route_target = match &outcome.route {
+        Some(machine::Route::Notify) => Some(job.creator_tab_id.as_str()),
+        Some(machine::Route::Send(target) | machine::Route::Cron(target)) => Some(target.as_str()),
+        _ => None,
+    };
     runtime.sentinel_event(json!({
         "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "sentinel_id": job.id,
-        "tab": job.creator_tab_id, "team_id": job.team_id, "state_hash": job.machine.last_hash,
+        "tab": job.creator_tab_id, "team_id": job.team_id, "workspace_id": job.workspace_id,
+        "state_hash": outcome.evidence.state_hash,
+        "evaluation_id": outcome.evidence.evaluation_id,
+        "observation_id": outcome.evidence.observation_id,
+        "classification_source": outcome.evidence.source,
+        "classification_reason": outcome.reason,
         "label": outcome.verdict.as_ref().map(|v| supporter::criteria_hash(v.bucket.as_bytes())),
-        "confidence": outcome.verdict.as_ref().map(|v| v.confidence), "action": action, "reason": outcome.reason,
-        "route": outcome.route.as_ref().map(routes::action_name),
+        "confidence": outcome.verdict.as_ref().map(|v| v.confidence), "action": action, "reason": reason,
+        "stage": stage.name(), "route_status": stage.route_status(),
+        "route": outcome.route.as_ref().map(routes::action_name), "route_target": route_target,
+        "recipient_receipt": null,
         "asked": supporter::sentinel_questions(&job.id, &job.buckets, outcome.verdict.as_ref().map(|v| v.bucket.as_str()), outcome.reason),
     }))
 }
@@ -119,11 +164,12 @@ fn record_failure(handle: &Handle, svc: &ServiceState, lease: &Lease, reason: &'
             svc,
             &job,
             &machine::Outcome {
+                evidence: Evidence::new(Scope::from(&lease.job), None),
                 reason,
                 verdict: None,
                 route: None,
             },
-            "skip",
+            Stage::Skip,
         );
     }
 }
@@ -163,12 +209,14 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .unwrap_or(Duration::from_secs(30))
     };
     let mut job = lease.job.clone();
+    let scope = Scope::from(&job);
     let outcome = machine::evaluate(
         &mut job.machine,
         &output.bytes,
         &job.buckets,
         &job.routes,
         job.until.as_deref(),
+        scope,
         || classify::classify(svc, &lease.job, &output.text, remaining),
     );
     job.last_reason = Some(outcome.reason.into());
@@ -181,7 +229,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             return;
         }
     }
-    if outcome.reason != "unchanged" && journal(svc, &job, &outcome, "decision").is_err() {
+    if journal(svc, &job, &outcome, Stage::Decision).is_err() {
         return;
     }
     if let (Some(route), Some(verdict)) = (&outcome.route, &outcome.verdict) {
@@ -194,7 +242,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         if expired {
             return;
         }
-        if journal(svc, &job, &outcome, "route_claim").is_err() {
+        if journal(svc, &job, &outcome, Stage::RouteClaim).is_err() {
             return;
         }
         if lease.cancelled.load(Ordering::SeqCst)
@@ -206,16 +254,11 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         }
         match routes::run(svc, &job, verdict, route, &output.text) {
             Ok(()) => {
-                let _ = journal(svc, &job, &outcome, routes::action_name(route));
+                let _ = journal(svc, &job, &outcome, Stage::RouteCompleted);
             }
             Err(error) => {
                 log::warn!("[sentinel] route failed id={}: {error}", job.id);
-                let failed = machine::Outcome {
-                    reason: "route_failed",
-                    verdict: outcome.verdict.clone(),
-                    route: None,
-                };
-                let _ = journal(svc, &job, &failed, "skip");
+                let _ = journal(svc, &job, &outcome, Stage::RouteFailed);
             }
         }
     }

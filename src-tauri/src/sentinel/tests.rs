@@ -1,20 +1,35 @@
 use super::machine::*;
+use super::provenance::{Classification, Failure, Scope};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
 fn buckets() -> Vec<String> {
     vec!["waiting".into(), "passed".into(), "failed".into()]
 }
-fn verdict(bucket: &str, confidence: f64) -> Result<Verdict, &'static str> {
-    Ok(Verdict {
+fn verdict(bucket: &str, confidence: f64) -> Classification {
+    Classification::adapter(Ok(Verdict {
         bucket: bucket.into(),
         confidence,
-    })
+    }))
+}
+fn scope() -> Scope {
+    Scope {
+        sentinel_id: "watch".into(),
+        creator_tab_id: "creator".into(),
+        team_id: Some("team".into()),
+        workspace_id: "workspace".into(),
+    }
 }
 fn tick(machine: &mut Machine, output: &[u8], bucket: &str, confidence: f64) -> Outcome {
-    evaluate(machine, output, &buckets(), &BTreeMap::new(), None, || {
-        verdict(bucket, confidence)
-    })
+    evaluate(
+        machine,
+        output,
+        &buckets(),
+        &BTreeMap::new(),
+        None,
+        scope(),
+        || verdict(bucket, confidence),
+    )
 }
 
 #[test]
@@ -28,6 +43,7 @@ fn sentinel_unchanged_output_makes_no_call() {
             &buckets(),
             &BTreeMap::new(),
             None,
+            scope(),
             || {
                 calls.set(calls.get() + 1);
                 verdict("waiting", 0.9)
@@ -84,7 +100,8 @@ fn sentinel_budget_exhausted_no_route_journaled() {
         &buckets(),
         &BTreeMap::new(),
         None,
-        || Err("budget_exhausted"),
+        scope(),
+        || Classification::adapter(Err(Failure::Budget)),
     );
     assert_eq!(out.reason, "budget_exhausted");
     assert_eq!(out.route, None);
@@ -94,6 +111,7 @@ fn sentinel_budget_exhausted_no_route_journaled() {
         &buckets(),
         &BTreeMap::new(),
         None,
+        scope(),
         || panic!("unchanged output must not retry the budget"),
     );
     assert_eq!(out.reason, "unchanged");
@@ -109,13 +127,20 @@ fn sentinel_until_is_one_shot() {
         &buckets(),
         &routes,
         Some("passed"),
+        scope(),
         || verdict("passed", 0.9),
     );
     assert_eq!(out.route, Some(Route::Send("tab".into())));
     assert!(machine.stopped);
-    let out = evaluate(&mut machine, b"2", &buckets(), &routes, None, || {
-        panic!("stopped sentinel must not classify")
-    });
+    let out = evaluate(
+        &mut machine,
+        b"2",
+        &buckets(),
+        &routes,
+        None,
+        scope(),
+        || panic!("stopped sentinel must not classify"),
+    );
     assert_eq!(out.route, None);
 }
 
@@ -365,6 +390,7 @@ fn sentinel_transition_and_hash_survive_restart() {
         &restored.buckets,
         &restored.routes,
         None,
+        scope(),
         || panic!("restored unchanged hash must skip"),
     );
     assert_eq!(skipped.reason, "unchanged");

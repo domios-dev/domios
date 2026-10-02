@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::provenance::{Classification, Evidence, Scope};
+
 pub const MIN_INTERVAL_MS: u64 = 10_000;
 pub const ROUTE_CONFIDENCE: f64 = 0.80;
 pub const MAX_BUCKETS: usize = 16;
@@ -56,6 +58,7 @@ pub struct Verdict {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Outcome {
+    pub evidence: Evidence,
     pub reason: &'static str,
     pub verdict: Option<Verdict>,
     pub route: Option<Route>,
@@ -108,24 +111,30 @@ pub fn evaluate(
     buckets: &[String],
     routes: &BTreeMap<String, Route>,
     until: Option<&str>,
-    classify: impl FnOnce() -> Result<Verdict, &'static str>,
+    scope: Scope,
+    classify: impl FnOnce() -> Classification,
 ) -> Outcome {
-    let skipped = |reason| Outcome {
+    let mut evidence = Evidence::new(scope, None);
+    let skipped = |reason, evidence| Outcome {
+        evidence,
         reason,
         verdict: None,
         route: None,
     };
     if machine.stopped {
-        return skipped("stopped");
+        return skipped("stopped", evidence);
     }
     let hash = format!("{:x}", Sha256::digest(output));
+    evidence.state_hash = Some(hash.clone());
     if machine.last_hash.as_deref() == Some(&hash) {
-        return skipped("unchanged");
+        return skipped("unchanged", evidence);
     }
     machine.last_hash = Some(hash);
-    let verdict = match classify() {
+    let classification = classify();
+    evidence.classified(classification.source);
+    let verdict = match classification.result {
         Ok(verdict) => verdict,
-        Err(reason) => return skipped(reason),
+        Err(failure) => return skipped(failure.reason(), evidence),
     };
     let reason = if verdict.bucket == "other" || !buckets.contains(&verdict.bucket) {
         "other"
@@ -152,6 +161,7 @@ pub fn evaluate(
         None
     };
     Outcome {
+        evidence,
         reason,
         verdict: Some(verdict),
         route,
