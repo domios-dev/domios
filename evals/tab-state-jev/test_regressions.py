@@ -6,7 +6,11 @@ Synthetic mechanism fixtures only; no event, credential or live-data evidence.
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
+
+import jev_transport as transport_module
 
 import run
 import request_contract as contract
@@ -78,6 +82,31 @@ class LegacyRegressionTests(unittest.TestCase):
                     self.assertEqual(answer["prediction"], "ready_idle")
                 else:
                     self.assertIsNone(answer)
+
+
+class WindowsPlatformTests(unittest.TestCase):
+    def test_captured_windows_process_handle_is_closed_exactly_once(self):
+        class CapturedHandle:
+            def __int__(self):
+                return 77
+        handle = CapturedHandle()
+        handle.Close = Mock()
+        kernel = Mock()
+        kernel.WaitForSingleObject.return_value = 0
+        def exit_code(captured, pointer):
+            pointer._obj.value = 0
+            return 1
+        kernel.GetExitCodeProcess.side_effect = exit_code
+        with patch.object(transport_module.ctypes, "WinDLL", return_value=kernel, create=True):
+            authority = transport_module.ProcessAuthority(
+                SimpleNamespace(pid=999, returncode=None, _handle=handle), windows=True)
+            self.assertEqual(authority.wait_exact(), 0)
+            authority.close()
+            authority.close()
+            self.assertFalse(authority.cancel())
+        handle.Close.assert_called_once()
+        kernel.WaitForSingleObject.assert_called_once_with(77, 0xFFFFFFFF)
+        kernel.TerminateProcess.assert_not_called()
 
 
 if __name__ == "__main__":
