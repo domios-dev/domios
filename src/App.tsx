@@ -559,6 +559,7 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
+        api={stableApiConfig}
         onToggleSidebar={toggleSidebar}
         showSidebarToggle={!sidebarOpen}
         onNewTab={handleNewTab}

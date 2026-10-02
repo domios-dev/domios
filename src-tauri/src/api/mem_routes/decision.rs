@@ -361,7 +361,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     let model = crate::service::supporter::budgeted_model(
         model,
         backend.supporter_runtime(),
-        supporter.calls_per_hour,
+        supporter.calls_per_hour.unwrap_or(0),
         crate::service::supporter::VerdictKind::Rerank,
         p.caller_tab_id.clone(),
         None,

@@ -193,7 +193,7 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "heading", text: "Budget and fallback" },
         {
           type: "paragraph",
-          text: "All tabs share a limit of 600 model requests per rolling hour by default. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, the remaining budget, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. CodeTerm alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When the budget runs out, memory returns its normal results and tab observations pause until capacity is available.",
+          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, requests per hour and day, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. CodeTerm alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
         },
         { type: "heading", text: "Connect an adapter" },
         {
@@ -276,11 +276,11 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "supporter.calls_per_hour defaults to 600 across all tabs. It counts requests, not questions: a shared-state request with several questions costs one slot; per-candidate diagnostic mode costs one per candidate. Memory re-rank runs under supporter.deadline_ms (3000 ms by default). Budget accounting uses recorded request times, not a periodic reset.",
+              text: "supporter.calls_per_hour is optional and defaults to no cap; 0 is unlimited and a positive value caps requests across all tabs. It counts requests, not questions: a shared-state request with several questions costs one slot; per-candidate diagnostic mode costs one per candidate. Memory re-rank runs under supporter.deadline_ms (3000 ms by default). Budget accounting uses recorded request times, not a periodic reset.",
             },
             {
               type: "tip",
-              text: "A failed re-rank returns baseline hits with a fallback reason; budget exhaustion reports budget and status budget_reached with the next free time. codeterm mem search --supporter on|off is a one-search diagnostic override. Clearing a required token disconnects that adapter; optional and token-free adapters remain connected without it.",
+              text: "A failed re-rank returns baseline hits with a fallback reason; an explicit cap reached reports budget and status budget_reached with the next free time. codeterm mem search --supporter on|off is a one-search diagnostic override. Clearing a required token disconnects that adapter; optional and token-free adapters remain connected without it.",
             },
           ],
         },

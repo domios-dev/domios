@@ -19,7 +19,7 @@ A client presents and requests. It holds no authority of its own: every state it
 | ID | Client | What it is | Invariants |
 |---|---|---|---|
 | client:ui | UI | One interface with two shells: the desktop app, reaching the service through the host, and the web client, reaching it over the owner's Tailnet from a phone or browser. The chat view renders an agent as a conversation inside either shell; plugin views run in sandboxed frames inside it | Shows what the service reports and never infers state of its own; renders no delivery banners, failure cards or retry actions; close dialogs list affected Team members, crons, and lanes; close refusals appear as toasts; rendered agent HTML and plugin views have no network or arbitrary file access; web access is Tailnet-only by default and the API token is the credential |
-| client:cli | CLI | The spinal cord: the one control surface for agents and people, over the local socket or the authenticated API, and to other machines through the mesh | Its command tree is the contract the generated reference, chat cards and prompts follow; a contract change audits every consumer; the daemon never shells out to its own CLI |
+| client:cli | CLI | The spinal cord's control surface for agents and people, over the local socket or the authenticated API, and to other machines through the mesh | Its command tree is the contract the generated reference, chat cards and prompts follow; a contract change audits every consumer; the daemon never shells out to its own CLI |
 
 Agents are users of the CLI, not clients of their own. Bridges, webhook senders, service daemons and mesh peers are not clients either: they enter through the message gateway or the mesh, where trust is decided.
 
@@ -32,7 +32,7 @@ The CLI command groups and their accepted inputs and behavior form a product con
 The hub. One service owns every operation on workspaces, tabs, agents and plans, and every transport delegates to it: desktop host calls, the authenticated API, the local socket and mesh relays. Validation, events and cleanup happen once, here, whatever the entry point.
 
 - Root: true.
-- Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; a confirmed human may close a workspace containing a coordinator; an agent cannot close its own coordinator workspace; a headerless REST close is Unattributed unless its body confirms the exact target; workspace close sends each Team through Team close before removing remaining workspace tabs; an outdated or versionless protocol is refused; service requests stay responsive while blocking and memory-intensive work runs; background work is bounded and isolated so it cannot starve or take down the API; coordination waits on observed events, never on sleeps; subsystems stop and start without restarting the daemon where they can.
+- Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; workspace close follows the [Team teardown contract](orchestration.md#team-teardown) before removing remaining tabs; a headerless REST close is Unattributed unless its body confirms the exact target; an outdated or versionless protocol is refused; service requests stay responsive while blocking and memory-intensive work runs; background work is bounded and isolated so it cannot starve or take down the API; coordination waits on observed events, never on sleeps; subsystems stop and start without restarting the daemon where they can.
 - Dependent capabilities: workspaces and tabs, health and diagnostics, updates, and the web UI.
 
 ### General Agent {#core:general-agent}
@@ -40,7 +40,7 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 The protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents.
 
 - Part of: core:agents-and-providers.
-- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence; its permanent prompt is regenerated from installation and user identity, personality, shared agent guidance, and current memory when available; unavailable memory does not block startup; first-run bootstrap is a separate one-time message and is not sent on session resume.
+- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence; its permanent prompt is regenerated from installation and user identity, personality, shared agent guidance, and current memory when available; unavailable memory does not block startup; first-run bootstrap is a separate one-time message and is not sent on session resume; the [Supporter contract](supporter-agent.md#bounded-recovery-and-unattended-work) owns bounded General Agent recovery and its deterministic crash exception.
 - Dependent capabilities: workspaces and tabs, agent providers, session continuity, Telegram bridge, and remote work.
 
 ### Crash-recovery supervisor {#core:crash-recovery-supervisor}
@@ -64,7 +64,7 @@ What one CodeTerm instance remembers across restarts: configuration, the workspa
 Real terminals, one per tab, and the input path into them.
 
 - Part of: core:service-layer.
-- Invariants: a payload is written at most once; after it reaches the input queue a failure may only be submit unconfirmed, never unavailable; submit recovery sends a bounded blind key-only burst without screen, composer, status, or provider-identity gating; each terminal has one resettable burst and a new send cancels the old one; only an exact user turn appended after the send to the tab's own bound session confirms delivery, and each turn confirms at most one send; screen output, pre-send transcript history, and another session never prove delivery. User-initiated uncertainty remains pending rather than becoming a refusal, while a programmatic send may fail only on a proven pre-write refusal. The delivery ledger is internal telemetry: Chat UI renders no delivery banners, failure cards, Retry actions, or notifications, and a daemon restart never fabricates a delivery result. Launch input goes directly to the terminal already owned by its lifecycle, outside the post-ready send path. Any change to PTY or Chat input delivery needs the owner's explicit approval first.
+- Invariants: a payload is written at most once; after it reaches the input queue a failure may only be submit unconfirmed, never unavailable; submit recovery sends a bounded blind key-only burst without screen, composer, status, or provider-identity gating; each terminal has one resettable burst and a new send cancels the old one; only an exact user turn appended after the send to the tab's own bound session confirms delivery, and each turn confirms at most one send; screen output, pre-send transcript history, and another session never prove delivery. Screen or text classification, whether heuristic or model-based, never authorizes refusing text or keys because the screen resembles a provider dialog. User-initiated uncertainty remains pending rather than becoming a refusal, while a programmatic send may fail only on a proven pre-write refusal. The delivery ledger is internal telemetry: Chat UI renders no delivery banners, failure cards, Retry actions, or notifications, and a daemon restart never fabricates a delivery result. Launch input goes directly to the terminal already owned by its lifecycle, outside the post-ready send path. Any change to PTY or Chat input delivery needs the owner's explicit approval first.
 - Dependent capabilities: message delivery.
 
 ### Agents and providers {#core:agents-and-providers}
@@ -72,28 +72,29 @@ Real terminals, one per tab, and the input path into them.
 What makes a tab an agent: provider capabilities, launch and resume, detection, session binding and the chat-backend shells that run without a terminal. A plugin-backed shell's active system prompt is visible in chat.
 
 - Part of: core:service-layer.
-- Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a provider may declare a safe onboarding choice for delegated Worker and Planner launches, while owner-facing prompts stay visible to the owner; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; `agent restart` resumes only a verified session, and fresh-launches a known provider from a confirmed `LaunchBindingUnconfirmed` shell when no verified recovery session is available; its result reports `resumed` or `fresh_launch` and never succeeds without an observed ready agent; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract.
+- Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a provider may declare a safe onboarding choice for delegated Worker and Planner launches, while owner-facing prompts stay visible to the owner; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; `agent restart` resumes only a verified session, and fresh-launches a known provider from a confirmed `LaunchBindingUnconfirmed` shell when no verified recovery session is available; its result reports `resumed` or `fresh_launch` and never succeeds without an observed ready agent; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract. The [permission contract](permissions.md) owns agent access and folder trust. Provider lifecycle owns update coordination; the Supporter supplies classification, not update authority.
+
+#### Provider lifecycle
+
+The planned coordinator extends the existing provider update responsibility under deterministic provider and session evidence. A declared update check or classified update prompt initiates one automatic update per provider and target version, deduplicated across tabs and restarts, without a consent click. The coordinator is a deterministic host operation; model availability changes its classification path, not its authority to perform the declared update. It uses the provider's declared update operation; only production participates by default, with explicit opt-in for another instance.
+
+While an update runs, prompts receive only the provider-declared safe option, such as Skip; a working tab is never told to choose Update now. Success restarts idle tabs through session-aware recovery, including the General Agent. A turn in flight or an in-progress task keeps a tab pending until its next eligible idle event. Each tab restarts at most once per update. Failure restarts nothing and leaves the old version running. One summary reports restarted and pending tabs, is updated as pending work finishes, and retains failure evidence; update and restart actions are journaled.
 
 ### Prompts {#core:prompts}
 
 The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.
 
 - Part of: core:agents-and-providers.
-- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; agent-to-agent text is English.
+- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches the planned [Sentinels](supporter-agent.md#sentinels) for watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
 - Dependent capabilities: teams and roles, task-fitted personality.
 
 ### Plans and orchestration {#core:plans-and-orchestration}
 
-Durable intent and the team that carries it out: goals, specs, plans, tasks and strides; the Orchestrator, optional Planner, optional Cartographer Manager, and Workers; dispatch, acknowledgement, reports, review and lanes.
+Durable intent and the Team that carries it out: goals, specs, plans, tasks, reports and review. The [orchestration contract](orchestration.md) owns roles, dispatch and review authority, isolated work, pause, continuity and Team teardown.
 
 - Part of: core:service-layer.
-- Invariants: planner state is the source of truth; the Planner shapes tasks, or the Orchestrator does when planning is waived; a Team-adopted plan binds its unique live Planner; Team close inventories every Team-owned task lane and reports removed, retained-with-reason, and worktree-less branch entries; it removes only clean lanes whose branch tip is an ancestor of the recorded destination and records unsafe lanes as cleanup debt; it finalizes open attempts and Team crons; it refuses while a Team task is in progress or a Worker is working unless forced, a forced close names every killed Worker and task, and a plan with unfinished tasks stays active and flagged rather than archived; a Worker that dies holding an in-progress task is pushed to its Orchestrator at once as one structured event naming task, lane, dirty state, and recovery command; Cartographer is a non-anchoring singleton Manager without Team-management, plan, or spawn authority and is removed with its Team; every task carries acceptance criteria and an executable test plan, and executors read applicable plan skills before acting; only two hierarchy levels exist, and Workers never spawn; only the Orchestrator approves a plan, dispatches work, and accepts, bounces, or holds a task in review; every Worker turn ends in a report; a mutating Worker writes only its own lane unless the Orchestrator explicitly opts one Worker into canonical; lanes land by real merges and executable proof runs only in canonical.
-
-#### Coordination feedback
-
-With plan reminders enabled, an active execution plan with actionable work and no live task-bound Worker nudges its idle Orchestrator. Lifecycle and idle events trigger the check. The same stall episode produces one nudge; live work or a changed actionable set permits another. The nudge leaves dispatch and task decisions with the Orchestrator and never resumes a paused plan.
-
-Team utility work reports back to its coordinating agent through the message gateway. Readiness requires observed health; command completion carries its outcome and failure evidence. A failed command or an empty test selection cannot become a passing QA report. Changing the development instance being checked must not redirect the report away from its caller. These are repository toolchain responsibilities, not a new core service.
+- Invariants: planner state is authoritative; task execution, evidence submission and result acceptance are distinct responsibilities under the orchestration contract.
+- Dependent capabilities: teams and roles, task-fitted personality, goals/specs/plans/tasks, dispatch and reports, review and decisions, reminders and pause, isolated lanes and integration.
 
 ### Message gateway and bridges {#core:message-gateway-and-bridges}
 
@@ -114,63 +115,26 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 The confined runtime for everything that is not core: agent providers, capability plugins, views, receivers and the channels they install from.
 
 - Part of: core:service-layer.
-- Invariants: plugins declare capabilities and permissions, and core registers only capabilities the installed host supports; declared permissions bound access to local files, subprocesses, network hosts and secrets. Plugin updates cannot add host behavior absent from the installed app. Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Plugin setup guidance is treated as data: a helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations are inspected without mutation and require explicit user consent to install or repair; CodeTerm changes only entries it owns and provides a reversible restore path.
+- Invariants: plugin capabilities and access follow the [permission contract](permissions.md#plugin-grants-and-integration-consent). Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Setup helpers and global provider integrations follow that contract's explicit-consent and ownership boundaries.
 - Dependent capabilities: agent providers, plugins and channels, webhook receivers, voice, and Analytics.
 
 The system channel participates in the same list, diff and refresh inventory as registered channels, even before it has a local registration. Listing needs no network access. An explicitly named channel failure is visible; an unavailable channel does not hide the others from an aggregate diff.
 
 ### Supporter Agent {#core:supporter-agent}
 
-A small decision model that answers bounded judgment questions for CodeTerm. Memory uses it to judge relevance; tab observation uses it to classify visible state on existing events. It is a shared capability, with no Team role, task execution or input authority of its own.
+The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
 
 - Part of: core:service-layer.
-- Invariants: callers select declared choice, yes/no probability (`noul`) or score capabilities through a common registry, never branch on provider identity; a registered, selected adapter is connected when its token capability permits it, and connected adapters serve every Supporter use automatically; all tabs share one rolling request budget; model output never grants permission, proves session ownership or confirms input delivery.
-- Dependent capabilities: memory decision recall, health and diagnostics.
-
-TypeSafe Jev is the first adapter. The contract belongs to the host and stays independent of that adapter. Calls have bounded failure deadlines. Memory sends the query and candidate titles and bounded body text; tab observation sends recent screen text and runtime context. Without a connected adapter, recall and tab behavior remain deterministic. Budget exhaustion falls back to baseline recall and skips observation, with the next available time visible in status.
-
-Credentials belong to the instance and adapter. They enter through CLI stdin or the write-only field in Settings > Agents > Supporter Agent, never argv, and never appear in logs or status responses. Owner-only local files (0600 on Unix) keep them outside the vault to meet the recall latency requirement; Unix permissions and Windows access controls enforce that boundary. Status exposes adapter availability, token presence and permission evidence without returning the token.
-
-Connected tab observation records a model label and confidence alongside the structural verdict on existing lifecycle and output events. A first strong observation produces a non-actionable hint; an action requires two consecutive agreeing strong observations of the same launch. An other verdict takes no action and sends no hint. Model output cannot establish session ownership, readiness or delivery evidence. Failure leaves the structural path unchanged. A bounded durable journal records automatic actions, budget transitions and decision distributions with adapter-reported model ids, criteria versions and input hashes; tokens and raw input never enter it. Settings > Agents exposes activity, recent calls, verdicts and the global budget without feature switches.
+- Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.
+- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Sentinels, provider updates, guided onboarding and the web UI.
 
 ### Memory {#core:memory}
 
-Durable knowledge for every agent on the machine: facts, notes, preferences and skills, with hybrid search, a graph and nightly consolidation.
+Durable knowledge for every agent on the machine: facts, notes, preferences and skills, with retrieval and reversible consolidation. The [memory contract](memory.md) owns storage boundaries, recall, candidate sources, access accounting and hygiene.
 
 - Part of: core:service-layer.
-- Invariants: persistent memory lives here and never in provider side stores; it is English and its bodies carry no dates; skills are registered here, never written into provider skill directories; conversations are searched as sessions, durable facts as memory.
-
-#### Decision recall
-
-Recall can add an optional second stage that judges how directly and usefully each candidate answers the query. The first stage retains ordinary hybrid retrieval; the [Supporter Agent](#core:supporter-agent) judges candidates independently and orders the pool by absolute relevance. Each candidate receives one yes/no probability judgment when supported, otherwise a normalized score. Ties keep the original order.
-
-- Ordinary search callers keep their existing query, filters and limit. A connected Supporter enables the stage; a caller may override it diagnostically for one search. Without a connected adapter, the response is byte-identical to ordinary recall.
-- Relevance changes order, never eligibility: every pool candidate remains eligible for the returned list, cut only to the caller's limit. Every hit returned by an applied stage carries `relevance`. `low_confidence` flags that the maximum relevance is below the configured threshold; it never removes results.
-- The second stage is all-or-nothing under one bounded failure deadline, defaulting to 3 seconds. On unavailable or failed decision scoring, the caller receives exactly ordinary recall hits for the original query and limit. An unregistered adapter id, unsupported decision capabilities, an adapter error, or expiry adds a fallback reason in the decision envelope. Missing credentials also fall back when the pool requires scoring. A partially judged pool is never returned.
-- Gathering and judging candidates record no access. Only memory hits actually returned record access, once per item, using ordinary memory access accounting. Additional candidates never inflate usage or evidence merely by entering the pool.
-- Memory > Settings controls recall; the memory search CLI and API expose whether the stage applied, fell back or was skipped. Shared credentials and adapter status belong to the Supporter Agent. Explicitly requesting both decision recall and legacy reranking is refused; legacy reranking requested while decision recall is selected by the connected adapter runs with a skipped reason.
-
-#### Optional candidate sources
-
-The ordinary recall pool defaults to 30 candidates and expands when needed for the caller's limit, within the retrieval cap. Optional sources can supply additional candidates to the same decision pool. Each source is independently configurable, respects the search's applicable filters and contributes results only when the decision stage is applied. Setting its candidate count to zero disables it. Its additions never appear in fallback. A failing optional source is skipped and never fails the search; decision-model errors follow the all-or-nothing fallback rule above. Gathering candidates never changes stored memory knowledge or access evidence; returned memory hits follow the accounting rule above.
-
-- Graph (default 3): adds memory items connected to query-relevant entities that ordinary recall did not already place in the pool.
-- Docs (default 3): adds relevant sections of embedded product help and leaf command sections of the generated CLI reference (`CLI`), identified by document and section, with a pointer to the document or command help. It never reads or changes memory state.
-- Sessions (default off): adds matching excerpts of past provider conversations with their session provenance. Source failure or expiry skips these candidates; their presence does not turn a conversation into stored memory.
-
-Source admission policy: the owner admits and retains sources only when measurements show better answers while keeping recall fast. This policy governs source selection; enabling a source does not certify its benefit.
-
-#### Reversible hygiene
-
-The Dreamer consolidates memory through bounded, reviewable changes. A merge archives the lesser item, preserves its history and links it to the keeper; a conflict records which item supersedes the other. The keeper may receive a revised body in the same operation. Nothing is hard-deleted. Pinned items, skills, rules and preferences cannot be merged away.
-
-Restoring an archived item returns its prior kind and invalidates the relation created by its merge while preserving the relation's history. Body versions remain separately restorable: restoring the lesser item does not silently undo a keeper-body revision. Dreamer merges and stale archives have separate daily caps enforced by the host.
-
-Stale archival is off by default and has a read-only preview with item ids and reasons. An item qualifies only when it is older than a year and has had no direct access, update or history change, no relation change, and no touch through an active neighbour during that year. Pinned items, skills, rules, preferences, already archived items and high-importance knowledge are excluded. Archival records the reason and remains reversible.
-
-The graph hub report provides bounded, deterministic cluster suggestions and existing topic anchors. Suggestions distinguish structural congestion from provenance and leave graph changes to explicit operations; the Dreamer does not have to invent a grouping from an unbounded graph dump.
-
-Run completion and diary finalization are separate facts. If a deadline or blocking command-approval prompt ends a dreaming run, the host preserves the work already logged, marks unfinished stages as cut short and records partial finalization with its reason. It never upgrades interrupted work to success, and it preserves an already completed diary.
+- Invariants: knowledge and conversation history remain distinct; retrieval and consolidation follow the authoritative memory contract.
+- Dependent capabilities: memory and skills, memory decision recall, and memory hygiene.
 
 ## The routing spine: where messages and reports flow
 
@@ -179,7 +143,7 @@ Run completion and diary finalization are separate facts. If a deadline or block
 3. **A daemon or webhook.** A registered service pushes with its own token and a plugin receiver accepts an event; both enter the gateway and land in the chosen tab.
 4. **Another agent.** A send from one tab to another is stamped with the sender's marker, so the recipient replies by command rather than in its own output.
 5. **Another machine.** A mesh peer's message arrives through the relay with a mesh marker, and the reply goes back to that peer and tab.
-6. **A Worker's report.** The report command records the handoff on the task as a stride, moves the task to review and pushes a report-marked message into the Orchestrator's tab, across the mesh when the Worker runs elsewhere. The Orchestrator acts on it and never replies to it; accepting, bouncing or holding is its answer. A bounce returns work to the Worker when its continuation is available; when the Worker is gone, it reopens the task as pending and preserves its note, attempt history, and lane for redispatch.
+6. **A Worker's report.** The report command records the handoff on the task as a stride, moves the task to review and pushes a report-marked message into the Orchestrator's tab, across the mesh when the Worker runs elsewhere. The [orchestration contract](orchestration.md#dispatch-reports-and-review) owns the report and review authority.
 7. **The host itself.** Plan reminders, scheduled sends and system events are pushed into the tab through the same gateway, so no agent polls for them.
 8. **Out to the owner.** An agent notification is kept in the panel; its level decides whether it also reaches the desktop, sound or a push channel carried by a bridge. A question to the owner offers choices, and the chosen label returns to the tab that asked.
 

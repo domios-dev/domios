@@ -443,6 +443,12 @@ impl ServiceContext {
             self.revoke_agent_pad(tab_id)?;
         }
         self.delete_team_crons(team_id);
+        if let Some(sentinels) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            sentinels.remove_team(team_id)?;
+        }
         if let Err(error) = crate::delayed_send::delete_team_series(self, team_id) {
             log::error!("Failed to delete Team delayed series {team_id}: {error}");
         }

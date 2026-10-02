@@ -54,5 +54,8 @@
   "src/components/MemoryPanel/DecisionRerankCard.test.tsx",
   "src/components/Settings/SupporterAgentCard.test.tsx",
   "src/components/MemoryPanel/useSnapshotGraph.test.tsx",
-  "src/components/MemoryPanel/MemoryListTab.test.tsx"
+  "src/components/MemoryPanel/MemoryListTab.test.tsx",
+  "src/components/Usage/SupporterAllowanceRow.test.tsx",
+  "src/components/Supporter/ActivityFeed.test.tsx",
+  "src/components/Titlebar/SupporterActivityTray.test.tsx"
 ]

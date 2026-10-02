@@ -74,7 +74,7 @@ function statusFixture(
     },
     budget: {
       reached: state === "budget_reached",
-      calls_per_hour: 600,
+      calls_per_hour: 600 as number | null,
       free_at: state === "budget_reached" ? 1700003600 : null,
       storage_ready: true,
     },
@@ -295,6 +295,13 @@ describe("SupporterAgentCard", () => {
     expect(q("supporter-agent-activity")?.textContent).toContain("45 in the last day");
     expect(q("supporter-agent-activity")?.textContent).toContain("Available again:");
     expect(q("supporter-agent-activity")?.textContent).toContain("ready_idle");
+  });
+
+  it("supporter_status_renders_no_cap", async () => {
+    statusBody = statusFixture("active");
+    statusBody.budget.calls_per_hour = null;
+    await render();
+    expect(host.querySelector('[data-testid="supporter-agent-activity"]')?.getAttribute("data-cap")).toBe("none");
   });
 
   it("supporter_card_shows_usage_and_estimated_spend_and_saves_balance", async () => {

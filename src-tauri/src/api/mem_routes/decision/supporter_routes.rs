@@ -33,9 +33,11 @@ pub async fn supporter_token_set(
         return Ok(Json(no_token_needed_json(&adapter)));
     }
     let token = body.token;
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
     let status = token_io(move || {
         let store = token_store();
         store.set(&adapter, &token)?;
+        runtime.connection_changed();
         store.status(&adapter).map(|status| (adapter, status))
     })
     .await?;
@@ -61,8 +63,10 @@ pub async fn supporter_token_clear(
     {
         return Ok(Json(no_token_needed_json(&adapter)));
     }
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
     let (adapter, removed) = token_io(move || {
         let removed = token_store().clear(&adapter)?;
+        runtime.connection_changed();
         Ok((adapter, removed))
     })
     .await?;
@@ -161,7 +165,8 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
             "adapter_registered": adapter_registered,
             "adapters": adapters,
         });
-        let activity = crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour);
+        let activity =
+            crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour.unwrap_or(0));
         let price = selected_model.as_ref().and_then(|model| model.pricing());
         output["spend"] = spend_snapshot(&runtime, &cfg.adapter, price.as_ref());
         output["pricing"] = price.as_ref().map_or(Value::Null, |price| json!(price));
@@ -217,9 +222,15 @@ pub async fn supporter_use(
         }
     }
     let adapter_id = body.adapter;
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
     let cfg = update_supporter_config(state, move |cfg| {
         cfg.adapter = adapter_id;
         cfg.model = selected_model;
+    })
+    .await?;
+    token_io(move || {
+        runtime.connection_changed();
+        Ok(())
     })
     .await?;
     Ok(Json(json!({ "adapter": cfg.adapter, "model": cfg.model })))
@@ -370,3 +381,31 @@ fn spend_snapshot(
     }
     spend
 }
+
+#[derive(Deserialize)]
+pub struct SupporterFeedQuery {
+    limit: Option<usize>,
+    team_id: Option<String>,
+}
+
+pub async fn supporter_feed(
+    AxumState(state): AxumState<AppState>,
+    Query(query): Query<SupporterFeedQuery>,
+) -> RouteResult {
+    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
+    token_io(move || feed_snapshot(&runtime, query))
+        .await
+        .map(Json)
+}
+
+fn feed_snapshot(
+    runtime: &crate::service::supporter::SupporterRuntime,
+    query: SupporterFeedQuery,
+) -> io::Result<Value> {
+    runtime
+        .feed(query.limit.unwrap_or(50), query.team_id.as_deref())
+        .map(|entries| json!({ "entries": entries }))
+}
+
+#[cfg(test)]
+mod tests;

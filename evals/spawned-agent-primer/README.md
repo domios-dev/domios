@@ -20,9 +20,28 @@ The Guide directive case needs the composed primer plus rendering guidance;
 use the preparation and A/B commands in `evals/general-agent/README.md` when
 changing that fragment. Evaluating the primer alone omits the rendering contract.
 
+For the sentinel change, preserve the pre-edit arm with baseline ref
+`776d003d1b65a5edd422270b771d0a1d3d59ee7a`. In canonical after merge:
+
+```bash
+python3 evals/general-agent/prepare-prompts.py \
+  --baseline-ref 776d003d1b65a5edd422270b771d0a1d3d59ee7a \
+  --output-dir /tmp/lookout-primer-bench
+TEST_CAP_SECS=3600 scripts/test-capped.sh --exec \
+  python3 .agents/skills/prompt-evaluator/runner.py \
+  --prompt-a /tmp/lookout-primer-bench/spawned-agent-old.md \
+  --prompt-b /tmp/lookout-primer-bench/spawned-agent-new.md \
+  --eval-set evals/spawned-agent-primer/evals.json --runs 3 --report markdown
+```
+
+Case 9 asserts the `sentinel create` mechanism, cadence/end flags, and absence
+of an agent polling loop; it never asserts prompt wording. The old arm records
+the baseline and the new arm must pass 3/3 without regression in cases 1–8.
+Record the observed A/B result as a plan stride.
+
 ## Pass
 
-The report shows all eight cases passing for all three samples and the runner
+The report shows all nine cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

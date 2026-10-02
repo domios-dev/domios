@@ -22,7 +22,7 @@ fn supporter_tab_state_budget_skips_model_call_and_signal() {
         .reserve(1, VerdictKind::Rerank, None, 1)
         .unwrap();
     let config = SupporterConfig {
-        calls_per_hour: 1,
+        calls_per_hour: Some(1),
         ..enabled()
     };
     let verdict = spawn_observer(

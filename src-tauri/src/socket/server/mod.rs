@@ -47,6 +47,7 @@ mod plan_time;
 pub(crate) mod protocol;
 mod receiver_target;
 mod safety_nudge;
+mod sentinel;
 mod services;
 mod spec;
 mod tab;
