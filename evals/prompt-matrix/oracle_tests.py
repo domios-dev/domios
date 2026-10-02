@@ -12,6 +12,7 @@ from transport import Finding, json_value
 from binding_tests import AttributionControls, CourierControls, proposed_contract
 from report import exit_code
 from sentinel_raw_tests import SentinelRawControls, raw_outcome
+from fixture_tests import NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls
 
 
 def notification_evidence():
@@ -205,7 +206,8 @@ def main():
         validate_raw(evidence["journal"], evidence["raw_scope"])
         return 0
     suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
-                               for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls))
+                               for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
+                                           NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 

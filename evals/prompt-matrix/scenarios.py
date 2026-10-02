@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 
 from fixtures import HERE, REPO, write_json
+from launch_env import register_scope
 from oracles import ready, require
 from transport import Finding, Pending, objects, run_group
 
@@ -73,6 +74,10 @@ class Scenario:
         self.precondition_n = self.dev.transcript.record("provocation", {"provider": provider, "case": case})
         if case == "trust-hidden":
             require(self.options.owner_tab, "Hidden worker needs --owner-tab on the named instance")
+            meta = json.loads((self.root / "instance.json").read_text())
+            cwd = self.root / "daemon-home" / f".codeterm-dev-{meta['instance']}" / "workers"
+            cwd.mkdir(parents=True, exist_ok=True)
+            register_scope(self.root, self.fixture, cwd)
             result = self.dev.dc("mem", "worker", "spawn", "--intent", "prompt-matrix",
                                  "--task", ROLE, "--agent", provider,
                                  "--parent", self.options.owner_tab)
@@ -80,6 +85,7 @@ class Scenario:
             self.tab = identifier(result, "tab_id")
         else:
             cwd = self.workspace_for_case()
+            register_scope(self.root, self.fixture, Path(cwd))
             if case == "trust-cron":
                 require(self.options.owner_tab, "Cron needs --owner-tab on the named instance")
                 result = self.dev.dc("--as-tab", self.options.owner_tab, "cron", "create", "Matrix",
@@ -196,32 +202,21 @@ class Scenario:
 
 
 def install_older(dev, root, version, provider="codex"):
-    import re
-    packages = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "opencode": "opencode-ai"}
-    if provider not in packages:
-        raise Pending("Cursor archive exists locally; real launch/update behavior and portable fixture binding remain pending")
-    require(version and re.fullmatch(r"\d+\.\d+\.\d+", version),
-            "--older-version must name an exact reviewed provider version")
-    pins = json.loads((HERE / "versions.json").read_text())["providers"][provider]
+    from native_assembly import require_native
+    pins = json.loads((HERE / "versions.json").read_text())["providers"].get(provider)
+    if not pins or provider == "cursor":
+        raise Pending("Cursor portable native/update binding and owner disposition remain pending")
     require(version == pins["older"], "Older version differs from the reviewed literal pin")
     contracts = json.loads((HERE / "contracts.json").read_text())
     if contracts["update_fixture"]["status"] != "bound":
         raise Pending(contracts["update_fixture"]["reason"])
-    command = ["npm", "install", "--global", "--prefix", str(root / "npm"),
-               "--ignore-scripts", f"{packages[provider]}@{version}"]
-    dev.transcript.record("fixture_command", command)
-    code, out, err = run_group(command, dev.env, min(90, dev.remaining()))
-    dev.transcript.record("fixture_response", {"exit": code, "stdout": out, "stderr": err})
-    require(code == 0, "Isolated older provider install failed")
-    code, out, err = run_group([str(root / "npm/bin" / provider), "--version"],
-                               dev.env, min(10, dev.remaining()))
-    require(code == 0 and version in out, "Installed provider version was not verified")
-    dev.transcript.record("older_version", out.strip())
+    manifest, executable = require_native(root, provider, version)
+    dev.transcript.record("older_fixture", {"version": version, "executable": str(executable),
+                                            "sha256": manifest["executable_sha256"]})
+    return version
 
 
 def pending_special(options):
-    if options.case == "update-coordinator":
-        raise Pending("Courier isolated capability updater, real safe-choice/session receipts and busy/failure provokers remain unbound")
     if options.variant == "disagreement":
         raise Pending("Real disagreement provoker, emitted point/occurrence and paired-arm evidence must bind first")
     if options.case == "update" and options.provider == "cursor":
