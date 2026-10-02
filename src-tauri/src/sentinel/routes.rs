@@ -1,0 +1,148 @@
+use tauri::Manager;
+
+use super::machine::{Route, Verdict};
+use super::store::Sentinel;
+use crate::service::message_gateway::DeliveryClass;
+use crate::service::messenger::MessageEnvelope;
+use crate::service::notification::{NotificationOrigin, PushIntent};
+use crate::service::ServiceContext;
+
+pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
+    let mux = svc.mux.read();
+    mux.get_tab(&job.creator_tab_id)
+        .is_some_and(|tab| tab.team_id == job.team_id)
+        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id)
+        && job
+            .team_id
+            .as_ref()
+            .is_none_or(|id| mux.get_team(id).is_some())
+}
+
+pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Route, String> {
+    match route {
+        Route::Notify | Route::Stop => Ok(route.clone()),
+        Route::Send(target) => {
+            let mux = svc.mux.read();
+            let target = mux
+                .resolve_tab_id(target)
+                .ok_or_else(|| format!("sentinel send target not found: {target}"))?;
+            let tab = mux
+                .get_tab(&target)
+                .ok_or("sentinel send target not found")?;
+            if tab.agent_type.is_none()
+                || tab.team_id != job.team_id
+                || mux.find_workspace_for_tab(&target).as_deref() != Some(&job.workspace_id)
+            {
+                return Err(
+                    "sentinel send requires an agent in the creator's Team and workspace".into(),
+                );
+            }
+            Ok(Route::Send(target))
+        }
+        Route::Cron(target) => {
+            let cron = svc
+                .app_handle
+                .try_state::<crate::CronState>()
+                .ok_or("cron not initialized")?;
+            let store = cron.lock();
+            let candidates: Vec<_> = store
+                .list()
+                .iter()
+                .filter(|cron| {
+                    (cron.id == *target || cron.name == *target)
+                        && cron.team_id == job.team_id
+                        && cron.workspace_id == job.workspace_id
+                })
+                .collect();
+            if candidates.len() != 1 {
+                return Err("sentinel cron target must resolve uniquely in the creator's Team and workspace".into());
+            }
+            Ok(Route::Cron(candidates[0].id.clone()))
+        }
+    }
+}
+
+fn send_file(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    verdict: &Verdict,
+    output: &str,
+) -> Result<(), String> {
+    let body = format!(
+        "Sentinel {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
+        job.id, verdict.bucket, verdict.confidence, output
+    );
+    let path = svc
+        .ensure_agent_pad(target)?
+        .write_inbox_body(body.as_bytes())?;
+    svc.gateway_deliver(
+        target,
+        MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id)),
+        &format!(
+            "Sentinel {}: {}. Read the result in {}",
+            job.id,
+            verdict.bucket,
+            path.display()
+        ),
+        DeliveryClass::SystemNotice,
+    )
+    .map(|_| ())
+}
+
+pub fn run(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    verdict: &Verdict,
+    route: &Route,
+    output: &str,
+) -> Result<(), String> {
+    if !creator_live(svc, job) {
+        return Err("sentinel creator or Team is gone".into());
+    }
+    match resolve(svc, job, route)? {
+        Route::Notify => {
+            let agent = svc
+                .mux
+                .read()
+                .get_tab(&job.creator_tab_id)
+                .is_some_and(|tab| tab.agent_type.is_some());
+            if agent {
+                send_file(svc, &job.creator_tab_id, job, verdict, output)
+            } else {
+                svc.create_notification_ext(
+                    format!("Sentinel {}: {}", job.id, verdict.bucket),
+                    Some(output.into()),
+                    Some("info"),
+                    None,
+                    None,
+                    NotificationOrigin {
+                        caller_tab_id: Some(job.creator_tab_id.clone()),
+                        ..Default::default()
+                    },
+                    PushIntent::default(),
+                    None,
+                );
+                Ok(())
+            }
+        }
+        Route::Send(target) => send_file(svc, &target, job, verdict, output),
+        Route::Cron(id) => {
+            let cron = svc
+                .app_handle
+                .try_state::<crate::CronState>()
+                .ok_or("cron not initialized")?;
+            svc.cron_trigger(cron.inner(), &id).map(|_| ())
+        }
+        Route::Stop => Ok(()),
+    }
+}
+
+pub fn action_name(route: &Route) -> &'static str {
+    match route {
+        Route::Notify => "notify",
+        Route::Send(_) => "send",
+        Route::Cron(_) => "cron",
+        Route::Stop => "stop",
+    }
+}
