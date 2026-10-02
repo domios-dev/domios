@@ -64,10 +64,14 @@ impl CapabilityRegistries {
                 Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
             );
         }
-        if caps.decision_model {
+        if caps.decision_model.enabled {
             self.decision_model.register(
                 id.clone(),
-                Arc::new(super::JsDecisionModel::new(vm.clone(), id.clone())),
+                Arc::new(super::JsDecisionModel::new(
+                    vm.clone(),
+                    id.clone(),
+                    caps.decision_model.token_mode,
+                )),
             );
         }
         if caps.secret_backend.enabled() {

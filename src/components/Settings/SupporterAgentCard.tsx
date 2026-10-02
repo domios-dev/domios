@@ -23,6 +23,7 @@ function stateLabel(state: string | undefined, loading: boolean, failed: boolean
   if (failed) return "Status unavailable";
   switch (state) {
     case "active": return "Active";
+    case "ready": return "Ready";
     case "token_only": return "Token set, all features off";
     case "token_unusable": return "Token file needs attention";
     case "feature_without_token": return "Feature on, no token";
@@ -33,7 +34,7 @@ function stateLabel(state: string | undefined, loading: boolean, failed: boolean
 }
 
 function stateTone(state: string | undefined): "green" | "amber" | "accent" | "muted" {
-  if (state === "active") return "green";
+  if (state === "active" || state === "ready") return "green";
   if (state === "token_only") return "accent";
   if (state === "no_token") return "muted";
   if (state === "feature_without_token" || state === "token_unusable" || state === "adapter_unavailable") return "amber";
@@ -78,6 +79,8 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
   const modelOptions = selected?.models ?? [];
   const statusText = stateLabel(status?.state, !status && !token.statusFailed, token.statusFailed);
   const hasToken = status?.token.present === true;
+  const tokenMode = status?.token_mode ?? selected?.token_mode ?? "required";
+  const tokenNeeded = tokenMode !== "none";
 
   return (
     <SettingsCard
@@ -89,7 +92,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
       <div className="flex flex-col gap-2" data-testid="supporter-agent-status" role="status" aria-label="Supporter Agent status">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--ct-muted-fg)]">
           <span data-testid="supporter-agent-overall-status">{statusText}</span>
-          <span data-testid="supporter-agent-token-state">{hasToken ? "Token set" : status ? "No token" : "Token status unknown"}</span>
+          <span data-testid="supporter-agent-token-state">{tokenMode === "none" ? "No token needed" : hasToken ? "Token set" : status ? "No token" : "Token status unknown"}</span>
           <span data-testid="supporter-agent-selection">{selectedAdapter || "No adapter"}{selectedModel ? ` · ${selectedModel}` : ""}</span>
           {status && <span>Deadline {status.deadline_ms} ms</span>}
         </div>
@@ -158,11 +161,15 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         </FormRow>
       </div>
 
-      <form onSubmit={token.saveToken} className="flex flex-col gap-2" data-testid="supporter-agent-token-form">
+      {tokenNeeded && <form onSubmit={token.saveToken} className="flex flex-col gap-2" data-testid="supporter-agent-token-form">
         <FormRow
-          label={hasToken ? "Replace token" : "API token"}
+          label={tokenMode === "optional"
+            ? hasToken ? "Replace token (optional)" : "API token (optional)"
+            : hasToken ? "Replace token" : "API token"}
           htmlFor="supporter-agent-token-input"
-          hint="Write-only. The token is sent to the local daemon and never shown again."
+          hint={tokenMode === "optional"
+            ? "Optional. Write-only; the token is sent to the local daemon and never shown again."
+            : "Write-only. The token is sent to the local daemon and never shown again."}
         >
           <input
             id="supporter-agent-token-input"
@@ -171,7 +178,9 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             autoComplete="off"
             spellCheck={false}
             defaultValue=""
-            aria-label={hasToken ? "Replace token" : "API token"}
+            aria-label={tokenMode === "optional"
+              ? hasToken ? "Replace token (optional)" : "API token (optional)"
+              : hasToken ? "Replace token" : "API token"}
             className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
             data-testid="supporter-agent-token-input"
           />
@@ -184,7 +193,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             Clear token
           </Button>
         </div>
-      </form>
+      </form>}
 
       <div className="flex flex-wrap items-center gap-4" data-testid="supporter-agent-help">
         <InlineLinkButton label="How it works" onClick={() => onOpenGuide("supporter-agent")} testId="supporter-agent-guide-link" />

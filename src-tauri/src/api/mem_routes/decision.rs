@@ -11,7 +11,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use codeterm_types::decision::{DecisionModel, DecisionModelInfo};
+use codeterm_types::decision::{DecisionModel, DecisionModelInfo, TokenMode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -54,6 +54,7 @@ fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
             let primitives = model.primitives();
             Some(json!({
                 "id": id,
+                "token_mode": token_mode_name(model.token_mode()),
                 "primitives": {
                     "choice": primitives.choice,
                     "noul": primitives.noul,
@@ -69,7 +70,14 @@ fn supporter_state(
     features_on: bool,
     token: &TokenStatus,
     adapter_registered: bool,
+    token_mode: TokenMode,
 ) -> &'static str {
+    if token_mode != TokenMode::Required {
+        if !adapter_registered {
+            return "adapter_unavailable";
+        }
+        return if features_on { "active" } else { "ready" };
+    }
     if !token.present {
         return if features_on {
             "feature_without_token"
@@ -88,6 +96,18 @@ fn supporter_state(
     } else {
         "token_only"
     }
+}
+
+fn token_mode_name(mode: TokenMode) -> &'static str {
+    match mode {
+        TokenMode::Required => "required",
+        TokenMode::Optional => "optional",
+        TokenMode::None => "none",
+    }
+}
+
+fn token_gate_refuses(mode: TokenMode, status: &TokenStatus) -> bool {
+    mode == TokenMode::Required && (!status.present || status.mode_ok == Some(false))
 }
 
 fn select_model_id(
@@ -534,8 +554,11 @@ pub async fn supporter_token_set(
     let adapter = body
         .adapter
         .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    if !state.svc.supporter_models.contains(&adapter) {
+    let Some(model) = state.svc.supporter_models.get(&adapter) else {
         return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
+    };
+    if model.token_mode() == TokenMode::None {
+        return Ok(Json(no_token_needed_json(&adapter)));
     }
     let token = body.token;
     let status = token_io(move || {
@@ -544,7 +567,11 @@ pub async fn supporter_token_set(
         store.status(&adapter).map(|status| (adapter, status))
     })
     .await?;
-    Ok(Json(token_status_json(&status.0, &status.1)))
+    Ok(Json(token_status_json(
+        &status.0,
+        &status.1,
+        model.token_mode(),
+    )))
 }
 
 pub async fn supporter_token_clear(
@@ -554,12 +581,30 @@ pub async fn supporter_token_clear(
     let adapter = query
         .adapter
         .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
+    if state
+        .svc
+        .supporter_models
+        .get(&adapter)
+        .is_some_and(|model| model.token_mode() == TokenMode::None)
+    {
+        return Ok(Json(no_token_needed_json(&adapter)));
+    }
     let (adapter, removed) = token_io(move || {
         let removed = token_store().clear(&adapter)?;
         Ok((adapter, removed))
     })
     .await?;
-    Ok(Json(json!({ "adapter": adapter, "removed": removed })))
+    let token_mode = state
+        .svc
+        .supporter_models
+        .get(&adapter)
+        .map(|model| model.token_mode())
+        .unwrap_or(TokenMode::Required);
+    Ok(Json(json!({
+        "adapter": adapter,
+        "removed": removed,
+        "token_mode": token_mode_name(token_mode),
+    })))
 }
 
 pub async fn supporter_token_status(
@@ -569,12 +614,26 @@ pub async fn supporter_token_status(
     let adapter = query
         .adapter
         .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
+    if state
+        .svc
+        .supporter_models
+        .get(&adapter)
+        .is_some_and(|model| model.token_mode() == TokenMode::None)
+    {
+        return Ok(Json(no_token_needed_json(&adapter)));
+    }
     let (adapter, status) = token_io(move || {
         let status = token_store().status(&adapter)?;
         Ok((adapter, status))
     })
     .await?;
-    Ok(Json(token_status_json(&adapter, &status)))
+    let token_mode = state
+        .svc
+        .supporter_models
+        .get(&adapter)
+        .map(|model| model.token_mode())
+        .unwrap_or(TokenMode::Required);
+    Ok(Json(token_status_json(&adapter, &status, token_mode)))
 }
 
 pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
@@ -586,13 +645,19 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         for adapter in &mut adapters {
             if let Some(id) = adapter.get("id").and_then(Value::as_str) {
                 let status = store.status(id)?;
-                adapter["token"] = token_status_json(id, &status);
+                let mode = models
+                    .get(id)
+                    .map(|model| model.token_mode())
+                    .unwrap_or(TokenMode::Required);
+                adapter["token"] = token_status_json(id, &status, mode);
             }
         }
         let selected_token = store.status(&cfg.adapter)?;
         let features_on = cfg.memory_rerank.enabled || cfg.tab_state.enabled;
-        let adapter_registered = models.contains(&cfg.adapter);
-        let state = supporter_state(features_on, &selected_token, adapter_registered);
+        let selected_model = models.get(&cfg.adapter);
+        let adapter_registered = selected_model.is_some();
+        let token_mode = selected_model.map_or(TokenMode::Required, |model| model.token_mode());
+        let state = supporter_state(features_on, &selected_token, adapter_registered, token_mode);
         let model = cfg.model.clone().or_else(|| {
             models
                 .get(&cfg.adapter)
@@ -600,6 +665,7 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         });
         Ok(json!({
             "state": state,
+            "token_mode": token_mode_name(token_mode),
             "adapter": cfg.adapter,
             "model": model,
             "deadline_ms": cfg.deadline_ms,
@@ -607,7 +673,7 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
                 "memory_rerank": cfg.memory_rerank.enabled,
                 "tab_state": cfg.tab_state.enabled,
             },
-            "token": token_status_json(&cfg.adapter, &selected_token),
+            "token": token_status_json(&cfg.adapter, &selected_token, token_mode),
             "adapter_registered": adapter_registered,
             "adapters": adapters,
         }))
@@ -673,9 +739,15 @@ pub async fn supporter_features(
     }
     if body.memory_rerank == Some(true) || body.tab_state == Some(true) {
         let adapter = state.config.lock().supporter.adapter.clone();
+        let mode = state
+            .svc
+            .supporter_models
+            .get(&adapter)
+            .map(|model| model.token_mode())
+            .unwrap_or(TokenMode::Required);
         let token_adapter = adapter.clone();
         let status = token_io(move || token_store().status(&token_adapter)).await?;
-        if !status.present || status.mode_ok == Some(false) {
+        if token_gate_refuses(mode, &status) {
             return Err((
                 StatusCode::CONFLICT,
                 format!("no usable supporter token is stored for adapter {adapter}"),
@@ -697,12 +769,22 @@ pub async fn supporter_features(
     })))
 }
 
-fn token_status_json(adapter: &str, status: &TokenStatus) -> Value {
+fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> Value {
     json!({
         "adapter": adapter,
+        "token_mode": token_mode_name(mode),
         "present": status.present,
         "path": status.path,
         "mode_ok": status.mode_ok,
+    })
+}
+
+fn no_token_needed_json(adapter: &str) -> Value {
+    json!({
+        "adapter": adapter,
+        "token_mode": "none",
+        "message": "this adapter needs no token",
+        "present": false,
     })
 }
 

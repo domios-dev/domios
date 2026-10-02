@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionRequest,
+    DecisionRequest, TokenMode,
 };
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use super::sessions_source::SessionCandidate;
 use super::{
     candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
+    token_gate_refuses,
     token_store, DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
@@ -242,6 +243,10 @@ impl DecisionModel for StubModel {
         STUB_ID
     }
 
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::Required
+    }
+
     fn primitives(&self) -> DecisionPrimitives {
         DecisionPrimitives {
             noul: true,
@@ -342,11 +347,50 @@ fn supporter_status_distinguishes_missing_token_token_only_and_active() {
         mode_ok: Some(false),
     };
 
-    assert_eq!(supporter_state(false, &missing, true), "no_token");
-    assert_eq!(supporter_state(false, &set, true), "token_only");
-    assert_eq!(supporter_state(true, &set, true), "active");
-    assert_eq!(supporter_state(false, &unusable, true), "token_unusable");
-    assert_eq!(supporter_state(false, &set, false), "adapter_unavailable");
+    assert_eq!(supporter_state(false, &missing, true, TokenMode::Required), "no_token");
+    assert_eq!(supporter_state(false, &set, true, TokenMode::Required), "token_only");
+    assert_eq!(supporter_state(true, &set, true, TokenMode::Required), "active");
+    assert_eq!(supporter_state(false, &unusable, true, TokenMode::Required), "token_unusable");
+    assert_eq!(supporter_state(false, &set, false, TokenMode::Required), "adapter_unavailable");
+}
+
+#[test]
+fn supporter_state_optional_and_none_ignore_missing_tokens() {
+    let missing = TokenStatus {
+        present: false,
+        path: "token.json".into(),
+        mode_ok: None,
+    };
+    for mode in [TokenMode::Optional, TokenMode::None] {
+        assert_eq!(supporter_state(false, &missing, true, mode), "ready");
+        assert_eq!(supporter_state(true, &missing, true, mode), "active");
+        assert_eq!(supporter_state(true, &missing, false, mode), "adapter_unavailable");
+    }
+}
+
+#[test]
+fn supporter_features_token_mode_gate_keeps_required_and_allows_optional_or_none() {
+    let missing = TokenStatus {
+        present: false,
+        path: "token.json".into(),
+        mode_ok: None,
+    };
+    let unusable = TokenStatus {
+        present: true,
+        path: "token.json".into(),
+        mode_ok: Some(false),
+    };
+    assert!(token_gate_refuses(TokenMode::Required, &missing));
+    assert!(token_gate_refuses(TokenMode::Required, &unusable));
+    assert!(!token_gate_refuses(TokenMode::Required, &TokenStatus {
+        present: true,
+        path: "token.json".into(),
+        mode_ok: Some(true),
+    }));
+    for mode in [TokenMode::Optional, TokenMode::None] {
+        assert!(!token_gate_refuses(mode, &missing));
+        assert!(!token_gate_refuses(mode, &unusable));
+    }
 }
 
 #[test]
@@ -357,6 +401,7 @@ fn supporter_models_lists_registered_models() {
         registered_adapters(&registry),
         vec![json!({
             "id": STUB_ID,
+            "token_mode": "required",
             "primitives": { "choice": false, "noul": true, "score": false },
             "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
         })]

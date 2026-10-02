@@ -38,6 +38,13 @@ function actionPayload(
       return { kind: "update", pluginId: entry.id };
     case "remove":
       return { kind: "remove", pluginId: entry.id, removeData: options.removeData ?? false };
+    case "settings":
+      return {
+        kind: "settings",
+        pluginId: entry.id,
+        allowHosts: options.allowHosts ?? [],
+        disallowHosts: options.disallowHosts ?? [],
+      };
   }
 }
 
@@ -311,6 +318,14 @@ export function ExtensionsView({
                 activity={pluginActivities.get(selected.id)}
                 activityDisplayMap={pluginActivityDisplayMap}
                 onAction={onPluginAction}
+                onHostGrant={(pluginId, host, allow) => {
+                  void runAction(`settings:${pluginId}`, {
+                    kind: "settings",
+                    pluginId,
+                    allowHosts: allow ? [host] : [],
+                    disallowHosts: allow ? [] : [host],
+                  });
+                }}
                 onSave={saveSetting}
                 onUpdateFullConfig={async (next: AppConfig) => {
                   try {

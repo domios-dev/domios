@@ -38,6 +38,9 @@ pub(super) fn envelope_notice(response: &Value) -> Option<String> {
 }
 
 fn token_summary(token: &Value) -> String {
+    if token.get("token_mode").and_then(Value::as_str) == Some("none") {
+        return "No token needed".into();
+    }
     match token.get("present").and_then(Value::as_bool) {
         Some(true) => {
             let mode = match token.get("mode_ok").and_then(Value::as_bool) {
@@ -54,6 +57,7 @@ fn token_summary(token: &Value) -> String {
 fn state_text(status: &Value) -> String {
     match status.get("state").and_then(Value::as_str) {
         Some("active") => "Active".into(),
+        Some("ready") => "Ready".into(),
         Some("token_only") => "Token set, all features off".into(),
         Some("token_unusable") => "Token file needs attention".into(),
         Some("no_token") => "No token".into(),
@@ -65,16 +69,27 @@ fn state_text(status: &Value) -> String {
 
 pub(super) fn render_token_status(token: &Value) -> String {
     let adapter = token.get("adapter").and_then(Value::as_str).unwrap_or("?");
-    format!("{adapter}: {}\n", token_summary(token))
+    if let Some(message) = token.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
+    let mode = token.get("token_mode").and_then(Value::as_str);
+    let mode = mode.map(|mode| format!(" (token mode: {mode})")).unwrap_or_default();
+    format!("{adapter}: {}{mode}\n", token_summary(token))
 }
 
 pub(super) fn render_token_set(token: &Value) -> String {
     let adapter = token.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    if let Some(message) = token.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
     format!("Token set for {adapter}\n")
 }
 
 pub(super) fn render_token_clear(reply: &Value) -> String {
     let adapter = reply.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    if let Some(message) = reply.get("message").and_then(Value::as_str) {
+        return format!("{adapter}: {message}\n");
+    }
     match reply.get("removed").and_then(Value::as_bool) {
         Some(true) => format!("Token removed for {adapter}\n"),
         _ => format!("No token was stored for {adapter}\n"),
@@ -88,7 +103,7 @@ pub(super) fn render_status(status: &Value) -> String {
     let registered = status.get("adapter_registered").and_then(Value::as_bool) == Some(true);
     let features = status.get("features").unwrap_or(&Value::Null);
     let mut out = format!(
-        "{}\nAdapter: {} ({})\nModel: {}\n{}\nMemory re-rank: {}\nTab-state: {}\nDeadline: {} ms\n",
+        "{}\nAdapter: {} ({})\nModel: {}\nToken mode: {}\n{}\nMemory re-rank: {}\nTab-state: {}\nDeadline: {} ms\n",
         state_text(status),
         adapter,
         if registered {
@@ -97,6 +112,7 @@ pub(super) fn render_status(status: &Value) -> String {
             "not registered"
         },
         model,
+        status.get("token_mode").and_then(Value::as_str).unwrap_or("required"),
         token_summary(token),
         on_off(features.get("memory_rerank")),
         on_off(features.get("tab_state")),

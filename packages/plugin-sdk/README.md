@@ -44,6 +44,16 @@ carries `state`, `instructions`, and a tagged
 shapes as the Rust decision types. Use `host.fetch.async` for network calls so
 the host can serve other candidate decisions while a request is in flight.
 
+Bare `true` means the token is optional and remains readable by older hosts.
+For a required or token-free adapter, use
+`"decisionModel": { "tokenMode": "required" }` or
+`"decisionModel": { "tokenMode": "none" }`; the object form requires
+`minCodeterm: "1.12.4"`. An optional object declaration is also accepted.
+CodeTerm stores tokens host-side and attaches a bearer header only for an
+allowed `host.fetch`, `host.fetch.async`, or `host.fetch.stream` request on
+1.12.4 hosts. This uses the existing `hostApi: 2` contract and needs no plugin
+opt-in. Plugin code never receives the token; older hosts do not add the header.
+
 ```ts
 import type { DecisionModelCapability, PluginModule } from "@codeterm/plugin-sdk";
 

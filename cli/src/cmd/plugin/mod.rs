@@ -93,6 +93,15 @@ fn convert_action(action: PluginAction) -> Action {
             grant,
             revoke,
         },
+        PluginAction::Settings {
+            id,
+            allow_host,
+            disallow_host,
+        } => Action::Settings {
+            id,
+            allow_host,
+            disallow_host,
+        },
         PluginAction::Pass(parts) => Action::Pass(parts),
         // Handled in handle_plugin — no codeterm-plugins counterpart.
         PluginAction::Validate { .. } | PluginAction::ReceiverTarget { .. } => {

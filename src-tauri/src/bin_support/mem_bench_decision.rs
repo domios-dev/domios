@@ -16,7 +16,7 @@ use codeterm_lib::mem::decision::{
 use codeterm_lib::mem::{MemManager, SearchHit, SearchQuery};
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest,
+    DecisionRequest, TokenMode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -212,6 +212,9 @@ struct StubModel;
 impl DecisionModel for StubModel {
     fn id(&self) -> &str {
         "bench-keyword-stub"
+    }
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::Required
     }
     fn primitives(&self) -> DecisionPrimitives {
         DecisionPrimitives {

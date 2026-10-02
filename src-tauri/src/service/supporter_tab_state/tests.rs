@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::service::pty_io::SendBatchItem;
-use codeterm_types::decision::{DecisionError, DecisionPrimitives};
+use codeterm_types::decision::{DecisionError, DecisionPrimitives, TokenMode};
 use parking_lot::Mutex;
 
 static NEXT_TAB: AtomicUsize = AtomicUsize::new(0);
@@ -263,6 +263,10 @@ impl StubModel {
 impl DecisionModel for StubModel {
     fn id(&self) -> &str {
         "fixture"
+    }
+
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::Required
     }
 
     fn primitives(&self) -> DecisionPrimitives {

@@ -116,6 +116,7 @@ function CatalogPluginDetail() {
       config={null}
       busy={null}
       onAction={() => {}}
+      onHostGrant={() => {}}
       onSave={async () => {}}
       onUpdateFullConfig={() => {}}
       onGone={() => {}}

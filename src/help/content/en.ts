@@ -236,7 +236,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "It only needs an API token. Set it up in one of two ways:",
+              text: "TypeSafe Jev needs an API token. Plugin decision models declare required, optional, or no token; a bare decisionModel: true declaration means optional. Optional and token-free models can drive tab-state without a token. Set a token for Jev in one of two ways:",
             },
             {
               type: "list",
@@ -255,7 +255,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "tip",
-              text: "On a timeout, an error, or with no token, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set supporter.memory_rerank.enabled false; one search can skip it with --supporter off. Clear token removes the token entirely.",
+              text: "On a timeout, an error, or with no usable token for a required adapter, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set supporter.memory_rerank.enabled false; one search can skip it with --supporter off. Clear token removes the token entirely.",
             },
           ],
         },
@@ -282,7 +282,7 @@ export const enHelpContent: HelpLocaleContent = {
             {
               type: "measurement",
               label: "Measured on a local model",
-              text: "Numbers from the LM Studio comparison will appear here.",
+              text: "In an 80-question run, the LM Studio decision model triggered deadline fallbacks for all 80 candidates (80/80). Memory re-rank therefore stays on TypeSafe Jev. LM Studio models can still drive tab-state without a token.",
             },
           ],
         },

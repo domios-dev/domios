@@ -81,6 +81,24 @@ fn enrich_from_manifest_with_icon(
     // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = crate::plugin::js_runtime::grants::load_grants(dir);
     let mut granted: Vec<&str> = Vec::new();
+    let mut effective_network_allow: Vec<String> = m
+        .get("permissions")
+        .and_then(|permissions| permissions.get("network"))
+        .and_then(|network| network.get("allow"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    for host in &grants.network_allow {
+        if !effective_network_allow.contains(host) {
+            effective_network_allow.push(host.clone());
+        }
+    }
+    if !effective_network_allow.is_empty() {
+        granted.push("network");
+    }
     if let Some(p) = m.get("permissions") {
         let allow_nonempty = |key: &str| {
             p.get(key)
@@ -91,7 +109,7 @@ fn enrich_from_manifest_with_icon(
         };
         // Toggleable perm: persisted grant override wins, else the manifest request.
         let perm_on = |snake: &str, camel: &str| {
-            if let Some(v) = grants.get(snake) {
+            if let Some(v) = grants.permissions.get(snake) {
                 return *v;
             }
             p.get(snake)
@@ -99,9 +117,6 @@ fn enrich_from_manifest_with_icon(
                 .or_else(|| p.get(camel).and_then(|v| v.as_bool()))
                 .unwrap_or(false)
         };
-        if allow_nonempty("network") {
-            granted.push("network");
-        }
         if allow_nonempty("subprocess") {
             granted.push("subprocess");
         }
@@ -134,6 +149,14 @@ fn enrich_from_manifest_with_icon(
         remove_untrusted_plugin_icons(obj);
         obj.insert("capabilities".into(), cap_obj);
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
+        obj.insert(
+            "network_allow".into(),
+            serde_json::json!(grants.network_allow),
+        );
+        obj.insert(
+            "effective_network_allow".into(),
+            serde_json::json!(effective_network_allow),
+        );
         // Static manifest flag; the live "waiting on reload now" signal is `pending_reload`, set by build_snapshot.
         obj.insert(
             "requires_reload".into(),
