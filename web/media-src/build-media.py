@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build redacted landing-page media with FFmpeg 7.1+ and Python 3.12+."""
+"""Build landing-page media with FFmpeg 7.1+ and Python 3.12+."""
 
 import argparse
 import json
@@ -19,58 +19,31 @@ SOURCES = {
 COMMON_CROP = (350, 60, 1680, 1320)
 
 
-def segment(start, end, duration, crop=COMMON_CROP, masks=(), blurs=(), preserves=(), freeze=False):
-    return dict(start=start, end=end, duration=duration, crop=crop,
-                masks=list(masks), blurs=list(blurs), preserves=list(preserves), freeze=freeze)
+def segment(start, end, duration, crop=COMMON_CROP, freeze=False):
+    return dict(start=start, end=end, duration=duration, crop=crop, freeze=freeze)
 
-
-def mesh_masks(cards):
-    masks = []
-    for x, y, w, h in cards:
-        masks.append((x + 215, y + 2, w - 215, 35))
-        masks.append((x + 4, y + 39, w - 8, h - 78))
-    return masks
-
-
-MESH_STILL = mesh_masks([
-    (902, 181, 350, 150), (538, 356, 350, 150), (1268, 356, 350, 150),
-    (902, 632, 350, 181), (448, 750, 350, 150), (1358, 725, 350, 200),
-    (700, 1062, 350, 154), (1106, 1062, 350, 154),
-])
-TALK_MAP = mesh_masks([
-    (1024, 232, 350, 151), (660, 406, 350, 151), (1388, 406, 350, 151),
-    (1024, 684, 350, 183), (570, 804, 350, 151), (1480, 777, 350, 204),
-    (823, 1116, 350, 157), (1227, 1116, 350, 157),
-])
-TALK_CHAT_MASKS = [(510, 126, 1380, 52), (678, 347, 1182, 66), (580, 675, 1275, 73)]
 
 EDITS = {
     "board": [segment(0.2, 7.2, 7, crop=(350, 300, 1680, 1010))],
     "mesh": [
-        segment(0, 1 / 30, 2, masks=MESH_STILL, freeze=True),
-        segment(2.95, 4.75, 4, crop=(700, 340, 1040, 816), masks=[
-            (1300, 505, 215, 80), (790, 638, 670, 184),
-        ]),
-        segment(6.7, 7.4, 4, crop=(495, 45, 1460, 1310), masks=[
-            (495, 270, 334, 1050), (835, 147, 1090, 519), (835, 730, 1090, 455),
-            (835, 1185, 1090, 65),
-        ]),
-        segment(0, 1 / 30, 2, masks=MESH_STILL, freeze=True),
+        segment(0, 1 / 30, 2, freeze=True),
+        segment(2.95, 4.75, 4, crop=(700, 340, 1040, 816)),
+        segment(6.7, 7.4, 4, crop=(495, 45, 1460, 1310)),
+        segment(0, 1 / 30, 2, freeze=True),
     ],
     "plugins": [
-        segment(1.4, 5.6, 3, masks=[(360, 1120, 540, 196)]),
-        segment(7.5, 8.5, 2, masks=[(360, 1120, 540, 196)]),
-        segment(8.75, 10.65, 2, masks=[(360, 1120, 540, 196), (939, 310, 1070, 275)]),
-        segment(11.0, 14.9, 3, masks=[(360, 1120, 540, 196)]),
+        segment(1.4, 5.6, 3),
+        segment(7.5, 8.5, 2),
+        segment(8.75, 10.65, 2),
+        segment(11.0, 14.9, 3),
     ],
     "mesh-talk": [
-        segment(16, 19, 3, masks=TALK_CHAT_MASKS[:2]),
-        segment(34, 42, 3, masks=TALK_CHAT_MASKS),
-        segment(46, 64, 3, masks=TALK_CHAT_MASKS),
-        segment(68, 80, 7, masks=TALK_MAP),
-        segment(95, 97.5, 5, masks=[(587, 395, 1265, 65), (515, 868, 1350, 310),
-                                   (515, 1243, 1350, 15)]),
-        segment(139, 146, 5, masks=[(515, 110, 1350, 350), (586, 650, 1265, 40)]),
+        segment(16, 19, 3),
+        segment(34, 42, 3),
+        segment(46, 64, 3),
+        segment(68, 80, 7),
+        segment(95, 97.5, 5),
+        segment(139, 146, 5),
     ],
 }
 CAPTIONS = {
@@ -104,23 +77,7 @@ def probe(path):
 
 
 def filter_graph(edit):
-    parts = []
-    last = "0:v"
-    if edit["preserves"]:
-        outputs = "".join(f"[k{i}]" for i in range(len(edit["preserves"])))
-        parts.append(f"[0:v]split={len(edit['preserves']) + 1}[blurbase]{outputs}")
-        last = "blurbase"
-    for i, (x, y, w, h) in enumerate(edit["blurs"]):
-        parts.append(f"[{last}]split[b{i}][r{i}]")
-        parts.append(f"[r{i}]crop={w}:{h}:{x}:{y},boxblur=22:3[p{i}]")
-        parts.append(f"[b{i}][p{i}]overlay={x}:{y}[s{i}]")
-        last = f"s{i}"
-    for i, (x, y, w, h) in enumerate(edit["preserves"]):
-        parts.append(f"[k{i}]crop={w}:{h}:{x}:{y}[keep{i}]")
-        parts.append(f"[{last}][keep{i}]overlay={x}:{y}[restored{i}]")
-        last = f"restored{i}"
-    filters = [f"drawbox=x={x}:y={y}:w={w}:h={h}:color=0x141922:t=fill"
-               for x, y, w, h in edit["masks"]]
+    filters = []
     x, y, w, h = edit["crop"]
     filters.append(f"crop={w}:{h}:{x}:{y}")
     if edit["freeze"]:
@@ -134,8 +91,7 @@ def filter_graph(edit):
         f"pad={SIZE[0]}:{SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=0x0d1017",
         "setsar=1", "format=yuv420p",
     ])
-    parts.append(f"[{last}]" + ",".join(filters) + "[out]")
-    return ";".join(parts)
+    return "[0:v]" + ",".join(filters) + "[out]"
 
 
 def validate(path, expected_duration):
@@ -161,7 +117,7 @@ def build(source_dir, output_dir):
             segments = []
             for i, edit in enumerate(edits):
                 target = temp / f"{name}-{i}.mkv"
-                print(f"Redact {name} segment {i + 1}/{len(edits)}", flush=True)
+                print(f"Cut {name} segment {i + 1}/{len(edits)}", flush=True)
                 run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", edit["start"],
                      "-t", edit["end"] - edit["start"], "-i", source,
                      "-filter_complex", filter_graph(edit), "-map", "[out]", "-an",
