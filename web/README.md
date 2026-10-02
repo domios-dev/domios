@@ -34,11 +34,13 @@ Only the active clip loads when in view. Playback pauses offscreen, in a hidden 
 
 ## Visual checks
 
-Inspect dark and light themes at 360px and desktop widths, keyboard tab selection (arrows, Home, End), theme persistence, reduced motion, and pause/resume. Confirm all four clips and captions after the media merge. No Playwright runs are needed.
+Inspect dark and light themes at 360px and desktop widths, keyboard tab selection (arrows, Home, End), theme persistence, reduced motion, and video pause/resume. The page motion preference follows the system. Confirm all four clips and captions after the media merge. No Playwright runs are needed.
 
 Colors are ported from the application's GitHub Dark/Light palettes and `themeToCSS` derivations. Motion timings and liquid easing come from the application tokens and primitives. No code is imported from outside this directory.
 
 ## Build troubleshooting
+
+The production build embeds the small landing-page stylesheet in HTML through `vite.config.mjs`, removing a render-blocking request on mobile. Development retains Vite's CSS hot reload. If styles disappear after changing the build pipeline, inspect the emitted HTML for its `<style>` tag and verify the stylesheet asset lookup against Vite's output bundle; do not replace it with delayed style loading.
 
 If TypeScript rejects an `Object.fromEntries` cast to the media library with TS2352, the generated object's keys are not proven complete. Keep the explicit typed four-clip record and shared clip factory in `src/media.ts`; do not mask it with a double cast. Run `npm run build` again after the correction.
 

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Domios: Sling</title>
+  <desc id="desc">A place held up by both ends.</desc>
+  <path fill="#0d1117" d="M0 0H64V64H0Z"/><path fill="#58a6ff" fill-rule="evenodd" d="M4 16C4 8 8 4 16 4S28 8 28 16C28 22 24 26 20 28Q32 52 44 28C40 26 36 22 36 16C36 8 40 4 48 4S60 8 60 16C60 40 48 60 32 60S4 40 4 16Z"/>
+</svg>
