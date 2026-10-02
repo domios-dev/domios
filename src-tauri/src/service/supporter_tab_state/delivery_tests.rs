@@ -1,6 +1,18 @@
 use super::*;
 use crate::api::events::SystemEvent;
 
+#[test]
+fn tab_state_weak_hint_event_marks_it_non_actionable() {
+    let event = super::weak_hint_event("tab-1", ERROR_LOOP, 0.72, 5);
+
+    assert_eq!(event["tab_id"], "tab-1");
+    assert_eq!(event["label"], ERROR_LOOP);
+    assert_eq!(event["confidence"], 0.72);
+    assert_eq!(event["band"], "weak");
+    assert_eq!(event["actionable"], false);
+    assert_eq!(event["episode"], 5);
+}
+
 fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
     TabStateMetadata {
         context: Value::Null,
