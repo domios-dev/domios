@@ -1,6 +1,7 @@
 import math
 import struct
 import sys
+import wave
 from array import array
 from pathlib import Path
 
@@ -159,13 +160,49 @@ def write_float_wav(path, values):
 
 
 def write_pcm16_wav(path, values):
+    data = pcm16_data(values)
+    write_pcm16_data(path, data, len(values))
+
+
+def write_pcm16_wav_preserving_tail(path, values, reference_path, start_sample):
+    require(0 <= start_sample < len(values), 'Final PCM tail boundary is outside the sample range')
+    reference_tail = pcm16_tail(reference_path, start_sample, len(values))
+    data = bytearray(pcm16_data(values))
+    data[start_sample * 2:] = reference_tail
+    write_pcm16_data(path, data, len(values))
+    verify_pcm16_tail_preserved(reference_path, path, start_sample, len(values))
+
+
+def verify_pcm16_tail_preserved(reference_path, candidate_path, start_sample, total_samples):
+    reference = pcm16_tail(reference_path, start_sample, total_samples)
+    candidate = pcm16_tail(candidate_path, start_sample, total_samples)
+    require(candidate == reference, 'Final PCM16 tail after the opening boundary changed')
+
+
+def pcm16_tail(path, start_sample, total_samples):
+    require(0 <= start_sample < total_samples, 'Final PCM tail boundary is outside the sample range')
+    with wave.open(str(path), 'rb') as source:
+        require(source.getnchannels() == 1 and source.getsampwidth() == 2 and source.getframerate() == RATE
+                and source.getnframes() == total_samples and source.getcomptype() == 'NONE',
+                f'Expected mono PCM16 at {RATE} Hz with {total_samples} samples: {path}')
+        source.setpos(start_sample)
+        tail = source.readframes(total_samples - start_sample)
+    require(len(tail) == (total_samples - start_sample) * 2, f'Incomplete PCM16 tail: {path}')
+    return tail
+
+
+def pcm16_data(values):
     converted = array('h', (max(-32768, min(32767, round(float(value) * 32768))) for value in values))
     if sys.byteorder != 'little':
         converted.byteswap()
-    data = converted.tobytes()
+    return converted.tobytes()
+
+
+def write_pcm16_data(path, data, sample_count):
+    require(len(data) == sample_count * 2, 'PCM16 data size differs from its sample count')
     header = (b'RIFF' + struct.pack('<I', 36 + len(data)) + b'WAVE' + b'fmt ' + struct.pack(
         '<IHHIIHH', 16, 1, 1, RATE, RATE * 2, 2, 16) + b'data' + struct.pack('<I', len(data)))
-    Path(path).write_bytes(header + data)
+    Path(path).write_bytes(header + bytes(data))
 
 
 def sum_samples(first, second):

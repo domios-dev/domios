@@ -14,7 +14,7 @@ from soundtrack_proof import audio_record, measure_balance, enforce_balance
 from music_review import PRIVATE_MARKERS, validate_music, credit_payload, protect_private_path, prepared_music
 from opening_audio import RATE, assemble_music, choose_gain, decode_excerpt, decode_samples
 from opening_audio import (dbfs, rms, shape_excerpt, sum_samples, verify_preservation, write_float_wav,
-                           write_pcm16_wav)
+                           write_pcm16_wav_preserving_tail)
 
 
 def measure_loudness(source):
@@ -157,7 +157,7 @@ def mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_
     copied_music = decode_samples(music_mastered, count)
     verify_preservation(prior_voice, copied_voice, prior_music, copied_music, excerpt_samples)
     write_float_wav(unmastered_path, unmastered)
-    write_pcm16_wav(final, final_sum)
+    write_pcm16_wav_preserving_tail(final, final_sum, prior['finalAudio']['path'], excerpt_samples)
     new_stems = dict(voicePostDuck=audio_record(voice_post_duck), musicPostDuck=audio_record(music_post_duck),
                      voiceMastered=audio_record(voice_mastered), musicMastered=audio_record(music_mastered),
                      unmasteredMix=audio_record(unmastered_path))
@@ -183,6 +183,7 @@ def mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_
                                          durationSeconds=ramp_samples / RATE),
                       gain=gain_report, changedSampleRange=[0, excerpt_samples],
                       unchangedMusicSampleRange=[excerpt_samples, count],
+                      finalAudioTailPreserved=True, finalAudioTailRange=[excerpt_samples, count],
                       voicePcmPreserved=True, postOpeningMusicPcmPreserved=True,
                       globalNormalization=False, reusedPriorMastering=True)
     exported_credit = credit_payload(credit, private_review) if credit else None
