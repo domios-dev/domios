@@ -82,6 +82,7 @@ struct EpisodeState {
     spawn_claim: Option<u64>,
     last_busy_output_sequence: Option<u64>,
     previous_strong_label: Option<String>,
+    applied_observation_ids: BTreeSet<u64>,
     acted_labels: BTreeSet<String>,
     weak_emitted: bool,
     signaled: bool,
@@ -244,6 +245,7 @@ pub(crate) fn screen_changed(tab_id: &str, session_key: &str, hash: u64) -> bool
             state.calls = 0;
             state.last_busy_output_sequence = None;
             state.previous_strong_label = None;
+            state.applied_observation_ids.clear();
             state.acted_labels.clear();
             state.weak_emitted = false;
             state.signaled = false;
@@ -273,8 +275,11 @@ pub(crate) fn apply_observed_verdict(
     confidence: f64,
 ) -> Option<SignalAction> {
     let mut all = episodes().lock();
-    let state = state_for_session(&mut all, tab_id, session_key);
-    if state.episode != permit.episode {
+    let state = all.get_mut(tab_id)?;
+    if state.session_key != session_key || state.episode != permit.episode {
+        return None;
+    }
+    if !state.applied_observation_ids.insert(permit.observation_id) {
         return None;
     }
     Some(apply_verdict_to_state(state, label, confidence))
