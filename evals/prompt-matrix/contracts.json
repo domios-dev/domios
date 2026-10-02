@@ -336,12 +336,17 @@
   },
   "update_fixture": {
     "status": "pending",
-    "reason": "Native assembly/hash/layout and separate qualification sources authored but NOT RUN. Codex production startup check remains false; genuine supported update prompt trigger absent. Capability updater resolver/native destination/target and complete process-tree termination remain unconfined.",
-    "native_status": "source_authored_NOT_RUN",
+    "reason": "First canonical Claude2.1.286 macOS wrapper acquisition failed with URLError and no archive; incomplete assembly remains unqualified, version NOT RUN. Codex production startup check remains false; genuine supported update prompt trigger absent. Capability updater resolver/native destination/target and complete process-tree termination remain unconfined.",
+    "native_status": "first_canonical_attempt_failed_unqualified",
     "trigger_status": "pending",
     "confinement_status": "pending",
     "absolute_transport_status": "pending",
-    "absolute_transport_source": "source_authored_NOT_RUN",
-    "absolute_transport_reason": "Owned isolated Python registry helper and parent lifecycle authored under Fermi source GO, NOT RUN. Default acquisition uses reviewed fixture inputs, one original deadline and actual exit/handle completion before independent byte validation. Process creation/termination and cross-platform private CPython seams remain unqualified. Pure fake controls do not qualify actual acquisition."
+    "absolute_transport_source": "ancestry_merged_pure217_passed_actual_acquisition_failed",
+    "absolute_transport_reason": "Canonical2a18d9fa pure217/red receipt qualifies fake controls only. First actual helper exited1 with closed handles and terminated waiter; its generic URLError has no retained cause. Default acquisition uses reviewed fixture inputs, one original deadline and actual exit/handle completion before independent byte validation. Successful acquisition, cancellation and cross-platform private CPython seams remain unqualified.",
+    "tls_source_status": "fixed_macos_public_ca_snapshot_and_typed_failures_authored_NOT_RUN",
+    "tls_source": "/etc/ssl/cert.pem; resolved regular root-owned non-group/world-writable source; exclusive fixture public-ca.pem snapshot with request-bound identity/bytes/SHA256",
+    "tls_runtime_status": "pending_canonical_bundle_parse_and_acquisition",
+    "trust_diagnostic": "/tmp/codeterm-qa/probe-isolated-tls-diagnostic-20261002-193147-35375/full.log: default isolated context x509_ca=0; original URLError cause unavailable",
+    "failed_fixture": "promptmatrix:7794/native/claude/2.1.286 preserved unchanged; no retry or replacement authorized"
   }
 }

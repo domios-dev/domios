@@ -2,7 +2,7 @@
 
 Source authored only; this attempt executed none. These are concrete deferred command tokens, not authorization. Live provider creation is blocked by isolation disposition, final Auditor correlation, genuine disagreement provokers and confined executable/update bindings. Setup leaves provider updates disabled. The focused feed mechanism already passed within Sentinel28; no repeat feed regression is requested. Its live cell remains NOT RUN.
 
-Run start/stop in a Team-bound utility shell; QA is serialized on the physical machine.
+Run start/stop in a Team-bound utility shell; QA is serialized on the physical machine. Canonical promptmatrix:7794 now contains a retained failed Claude2.1.286 assembly attempt. Do not rerun prepare, reuse/replace its sidecar or execute any native command below without a separate exact fixture disposition; the failed fixture is preserved unchanged.
 
 ```bash
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --prepare
@@ -191,18 +191,30 @@ python3 evals/prompt-matrix/native_assembly.py --instance promptmatrix --port 77
 python3 evals/prompt-matrix/native_assembly.py --instance promptmatrix --port 7794 --provider opencode --version 1.18.34 --verify-version
 ```
 
-Historical default at015fc1307 refused before network/output with `Absolute-deadline registry transport unavailable; acquisition withheld`; no executed native red is claimed. Fermi source GO accepted that exact helper proposal. Current default assembly uses acquisition_transport/acquisition_worker sources, still NOT RUN and requiring separate exact canonical authorization. ACQUISITION-TRANSPORT.md records the actual source boundary and known lifecycle limits. Assembly expects exit0 only with both archive integrity/digests, exact package/platform layout, matching installer source, contained extraction, native bytes and tree receipts. Native version qualification expects exit0 only with actual exact-version stdout, exit0 and the matching executable digest; it does not prove complete updater tree termination. Failures are retained and never replaced by a guessed layout or repeated acquisition. All live commands earlier remain interlocked PENDING before creation until actual native/auth/policy/trigger/updater/receipt binding and owner disposition. No updater-enabling command or invented confinement CLI is supplied. Courier's concrete boundary proposal is COURIER-CONFINEMENT.md, not a gate. The report command remains exit1 until all retained coverage and strict contracts qualify.
+Historical default at015fc1307 refused before network/output with `Absolute-deadline registry transport unavailable; acquisition withheld`; no executed native red is claimed. Fermi source GO accepted that exact helper proposal. Current default assembly uses acquisition_transport/acquisition_worker sources. The first canonical macOS Claude2.1.286 wrapper attempt failed and remains unqualified; further commands require separate exact canonical authorization and failed-fixture preservation. ACQUISITION-TRANSPORT.md records the actual source boundary and known lifecycle limits. Assembly expects exit0 only with both archive integrity/digests, exact package/platform layout, matching installer source, contained extraction, native bytes and tree receipts. Native version qualification expects exit0 only with actual exact-version stdout, exit0 and the matching executable digest; it does not prove complete updater tree termination. Failures are retained and never replaced by a guessed layout or repeated acquisition. All live commands earlier remain interlocked PENDING before creation until actual native/auth/policy/trigger/updater/receipt binding and owner disposition. No updater-enabling command or invented confinement CLI is supplied. Courier's concrete boundary proposal is COURIER-CONFINEMENT.md, not a gate. The report command remains exit1 until all retained coverage and strict contracts qualify.
 
 
-## Owned-helper continuation — pure controls only
+## Historical owned-helper pure gate — passed, no repeat requested
 
-After source review, real merge and exact canonical authorization:
+Previously authorized and executed in canonical2a18d9fa:
 
 ```bash
 python3 evals/prompt-matrix/oracle_tests.py --red-acquisition-demo
 python3 evals/prompt-matrix/oracle_tests.py
 ```
 
-The sabotage command must exit1 AND identify `Acquisition owned process termination unconfirmed`, because a finished flag is supplied without an observed process exit. The suite must exit0 with217 controls. All process/thread/socket/network boundaries in these controls are fakes or mocked before invocation; local synthetic files only. Source pre-fix default predicate: `Absolute-deadline registry transport unavailable; acquisition withheld` at015fc1307. No executed pre-fix native acquisition result is inferred.
+The sabotage command must exit1 AND identify `Acquisition owned process termination unconfirmed`, because a finished flag is supplied without an observed process exit. The historical suite returned exit0 with217 controls at canonical2a18d9fa; its receipt is /tmp/codeterm-qa/probe-acquisition-controls-20261002-192817-29384. The acquisition red predicate also passed there; no repeat is requested. All process/thread/socket/network boundaries in these controls are fakes or mocked before invocation; local synthetic files only. Source pre-fix default predicate: `Absolute-deadline registry transport unavailable; acquisition withheld` at015fc1307. No executed pre-fix native acquisition result is inferred.
 
 No actual helper/native command is requested as part of this pure gate. Future helper invocations occur only inside the twelve exact native assembly/version commands above, under separate canonical authorization. Parent/helper receipts alone do not qualify native tree/version, actual socket/process behavior, fixture auth, authentic update prompts or live cells. No repeat feed/broad/CI, updater opt-in or new live command is requested.
+
+## Bounded TLS correction: sole requested pure command
+
+After source review, ancestry-preserving merge and exact canonical authorization:
+
+```bash
+python3 evals/prompt-matrix/oracle_tests.py
+```
+
+Expected exit0 with270 controls (prior217 plus41 synthetic trust/context/read and12 sanitized failure-fact controls). New53 are source-authored NOT RUN. Every context/handshake/opener/process/OS CA source seam is fake; only synthetic local fixture files are read. No real bundle parse, process, socket, network or provider action qualifies. A supplied CERT_NONE context must be rejected by `TLS certificate/hostname verification weakened`; the pre-correction implicit context path lacked this explicit trust binding. A supplied nested URLError must retain its typed SSL verify_code instead of erasing the reason. These are source predicates, not executed new red receipts. No repeat red/feed/broad/CI gate is requested.
+
+The old generic URLError receipt and incomplete native manifest stay untouched. Actual OS bundle parsing, HTTPS acquisition, cancellation, assembly and version commands are held for a separate exact disposition, with no retry or replacement authorized by this checkpoint. All owner/producer/Courier/native/trigger/Cursor/Windows and90 live requirements remain pending.

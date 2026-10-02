@@ -11,7 +11,8 @@ import threading
 import time
 
 from acquisition_worker import (MAX_RECEIPT, MAX_REQUEST, bounded_json, contained, metadata_input,
-                                exclusive_json, file_digest, registry_url)
+                                exclusive_json, exclusive_file, file_digest, registry_url, read_public_ca, public_ca_bytes,
+                                stat_identity, validated_tls)
 from deadline_io import Deadline
 from native_layout import demand
 
@@ -61,6 +62,23 @@ def helper_environment(home, source=None, platform=None):
     return environment
 
 
+def acquisition_tls(root, workspace, end, clock=time.monotonic, platform=None):
+    platform = sys.platform if platform is None else platform
+    if platform in ("linux", "win32"):
+        return {"platform": platform, "mode": "system_default"}
+    demand(platform == "darwin", "Acquisition TLS platform unsupported")
+    raw, resolved, identity = read_public_ca(end, clock)
+    snapshot = contained(root, workspace / "public-ca.pem")
+    with exclusive_file(snapshot) as output:
+        demand(output.write(raw) == len(raw), "Public CA snapshot write incomplete")
+    snapshot.chmod(0o400)
+    tls = {"platform": platform, "mode": "os_public_ca_snapshot", "source": "/etc/ssl/cert.pem",
+           "resolved_source": str(resolved), "source_identity": identity, "snapshot": str(snapshot),
+           "snapshot_identity": stat_identity(snapshot.stat()), "bytes": len(raw), "sha256": public_ca_bytes(raw)}
+    validated_tls({"fixture_root": str(root), "receipt": str(workspace / "receipt.json"), "tls": tls}, end, clock, platform)
+    return tls
+
+
 def helper_plan(metadata, destination, hard, clock=time.monotonic):
     operation = hard.reserve(CLEANUP_RESERVE)
     operation.remaining()
@@ -77,10 +95,11 @@ def helper_plan(metadata, destination, hard, clock=time.monotonic):
     workspace.mkdir(mode=0o700)
     home = workspace / "home"
     home.mkdir(mode=0o700)
+    tls = acquisition_tls(root, workspace, operation.end, clock)
     request = {"version": 1, "metadata": metadata, "fixture_root": str(root), "archive": str(destination),
                "receipt": str(workspace / "receipt.json"), "operation_deadline": operation.end,
                "worker_sha256": file_digest(worker, operation.end, clock), "interpreter": str(interpreter),
-               "interpreter_sha256": file_digest(interpreter, operation.end, clock)}
+               "interpreter_sha256": file_digest(interpreter, operation.end, clock), "tls": tls}
     request_path = workspace / "request.json"
     exclusive_json(request_path, request)
     request_path.chmod(0o400)
@@ -214,6 +233,7 @@ def validated_result(plan, hard):
     raw, request = bounded_json(plan["request_path"], MAX_REQUEST)
     demand(request == plan["request"] and hashlib.sha256(raw).hexdigest() == plan["argv"][-1],
            "Acquisition request changed")
+    validated_tls(request, hard.end, hard.clock)
     _, receipt = bounded_json(plan["receipt_path"], MAX_RECEIPT)
     demand(isinstance(receipt, dict) and set(receipt) == {"version", "status", "request_sha256", "archive", "result"}
            and type(receipt["version"]) is int and receipt["version"] == 1 and receipt["status"] == "completed" and
@@ -238,6 +258,7 @@ def validated_result(plan, hard):
     demand(file_digest(HERE / "acquisition_worker.py", hard.end, hard.clock) == request["worker_sha256"] and
            file_digest(request["interpreter"], hard.end, hard.clock) == request["interpreter_sha256"],
            "Trusted acquisition inputs changed")
+    validated_tls(request, hard.end, hard.clock)
     hard.remaining()
     return actual
 
