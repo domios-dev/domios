@@ -14,6 +14,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from media_contract import SOURCES, bounded_process, probe, read_timing, require, run, write_json
 from narration_proof import sha256
+from opening_audio import verify_pcm16_tail_preserved
 from soundtrack_proof import enforce_balance, measure_balance, samples
 from trailer_scenes import (ENDING_END_FRAME, ENDING_START_FRAME, FPS, OPENING_FRAMES, SIZE,
                             load_brand_frames, render_timeline_frame, timed_shots)
@@ -204,6 +205,9 @@ def audio_audit(baseline_proof_path, candidate_proof_path, timing_path):
     opening_end = round(edit['outputRange']['endSeconds'] * 48000)
     require(edit['changedSampleRange'] == [0, opening_end], 'Opening changed-sample extent is not bounded')
     require(edit['unchangedMusicSampleRange'] == [opening_end, count], 'Post-opening sample range is incomplete')
+    require(edit['finalAudioTailPreserved'] is True and edit['finalAudioTailRange'] == [opening_end, count],
+            'Final PCM tail preservation proof is missing or unbounded')
+    verify_pcm16_tail_preserved(baseline['finalAudio']['path'], candidate['finalAudio']['path'], opening_end, count)
     voice_before = samples(baseline['mixStems']['voiceMastered'], count)
     voice_after = samples(candidate['mixStems']['voiceMastered'], count)
     music_before = samples(baseline['mixStems']['musicMastered'], count)
@@ -227,6 +231,7 @@ def audio_audit(baseline_proof_path, candidate_proof_path, timing_path):
                 voicePcmSha256Before=baseline['mixStems']['voiceMastered']['sha256'],
                 voicePcmSha256After=candidate['mixStems']['voiceMastered']['sha256'],
                 voiceSamplesIdentical=True, musicSamplesAfterOpeningIdentical=True,
+                finalAudioSamplesAfterOpeningIdentical=True,
                 first100ms=dict(rms=rms100, dbfs=20 * math.log10(rms100), peak=peak100),
                 first650ms=dict(rms=rms650, dbfs=20 * math.log10(rms650), peak=peak650),
                 phraseBalance=balance, mastering=candidate['mastering'])
