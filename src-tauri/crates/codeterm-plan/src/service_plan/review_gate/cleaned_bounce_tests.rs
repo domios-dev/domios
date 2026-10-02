@@ -749,7 +749,7 @@ fn incomplete_terminal_history(case: &str) -> (tempfile::TempDir, PlanStore, Str
                     &task_id,
                     &AgentRef::from_tab("worker-one"),
                     "report did not enter review",
-                    Some(ReportStatus::InProgress),
+                    Some(ReportStatus::Partial),
                     12,
                 )
                 .unwrap();
