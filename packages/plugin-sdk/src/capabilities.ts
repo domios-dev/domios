@@ -449,10 +449,12 @@ export type DecisionAnswer =
     };
 
 export interface DecisionModelCapability {
+  /** Declares that decideQuestions sends at most one physical request. */
+  supportsQuestionBatch?(): boolean;
   modelId?(): string | null;
   pricing?(): DecisionPricing | null;
   decide(request: DecisionRequest): DecisionAnswer;
-  /** One shared-state request; omitted methods use sequential decide calls inside the adapter. */
+  /** Named questions over shared state; omitted methods use sequential decide calls. */
   decideQuestions?(request: DecisionQuestionsRequest): DecisionResponse;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;

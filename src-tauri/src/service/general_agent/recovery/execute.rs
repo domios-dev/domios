@@ -55,6 +55,7 @@ pub(crate) fn recover(
     observation_id: u64,
     _trigger: ObservationTrigger,
     verdict: &ShadowVerdict,
+    ticket: Option<&crate::service::supporter_tab_state::coordinator::ActionTicket>,
 ) -> bool {
     let label = Label::parse(&verdict.label);
     let (count, confidence) = agreement(
@@ -79,6 +80,17 @@ pub(crate) fn recover(
     let connected = count >= 2;
     if !connected {
         return false;
+    }
+    let Some(ticket) = ticket else {
+        return true;
+    };
+    if !crate::service::supporter_tab_state::coordinator::global().ticket_is_current(
+        ticket,
+        &crate::service::supporter_tab_state::coordinator::LedgerSnapshot::capture(service, tab_id),
+    ) || !crate::service::supporter_tab_state::ShadowHost::observation_is_current(
+        service, tab_id, metadata,
+    ) {
+        return true;
     }
     if label == Label::TrustOrPermission {
         match current.pending_prompt_kind {

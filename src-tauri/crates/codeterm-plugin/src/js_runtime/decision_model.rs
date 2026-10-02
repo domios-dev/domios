@@ -27,6 +27,10 @@ impl JsDecisionModel {
 }
 
 impl DecisionModel for JsDecisionModel {
+    fn supports_question_batch(&self) -> bool {
+        super::vm::has_method(&self.vm, "decideQuestions")
+            && call_json_or_default::<bool>(&self.vm, &self.id, "supportsQuestionBatch")
+    }
     fn id(&self) -> &str {
         &self.id
     }
@@ -99,8 +103,8 @@ fn call_json_or_default<T>(vm: &PluginVm, model_id: &str, method: &str) -> T
 where
     T: serde::de::DeserializeOwned + Default,
 {
-    call_json(vm, method, &[]).unwrap_or_else(|error| {
-        log::debug!("decision model {model_id}.{method} failed: {error}");
+    call_json(vm, method, &[]).unwrap_or_else(|_| {
+        log::debug!("decision model {model_id}.{method} unavailable");
         T::default()
     })
 }

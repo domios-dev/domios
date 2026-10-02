@@ -105,6 +105,25 @@ impl StubHost {
 }
 
 impl ShadowHost for StubHost {
+    fn local_identity(&self, tab: &str) -> Option<identity::LocalIdentity> {
+        self.metadata_service
+            .as_ref()
+            .and_then(|service| service.local_identity(tab))
+    }
+    fn ledger_snapshot(&self, tab: &str) -> coordinator::LedgerSnapshot {
+        self.metadata_service
+            .as_ref()
+            .map_or_else(Default::default, |service| service.ledger_snapshot(tab))
+    }
+    fn observation_is_current(&self, tab: &str, metadata: &TabStateMetadata) -> bool {
+        self.metadata_service.as_ref().is_none_or(|service| {
+            metadata
+                .envelope
+                .as_ref()
+                .and_then(|envelope| envelope.local.as_ref())
+                .is_some_and(|expected| service.observation_identity_is_current(tab, expected))
+        })
+    }
     fn transport(&self, _tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         Ok(Box::new(StubTransport { host: self }))
     }
@@ -156,6 +175,7 @@ impl ShadowHost for StubHost {
             declared_safe_choice: None,
             tab_snapshot: None,
             process_tree_key: None,
+            envelope: None,
             context: serde_json::json!({
                 "provider_capability": {"transport": "chat_backend", "display_name": "Fixture"},
                 "requested_model": "requested",
@@ -279,6 +299,9 @@ impl StubModel {
 }
 
 impl DecisionModel for StubModel {
+    fn supports_question_batch(&self) -> bool {
+        true
+    }
     fn id(&self) -> &str {
         "fixture"
     }
@@ -309,16 +332,39 @@ impl DecisionModel for StubModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.seen.lock() = Some(request.clone());
         if let Some(on_decide) = &self.on_decide {
             on_decide();
         }
         Ok(DecisionResponse {
-            answers: BTreeMap::from([
-                ("label".into(), self.answer.clone()?),
-                ("prompt_visible".into(), DecisionAnswer::Noul { p: 0.0 }),
-            ]),
+            answers: request
+                .questions
+                .iter()
+                .map(|(name, spec)| {
+                    let answer = match name.as_str() {
+                        "label" => self.answer.clone()?,
+                        "prompt_visible" => DecisionAnswer::Noul { p: 0.0 },
+                        _ => {
+                            let codeterm_types::decision::DecisionQuestion::Choice { options } =
+                                &spec.question
+                            else {
+                                return Err(DecisionError::Unsupported);
+                            };
+                            choice(
+                                if options.contains_key(OTHER) {
+                                    OTHER
+                                } else {
+                                    "__abstain__"
+                                },
+                                1.0,
+                            )
+                        }
+                    };
+                    Ok((name.clone(), answer))
+                })
+                .collect::<Result<_, DecisionError>>()?,
             usage: None,
         })
     }
@@ -371,6 +417,7 @@ fn supporter_tab_state_not_connected_makes_no_read_or_call() {
     assert_eq!(host.reads.load(Ordering::SeqCst), 0);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    assert!(!host._journal_dir.path().join("journal.jsonl").exists());
 }
 
 #[test]
@@ -378,9 +425,20 @@ fn tab_state_no_call_without_token() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.99)));
     let (mut host, calls, _) = StubHost::new("ready", model);
     host.token = false;
-    assert!(run(&host, &tab(), ObservationTrigger::SpawnReady).is_none());
+    assert!(spawn_observer(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab(),
+        ObservationTrigger::SpawnReady,
+        "fixture-structural-verdict",
+    )
+    .is_none());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(host.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(host.runtime.status(0)["calls_last_hour"], 0);
+    assert!(!host._journal_dir.path().join("journal.jsonl").exists());
 }
 
 #[test]
@@ -698,7 +756,7 @@ fn tab_state_codex_sequence_one_spawn_ok() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn tab_state_spawn_observation_survives_session_binding() {
+fn supporter_first_opinion_spawn_verdict_discarded_on_nonce_rebinding() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = format!("tab-state-binding-{}", uuid::Uuid::new_v4().simple());
     mux.link_pty(&tab_id, pty_id);
@@ -742,20 +800,10 @@ fn tab_state_spawn_observation_survives_session_binding() {
     let (mut host, calls, _) = StubHost::new("ready screen", model);
     host.metadata_service = Some(fixture.service.clone());
 
-    let verdict = run(&host, &tab_id, ObservationTrigger::SpawnReady)
-        .expect("the pre-binding observation returns after binding");
-
-    assert_eq!(verdict.label, READY_IDLE);
+    assert!(run(&host, &tab_id, ObservationTrigger::SpawnReady).is_none());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(post_binding_metadata.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        host.deliveries.lock().as_slice(),
-        &[(
-            ObservationTrigger::SpawnReady,
-            READY_IDLE.to_owned(),
-            SignalAction::SpawnOk,
-        )]
-    );
+    assert!(host.deliveries.lock().is_empty());
 }
 
 #[test]
@@ -999,3 +1047,6 @@ fn tab_state_uses_configured_adapter_with_choice_capability() {
 mod connected_tests;
 #[path = "metadata_tests.rs"]
 mod metadata_tests;
+
+#[path = "first_opinion_tests.rs"]
+mod first_opinion_tests;

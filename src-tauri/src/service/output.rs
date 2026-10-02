@@ -20,6 +20,7 @@ mod launch_exit;
 mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
+pub(crate) use manual_update::observation_revision as manual_update_observation_revision;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
 #[path = "output/shell_markers.rs"]
