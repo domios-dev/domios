@@ -339,6 +339,8 @@
     "reason": "Native assembly/hash/layout and separate qualification sources authored but NOT RUN. Codex production startup check remains false; genuine supported update prompt trigger absent. Capability updater resolver/native destination/target and complete process-tree termination remain unconfined.",
     "native_status": "source_authored_NOT_RUN",
     "trigger_status": "pending",
-    "confinement_status": "pending"
+    "confinement_status": "pending",
+    "absolute_transport_status": "pending",
+    "absolute_transport_reason": "Standard urllib has no certified absolute-deadline open/read/cancel/completion seam here. Unsafe fallback removed; native_archive.acquire refuses with no adapter. Exact narrow bounded transport proposal is in ACQUISITION-TRANSPORT.md. Fake transport controls do not qualify a real adapter."
   }
 }
