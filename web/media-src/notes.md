@@ -1,56 +1,70 @@
-# Domios trailer
+# Domios trailer review pipeline
 
-The landing page plays one 45-second, 1280 × 720, 24 fps trailer. Four shelf buttons seek within that same video: agents at 0:00, team board at 0:08, connected machines at 0:15, and tools at 0:30. Playback drives the selected chapter and HTML narration chips. The player does not load video sources or autoplay when reduced motion is requested; an explicit play or chapter action enables playback.
+The preserved silent original is 45 seconds at 24 fps. Its complete media directory and archive branch at `222f60c46b0f962d566344c99b96b5da3afade7f` remain read-only. These source tools prepare an independent candidate; they do not replace public media. Alvar owns all executable preparation, rendering, mixing, validation, listening, browser proof, selection and deployment. No worker gate or render has been executed.
 
-## Reproduce
+The owner's later voice-led direction supersedes the frozen chapter and caption times. Keep four chapter IDs/order (`agents`, `board`, `mesh`, `plugins`) and thirteen cue IDs/order. Candidate duration is 40–55 seconds, targeting a natural 45 seconds, with native 30 fps picture. Every frame count derives from chosen duration. Original times are source defaults for independent silent preparation only.
 
-Requires Python 3.12+, Pillow 10+, FFmpeg 7.1+ and ffprobe on PATH. Raw recordings stay read-only on the owner's desktop and are never copied into the repository.
+## One timing authority
+
+`prepare-timing.py` reads the actual complete take, its original service character alignment and the root's source metadata. It verifies the audio hash, walks all thirteen exact phrases and derives every word's actual source and final timestamps. The first candidate keeps the entire recording intact at its original speed with 0.65 seconds of initial silence. The recorded final phrase runs 36.652–42.028 seconds; its shifted end is 42.678 seconds, leaving a complete final hold before 45. No thirteen paid requests, word cropping, or speech segmentation are used.
+
+The resulting private `timing.json` owns cue text/onsets/ends, visual cuts in real breath gaps snapped to native frames, chapter starts at visual cues 1/3/5/9, poster times, duration and per-word provenance. Builder, audit, mux and checker consume that same file; the render manifest pins its SHA256. Changing it requires a new picture candidate. Caption chips, seekable transcript and hidden VTT captions use the same media clock and exact generated words.
+
+Root source metadata reports stock Chris / `eleven_multilingual_v2`, two paid requests and 644 total input characters including the sample. The full take lasts 42.057143 seconds. These are inspected root metadata facts, not new worker API calls or listening results.
+
+## Source and camera decisions
+
+Both supplied raw contact sheets were visually inspected before excerpt selection: `send-work-32-64.png` is 4×8, first frame 32 seconds, one frame per second; `reports-94-98.png` is 2×4, first frame 94 seconds, two frames per second. Coordinates below refer to those unmodified sheets.
+
+| Cue | Real footage and purpose | Camera/motion |
+| --- | --- | --- |
+| 1 | mesh-talk frame 16, desktop establishing composition | Restrained analytic spring launch; decorative five-color dock removed; window fills the exact next recorded crop before the cut |
+| 2 | mesh-talk 16 onward, up to four source seconds | Native-speed agent tabs; establish then settle into conversation |
+| 3–4 | board 0.2–7.2, one source clock across both cues | Shared inertial trajectory, slower center, faster arrival/exit; equal position and nonzero first derivative at cue join |
+| 5 | mesh frame 0, existing illustrated machine context | Duration-aware pull apart; packet size approaches zero at route endpoints before modulo wrap |
+| 6 | mesh 0 onward, up to four source seconds | Recorded peer action, declared documentary cut after establishing shot |
+| 7 | mesh-talk 33–35 and 46–48, shortened to fit visual window | Sheet row 1 columns 2–4 shows setup/tool result; row 4 columns 3–4 shows dispatch and background-terminal status. Two explicit native-speed excerpts omit waiting; no accelerated 32-second cursor sweep |
+| 8 | mesh-talk 95–98 | Report sheet row 2 onward shows settled returned reports after the initial scroll. Fast arrival followed by readable hold; bounded crop `(460,300,1470)` to `(490,550,1390)` |
+| 9–11 | plugins 1.5–5.6, 7.3–8.7, 11–14.9 | Providers, Git, documentation; intentional initial read hold, then controlled move; existing sensitive-account exclusions retained |
+| 12 | mesh-talk 139–146 | Fleet payoff remains documentary; bounded crop `(460,570,1450)` to `(490,620,1350)` |
+| 13 | Existing original03 Threshold outline and Domios close | Uniform static mark, no alternative/deformed geometry; complete last phrase and final hold; duration-aware return to the opening plate |
+
+The default cue-7 cut skips 35–46 (eleven seconds); phrase-led shorter excerpts can skip slightly more. The cut is declared, never disguised as a continuous action. A/B output still must establish that each choice improves readability.
+
+The original per-shot source ramp changes source speed by about 1.916 at output 11 seconds while the contiguous board footage crosses source 3.2. Its two independently eased camera moves stop at the join. Original report target y=740 exceeds its feasible 614.125; fleet y=850/900 exceeds 580.375/636.625, and runtime clamping changes the trajectory. The new paths avoid those authored bounds and clamping. These causal source facts do not prove that a visible jerk occurred: Alvar must tag actual original/candidate clips as confirmed, rejected or repaired. Native 30 fps is source cadence, not a repair claim.
+
+Decoder reads exact native frames from the top-left 2048×1396 source crop. Audit records continuous source time, the chosen native source frame/time and camera box for every output frame, analytic board join position/velocity and all declared hard cuts. No interpolation, mask, blur, fabricated response or extra source write occurs. Actual last/first decoded output frames determine loop quality; differing invisible end-card source frames are not causal evidence.
+
+## Canonical commands
+
+Run from canonical `web/`, serially in a Team utility shell, under Alvar's bounded runner. Set `$trailerReview` to Alvar's absolute private review path and `$trailerAudio` to `D:/Developer/codeterm/web/.local/trailer-audio-source`. All output directories must be empty. Preserve failed output evidence; choose a fresh output directory for a reviewed correction rather than overwrite it. Probe timeout 120 seconds, full visual command 1800 seconds, mix/mux 300 seconds; timeout fails.
 
 ```powershell
-python web/media-src/build-media.py --source-dir 'C:/Users/dev/Desktop' --preview-dir '<your-agent-pad>'
+python media-src/prepare-timing.py --source-metadata "$trailerAudio/narration-source.json" --alignment "$trailerAudio/alignment.json" --audio "$trailerAudio/narration-full.mp3" --output "$trailerReview/timing.json" --offset 0.65 --duration 45
+python media-src/check-media.py --timeline-only --timing "$trailerReview/timing.json" --baseline-ref 222f60c46 --audit "$trailerReview/timeline.json"
+python media-src/build-media.py --source-dir C:/Users/dev/Desktop --font C:/Windows/Fonts/segoeui.ttf --timing "$trailerReview/timing.json" --output-dir "$trailerReview/probe-board" --review-range 10:12
+python media-src/build-media.py --source-dir C:/Users/dev/Desktop --font C:/Windows/Fonts/segoeui.ttf --timing "$trailerReview/timing.json" --output-dir "$trailerReview/silent" --preview-dir "$trailerReview/silent-proof"
+python media-src/check-media.py --baseline-dir .local/trailer-before-222f60c46/media --baseline-manifest .local/trailer-before-222f60c46/sha256.json --candidate-dir "$trailerReview/silent" --timing "$trailerReview/timing.json" --audit "$trailerReview/silent-audit.json"
+python media-src/mux-narration.py --video-dir "$trailerReview/silent" --audio "$trailerAudio/narration-full.mp3" --alignment "$trailerAudio/alignment.json" --timing "$trailerReview/timing.json" --music "$trailerAudio/chill-wave.mp3" --music-metadata "$trailerAudio/music-license.json" --output-dir "$trailerReview/narrated" --proof-dir "$trailerReview/sound-proof"
+python media-src/check-media.py --baseline-dir .local/trailer-before-222f60c46/media --baseline-manifest .local/trailer-before-222f60c46/sha256.json --candidate-dir "$trailerReview/narrated" --reference-video-dir "$trailerReview/silent" --timing "$trailerReview/timing.json" --narration-alignment "$trailerReview/sound-proof/narration-alignment.json" --require-audio --audit "$trailerReview/final-audit.json"
 ```
 
-`--font` accepts a TrueType font path. The shipped render uses Segoe UI. `--output-dir` allows a review export outside the published assets. The pipeline renders an intermediate H.264 master in an automatically removed temporary directory, then H.264 MP4 first, VP9 WebM second, one main WebP poster, and four small chapter stills. Old individual clip encodes are removed from the chosen output directory by exact filename.
+Repeat private review exports for `3:5`, `18:20`, `23:30`, `38:41`, `44:45` and `0:1`. Also derive short frame-snapped ranges around every actual `visualStart` in timing.json, including the new board join and cue-7 internal cut: original times alone no longer identify the phrase-led joins. `--review-range` emits MP4/WebM and audit only, with no publishable manifest. Compare original/candidate by timestamps and equivalent story beats, accounting for the original 24 fps clock, not equal frame index. Keep full A/B, source-time audits, boundary frame pairs, a native-cadence whole-candidate viewing, storyboard and owner selection.
 
-## Edit map
+## Music, mux and audio proof
 
-Source ranges are seconds in the original recordings. Camera tuples in `trailer_scenes.py` are `(left, top, width)`; the camera preserves a 16:9 viewport. Quintic easing guides each camera move. Source-time remapping accelerates through the start of a shot and slows into its payoff. No generated card transitions or invented agent responses are inserted into real footage.
+`--music` and `--music-metadata` are paired optional inputs. Root supplied Chill Wave by Kevin MacLeod with CC BY 4.0 evidence. Root remains responsible for license verification and taste/listening. Its credit appears visibly in the existing transcript disclosure, in both container metadata and accompanying public credits files. All accompanying files count toward the 6,000,000-byte aggregate.
 
-| Trailer | Source | Source range | Story |
-| --- | --- | --- | --- |
-| 0–4 | mesh-talk | 16–16.1 | Rendered desktop, wallpaper, dock, and Domios window opens; camera approaches the actual recorded app |
-| 4–8 | mesh-talk | 16–23 | Named agents and a conversation in the app |
-| 8–11 | board | 0.2–3.2 | Wide board pushes into the first task columns |
-| 11–15 | board | 3.2–7.2 | Camera travels across review, blocked, and done; the source board itself is mostly static |
-| 15–19 | mesh | 0–0.1 | Rendered laptop and two displays pull apart, connected by moving droplets |
-| 19–23 | mesh | 0–4.8 | Real map moves toward a peer and its Open action |
-| 23–27 | mesh-talk | 32–64 | Waiting is compressed into agent setup and dispatch |
-| 27–30 | mesh-talk | 94–98 | Camera pushes into returned reports |
-| 30–33 | plugins | 1.5–5.6 | Provider choices and controls |
-| 33–35.5 | plugins | 7.3–8.7 | Git capability |
-| 35.5–38 | plugins | 11–14.9 | Plugin documentation and scrolling |
-| 38–41 | mesh-talk | 139–146 | Fleet summary, including offline peers |
-| 41–45 | rendered | — | Threshold mark settles, domios.dev, then the opening desktop for the loop |
+The mux keeps the continuous speech untouched in time, adds initial silence and pads only final silence to the chosen duration. Voice mastering targets -18 LUFS; music bed targets -30 LUFS with speech-keyed ducking, a one-second entrance and intentional three-second ending. Two-pass programme mastering targets -18 LUFS and -1.5 dBTP to leave codec headroom; actual encoded output must pass -18±1 LUFS and ≤-1 dBTP. Root must judge music level, clicks, breath continuity, pronunciation and every cue in complete A/V. No audible playback is launched by these tools.
 
-The four recordings differ slightly in pixel dimensions. Decode normalizes them with a top-left 2048 × 1396 crop before sending raw frames through the renderer. This avoids raw pipe frame-size mismatches while keeping text undistorted. The pipeline fails on missing or incomplete source frames.
+H.264/VP9 video streams are copied during mux; audio is mono 48 kHz AAC/Opus. Private sound proof keeps original-source/alignment hashes, aligned voice WAV, final mixed WAV hash and per-word source-to-final mapping. Full decode, frame hashes, timing authority, actual original character timestamps and all published assets are checked by `check-media.py`. The oracle also re-encodes the proof WAV with the same audio settings and compares compressed audio packet SHA256 with the actual candidate stream. Voice and music metadata alone do not prove the audible result.
 
-## Visual treatment
+WebM PTS may quantize to the probed millisecond stream time base. Every frame must remain within one actual tick of index/30 relative to firstPTS, be strictly increasing, have declared CFR30 and the exact chosen frame count. MP4 retains sub-1e-5 residual where its measured timescale supports it. Audit includes firstPTS, measured time base, maximum residual, tolerance and count. Quantization cannot excuse frame duplication, omission or cadence drift.
 
-All device/window composition, wallpaper, eased camera moves, link droplets, title beats, and the Threshold end card are reproducible Python/Pillow rendering. The Threshold geometry is embedded in the renderer; no build-time dependency on another worktree exists. Short title beats provide story signposts. Narration remains separately timed HTML via `captions.json` and an accessible, seekable transcript.
+If size or legibility fails, report the result for a reviewed encoding/copy choice; do not weaken gates or silently clip speech. No private masters, raw audio or audit files enter public/media.
 
-The owner explicitly requested clear, unmasked footage: there are no blur or redaction filters. Retained app content is visible. Original UI still says CodeTerm in places; the rendered window chrome and end card use Domios. Sources were inspected through contact sheets and full-size frames, with review previews kept in the private AgentPad. The plugins edit excludes the Bitwarden account and local endpoint views.
+## Player proof still required
 
-## Assets and verification
+One video element owns picture, speech and music. Fresh automatic playback is muted. Sound opt-in is explicit and keyboard accessible; opted-in video stops at the end, while muted playback can loop. Offscreen/hidden transitions pause immediately and remute, so automatic return stays silent. Explicit replay restarts after the end. Rejected play promises leave honest Play state. Reduced motion makes no video/track requests before an explicit Play/chapter/sound gesture. VTT tracks stay hidden, avoiding duplicate captions/announcements; visible caption chips and transcript use the actual final words.
 
-`manifest.json` schema 2 describes the single trailer, chapter boundaries, dimensions, duration, asset URLs, byte counts and exact aggregate size. `captions.json` is an ordered array of `{start,end,text}` on the single trailer timeline. The main poster is the connected-computers payoff at 18 seconds; chapter stills are 480 pixels wide.
-
-Each build verifies one video stream, no audio, 1280 × 720, yuv420p, 45 seconds, a complete decode of both formats, and the aggregate media budget below 6,000,000 bytes. MP4 uses faststart, H.264 CRF 27; WebM uses VP9 CRF 39. Posters use WebP quality 84. Preview mode exports a 640-pixel GIF and six full-size story frames with a contact sheet.
-
-Final media is 5,800,809 bytes: H.264 2,884,727 bytes, VP9 2,846,694 bytes, plus posters and JSON. A browser downloads its supported format, not both. The initial page does not fetch either video until the player becomes visible.
-
-Layout and browser behavior are reviewed at 1440, 1280, 1024, 768 and 360 pixels in both themes using headless Edge/CDP. Desktop shelf/player edges align; mobile keeps the 2×2 shelf above the video. Review includes reduced-motion loading, explicit chapter playback, automatic chapter/caption following, keyboard navigation, and the return to chapter one at the loop boundary. Production verification uses `npm run build` and desktop/mobile Lighthouse. No Playwright or application build is involved.
-
-## Troubleshooting
-
-- A raw-frame render that stalls at a shot boundary means decoder dimensions and the pipe reader disagree. Keep the normalization crop before rawvideo output, and keep `SOURCE_SIZE` identical to that crop; do not resize source recordings on disk.
-- An aggregate-byte assertion off by the JSON line count means Windows newline translation changed the manifest after measurement. The writer explicitly uses LF; calculate bytes from the same serialized UTF-8 text.
+Alvar runs `node node_modules/typescript/bin/tsc --noEmit`, then the existing canonical build/preview/CDP/Lighthouse contract. Verify both themes at 1440×1100 and 360×900, normal/reduced motion, pointer/Enter/Space sound toggles, seek/chapter/focus behavior, captions at actual audio timestamps, muted reload/automatic resume, narrated end/replay, visibility/offscreen pause, rejected play promises, no toolbar collision/overflow, visible attribution and silent manifests with no sound toggle. No Playwright. Preserve all six existing website proofs and the desktop100/mobile≥99 bar.

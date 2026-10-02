@@ -29,18 +29,62 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [time, setTime] = useState(0);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const soundChoice = useRef(false);
+  const playAttempt = useRef(0);
+  const inViewNow = useRef(false);
+  const policy = useRef({ loaded, pausedByUser, reducedMotion, requestedByUser });
+  policy.current = { loaded, pausedByUser, reducedMotion, requestedByUser };
+  const mute = () => {
+    soundChoice.current = false;
+    setSoundEnabled(false);
+    const video = videoRef.current;
+    if (video) { video.muted = true; video.loop = true; }
+  };
+  const canPlay = () => inViewNow.current && !document.hidden && !policy.current.pausedByUser
+    && (!policy.current.reducedMotion || policy.current.requestedByUser);
+  const attemptPlay = () => {
+    const video = videoRef.current;
+    if (!video || !canPlay()) return;
+    const attempt = ++playAttempt.current;
+    video.muted = !soundChoice.current;
+    video.loop = !soundChoice.current;
+    void video.play().then(() => {
+      if (!canPlay()) video.pause();
+    }).catch(() => {
+      if (playAttempt.current === attempt) {
+        setPlaying(false);
+        setPausedByUser(true);
+        policy.current.pausedByUser = true;
+      }
+    });
+  };
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const observer = new IntersectionObserver(([entry]) => {
-      setInView(entry.isIntersecting);
-      if (entry.isIntersecting && !reducedMotion) setLoaded(true);
+      const shown = entry.isIntersecting && entry.intersectionRatio >= .2;
+      inViewNow.current = shown;
+      setInView(shown);
+      if (shown && !reducedMotion) setLoaded(true);
+      if (!shown) {
+        ++playAttempt.current;
+        videoRef.current?.pause();
+        mute();
+      }
     }, { threshold: .2 });
     observer.observe(container);
     return () => observer.disconnect();
   }, [reducedMotion]);
   useEffect(() => {
-    const update = () => setVisible(!document.hidden);
+    const update = () => {
+      setVisible(!document.hidden);
+      if (document.hidden) {
+        ++playAttempt.current;
+        videoRef.current?.pause();
+        mute();
+      }
+    };
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, []);
@@ -48,15 +92,42 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     const video = videoRef.current;
     if (!video) return;
     if (loaded && inView && visible && !pausedByUser && (!reducedMotion || requestedByUser)) {
-      void video.play().catch(() => setPlaying(false));
-    } else video.pause();
+      attemptPlay();
+    } else { ++playAttempt.current; video.pause(); }
   }, [loaded, inView, visible, pausedByUser, reducedMotion, requestedByUser]);
+  useEffect(() => {
+    if (reducedMotion) {
+      setRequestedByUser(false);
+      policy.current.requestedByUser = false;
+      ++playAttempt.current;
+      videoRef.current?.pause();
+      mute();
+    }
+  }, [reducedMotion]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playing || !('requestVideoFrameCallback' in video)) return;
+    let frame = 0;
+    const update = () => {
+      if (pendingSeek.current === null) setTime(video.currentTime);
+      frame = video.requestVideoFrameCallback(update);
+    };
+    frame = video.requestVideoFrameCallback(update);
+    return () => video.cancelVideoFrameCallback(frame);
+  }, [playing]);
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => { ++playAttempt.current; video?.pause(); };
+  }, []);
   const play = () => {
     setLoaded(true);
     setPausedByUser(false);
     setRequestedByUser(true);
+    policy.current.pausedByUser = false;
+    policy.current.requestedByUser = true;
     const video = videoRef.current;
-    if (video?.currentSrc) void video.play().catch(() => setPlaying(false));
+    if (video?.ended) { video.currentTime = 0; setTime(0); }
+    if (video?.currentSrc) attemptPlay();
   };
   const seek = (next: number) => {
     const video = videoRef.current;
@@ -71,11 +142,18 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   };
   const togglePlayback = () => {
     if (playing) {
+      ++playAttempt.current;
       setPausedByUser(true);
+      policy.current.pausedByUser = true;
       videoRef.current?.pause();
     } else play();
   };
   const onLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (video) {
+      video.muted = !soundChoice.current;
+      for (const track of Array.from(video.textTracks)) track.mode = 'hidden';
+    }
     if (pendingSeek.current !== null && videoRef.current) {
       videoRef.current.currentTime = pendingSeek.current;
       pendingSeek.current = null;
@@ -83,13 +161,25 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   };
   const onLoadedData = () => {
     if (inView && visible && !pausedByUser && (!reducedMotion || requestedByUser)) {
-      void videoRef.current?.play().catch(() => setPlaying(false));
+      attemptPlay();
     }
   };
   return {
-    containerRef, videoRef, loaded, playing, failed, time, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    containerRef, videoRef, loaded, playing, failed, time, soundEnabled, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    toggleSound: () => {
+      if (!clip.hasNarration) return;
+      if (soundChoice.current) mute();
+      else {
+        soundChoice.current = true;
+        setSoundEnabled(true);
+        const video = videoRef.current;
+        if (video) { video.muted = false; video.loop = false; }
+        play();
+      }
+    },
+    onEnded: () => { setPlaying(false); setPausedByUser(true); policy.current.pausedByUser = true; },
     onError: () => setFailed(true),
-    onPlay: () => setPlaying(true),
+    onPlay: () => { if (canPlay()) setPlaying(true); else videoRef.current?.pause(); },
     onPause: () => setPlaying(false),
     onTimeUpdate: () => { if (pendingSeek.current === null) setTime(videoRef.current?.currentTime ?? 0); },
     caption: clip.captions.find((caption) => time >= caption.start && time < caption.end),

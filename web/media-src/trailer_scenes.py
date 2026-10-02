@@ -3,9 +3,10 @@ import subprocess
 from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFont
+from media_contract import bounded_process, require
 
 
-FPS = 24
+FPS = 30
 SIZE = (1280, 720)
 SOURCE_SIZE = (2048, 1396)
 BLUE = '#58a6ff'
@@ -20,19 +21,103 @@ def shot(name, at, duration, source, start, end, camera, target, title='', scene
 
 SHOTS = [
     shot('Your desktop', 0, 4, 'mesh-talk', 16, 16.1, (0, 0, 1), (0, 0, 1), 'A home for agents', 'desktop'),
-    shot('Agents in tabs', 4, 4, 'mesh-talk', 16, 23, (5, 50, 2040), (5, 100, 1750), 'Meet your agents'),
+    shot('Agents in tabs', 4, 4, 'mesh-talk', 16, 20, (5, 50, 2040), (5, 100, 1750)),
     shot('A team takes the work', 8, 3, 'board', .2, 3.2, (350, 300, 1680), (350, 310, 1160), 'Give work a team'),
     shot('Across the board', 11, 4, 'board', 3.2, 7.2, (350, 310, 1160), (850, 310, 1160)),
     shot('Your machines', 15, 4, 'mesh', 0, .1, (0, 0, 1), (0, 0, 1), 'Every machine. Connected.', 'network'),
-    shot('Open a peer', 19, 4, 'mesh', 0, 4.8, (350, 140, 1680), (620, 400, 1160), 'Reach across the mesh'),
-    shot('Send work', 23, 4, 'mesh-talk', 32, 64, (460, 185, 1470), (500, 340, 1330), 'Start a conversation'),
-    shot('Reports arrive', 27, 3, 'mesh-talk', 94, 98, (460, 380, 1470), (490, 740, 1390), 'Bring the answer home'),
-    shot('Choose providers', 30, 3, 'plugins', 1.5, 5.6, (350, 80, 1680), (365, 200, 1320), 'Your choice of intelligence'),
-    shot('Choose tools', 33, 2.5, 'plugins', 7.3, 8.7, (910, 100, 1100), (930, 190, 1070), 'Make room for your tools'),
+    shot('Open a peer', 19, 4, 'mesh', 0, 4, (350, 140, 1680), (620, 400, 1160)),
+    shot('Request setup', 23, 2, 'mesh-talk', 33, 35, (460, 185, 1470), (460, 185, 1470)),
+    shot('Dispatch to peers', 25, 2, 'mesh-talk', 46, 48, (460, 245, 1470), (460, 245, 1470)),
+    shot('Reports arrive', 27, 3, 'mesh-talk', 95, 98, (460, 300, 1470), (490, 550, 1390)),
+    shot('Choose providers', 30, 3, 'plugins', 1.5, 5.6, (350, 80, 1680), (365, 200, 1320)),
+    shot('Choose tools', 33, 2.5, 'plugins', 7.3, 8.7, (910, 100, 1100), (930, 190, 1070)),
     shot('Add capabilities', 35.5, 2.5, 'plugins', 11, 14.9, (900, 120, 1110), (920, 220, 1090)),
-    shot('Fleet summary', 38, 3, 'mesh-talk', 139, 146, (460, 850, 1450), (490, 900, 1350), 'One fleet. Within reach.'),
+    shot('Fleet summary', 38, 3, 'mesh-talk', 139, 146, (460, 570, 1450), (490, 620, 1350)),
     shot('Threshold', 41, 4, 'mesh', 0, .1, (0, 0, 1), (0, 0, 1), scene='end'),
 ]
+
+HARD_CUTS = {4: 'Desktop establishing view to recorded app; same source frame16',
+             8: 'Conversation to team board', 15: 'Board to mesh establishing view',
+             19: 'Illustrated connections to recorded peer action',
+             23: 'Peer workspace to request setup', 25: 'Omit waiting between setup and dispatch within the request beat',
+             27: 'Dispatch to returned reports; omit asynchronous wait',
+             30: 'Reports to providers', 33: 'Providers to Git tool',
+             35.5: 'Git tool to plugin documentation', 38: 'Plugins to fleet summary',
+             41: 'Fleet payoff to brand close'}
+
+
+def timed_shots(timing):
+    groups = [[0], [1], [2], [3], [4], [5], [6, 7], [8], [9], [10], [11], [12], [13]]
+    edits = []
+    for cue, indices in zip(timing['cues'], groups):
+        total = cue['visualEnd'] - cue['visualStart']
+        for part, index in enumerate(indices):
+            edit = SHOTS[index].copy()
+            at = cue['visualStart'] + round(part * total / len(indices) * FPS) / FPS
+            end = cue['visualEnd'] if part == len(indices) - 1 else cue['visualStart'] + round(total / len(indices) * FPS) / FPS
+            edit.update(at=at, duration=end - at, cueId=cue['id'])
+            if index in (1, 5, 6, 7):
+                edit['end'] = edit['start'] + min(edit['duration'], 4 if index in (1, 5) else 2)
+            edits.append(edit)
+    board_at = timing['cues'][2]['visualStart']
+    board_duration = timing['cues'][3]['visualEnd'] - board_at
+    for edit in edits:
+        if edit['source'] == 'board':
+            edit.update(groupAt=board_at, groupDuration=board_duration,
+                        start=.2 + 7 * (edit['at'] - board_at) / board_duration,
+                        end=.2 + 7 * (edit['at'] + edit['duration'] - board_at) / board_duration)
+    return edits
+
+
+def cuts_for(edits):
+    reasons = list(HARD_CUTS.values())
+    return {edit['at']: reason for edit, reason in zip([edit for edit in edits[1:] if edit['name'] != 'Across the board'], reasons)}
+
+
+def source_time(edit, time):
+    if edit['scene'] != 'footage':
+        return edit['start']
+    return edit['start'] + time * (edit['end'] - edit['start']) / edit['duration']
+
+
+def camera_at(edit, time):
+    if edit['source'] == 'board':
+        u = min(1, max(0, (edit['at'] + time - edit.get('groupAt', 8)) / edit.get('groupDuration', 7)))
+        progress = u + .45 * math.sin(2 * math.pi * u) / (2 * math.pi)
+        return tuple(mix(a, b, progress) for a, b in zip((350, 300, 1680), (850, 310, 1160)))
+    u = min(1, max(0, time / edit['duration']))
+    if edit['name'] == 'Reports arrive':
+        progress = 1 - (1 - u) ** 3
+    elif edit['source'] == 'plugins' or edit['name'] == 'Fleet summary':
+        progress = ease((u - .3) / .7)
+    else:
+        progress = ease(u)
+    return tuple(mix(a, b, progress) for a, b in zip(edit['camera'], edit['target']))
+
+
+def camera_velocity(edit, time):
+    board = edit['source'] == 'board'
+    duration = edit.get('groupDuration', 7) if board else edit['duration']
+    u = (edit['at'] + time - edit.get('groupAt', 8)) / duration if board else time / duration
+    if board:
+        derivative = (1 + .45 * math.cos(2 * math.pi * u)) / duration
+    elif edit['name'] == 'Reports arrive':
+        derivative = 3 * (1 - u) ** 2 / duration
+    elif edit['source'] == 'plugins' or edit['name'] == 'Fleet summary':
+        v = max(0, (u - .3) / .7)
+        derivative = 30 * v ** 2 * (v - 1) ** 2 / (.7 * duration)
+    else:
+        derivative = 30 * u ** 2 * (u - 1) ** 2 / duration
+    origin, target = ((350, 300, 1680), (850, 310, 1160)) if board else (edit['camera'], edit['target'])
+    return tuple((b - a) * derivative for a, b in zip(origin, target))
+
+
+def crop_at(edit, time):
+    x, y, width = camera_at(edit, time)
+    box = (x, y, x + width, y + width * 9 / 16)
+    require(0 <= box[0] < box[2] <= SOURCE_SIZE[0] and 0 <= box[1] < box[3] <= SOURCE_SIZE[1],
+            f'Camera outside source: {edit["name"]} at {time}: {box}')
+    return box
 
 
 def ease(value):
@@ -46,35 +131,33 @@ def mix(a, b, t):
 
 def source_frames(paths, edit):
     count = round(edit['duration'] * FPS)
-    span = edit['end'] - edit['start']
-    if edit['scene'] != 'footage':
-        command = ['ffmpeg', '-v', 'error', '-ss', str(edit['start']), '-i', str(paths[edit['source']]),
-                   '-vf', 'crop=2048:1396:0:0', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
-        data = subprocess.check_output(command)
-        frame = Image.frombytes('RGB', SOURCE_SIZE, data)
-        for _ in range(count):
-            yield frame
-        return
-    progress = f'((PTS-STARTPTS)*TB/{span})'
-    ramp = f"{edit['duration']}/TB*({progress}-0.10*sin(PI*{progress}))"
-    process = subprocess.Popen([
-        'ffmpeg', '-v', 'error', '-ss', str(edit['start']), '-t', str(span), '-i', str(paths[edit['source']]),
-        '-vf', f"crop=2048:1396:0:0,setpts='{ramp}',fps={FPS},tpad=stop_mode=clone:stop_duration=1",
-        '-frames:v', str(count), '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'
-    ], stdout=subprocess.PIPE)
-    try:
-        for _ in range(count):
-            data = process.stdout.read(SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3)
-            if len(data) != SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3:
-                raise RuntimeError(f"Incomplete source frame in {edit['name']}")
-            yield Image.frombytes('RGB', SOURCE_SIZE, data)
-        if process.wait() != 0:
-            raise RuntimeError(f"Source decode failed: {edit['name']}")
-    finally:
-        process.stdout.close()
-        if process.poll() is None:
-            process.terminate()
-            process.wait()
+    footage = edit['scene'] == 'footage'
+    first_frame = math.floor(edit['start'] * FPS + 1e-7)
+    decode_start = first_frame / FPS
+    decode_span = edit['end'] - decode_start
+    command = [
+        'ffmpeg', '-v', 'error', '-ss', str(decode_start), '-t', str(decode_span), '-i', str(paths[edit['source']]),
+        '-vf', 'crop=2048:1396:0:0', '-fps_mode', 'passthrough',
+        '-frames:v', str(math.ceil(decode_span * FPS) if footage else 1),
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
+    with bounded_process(command, 120, stdout=subprocess.PIPE) as process:
+        decoded = -1
+        frame = None
+        try:
+            for index in range(count):
+                desired = math.floor(source_time(edit, index / FPS) * FPS + 1e-7) - first_frame
+                while decoded < desired:
+                    data = process.stdout.read(SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3)
+                    require(len(data) == SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3,
+                            f'Incomplete source frame: {edit["name"]}, frame {desired}')
+                    frame = Image.frombytes('RGB', SOURCE_SIZE, data)
+                    decoded += 1
+                yield frame
+            while process.stdout.read(SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3):
+                pass
+            require(process.wait(timeout=10) == 0, 'Source decode failed')
+        finally:
+            process.stdout.close()
 
 
 @lru_cache(maxsize=1)
@@ -111,27 +194,28 @@ def window(frame, width, height, font):
     return image
 
 
-def desktop(frame, time, font):
+def desktop(frame, time, font, duration=4):
     image = wallpaper().copy()
-    opening = ease((time - .35) / 1.2)
-    push = ease((time - 1.5) / 2.5)
+    elapsed = max(0, time - duration * .0875) * 4 / duration
+    frequency = math.sqrt(360 - 14 ** 2)
+    opening = 1 - math.exp(-14 * elapsed) * (math.cos(frequency * elapsed) + 14 / frequency * math.sin(frequency * elapsed))
+    if elapsed >= 1.2:
+        opening = 1
+    push = ease((time - duration * .375) / (duration * .625 - .15))
+    if push >= 1:
+        return frame.resize(SIZE, Image.Resampling.LANCZOS, box=(5, 50, 2045, 1197.5))
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, 1280, 25), fill='#121827')
     text(image, 'Domios', (26, 12), font, 12, anchor='lm')
     text(image, 'Your desktop', (1252, 12), font, 12, '#aebacf', 'rm')
-    dock_y = round(mix(675, 750, push))
-    draw.rounded_rectangle((516, dock_y-23, 764, dock_y+23), 17, fill='#263248', outline='#46536b')
-    for i, color in enumerate([BLUE, '#bc8cff', '#7ee787', '#ecb969', '#8fa5c8']):
-        x = 541+i*49
-        draw.rounded_rectangle((x-15, dock_y-15, x+15, dock_y+15), 8, fill=color)
-    width = round(mix(670, 1260, push) * mix(.8, 1, opening))
-    height = round(width * .66)
+    width = round(mix(670, 1284, push) * mix(.8, 1, opening))
+    height = round((width - 4) * 1330 / 2040) + 35
     app = window(frame, width, height, font)
-    x, y = (1280-width)//2, round(mix(116, 45, push) + (1-opening)*70)
+    x, y = (1280-width)//2, round(mix(116, -33, push) + (1-opening)*70)
     if opening > 0:
         image.paste(app, (x,y))
-    if time < 2.8:
-        title(image, 'A home for agents', time, 2.8, font)
+    if time < duration * .7:
+        title(image, 'A home for agents', time, duration * .7, font)
     return image
 
 
@@ -139,9 +223,9 @@ def curve(a, b, c, d, t):
     return tuple((1-t)**3*a[i] + 3*(1-t)**2*t*b[i] + 3*(1-t)*t*t*c[i] + t**3*d[i] for i in range(2))
 
 
-def network(frame, time, font):
+def network(frame, time, font, duration=4):
     image = wallpaper().copy()
-    progress = ease(time / 2.8)
+    progress = ease(time / (duration * .7))
     centers = [(mix(640, 283, progress), mix(345, 325, progress)),
                (mix(640, 980, progress), mix(345, 226, progress)),
                (mix(640, 931, progress), mix(345, 542, progress))]
@@ -153,11 +237,12 @@ def network(frame, time, font):
         points = [curve(a,b,c,d,i/100) for i in range(101)]
         draw.line(points, fill='#355c80', width=2)
         for offset in [0, .42]:
-            t = (time * .55 + offset + index*.2) % 1
+            t = (time / duration * 2.2 + offset + index*.2) % 1
+            radius = ease(t / .12) * (1 - ease((t - .88) / .12))
             x,y = curve(a,b,c,d,t)
-            draw.ellipse((x-7,y-4,x+7,y+4),fill=BLUE)
+            draw.ellipse((x-7*radius,y-4*radius,x+7*radius,y+4*radius),fill=BLUE)
             x2,y2 = curve(a,b,c,d,max(0,t-.035))
-            draw.ellipse((x2-3,y2-3,x2+3,y2+3),fill='#94c7ff')
+            draw.ellipse((x2-3*radius,y2-3*radius,x2+3*radius,y2+3*radius),fill='#94c7ff')
     sizes = [(round(mix(1120, 440, progress)), round(mix(660, 310, progress))), (342,238), (342,238)]
     for i in [2,1,0]:
         w,h = sizes[i]
@@ -173,7 +258,7 @@ def network(frame, time, font):
             draw.rounded_rectangle((x+w//2-55,y+h+17,x+w//2+55,y+h+23),3,fill='#667891')
         if progress > .8:
             text(image,['YOUR LAPTOP','YOUR DESKTOP','YOUR SERVER'][i],(x+w/2,y+h+43),font,12,'#aebacf')
-    title(image,'Every machine. Connected.',time,4,font)
+    title(image,'Every machine. Connected.',time,duration,font)
     return image
 
 
@@ -202,15 +287,14 @@ def threshold(size):
     return image
 
 
-def endcard(time, frame, font):
+def endcard(time, frame, font, duration=4):
     image = wallpaper().copy()
-    image = Image.blend(image, desktop(frame, 0, font), ease((time - 3.1) / .85))
-    alpha = ease(time/.55) * (1-ease((time-3.1)/.9))
+    image = Image.blend(image, desktop(frame, 0, font), ease((time - duration + 1) / .8))
+    alpha = ease(time/.55) * (1-ease((time-duration+1)/.8))
     if alpha <= 0:
         return image
     layer = Image.new('RGBA',SIZE)
-    settle = 1 + .10 * math.exp(-time*3) * math.sin(time*11)
-    logo = threshold(256).resize((round(184*settle),round(184/settle)),Image.Resampling.LANCZOS)
+    logo = threshold(256).resize((184,184),Image.Resampling.LANCZOS)
     layer.paste(logo,(640-logo.width//2,240-logo.height//2),logo)
     text(layer,'domios',(640,395),font,68)
     text(layer,'domios.dev',(640,474),font,26,BLUE)
@@ -221,16 +305,12 @@ def endcard(time, frame, font):
 
 def render(edit, time, frame, font):
     if edit['scene']=='desktop':
-        return desktop(frame,time,font)
+        return desktop(frame,time,font,edit['duration'])
     if edit['scene']=='network':
-        return network(frame,time,font)
+        return network(frame,time,font,edit['duration'])
     if edit['scene']=='end':
-        return endcard(time,frame,font)
-    progress = ease(time/max(1/FPS,edit['duration']-1/FPS))
-    x,y,width = [mix(a,b,progress) for a,b in zip(edit['camera'],edit['target'])]
-    height = width*9/16
-    y = min(y,SOURCE_SIZE[1]-height)
-    image = frame.resize(SIZE, Image.Resampling.LANCZOS, box=(x,y,x+width,y+height))
+        return endcard(time,frame,font,edit['duration'])
+    image = frame.resize(SIZE, Image.Resampling.LANCZOS, box=crop_at(edit, time))
     if edit['title']:
         title(image,edit['title'],time,min(2.6,edit['duration']),font)
     return image
