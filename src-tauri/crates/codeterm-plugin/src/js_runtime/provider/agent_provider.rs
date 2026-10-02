@@ -1016,6 +1016,10 @@ impl AgentProvider for JsProvider {
         self.manifest.updater.get(platform).cloned()
     }
 
+    fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
+        self.update_prompt_availability_from_js(screen)
+    }
+
     fn supports_update_check(&self) -> bool {
         self.has_js("checkForUpdate")
     }

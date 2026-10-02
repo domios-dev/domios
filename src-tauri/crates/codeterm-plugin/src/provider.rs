@@ -1,3 +1,5 @@
+pub(crate) mod update_prompt;
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

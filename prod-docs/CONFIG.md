@@ -235,6 +235,6 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 ## Related documents
 
-Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
+Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`. Full behaviour: `codeterm docs TAB-LIFECYCLE`, section "Provider updates".
 
 <!-- revision: 84 -->
