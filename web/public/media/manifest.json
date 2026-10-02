@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalBytes": 2164309,
+  "totalBytes": 2690530,
   "clips": [
     {
       "id": "board",
@@ -17,15 +17,15 @@
       ],
       "mp4": {
         "src": "/media/board.mp4",
-        "bytes": 67108
+        "bytes": 190889
       },
       "webm": {
         "src": "/media/board.webm",
-        "bytes": 43653
+        "bytes": 329586
       },
       "poster": {
         "src": "/media/board-poster.webp",
-        "bytes": 17886
+        "bytes": 134390
       }
     },
     {
