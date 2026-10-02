@@ -1053,3 +1053,6 @@ mod first_opinion_tests;
 
 #[path = "candidate_tests.rs"]
 mod candidate_tests;
+
+#[path = "provenance_tests.rs"]
+mod provenance_tests;
