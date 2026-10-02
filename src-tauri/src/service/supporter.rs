@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use codeterm_types::config::SupporterConfig;
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
+    deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
     DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest, DecisionResponse,
     NamedDecisionQuestion, TokenMode,
 };
@@ -205,7 +205,7 @@ impl DecisionModel for BudgetedModel {
         request: &DecisionQuestionsRequest,
         deadline: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        if Instant::now() >= deadline {
+        if deadline::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
         if request.questions.is_empty() {
@@ -269,7 +269,7 @@ impl DecisionModel for BudgetedModel {
                 self.activity_context.as_ref(),
             )
         })?;
-        if Instant::now() >= deadline {
+        if deadline::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
         request

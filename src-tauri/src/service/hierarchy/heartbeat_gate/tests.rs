@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_types::decision::{DecisionPrimitives, DecisionRequest, TokenMode};
+use codeterm_types::decision::{deadline, DecisionPrimitives, DecisionRequest, TokenMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct FixtureModel {
@@ -97,7 +97,7 @@ fn tick(gate: &Gate, snapshot: &Snapshot, now: u64, model: Option<&dyn DecisionM
         snapshot,
         now,
         model,
-        Instant::now() + Duration::from_secs(1),
+        deadline::now() + Duration::from_secs(1),
     )
     .unwrap()
 }
@@ -332,6 +332,8 @@ fn heartbeat_gate_failed_delivery_reuses_verdict_and_pending_report_bypasses_has
 
 #[test]
 fn heartbeat_gate_budget_and_redacted_feed_share_runtime() {
+    let clock = deadline::FixtureClock::new(Instant::now() - Duration::from_secs(60));
+    let _scope = clock.enter();
     let dir = tempfile::tempdir().unwrap();
     let runtime = std::sync::Arc::new(crate::service::supporter::SupporterRuntime::new(
         dir.path().into(),
@@ -517,4 +519,84 @@ fn heartbeat_gate_observed_mode_change_is_detected_until_delivered() {
     assert!(decision.wake);
     gate.delivered("owner", &snapshot, &decision, 100);
     assert!(!gate.mode_changed("owner", "Paused:Active"));
+}
+
+#[test]
+fn heartbeat_fixture_clock_preserves_budget_and_suppress_after_persistence() {
+    let clock = deadline::FixtureClock::new(Instant::now() - Duration::from_secs(60));
+    let origin = clock.now();
+    let _scope = clock.enter();
+    assert!(origin + Duration::from_secs(1) < Instant::now());
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = std::sync::Arc::new(crate::service::supporter::SupporterRuntime::new(
+        dir.path().into(),
+    ));
+    let events = std::sync::Arc::new(AtomicUsize::new(0));
+    let persisted = events.clone();
+    let during_persistence = clock.clone();
+    runtime.attach_visibility(
+        std::sync::Arc::new(|_| None),
+        std::sync::Arc::new(move |_| {
+            persisted.fetch_add(1, Ordering::SeqCst);
+            during_persistence.advance_to(origin + Duration::from_millis(500));
+        }),
+    );
+    let fixture = std::sync::Arc::new(FixtureModel::healthy());
+    let model = crate::service::supporter::budgeted_model_with_activity(
+        fixture.clone(),
+        runtime.clone(),
+        1,
+        crate::service::supporter::VerdictKind::Heartbeat,
+        Some("private-tab".into()),
+        None,
+        None,
+    );
+    let gate = Gate::default();
+    let mut snapshot = healthy_snapshot();
+    snapshot
+        .delta
+        .insert("stride:fixture".into(), "opaque evidence".into());
+    let decision = tick(&gate, &snapshot, 100, Some(model.as_ref()));
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(runtime.status(1)["calls_last_hour"], 1);
+    assert_eq!(decision.decided_by, "adapter");
+    assert!(!decision.wake);
+    assert_eq!(decision.worker_labels["worker"], "on_track");
+    runtime
+        .heartbeat_event(decision.observation_event(&snapshot, "private-tab", "private-plan", 100))
+        .unwrap();
+    snapshot
+        .delta
+        .insert("stride:next".into(), "private-evidence".into());
+    let fallback = tick(&gate, &snapshot, 101, Some(model.as_ref()));
+    assert_eq!(fallback.decided_by, "fallback(budget_exhausted)");
+    assert!(fallback.wake);
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(runtime.status(1)["calls_last_hour"], 1);
+    assert!(codeterm_types::decision::physical::current().is_none());
+    let journal = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    let rows: Vec<Value> = journal
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.iter().filter(|row| row["kind"] == "model_call").count(), 1);
+    let request = rows.iter().position(|row| row["kind"] == "model_call").unwrap();
+    let spend = rows.iter().position(|row| row["kind"] == "spend_updated").unwrap();
+    let verdict = rows.iter().position(|row| row["action"] == "verdict").unwrap();
+    let suppress = rows.iter().position(|row| row["action"] == "suppress").unwrap();
+    assert!(request < spend && spend < verdict && verdict < suppress);
+    assert_eq!(
+        rows[suppress]["observation"]["workers"][0]["session_key"],
+        "own-session:nonce",
+    );
+    assert_eq!(events.load(Ordering::SeqCst), rows.len());
+    let feed = runtime.feed(100, None).unwrap();
+    assert!(feed
+        .iter()
+        .any(|row| row["kind"] == "heartbeat" && row["action"] == "suppress"));
+    for row in feed {
+        for key in ["observation", "observation_id", "decided_by", "tab"] {
+            assert!(row.get(key).is_none());
+        }
+    }
 }

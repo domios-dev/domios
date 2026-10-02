@@ -5,6 +5,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod deadline;
 pub mod physical;
 
 pub trait DecisionModel: Send + Sync {
@@ -170,7 +171,7 @@ pub fn decide_questions_sequentially<M: DecisionModel + ?Sized>(
 ) -> Result<DecisionResponse, DecisionError> {
     let mut answers = BTreeMap::new();
     for (name, spec) in &request.questions {
-        if Instant::now() >= deadline {
+        if deadline::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
         let single = DecisionRequest {
@@ -180,7 +181,7 @@ pub fn decide_questions_sequentially<M: DecisionModel + ?Sized>(
         };
         answers.insert(name.clone(), model.decide(&single, deadline)?);
     }
-    if Instant::now() >= deadline {
+    if deadline::now() >= deadline {
         return Err(DecisionError::Deadline);
     }
     request.validate_answers(&answers)?;
