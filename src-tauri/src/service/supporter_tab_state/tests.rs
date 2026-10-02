@@ -526,16 +526,9 @@ fn tab_state_hook_binding_sequence_keeps_spawn_observation() {
             state::claim_observation(&model_tab, &hook_key, ObservationEvent::StartupEscalation)
                 .expect("the existing escalation event can claim this episode");
         push_episode_step(&model_steps, "StartupEscalation trigger claim", &model_tab);
-        let action = state::apply_observed_verdict(
-            &model_tab,
-            &hook_key,
-            &escalation,
-            READY_IDLE,
-            0.95,
-            true,
-            true,
-        )
-        .expect("the escalation verdict belongs to its claimed episode");
+        let action =
+            state::apply_observed_verdict(&model_tab, &hook_key, &escalation, READY_IDLE, 0.95)
+                .expect("the escalation verdict belongs to its claimed episode");
         assert_eq!(action, SignalAction::WeakHint);
         push_episode_step(
             &model_steps,
@@ -917,11 +910,11 @@ fn tab_state_second_agreeing_strong_acts() {
     let launch_key = state::launch_episode_key(&tab_id, Some("pty-launch"), None);
 
     assert_eq!(
-        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94, true, true),
+        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94),
         SignalAction::WeakHint
     );
     assert_eq!(
-        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94, true, true),
+        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94),
         SignalAction::StrongAction
     );
 }

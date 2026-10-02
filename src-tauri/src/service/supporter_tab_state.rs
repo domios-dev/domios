@@ -131,8 +131,6 @@ pub(crate) struct ShadowVerdict {
     pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
-    pub(crate) prompt_visible: f64,
-    pub(crate) safe_choice: Option<(String, f64)>,
 }
 
 pub(crate) trait ShadowHost: Clone + Send + 'static {
@@ -427,7 +425,7 @@ impl ServiceContext {
     pub(crate) fn capture_exit_tab_observation(
         &self,
         tab_id: &str,
-    ) -> Option<(DecisionRequest, TabStateMetadata)> {
+    ) -> Option<(DecisionQuestionsRequest, TabStateMetadata)> {
         let config = crate::config::load_config().supporter;
         let tokens = TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
@@ -448,7 +446,7 @@ impl ServiceContext {
     pub(crate) fn observe_captured_tab_exit(
         &self,
         tab_id: &str,
-        captured: Option<(DecisionRequest, TabStateMetadata)>,
+        captured: Option<(DecisionQuestionsRequest, TabStateMetadata)>,
     ) {
         let Some(prepared) = captured else {
             return;
@@ -600,7 +598,7 @@ fn observe_guarded_inner<H: ShadowHost>(
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
-    prepared: Option<(DecisionRequest, TabStateMetadata)>,
+    prepared: Option<(DecisionQuestionsRequest, TabStateMetadata)>,
 ) -> Option<ShadowVerdict> {
     let snapshot = TokenSnapshot {
         usable: host.token_available(adapter_id),
@@ -822,7 +820,10 @@ fn prepare_observation<H: ShadowHost>(
             "screen": screen_tail(text),
             "context": metadata.context,
         }),
-        questions: questions::observation_questions(&metadata, safe_choice::safe_choice_question(&metadata)),
+        questions: questions::observation_questions(
+            &metadata,
+            safe_choice::safe_choice_question(&metadata),
+        ),
     };
     Ok((request, metadata))
 }

@@ -4879,7 +4879,7 @@
                 "off"
               ],
               "default": null,
-              "help": "Force Supporter Agent memory re-rank on or off for this search; omitted, `[supporter.memory_rerank].enabled` decides",
+              "help": "Force Supporter Agent memory re-rank on or off for this search; omitted, a connected Supporter runs automatically",
               "aliases": []
             }
           ],
@@ -13947,54 +13947,6 @@
       "args": [],
       "subcommands": [
         {
-          "name": "disable",
-          "about": "Disable both Supporter Agent features",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "enable",
-          "about": "Enable both Supporter Agent features",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "features",
-          "about": "Read or change the feature switches",
-          "aliases": [],
-          "args": [
-            {
-              "name": "memory-rerank",
-              "positional": false,
-              "required": false,
-              "value_name": "on|off",
-              "possible_values": [
-                "on",
-                "off"
-              ],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "tab-state",
-              "positional": false,
-              "required": false,
-              "value_name": "on|off",
-              "possible_values": [
-                "on",
-                "off"
-              ],
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "models",
           "about": "List registered adapters and their discovered models",
           "aliases": [],
@@ -14003,7 +13955,7 @@
         },
         {
           "name": "status",
-          "about": "Show the selected adapter, model, token state and feature state",
+          "about": "Show connection, activity, token state and budget",
           "aliases": [],
           "args": [],
           "subcommands": []

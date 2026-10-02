@@ -845,9 +845,10 @@ fn run_watcher_mem_worker_busy_without_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         false,
-        Some(codeterm_types::pty::PromptKind::Provider)
+        Some(codeterm_types::pty::PromptKind::Provider),
+        false
     ));
-    assert!(!should_end_on_blocking_prompt(&kind, false, None));
+    assert!(!should_end_on_blocking_prompt(&kind, false, None, false));
 }
 
 #[test]
@@ -858,7 +859,8 @@ fn run_watcher_mem_worker_ends_on_pending_structured_prompt() {
     assert!(should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Structured)
+        Some(codeterm_types::pty::PromptKind::Structured),
+        false
     ));
 }
 
@@ -870,12 +872,20 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
     assert!(should_end_on_blocking_prompt(
         &kind,
         false,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        false,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        true
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+        Some(codeterm_types::pty::PromptKind::ManualUpdate),
+        false
     ));
 }
 
@@ -1018,7 +1028,8 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Structured)
+        Some(codeterm_types::pty::PromptKind::Structured),
+        false
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,

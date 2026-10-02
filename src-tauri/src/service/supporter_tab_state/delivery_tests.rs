@@ -114,14 +114,8 @@ fn tab_state_single_strong_hint_is_marked_non_actionable() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let mut events = fixture.service.events.subscribe();
     let launch_key = super::super::state::launch_episode_key(&tab_id, Some("pty-launch"), None);
-    let action = super::super::state::apply_verdict(
-        &tab_id,
-        &launch_key,
-        LOGIN_OR_AUTH_REQUIRED,
-        0.92,
-        true,
-        true,
-    );
+    let action =
+        super::super::state::apply_verdict(&tab_id, &launch_key, LOGIN_OR_AUTH_REQUIRED, 0.92);
     assert_eq!(action, SignalAction::WeakHint);
 
     deliver(

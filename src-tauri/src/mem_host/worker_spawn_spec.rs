@@ -42,6 +42,8 @@ pub(crate) fn build_mem_worker_spawn_spec(
         task: Some(inputs.task),
         title: Some(format!("mem:{}", inputs.intent)),
         cwd: Some(worker_cwd.to_string_lossy().into_owned()),
+        // The daemon created this directory, so its trust prompt is answered by provenance.
+        provisioned_cwd: Some(worker_cwd.to_string_lossy().into_owned()),
         audience: TabAudience::Automation,
         ..Default::default()
     };

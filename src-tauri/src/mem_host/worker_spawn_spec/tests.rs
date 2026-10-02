@@ -37,6 +37,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
             task: Some(TASK.into()),
             worker_id: Some("wk-42".into()),
             spawned_by: Some("mem:auto".into()),
+            provisioned_cwd: Some(worker_cwd().to_string_lossy().into_owned()),
             ..Default::default()
         }),
         ..Default::default()
@@ -103,6 +104,10 @@ fn headless_mem_worker_cwd_is_instance_owned() {
     let root = crate::paths::data_dir().join("workers");
 
     assert!(std::path::Path::new(&cwd).starts_with(root));
+    let TabCommand::Agent(agent) = &spec.command else {
+        panic!("memory worker spec launches an agent");
+    };
+    assert_eq!(agent.provisioned_cwd.as_deref(), Some(cwd.as_str()));
     assert!(!std::path::Path::new(&cwd).starts_with(std::env::current_dir().unwrap()));
 }
 
