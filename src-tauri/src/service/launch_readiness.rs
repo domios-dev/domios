@@ -824,6 +824,8 @@ impl ServiceContext {
         attempt: &LaunchAttempt,
         evidence: LaunchEvidence,
     ) -> LaunchSettlement {
+        let _restore_observation =
+            super::supporter_notify::begin_restore_observation(self, &attempt.tab_id);
         let settlement = {
             let mux = self.mux.read();
             match mux.get_tab(&attempt.tab_id) {

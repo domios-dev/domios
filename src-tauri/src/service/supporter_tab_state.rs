@@ -18,6 +18,7 @@ use crate::api::mem_routes::decision::SupporterRegistry;
 
 mod delivery;
 mod questions;
+pub(crate) mod safe_choice;
 mod state;
 
 pub(crate) use state::{
@@ -45,6 +46,10 @@ pub(crate) const STILL_STARTING: &str = "still_starting";
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
 const WEAK_HINT_PREFIX: &str = "Tab-state hint";
+
+pub(crate) fn criteria_version() -> String {
+    supporter::criteria_hash(CRITERIA_JSON.as_bytes())
+}
 
 pub(crate) fn criteria() -> &'static BTreeMap<String, String> {
     static CRITERIA: OnceLock<BTreeMap<String, String>> = OnceLock::new();
@@ -113,6 +118,9 @@ pub(crate) struct TabStateMetadata {
     pub(crate) task_id: Option<String>,
     pub(crate) attempt_id: Option<String>,
     pub(crate) prompt_options: Vec<NumberedPromptOption>,
+    pub(crate) declared_safe_choice: Option<String>,
+    pub(crate) tab_snapshot: Option<crate::multiplexer::types::Tab>,
+    pub(crate) process_tree_key: Option<super::process_tree::ProviderTreeKey>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +131,8 @@ pub(crate) struct ShadowVerdict {
     pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
+    pub(crate) prompt_visible: f64,
+    pub(crate) safe_choice: Option<(String, f64)>,
 }
 
 pub(crate) trait ShadowHost: Clone + Send + 'static {
@@ -149,6 +159,23 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
         confidence: f64,
         action: SignalAction,
     );
+    fn recover(
+        &self,
+        _tab_id: &str,
+        _metadata: &TabStateMetadata,
+        _episode: u64,
+        _observation_id: u64,
+        _trigger: ObservationTrigger,
+        _verdict: &ShadowVerdict,
+    ) -> bool {
+        false
+    }
+    fn restore_observation(
+        &self,
+        _tab_id: &str,
+    ) -> Option<super::supporter_notify::RestoreObservation> {
+        None
+    }
     fn record(&self, line: &str);
 }
 
@@ -226,6 +253,19 @@ impl ShadowHost for ServiceContext {
                     }
                 }
             });
+        let declared_safe_choice = tab
+            .pending_prompt
+            .as_ref()
+            .filter(|_| {
+                tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::ManualUpdate)
+            })
+            .and_then(|prompt| {
+                self.agent_registry
+                    .with_provider(provider_id, |provider| {
+                        provider.update_prompt_safe_choice(prompt)
+                    })
+                    .flatten()
+            });
         let context = serde_json::json!({
             "provider_capability": {
                 "transport": transport,
@@ -250,6 +290,7 @@ impl ShadowHost for ServiceContext {
                 "agent_state": tab.agent_state,
             },
             "pending_prompt_kind": tab.pending_prompt_kind,
+            "startup_deadline_elapsed": trigger.after_startup_deadline() || tab.boot_stage == Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed),
             "screen_changed": changed,
             "observation_event": trigger.label(),
         });
@@ -269,7 +310,15 @@ impl ShadowHost for ServiceContext {
                     .collect()
             })
             .unwrap_or_default();
+        let process_tree_key = tab
+            .pty_id
+            .as_deref()
+            .and_then(|pty| self.provider_tree_key_for_tab(&tab.id, pty));
+        let tab_snapshot = Some(tab.clone());
         Ok(TabStateMetadata {
+            declared_safe_choice,
+            tab_snapshot,
+            process_tree_key,
             context,
             session_key,
             title: tab.title,
@@ -297,6 +346,33 @@ impl ShadowHost for ServiceContext {
         );
     }
 
+    fn recover(
+        &self,
+        tab_id: &str,
+        metadata: &TabStateMetadata,
+        episode: u64,
+        observation_id: u64,
+        trigger: ObservationTrigger,
+        verdict: &ShadowVerdict,
+    ) -> bool {
+        super::general_agent::recovery::recover(
+            self,
+            tab_id,
+            metadata,
+            episode,
+            observation_id,
+            trigger,
+            verdict,
+        )
+    }
+
+    fn restore_observation(
+        &self,
+        tab_id: &str,
+    ) -> Option<super::supporter_notify::RestoreObservation> {
+        super::supporter_notify::begin_restore_observation(self, tab_id)
+    }
+
     fn record(&self, line: &str) {
         log::info!("{line}");
     }
@@ -308,6 +384,13 @@ impl ServiceContext {
         tab_id: &str,
         settlement: &crate::service::launch_readiness::LaunchSettlement,
     ) {
+        let ga_tab = { self.mux.read().get_tab(tab_id).cloned() };
+        if let Some(tab) = ga_tab {
+            self.general_agent_watchdog_event(
+                &tab,
+                super::general_agent::WatchdogEvent::LaunchSettlement,
+            );
+        }
         let trigger = match settlement {
             crate::service::launch_readiness::LaunchSettlement::Ready => {
                 ObservationTrigger::SpawnReady
@@ -341,6 +424,54 @@ impl ServiceContext {
         ));
     }
 
+    pub(crate) fn capture_exit_tab_observation(
+        &self,
+        tab_id: &str,
+    ) -> Option<(DecisionRequest, TabStateMetadata)> {
+        let config = crate::config::load_config().supporter;
+        let tokens = TokenSnapshot::read(
+            &crate::api::mem_routes::decision::token_store(),
+            &config.adapter,
+        );
+        if !supporter::supporter_connected(&config, &self.supporter_models, &tokens) {
+            return None;
+        }
+        prepare_observation(
+            self,
+            tab_id,
+            ObservationTrigger::TabExit,
+            "provider_process_exit",
+        )
+        .ok()
+    }
+
+    pub(crate) fn observe_captured_tab_exit(
+        &self,
+        tab_id: &str,
+        captured: Option<(DecisionRequest, TabStateMetadata)>,
+    ) {
+        let Some(prepared) = captured else {
+            return;
+        };
+        let host = self.clone();
+        let tab_id = tab_id.to_string();
+        let config = crate::config::load_config().supporter;
+        let restore_observation = super::supporter_notify::begin_restore_observation(self, &tab_id);
+        std::thread::spawn(move || {
+            let _restore_observation = restore_observation;
+            observe_guarded_inner(
+                &host,
+                &config,
+                &config.adapter,
+                config.deadline_ms,
+                &tab_id,
+                ObservationTrigger::TabExit,
+                "provider_process_exit",
+                Some(prepared),
+            );
+        });
+    }
+
     pub(crate) fn shadow_tab_state(&self, tab_id: &str, structural: StartupNudge) {
         self.observe_tab_state(
             tab_id,
@@ -350,6 +481,16 @@ impl ServiceContext {
     }
 
     pub(crate) fn observe_worker_idle_without_report(&self, tab_id: &str) {
+        let general = {
+            self.mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(super::general_agent::is_general_agent)
+        };
+        if general {
+            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
+            return;
+        }
         let snapshot = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -409,9 +550,11 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
     let options = config.clone();
     let adapter_id = adapter_id.to_owned();
     let failed_tab = tab_id.clone();
+    let restore_observation = host.restore_observation(&tab_id);
     std::thread::Builder::new()
         .name("tab-state-observer".into())
         .spawn(move || {
+            let _restore_observation = restore_observation;
             observe_guarded(
                 &host,
                 &options,
@@ -437,6 +580,28 @@ fn observe_guarded<H: ShadowHost>(
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<ShadowVerdict> {
+    observe_guarded_inner(
+        host,
+        config,
+        adapter_id,
+        configured_deadline_ms,
+        tab_id,
+        trigger,
+        structural_verdict,
+        None,
+    )
+}
+
+fn observe_guarded_inner<H: ShadowHost>(
+    host: &H,
+    config: &SupporterConfig,
+    adapter_id: &str,
+    configured_deadline_ms: u64,
+    tab_id: &str,
+    trigger: ObservationTrigger,
+    structural_verdict: &str,
+    prepared: Option<(DecisionRequest, TabStateMetadata)>,
+) -> Option<ShadowVerdict> {
     let snapshot = TokenSnapshot {
         usable: host.token_available(adapter_id),
     };
@@ -450,7 +615,10 @@ fn observe_guarded<H: ShadowHost>(
     };
     let deadline =
         Instant::now() + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
-    let (request, metadata) = match prepare_observation(host, tab_id, trigger, structural_verdict) {
+    let (request, metadata) = match prepared
+        .map(Ok)
+        .unwrap_or_else(|| prepare_observation(host, tab_id, trigger, structural_verdict))
+    {
         Ok(prepared) => prepared,
         Err(error) => {
             host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
@@ -508,10 +676,28 @@ fn observe<H: ShadowHost>(
     {
         Ok(mut verdict) => {
             verdict.classified_frame_hash = classified_frame_hash;
+            if matches!(trigger, ObservationTrigger::TabExit)
+                && metadata
+                    .tab_snapshot
+                    .as_ref()
+                    .is_some_and(super::general_agent::is_general_agent)
+            {
+                host.record(&format!(
+                    "[tab-state] General Agent exit observation retained for audit tab={tab_id}"
+                ));
+                return Some(verdict);
+            }
             let spawn_healthy = trigger.is_spawn()
                 && confidence_band(verdict.confidence) == ConfidenceBand::Strong
                 && matches!(verdict.label.as_str(), READY_IDLE | WORKING_NORMALLY);
-            if verdict.label == STILL_STARTING && !trigger.after_startup_deadline() {
+            if verdict.label == STILL_STARTING
+                && !trigger.after_startup_deadline()
+                && metadata
+                    .context
+                    .get("startup_deadline_elapsed")
+                    .and_then(Value::as_bool)
+                    != Some(true)
+            {
                 host.record(&format!(
                     "[tab-state] suppressed early still_starting tab={tab_id} frame_hash={:016x}",
                     verdict.classified_frame_hash,
@@ -545,6 +731,14 @@ fn observe<H: ShadowHost>(
                 };
                 action
             };
+            let recovery_handled = host.recover(
+                tab_id,
+                &metadata,
+                permit.episode,
+                permit.observation_id,
+                trigger,
+                &verdict,
+            );
             if verdict.label == OTHER {
                 return Some(verdict);
             }
@@ -567,7 +761,7 @@ fn observe<H: ShadowHost>(
                     SignalAction::SpawnOk,
                 );
             }
-            if verdict.action != SignalAction::None && !spawn_healthy {
+            if verdict.action != SignalAction::None && !spawn_healthy && !recovery_handled {
                 host.supporter_runtime().action(ActionRecord {
                     kind: VerdictKind::TabState,
                     tab: Some(tab_id),
@@ -628,7 +822,7 @@ fn prepare_observation<H: ShadowHost>(
             "screen": screen_tail(text),
             "context": metadata.context,
         }),
-        questions: questions::observation_questions(&metadata, None),
+        questions: questions::observation_questions(&metadata, safe_choice::safe_choice_question(&metadata)),
     };
     Ok((request, metadata))
 }

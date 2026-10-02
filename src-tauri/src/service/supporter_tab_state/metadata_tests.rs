@@ -179,6 +179,9 @@ fn tab_state_never_answers_prompt() {
         &fixture.service,
         &tab_id,
         &TabStateMetadata {
+            declared_safe_choice: None,
+            tab_snapshot: None,
+            process_tree_key: None,
             context: Value::Null,
             session_key: "fixture-session".into(),
             title: "worker".into(),

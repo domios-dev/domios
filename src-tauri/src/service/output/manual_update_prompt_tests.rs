@@ -536,3 +536,56 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
         Some(prompt)
     );
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn ga_connected_update_prompt_does_not_bypass_model_gate() {
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "opaque question".into(),
+        options: vec![
+            PromptOption {
+                label: "opaque-a".into(),
+                value: "a".into(),
+            },
+            PromptOption {
+                label: "opaque-b".into(),
+                value: "b".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.clone(),
+        agent_type: "fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: "opaque frame".into(),
+    };
+    assert_eq!(
+        super::manual_update::resolve_manual_update_with_model_gate(
+            &fixture.service,
+            &snapshot,
+            prompt.clone(),
+            Some("b".into()),
+            true
+        ),
+        None
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(tab.pending_prompt, Some(prompt));
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+    );
+}

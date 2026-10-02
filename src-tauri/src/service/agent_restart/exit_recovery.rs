@@ -1,6 +1,8 @@
 //! In-place recovery of a provider that exited to its tab's surviving shell:
 //! the owning provider resumes the tab's own verified session on the same PTY.
 
+mod general_fresh;
+
 use std::time::Duration;
 
 use codeterm_types::pty::{AgentLiveness, BootStage};
@@ -149,14 +151,30 @@ impl ServiceContext {
         force: bool,
         automatic: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        self.recover_exited_provider_inner(tab_id, force, automatic, None)
+        self.recover_exited_provider_inner(tab_id, force, automatic, None, None)
     }
 
     pub(crate) fn recover_exited_provider_after_launch_exit(
         &self,
         attempt: &crate::service::launch_readiness::LaunchAttempt,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        self.recover_exited_provider_inner(&attempt.tab_id, false, true, Some(attempt))
+        self.recover_exited_provider_inner(&attempt.tab_id, false, true, Some(attempt), None)
+    }
+
+    pub(crate) fn recover_general_agent_provider_exit(
+        &self,
+        exited: &Tab,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        if !crate::service::general_agent::is_general_agent(exited) {
+            return Err(AgentRestartError::BadRequest(
+                "exit recovery target is not the General Agent".into(),
+            )
+            .into());
+        }
+        let provider = exited.agent_type.as_deref().ok_or_else(|| {
+            AgentRestartError::BadRequest("exited provider identity is missing".into())
+        })?;
+        self.recover_exited_provider_inner(&exited.id, false, true, None, Some(provider))
     }
 
     fn recover_exited_provider_inner(
@@ -165,12 +183,16 @@ impl ServiceContext {
         force: bool,
         automatic: bool,
         attempt: Option<&crate::service::launch_readiness::LaunchAttempt>,
+        fresh_provider: Option<&str>,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         let shell = self.exited_shell(tab_id, attempt)?;
         let restart_claim = self.claim_restart(tab_id, automatic)?;
         let verified = verified_session_ids(&TabLifecycleJournal::shared().load().records, tab_id);
-        let session_id = select_recovery_session(&shell.lineage, &verified)?;
-        let provider = recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)?;
+        let recovery = select_recovery_session(&shell.lineage, &verified).and_then(|session_id| {
+            recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)
+                .map(|provider| (provider, Some(session_id)))
+        });
+        let (provider, session_id) = recovery_target(recovery, fresh_provider)?;
         let auto_approve = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
             &provider,
@@ -181,12 +203,15 @@ impl ServiceContext {
             tab_id: tab_id.to_string(),
             pty_id: shell.pty_id,
             provider,
-            session_id: Some(session_id),
+            session_id,
             cwd: shell.cwd,
             auto_approve,
             role: shell.role,
             role_profile: shell.role_profile,
         };
+        if snap.session_id.is_none() && fresh_provider.is_some() {
+            return self.recover_general_agent_fresh(&snap, force);
+        }
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
         }
@@ -198,7 +223,9 @@ impl ServiceContext {
         );
         let mut outcome = RestartOutcome::accepted(&snap, false, force);
         outcome.recovered_in_place = true;
-        let Some(relaunch) = super::relaunch::build_relaunch(self, &snap, true) else {
+        let Some(relaunch) =
+            super::relaunch::build_relaunch(self, &snap, snap.session_id.is_some())
+        else {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 reason: format!("provider {} returned no resume command", snap.provider),
@@ -383,6 +410,22 @@ impl ServiceContext {
         Ok(())
     }
 }
+
+fn recovery_target(
+    recovery: Result<(String, Option<String>), AgentRestartError>,
+    fresh_provider: Option<&str>,
+) -> Result<(String, Option<String>), AgentRestartError> {
+    match recovery {
+        Ok(recovery) => Ok(recovery),
+        Err(error) => match fresh_provider {
+            Some(provider) => Ok((provider.to_string(), None)),
+            None => Err(error),
+        },
+    }
+}
+
+#[cfg(test)]
+mod general_agent_tests;
 
 #[cfg(test)]
 mod tests;

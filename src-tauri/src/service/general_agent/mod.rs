@@ -5,7 +5,7 @@
 //!     plus the `sync_identity_to_mem` helper.
 //!   - [`workspace`] — General workspace + protected tab setup.
 //!   - [`lifecycle`] — start / restart of the GA PTY + launch flow.
-//!   - [`watchdog`] — periodic health-check + auto-restart.
+//!   - [`watchdog`] — lifecycle-event recovery.
 //!
 //! Public surface is re-exported below so external callers continue to use
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
@@ -18,12 +18,16 @@ pub mod identity;
 mod instructions;
 pub(crate) mod launch_lock;
 mod lifecycle;
+pub(crate) mod recovery;
+mod recovery_episode;
 mod state;
 pub mod team_membership;
 mod watchdog;
 mod workspace;
 
 use std::path::PathBuf;
+
+pub(crate) use lifecycle::restart_general_agent_fresh_after_exit;
 
 pub use first_run::{
     complete_first_run_core, ensure_first_run_tab, needs_first_run_picker, purge_snapshot_ghosts,
@@ -38,7 +42,7 @@ pub use lifecycle::{
 pub use team_membership::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
-pub use watchdog::start_watchdog;
+pub(crate) use watchdog::WatchdogEvent;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
     general_workspace_id,

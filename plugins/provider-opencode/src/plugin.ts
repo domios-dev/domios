@@ -1,3 +1,4 @@
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
@@ -181,6 +182,8 @@ const plugin: PluginModule = {
   },
 
   // because response bytes depend on horizontal vs vertical navigation.
+  updatePromptSafeChoice,
+
   parsePrompt(text: string): ParsedPrompt | null {
     const screen = String(text || "");
     return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);

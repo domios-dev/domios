@@ -364,6 +364,11 @@ fn handle_pty_death_with_cause(
     generation: u64,
     shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
 ) -> PtyDeathOutcome {
+    let observed_tab = { svc.mux.read().tab_id_for_pty(pty_id) };
+    let captured_exit = observed_tab
+        .as_deref()
+        .filter(|_| shutdown.is_none())
+        .and_then(|tab| svc.capture_exit_tab_observation(tab));
     if !handle_pty_screen_death(&svc.pty, &svc.screen_state, pty_id, generation) {
         log::debug!(
             "[backend-reader] ignoring stale EOF for pty {} generation {}",
@@ -395,15 +400,15 @@ fn handle_pty_death_with_cause(
     let Some(ref pid) = tab_id else {
         return PtyDeathOutcome::NoOwningTab;
     };
+    let ga_snapshot = svc.mux.read().get_tab(pid).cloned();
     svc.run_watcher
         .fail_cron_on_process_exit(svc, pty_id, "cron PTY process exited".into());
     {
-        svc.observe_tab_state(
-            pid,
-            crate::service::supporter_tab_state::ObservationTrigger::TabExit,
-            "provider_process_exit",
-        );
+        svc.observe_captured_tab_exit(pid, captured_exit);
         svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
+        if let Some(tab) = ga_snapshot.as_ref() {
+            svc.general_agent_watchdog_event(tab, super::general_agent::WatchdogEvent::PtyDeath);
+        }
         svc.settle_restore_report();
         svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
