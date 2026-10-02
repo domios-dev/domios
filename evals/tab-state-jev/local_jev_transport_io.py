@@ -132,6 +132,7 @@ class LoopbackFixture:
         self.ready, self.headers_sent, self.release, self.done = (threading.Event() for _ in range(4))
         self.thread = threading.Thread(target=self.serve, name="jev-fixture-server", daemon=False)
         self.requests, self.responses, self.request_bytes = 0, 0, None
+        self.body_completed, self.response_bytes_sha256 = False, None
         self.error, self.accepted_closed, self.listener_closed = None, False, False
         self.accepted = None
         self.lock = threading.Lock()
@@ -156,6 +157,7 @@ class LoopbackFixture:
             self.requests += 1
             body = c.encode({"answers": {"q": {"type": "choice", "choice": "opaque",
                                                "probabilities": {"opaque": 0.95}}}})
+            self.response_bytes_sha256 = c.sha256(body)
             status, extra = b"200 OK", b""
             if self.case == "response_oversize":
                 body += b" " * 65537
@@ -173,6 +175,7 @@ class LoopbackFixture:
                 for offset in range(0, len(body), 4096):
                     stream.settimeout(t.remaining(self.operation_end, time.monotonic))
                     stream.sendall(body[offset:offset + 4096])
+                self.body_completed = True
         except BaseException as error:
             if not (self.case in ("response_oversize", "redirect_refused") and isinstance(error, OSError)):
                 self.error = getattr(error, "code", type(error).__name__)
@@ -202,7 +205,8 @@ class LoopbackFixture:
         if self.thread.is_alive():
             raise t.TransportFailure("fixture_thread_unconfirmed")
         return {"requests": self.requests, "responses": self.responses, "accepted_closed": self.accepted_closed,
-                "listener_closed": self.listener_closed, "thread_joined": True, "error": self.error}
+                "listener_closed": self.listener_closed, "thread_joined": True, "body_completed": self.body_completed,
+                "error": self.error}
 
 
 class PartialCapture:
@@ -302,8 +306,12 @@ def run_case(case):
             raise t.TransportFailure("fixture_resource_unconfirmed", receipt)
         if fixture.request_bytes != wire or fixture.requests != 1 or fixture.responses != 1:
             raise t.TransportFailure("fixture_wire_or_count", receipt)
+        if case == "success" and (not fixture.body_completed or
+                receipt.get("helper", {}).get("response_bytes_sha256") != fixture.response_bytes_sha256):
+            raise t.TransportFailure("fixture_response_completion", receipt)
         if case == "partial_capture_failure":
-            if receipt["completion_confirmed"] or not transport.poisoned or receipt["stdout_bytes"] <= 0:
+            if receipt["completion_confirmed"] or not transport.poisoned or receipt["stdout_bytes"] <= 0 or \
+                    not fixture.body_completed:
                 raise t.TransportFailure("fixture_partial_capture_laundered", receipt)
             try:
                 transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())

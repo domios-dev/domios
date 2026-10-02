@@ -118,7 +118,7 @@ Darwin uses its libc `waitid` ABI, with `P_PID=1`, `WEXITED=4`, `WNOWAIT=0x20`
 verified against the dispatch host's SDK `sys/wait.h`; a conservatively sized
 opaque siginfo buffer is not decoded. Both set CPython Popen's returncode after
 sole reaping, avoiding destructor ownership transfer. Supported source semantics
-are CPython 3.11–3.14 on Linux/macOS; native acceptance is pending the actual local
+are CPython 3.9–3.14 on Linux/macOS; native acceptance is pending the actual local
 oracles. Other interpreters/platforms fail preflight without network admission.
 
 A Windows candidate adapter waits on and terminates through the originally
