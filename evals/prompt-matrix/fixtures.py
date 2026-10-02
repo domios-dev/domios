@@ -55,7 +55,7 @@ def prepare(instance, port):
     (data / "config.toml").write_text(
         "[general_agent]\nenabled = false\n"
         "[memory]\nfile_sync_enabled = false\nlibrarian_enabled = false\n"
-        "[updater]\nallow_provider_updates_in_non_prod = true\n"
+        "[updater]\nallow_provider_updates_in_non_prod = false\n"
     )
     binaries = {}
     binary_names = {}

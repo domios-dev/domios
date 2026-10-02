@@ -7,10 +7,10 @@ import json
 from pathlib import Path
 
 from transport import Finding, objects
+from attribution import PATH_MAPPING, audit, observations
 
 
-PATHS = {"adapter_verdict", "heuristic", "fallback_timeout", "fallback_other",
-         "fallback_low_confidence", "fallback_error", "fallback_budget"}
+PATHS = set(PATH_MAPPING.values())
 
 
 def require(value, message):
@@ -44,18 +44,20 @@ def tab_notifications(payload, tab, baseline):
     return list(found.values())
 
 
-def decision_path(journal, tab, jev):
-    rows = [row for row in journal if row.get("tab") == tab or row.get("tab_id") == tab]
-    mapping = {"adapter": "adapter_verdict", "heuristic": "heuristic",
-               **{f"fallback({reason})": f"fallback_{reason}" for reason in
-                  ("timeout", "other", "low_confidence", "error", "budget")}}
-    for row in reversed(rows):
-        if row.get("observation_id") is not None and row.get("decided_by") in mapping:
-            return mapping[row["decided_by"]]
-    return None
+def decision_path(journal, tab, jev, expected=None, contract=None):
+    if not expected or not contract or expected.get("tab") != tab:
+        return None
+    completed = observations(journal, expected, contract, jev, minimum=1)
+    return completed[-1]["path"]
 
 
 def judge(evidence):
+    contract = json.loads((Path(__file__).parent / "contracts.json").read_text())["decision"]
+    audit(evidence, contract)
+    return judge_outcome(evidence)
+
+
+def judge_outcome(evidence):
     case = evidence["case"]
     require(evidence.get("instance_proven"), "Named instance identity was not proven")
     require(evidence.get("real_provider"), "Real provider launch was not observed")

@@ -6,9 +6,12 @@ ORACLE: Each corruption raises Finding for its own violated contract.
 import argparse
 import unittest
 
-from oracles import decision_path, judge
-from sentinel_oracles import bucket_label, judge_sentinel, judge_sentinel_feed, judge_sentinel_outcome
+from oracles import decision_path, judge_outcome as judge
+from sentinel_oracles import judge_sentinel, judge_sentinel_feed, judge_sentinel_outcome
 from transport import Finding, json_value
+from binding_tests import AttributionControls, CourierControls, proposed_contract
+from report import exit_code
+from sentinel_raw_tests import SentinelRawControls, raw_outcome
 
 
 def notification_evidence():
@@ -22,16 +25,7 @@ def notification_evidence():
 
 
 def sentinel_evidence():
-    common = {"sentinel_id": "own-watch", "tab": "own-creator",
-              "label": bucket_label("success"), "state_hash": "opaque-state"}
-    return {
-        "case": "sentinel", "variant": "fake-ci", "instance_proven": True,
-        "sentinel_id": "own-watch", "creator": "own-creator", "probe_barrier": True,
-        "journal": [common | {"action": "decision"}, common | {"action": "route_claim"},
-                    common | {"action": "send"}],
-        "expected_buckets": ["success"], "receipts": ["success"], "route_action": "send",
-        "unchanged_actions": 0, "regex_mode": True, "model_calls": 0,
-    }
+    return raw_outcome()
 
 
 class Oracles(unittest.TestCase):
@@ -85,8 +79,11 @@ class Oracles(unittest.TestCase):
         self.assertIsNone(decision_path(rows, "own", "on"))
 
     def test_fallback_reason_round_trip(self):
-        rows = [{"tab": "own", "decided_by": "fallback(timeout)", "observation_id": 1}]
-        self.assertEqual(decision_path(rows, "own", "on"), "fallback_timeout")
+        from binding_tests import proposed_observations
+        rows, expected = proposed_observations("fallback(timeout)")
+        for row in rows:
+            row["adapter_result"]["reason"] = "timeout"
+        self.assertEqual(decision_path(rows, expected["tab"], "on", expected, proposed_contract()), "fallback_timeout")
 
     def test_cli_hint_before_json(self):
         self.assertEqual(json_value('hint\n{"tab_id":"opaque"}\n'), {"tab_id": "opaque"})
@@ -144,10 +141,41 @@ class Oracles(unittest.TestCase):
             judge_sentinel_feed({"instance_proven": True, "persisted_decision": True, "new_entries": []})
 
 
+class ReportControls(unittest.TestCase):
+    def contract(self):
+        return {"decision": proposed_contract() | {"covered_points_status": "bound", "covered_points": [{"id": "fixture", "provider": "codex", "case": "permission", "status": "bound"}]},
+                **{key: {"status": "bound"} for key in ("coordinator", "sentinel", "isolation", "update_fixture")}}
+
+    def test_empty_report_is_red(self):
+        self.assertEqual(exit_code({}, self.contract()), 1)
+
+    def test_pending_covered_points_cannot_shrink_report(self):
+        contract = self.contract()
+        contract["decision"]["covered_points_status"] = "pending"
+        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, contract), 1)
+
+    def test_empty_point_list_cannot_shrink_report(self):
+        contract = self.contract()
+        contract["decision"]["covered_points"] = []
+        self.assertEqual(exit_code({"PASS": 86, "N/A": 1}, contract), 1)
+
+    def test_pending_isolation_cannot_pass(self):
+        contract = self.contract()
+        contract["isolation"]["status"] = "pending"
+        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, contract), 1)
+
+    def test_missing_base_cell_is_red(self):
+        self.assertEqual(exit_code({"PASS": 85, "N/A": 1}, self.contract()), 1)
+        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, self.contract()), 0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--red-demo", action="store_true")
     parser.add_argument("--red-sentinel-demo", action="store_true")
+    parser.add_argument("--red-binding-demo", action="store_true")
+    parser.add_argument("--red-courier-demo", action="store_true")
+    parser.add_argument("--red-sentinel-provenance-demo", action="store_true")
     options = parser.parse_args()
     if options.red_demo:
         evidence = notification_evidence() | {"notifications": 2}
@@ -158,7 +186,27 @@ def main():
         evidence["journal"].append(evidence["journal"][1].copy())
         judge_sentinel_outcome(evidence)
         return 0
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(Oracles))
+    if options.red_binding_demo:
+        from attribution import observations
+        from binding_tests import proposed_observations
+        rows, expected = proposed_observations()
+        rows[1]["observation_id"] = rows[0]["observation_id"]
+        observations(rows, expected, proposed_contract(), "on")
+        return 0
+    if options.red_courier_demo:
+        from binding_tests import courier_fixture
+        from coordinator_oracles import judge_coordinator_outcome
+        judge_coordinator_outcome(courier_fixture() | {"version_receipts": []})
+        return 0
+    if options.red_sentinel_provenance_demo:
+        from sentinel_raw import validate_raw
+        evidence = sentinel_evidence()
+        evidence["journal"][2]["recipient_receipt"] = "invented"
+        validate_raw(evidence["journal"], evidence["raw_scope"])
+        return 0
+    suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
+                               for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls))
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 
