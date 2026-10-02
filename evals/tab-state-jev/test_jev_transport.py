@@ -498,7 +498,7 @@ class HarnessRegressionTests(unittest.TestCase):
             _, fixture_receipt = self.harness_patches(stack)
             stack.enter_context(patch.object(t, "prepare_plan", return_value={
                 "argv": ["/synthetic-interpreter", "-I", "-S", "-B", "/synthetic-helper"],
-                "cwd": Path("/synthetic-mechanism"), "header": {}}))
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
             stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
             stack.enter_context(patch.object(t.shutil, "rmtree"))
             transport = stack.enter_context(patch.object(t, "JevTransport"))
@@ -511,6 +511,200 @@ class HarnessRegressionTests(unittest.TestCase):
         self.assertEqual(report.get("transport"), transport_receipt)
         self.assertEqual(report.get("fixture"), fixture_receipt)
         self.assertEqual(report.get("oracle_error"), "fixture_wrong_predicate")
+
+
+class HarnessBoundaryTests(unittest.TestCase):
+    def fixture_patches(self, stack, case="success"):
+        stack.enter_context(patch.object(local.time, "monotonic", Clock()))
+        listener, plain, stream, reader, writer, selector, context = (Mock() for _ in range(7))
+        listener.getsockname.return_value = ("127.0.0.1", 43210)
+        listener.accept.return_value = (plain, ("127.0.0.1", 12345))
+        context.wrap_socket.return_value = stream
+        writer.send.return_value = 1
+        reader.recv.return_value = b"C"
+        selector.select.return_value = [(SimpleNamespace(data="listener"), local.selectors.EVENT_READ)]
+        stack.enter_context(patch.object(local.socket, "socket", return_value=listener))
+        stack.enter_context(patch.object(local.socket, "socketpair", return_value=(reader, writer)))
+        stack.enter_context(patch.object(local.selectors, "DefaultSelector", return_value=selector))
+        stack.enter_context(patch.object(local.threading, "Thread", InlineThread))
+        request = stack.enter_context(patch.object(local, "read_request", return_value=b"exact-synthetic-wire"))
+        fixture = local.LoopbackFixture(case, context, 55, 60)
+        return SimpleNamespace(fixture=fixture, listener=listener, plain=plain, stream=stream,
+                               reader=reader, writer=writer, selector=selector, context=context, request=request)
+
+    def assert_closed_fixture(self, receipt):
+        self.assertTrue(all(receipt[key] for key in ("listener_closed", "selector_closed", "wake_reader_closed",
+                                                    "wake_writer_closed", "thread_joined", "retirement_observed")))
+        self.assertEqual(receipt["cleanup_errors"], [])
+        self.assertIsNone(receipt["error"])
+
+    def test_pre_accept_cancellation_wakes_owned_selector(self):
+        with ExitStack() as stack:
+            source = self.fixture_patches(stack)
+            def cancelled_ready(timeout):
+                self.assertEqual(timeout, 55)
+                self.assertTrue(source.fixture.ready.is_set())
+                source.fixture.request_cancel()
+                return [(SimpleNamespace(data="cancel"), local.selectors.EVENT_READ)]
+            source.selector.select.side_effect = cancelled_ready
+            source.fixture.start()
+            receipt = source.fixture.close()
+        source.writer.send.assert_called_once_with(b"C")
+        source.reader.recv.assert_called_once_with(1)
+        source.listener.accept.assert_not_called()
+        source.context.wrap_socket.assert_not_called()
+        source.request.assert_not_called()
+        self.assertTrue(receipt["wake_observed"] and receipt["cancel_observed"])
+        self.assertEqual(receipt["cancellation_phase"], "pre_accept")
+        self.assertFalse(receipt["accept_observed"])
+        self.assertEqual((receipt["requests"], receipt["responses"]), (0, 0))
+        self.assert_closed_fixture(receipt)
+
+    def test_accepted_handshake_cancellation_uses_published_tls_handle(self):
+        with ExitStack() as stack:
+            source = self.fixture_patches(stack)
+            def cancelled_handshake():
+                self.assertIs(source.fixture.accepted, source.stream)
+                source.fixture.request_cancel()
+                raise OSError("synthetic interrupted handshake")
+            source.stream.do_handshake.side_effect = cancelled_handshake
+            source.fixture.start()
+            receipt = source.fixture.close()
+        source.context.wrap_socket.assert_called_once_with(source.plain, server_side=True,
+                                                           do_handshake_on_connect=False)
+        source.stream.shutdown.assert_called_once_with(local.socket.SHUT_RDWR)
+        source.stream.close.assert_called_once()
+        source.request.assert_not_called()
+        self.assertTrue(receipt["accepted_closed"] and receipt["cancel_observed"])
+        self.assertEqual(receipt["cancellation_phase"], "accepted")
+        self.assert_closed_fixture(receipt)
+
+    def test_accepted_headers_cancellation_releases_owned_hold(self):
+        with ExitStack() as stack:
+            source = self.fixture_patches(stack, "cancel_after_headers")
+            source.stream.sendall.side_effect = lambda data: source.fixture.request_cancel()
+            source.fixture.start()
+            receipt = source.fixture.close()
+        self.assertTrue(source.fixture.headers_sent.is_set() and source.fixture.release.is_set())
+        self.assertEqual((receipt["requests"], receipt["responses"]), (1, 1))
+        self.assertFalse(receipt["body_completed"])
+        self.assertTrue(receipt["cancel_observed"] and receipt["accepted_closed"])
+        source.stream.shutdown.assert_called_once_with(local.socket.SHUT_RDWR)
+        self.assert_closed_fixture(receipt)
+
+    def test_positive_fixture_preserves_one_wire_and_complete_response(self):
+        with ExitStack() as stack:
+            source = self.fixture_patches(stack)
+            source.fixture.start()
+            receipt = source.fixture.close()
+        sent = b"".join(call.args[0] for call in source.stream.sendall.call_args_list)
+        headers, body = sent.split(b"\r\n\r\n", 1)
+        self.assertIn(b"Content-Length: " + str(len(body)).encode(), headers)
+        self.assertEqual(source.fixture.request_bytes, b"exact-synthetic-wire")
+        self.assertEqual(source.fixture.response_bytes_sha256, c.sha256(body))
+        self.assertEqual(c.decode(body, c.MAX_RESPONSE)["answers"]["q"]["choice"], "opaque")
+        self.assertEqual((receipt["requests"], receipt["responses"]), (1, 1))
+        self.assertTrue(receipt["accepted_closed"] and receipt["body_completed"])
+        self.assertFalse(receipt["cancel_requested"])
+        self.assert_closed_fixture(receipt)
+
+    def plan_fixture(self):
+        wire = synthetic_wire()
+        return wire, {"argv": ["/pinned-interpreter", "-I", "-S", "-B", "/pinned-helper"],
+                      "cwd": Path("/synthetic-mechanism"), "env": {"LANG": "C"},
+                      "header": {"hard_end": 60, "operation_end": 55, "wire_sha256": c.sha256(wire),
+                                 "interpreter": "/pinned-interpreter", "interpreter_sha256": "a" * 64,
+                                 "worker_sha256": "b" * 64, "contract_sha256": "c" * 64}}
+
+    def test_prepared_interpreter_and_original_deadlines_remain_pinned(self):
+        wire, plan = self.plan_fixture()
+        factory = local.fixture_plan_factory(Path("/public-fixture-ca"), SimpleNamespace(port=43210), plan)
+        with patch.object(t, "prepare_plan") as prepare, patch.object(t, "identity_hash", side_effect=[
+                (Path("/pinned-interpreter"), "a" * 64), (Path("/pinned-helper"), "b" * 64),
+                (Path("/pinned-contract"), "c" * 64)]) as identities:
+            actual = factory(wire, 55, 60, Clock())
+        prepare.assert_not_called()
+        self.assertEqual(actual["argv"][:4], plan["argv"][:4])
+        self.assertEqual(actual["header"], plan["header"])
+        self.assertEqual(plan["argv"][-1], "/pinned-helper")
+        self.assertEqual(identities.call_args_list[0].args[:2], ("/pinned-interpreter", 55))
+        with patch.object(t, "identity_hash") as identities:
+            with self.assertRaisesRegex(t.TransportFailure, "fixture_original_deadline"):
+                factory(wire, 56, 61, Clock())
+            identities.assert_not_called()
+
+    def test_changed_prepared_interpreter_refuses_admission(self):
+        wire, plan = self.plan_fixture()
+        factory = local.fixture_plan_factory(Path("/public-fixture-ca"), SimpleNamespace(port=43210), plan)
+        with patch.object(t, "identity_hash", return_value=(Path("/pinned-interpreter"), "d" * 64)):
+            with self.assertRaisesRegex(t.TransportFailure, "trusted_file_changed"):
+                factory(wire, 55, 60, Clock())
+        self.assertEqual(plan["header"]["interpreter_sha256"], "a" * 64)
+
+    def test_failed_cleanup_keeps_primary_transport_and_fixture_facts(self):
+        original = {"error": "transport_tls", "created": True, "completion_confirmed": True}
+        with ExitStack() as stack:
+            fixture_factory, fixture_receipt = HarnessRegressionTests.harness_patches(self, stack)
+            fixture_receipt.update(accepted_closed=False, thread_joined=False,
+                                   cleanup_errors=["fixture_server_unconfirmed"])
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "argv": ["/synthetic-interpreter", "-I", "-S", "-B", "/synthetic-helper"],
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+            stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
+            remove = stack.enter_context(patch.object(t.shutil, "rmtree"))
+            remove.side_effect = OSError("synthetic private-directory close failure")
+            transport = stack.enter_context(patch.object(t, "JevTransport"))
+            transport.return_value.send.side_effect = t.TransportFailure("transport_tls", original)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(local.main(), 1)
+        report = json.loads(output.getvalue())
+        fixture_factory.return_value.close.assert_called_once()
+        self.assertEqual(report["error"], "transport_tls")
+        self.assertEqual(report["transport"], original)
+        self.assertEqual(report["fixture"], fixture_receipt)
+        self.assertEqual(report["cleanup_errors"], ["fixture_plan_cleanup_os"])
+        self.assertFalse(report["preparation"]["cwd_closed"])
+        self.assertEqual(report["oracle_error"], "fixture_wrong_predicate")
+
+    def test_certificate_preparation_failure_opens_no_listener_and_closes_plan(self):
+        with ExitStack() as stack:
+            fixture_factory, _ = HarnessRegressionTests.harness_patches(self, stack)
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+            context = local.ssl.SSLContext.return_value
+            context.load_cert_chain.side_effect = local.ssl.SSLError("synthetic fixture certificate failure")
+            remove = stack.enter_context(patch.object(t.shutil, "rmtree"))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(local.main(), 1)
+        fixture_factory.assert_not_called()
+        remove.assert_called_once_with(Path("/synthetic-mechanism"))
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["error"], "SSLError")
+        self.assertFalse(report["fixture"]["listener_opened"])
+        self.assertTrue(report["preparation"]["cwd_closed"] and report["preparation"]["certificate_files_closed"])
+
+
+class AbsoluteDeadlineHandoffTests(unittest.TestCase):
+    def test_run_case_hands_off_captured_absolute_request_end(self):
+        with ExitStack() as stack:
+            _, fixture_receipt = HarnessRegressionTests.harness_patches(self, stack)
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "argv": ["/synthetic-interpreter", "-I", "-S", "-B", "/synthetic-helper"],
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+            stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
+            stack.enter_context(patch.object(t.shutil, "rmtree"))
+            transport = stack.enter_context(patch.object(t, "JevTransport"))
+            transport.return_value.send.side_effect = t.TransportFailure("synthetic_mechanism_refusal")
+            report = local.run_case("success")
+        send = transport.return_value.send
+        send.assert_called_once()
+        self.assertEqual(report["error"], "synthetic_mechanism_refusal")
+        self.assertEqual(report["fixture"], fixture_receipt)
+        self.assertEqual(send.call_args.kwargs.get("request_end"), report["hard_end"])
+        self.assertEqual(send.call_args.kwargs["timeout"], t.REQUEST_SECONDS)
+        self.assertEqual(transport.return_value.run_end, report["run_end"])
 
 
 if __name__ == "__main__":
