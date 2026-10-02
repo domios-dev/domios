@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { defaultMedia, parseMedia } from './media';
-import type { Clip } from './media';
+import type { Trailer } from './media';
 
 export function useMediaLibrary() {
   const [library, setLibrary] = useState(defaultMedia);
@@ -17,9 +17,10 @@ export function useMediaLibrary() {
   return library;
 }
 
-export function useVideo(clip: Clip, reducedMotion: boolean) {
+export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const pendingSeek = useRef<number | null>(null);
   const [inView, setInView] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [visible, setVisible] = useState(!document.hidden);
@@ -50,17 +51,34 @@ export function useVideo(clip: Clip, reducedMotion: boolean) {
       void video.play().catch(() => setPlaying(false));
     } else video.pause();
   }, [loaded, inView, visible, pausedByUser, reducedMotion, requestedByUser]);
-  const togglePlayback = () => {
+  const play = () => {
+    setLoaded(true);
+    setPausedByUser(false);
+    setRequestedByUser(true);
     const video = videoRef.current;
-    if (!video) return;
+    if (video?.currentSrc) void video.play().catch(() => setPlaying(false));
+  };
+  const seek = (next: number) => {
+    const video = videoRef.current;
+    pendingSeek.current = next;
+    setTime(next);
+    if (video && video.readyState >= 1) {
+      video.currentTime = next;
+      pendingSeek.current = null;
+    }
+    containerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    play();
+  };
+  const togglePlayback = () => {
     if (playing) {
       setPausedByUser(true);
-      video.pause();
-    } else {
-      setLoaded(true);
-      setPausedByUser(false);
-      setRequestedByUser(true);
-      if (video.currentSrc) void video.play().catch(() => setPlaying(false));
+      videoRef.current?.pause();
+    } else play();
+  };
+  const onLoadedMetadata = () => {
+    if (pendingSeek.current !== null && videoRef.current) {
+      videoRef.current.currentTime = pendingSeek.current;
+      pendingSeek.current = null;
     }
   };
   const onLoadedData = () => {
@@ -69,11 +87,11 @@ export function useVideo(clip: Clip, reducedMotion: boolean) {
     }
   };
   return {
-    containerRef, videoRef, loaded, playing, failed, togglePlayback, onLoadedData,
+    containerRef, videoRef, loaded, playing, failed, time, seek, togglePlayback, onLoadedMetadata, onLoadedData,
     onError: () => setFailed(true),
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
-    onTimeUpdate: () => setTime(videoRef.current?.currentTime ?? 0),
+    onTimeUpdate: () => { if (pendingSeek.current === null) setTime(videoRef.current?.currentTime ?? 0); },
     caption: clip.captions.find((caption) => time >= caption.start && time < caption.end),
   };
 }

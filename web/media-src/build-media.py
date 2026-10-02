@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build landing-page media with FFmpeg 7.1+ and Python 3.12+."""
+"""Render the Domios trailer from read-only recordings (FFmpeg 7+, Pillow 10+)."""
 
 import argparse
 import json
@@ -7,158 +7,148 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from PIL import Image
 
-FPS = 24
-SIZE = (1600, 1256)
+from trailer_scenes import FPS, SIZE, render, source_frames, SHOTS
+
+
 SOURCES = {
     "board": "Запись 2026-08-29 084517.mp4",
     "mesh": "Запись 2026-08-29 084919.mp4",
     "plugins": "Запись 2026-08-29 085206.mp4",
     "mesh-talk": "Запись 2026-08-29 085542.mp4",
 }
-COMMON_CROP = (350, 60, 1680, 1320)
-
-
-def segment(start, end, duration, crop=COMMON_CROP, freeze=False):
-    return dict(start=start, end=end, duration=duration, crop=crop, freeze=freeze)
-
-
-EDITS = {
-    "board": [segment(0.2, 7.2, 7, crop=(350, 300, 1680, 1010))],
-    "mesh": [
-        segment(0, 1 / 30, 2, freeze=True),
-        segment(2.95, 4.75, 4, crop=(700, 340, 1040, 816)),
-        segment(6.7, 7.4, 4, crop=(495, 45, 1460, 1310)),
-        segment(0, 1 / 30, 2, freeze=True),
-    ],
-    "plugins": [
-        segment(1.4, 5.6, 3),
-        segment(7.5, 8.5, 2),
-        segment(8.75, 10.65, 2),
-        segment(11.0, 14.9, 3),
-    ],
-    "mesh-talk": [
-        segment(16, 19, 3),
-        segment(34, 42, 3),
-        segment(46, 64, 3),
-        segment(68, 80, 7),
-        segment(95, 97.5, 5),
-        segment(139, 146, 5),
-    ],
-}
-CAPTIONS = {
-    "board": [dict(start=0, end=7, text="One board for the whole team")],
-    "mesh": [dict(start=0, end=2, text="Your machines, connected"),
-             dict(start=2, end=6, text="Open a peer"),
-             dict(start=6, end=10, text="The same workspace in your browser"),
-             dict(start=10, end=12, text="One shared mesh")],
-    "plugins": [dict(start=0, end=3, text="Choose your agent"),
-                dict(start=3, end=5, text="Add capabilities"),
-                dict(start=5, end=7, text="Connect your secret store"),
-                dict(start=7, end=10, text="Extend your workspace")],
-    "mesh-talk": [dict(start=0, end=3, text="Ask your agent about the mesh"),
-                  dict(start=3, end=6, text="Prepare one check-in"),
-                  dict(start=6, end=9, text="Contact the online machines"),
-                  dict(start=9, end=16, text="Watch messages cross the mesh"),
-                  dict(start=16, end=21, text="Replies arrive"),
-                  dict(start=21, end=26, text="One fleet summary")],
-}
-POSTERS = {"board": 2, "mesh": 10.5, "plugins": 1.6, "mesh-talk": 13}
+CHAPTERS = [
+    dict(id="agents", start=0, end=8, posterTime=3.2),
+    dict(id="board", start=8, end=15, posterTime=11),
+    dict(id="mesh", start=15, end=30, posterTime=18),
+    dict(id="plugins", start=30, end=45, posterTime=32),
+]
+CAPTIONS = [
+    (0, 4, "A desktop app. A place for your agents."),
+    (4, 8, "Named agents live in tabs, with a conversation to return to."),
+    (8, 11, "Give a task to a team of its own."),
+    (11, 15, "Follow the work from pending to done."),
+    (15, 19, "Pair the computers you own into one trusted mesh."),
+    (19, 23, "Reach a workspace on another machine."),
+    (23, 27, "Ask your agent to check in with its peers."),
+    (27, 30, "Their reports come back to your conversation."),
+    (30, 33, "Choose the intelligence that fits your work."),
+    (33, 35.5, "Bring your tools into the workspace."),
+    (35.5, 38, "Add capabilities through plugins."),
+    (38, 41, "One view of the fleet. Including who is offline."),
+    (41, 45, "Your next idea. A whole team behind it."),
+]
 
 
 def run(args):
-    subprocess.run([str(a) for a in args], check=True)
+    subprocess.run([str(arg) for arg in args], check=True)
 
 
-def probe(path):
-    return json.loads(subprocess.check_output([
+def validate(path):
+    info = json.loads(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)
     ]))
-
-
-def filter_graph(edit):
-    filters = []
-    x, y, w, h = edit["crop"]
-    filters.append(f"crop={w}:{h}:{x}:{y}")
-    if edit["freeze"]:
-        filters.append(f"tpad=stop_mode=clone:stop_duration={edit['duration']}")
-        factor = 1
-    else:
-        factor = edit["duration"] / (edit["end"] - edit["start"])
-    filters.extend([
-        f"setpts={factor:.12f}*(PTS-STARTPTS)", f"fps={FPS}",
-        f"scale={SIZE[0]}:{SIZE[1]}:force_original_aspect_ratio=decrease:force_divisible_by=2",
-        f"pad={SIZE[0]}:{SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=0x0d1017",
-        "setsar=1", "format=yuv420p",
-    ])
-    return "[0:v]" + ",".join(filters) + "[out]"
-
-
-def validate(path, expected_duration):
-    info = probe(path)
-    assert len(info["streams"]) == 1, f"Unexpected audio or extra streams: {path}"
+    assert len(info["streams"]) == 1
     stream = info["streams"][0]
     assert (stream["width"], stream["height"]) == SIZE
     assert stream["pix_fmt"] == "yuv420p"
-    assert abs(float(info["format"]["duration"]) - expected_duration) < 0.06
-    run(["ffmpeg", "-hide_banner", "-v", "error", "-xerror", "-i", path, "-f", "null", "-"])
-    return float(info["format"]["duration"])
+    assert abs(float(info["format"]["duration"]) - 45) < .06
+    run(["ffmpeg", "-v", "error", "-xerror", "-i", path, "-f", "null", "-"])
 
 
-def build(source_dir, output_dir):
+def still(video, time, target, width):
+    run(["ffmpeg", "-v", "error", "-y", "-ss", time, "-i", video, "-frames:v", "1",
+         "-vf", f"scale={width}:-2:flags=lanczos", "-c:v", "libwebp", "-quality", "84", target])
+
+
+def default_font():
+    candidates = ["C:/Windows/Fonts/segoeui.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+    return next((Path(path) for path in candidates if Path(path).is_file()), None)
+
+
+def build(source_dir, output_dir, font, preview_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
-    manifest = dict(schemaVersion=1, totalBytes=0, clips=[])
-    with tempfile.TemporaryDirectory(prefix="domios-media-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="domios-trailer-") as temporary:
         temp = Path(temporary)
-        for name, edits in EDITS.items():
-            source = source_dir / SOURCES[name]
-            if not source.is_file():
-                raise FileNotFoundError(source)
-            segments = []
-            for i, edit in enumerate(edits):
-                target = temp / f"{name}-{i}.mkv"
-                print(f"Cut {name} segment {i + 1}/{len(edits)}", flush=True)
-                run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", edit["start"],
-                     "-t", edit["end"] - edit["start"], "-i", source,
-                     "-filter_complex", filter_graph(edit), "-map", "[out]", "-an",
-                     "-t", edit["duration"], "-c:v", "libx264", "-preset", "veryfast",
-                     "-crf", "16", "-threads", "8", "-map_metadata", "-1", target])
-                segments.append(target)
-            concat = temp / f"{name}.txt"
-            concat.write_text("".join(f"file '{p.as_posix()}'\n" for p in segments), encoding="utf-8")
-            common = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "concat",
-                      "-safe", "0", "-i", concat, "-an", "-map_metadata", "-1"]
-            mp4, webm, poster = (output_dir / f"{name}{suffix}"
-                                 for suffix in (".mp4", ".webm", "-poster.webp"))
-            print(f"Encode {name} H.264 / VP9", flush=True)
-            run(common + ["-c:v", "libx264", "-preset", "slow", "-crf", "26", "-pix_fmt", "yuv420p",
-                          "-threads", "8", "-movflags", "+faststart", mp4])
-            run(common + ["-c:v", "libvpx-vp9", "-crf", "36", "-b:v", "0", "-cpu-used", "4",
-                          "-row-mt", "1", "-tile-columns", "2", "-threads", "8", webm])
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", POSTERS[name],
-                 "-i", mp4, "-frames:v", "1", "-c:v", "libwebp", "-quality", "82",
-                 "-map_metadata", "-1", poster])
-            duration = sum(edit["duration"] for edit in edits)
-            duration = validate(mp4, duration)
-            validate(webm, duration)
-            files = {kind: dict(src=f"/media/{path.name}", bytes=path.stat().st_size)
-                     for kind, path in [("mp4", mp4), ("webm", webm), ("poster", poster)]}
-            manifest["clips"].append(dict(id=name, duration=duration, width=SIZE[0], height=SIZE[1],
-                                          loop=True, captions=CAPTIONS[name], **files))
-            print(name, duration, sum(item["bytes"] for item in files.values()), flush=True)
-    (output_dir / "captions.json").write_text(json.dumps(CAPTIONS, indent=2) + "\n", encoding="utf-8")
-    manifest_path = output_dir / "manifest.json"
-    for _ in range(4):
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        manifest["totalBytes"] = sum(p.stat().st_size for p in output_dir.iterdir() if p.is_file())
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    assert manifest["totalBytes"] < 15_000_000, "Media exceeds the 15 MB budget"
-    print(f"Complete: {manifest['totalBytes']:,} bytes", flush=True)
+        source_paths = {key: source_dir / name for key, name in SOURCES.items()}
+        for path in source_paths.values():
+            if not path.is_file():
+                raise FileNotFoundError(path)
+        master = temp / "master.mp4"
+        encoder = subprocess.Popen([
+            "ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+            "-s", f"{SIZE[0]}x{SIZE[1]}", "-r", str(FPS), "-i", "-", "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-threads", "6",
+            "-pix_fmt", "yuv420p", str(master)
+        ], stdin=subprocess.PIPE)
+        try:
+            for shot in SHOTS:
+                print(f"Render {shot['at']:04.1f}s: {shot['name']}", flush=True)
+                for index, frame in enumerate(source_frames(source_paths, shot)):
+                    image = render(shot, index / FPS, frame, font)
+                    encoder.stdin.write(image.tobytes())
+            encoder.stdin.close()
+            if encoder.wait() != 0:
+                raise RuntimeError("Trailer render failed")
+        finally:
+            if encoder.poll() is None:
+                encoder.terminate()
+                encoder.wait()
+        mp4, webm = output_dir / "trailer.mp4", output_dir / "trailer.webm"
+        common = ["ffmpeg", "-v", "error", "-y", "-i", master, "-an", "-map_metadata", "-1"]
+        print("Encode H.264", flush=True)
+        run(common + ["-c:v", "libx264", "-preset", "slow", "-crf", "27", "-threads", "6",
+                      "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4])
+        print("Encode VP9", flush=True)
+        run(common + ["-c:v", "libvpx-vp9", "-crf", "39", "-b:v", "0", "-cpu-used", "4",
+                      "-row-mt", "1", "-threads", "6", webm])
+        for path in [mp4, webm]:
+            validate(path)
+        still(mp4, 18, output_dir / "trailer-poster.webp", SIZE[0])
+        for chapter in CHAPTERS:
+            still(mp4, chapter["posterTime"], output_dir / f"{chapter['id']}-poster.webp", 480)
+        captions = [dict(start=start, end=end, text=text) for start, end, text in CAPTIONS]
+        manifest = dict(schemaVersion=2, duration=45, width=SIZE[0], height=SIZE[1], chapters=CHAPTERS)
+        for kind, path in [("mp4", mp4), ("webm", webm), ("poster", output_dir / "trailer-poster.webp")]:
+            manifest[kind] = dict(src=f"/media/{path.name}", bytes=path.stat().st_size)
+        (output_dir / "captions.json").write_text(json.dumps(captions, indent=2) + "\n", encoding="utf-8")
+        for name in SOURCES:
+            for suffix in [".mp4", ".webm"]:
+                (output_dir / f"{name}{suffix}").unlink(missing_ok=True)
+        (output_dir / "mesh-talk-poster.webp").unlink(missing_ok=True)
+        manifest_path = output_dir / "manifest.json"
+        media_bytes = sum(p.stat().st_size for p in output_dir.iterdir() if p.is_file() and p != manifest_path)
+        manifest['totalBytes'] = media_bytes
+        for _ in range(3):
+            manifest['totalBytes'] = media_bytes + len((json.dumps(manifest, indent=2) + '\n').encode('utf-8'))
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline='\n')
+        assert manifest['totalBytes'] == sum(p.stat().st_size for p in output_dir.iterdir() if p.is_file())
+        assert manifest['totalBytes'] < 6_000_000, 'Trailer exceeds the 6 MB media budget'
+        print(f"Media: {manifest['totalBytes']:,} bytes", flush=True)
+        if preview_dir:
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            run(["ffmpeg", "-v", "error", "-y", "-i", mp4, "-filter_complex",
+                 "fps=8,scale=640:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer",
+                 "-loop", "0", preview_dir / "trailer-preview.gif"])
+            for i, time in enumerate([2.5, 6, 11, 18, 32, 42.5]):
+                run(["ffmpeg", "-v", "error", "-y", "-ss", time, "-i", mp4,
+                     "-frames:v", "1", preview_dir / f"key-{i + 1}.png"])
+            sheet = Image.new("RGB", (1280, 1080))
+            for i in range(6):
+                frame = Image.open(preview_dir / f"key-{i + 1}.png").resize((640, 360))
+                sheet.paste(frame, ((i % 2) * 640, (i // 2) * 360))
+            sheet.save(preview_dir / "storyboard.jpg", quality=90)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path, default=Path.home() / "Desktop")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parents[1] / "public/media")
+    parser.add_argument("--font", type=Path, default=default_font())
+    parser.add_argument("--preview-dir", type=Path)
     args = parser.parse_args()
-    build(args.source_dir, args.output_dir)
+    if args.font is None or not args.font.is_file():
+        parser.error('Provide an installed TrueType font with --font')
+    build(args.source_dir, args.output_dir, args.font, args.preview_dir)

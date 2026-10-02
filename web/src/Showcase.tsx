@@ -1,40 +1,43 @@
 import { useState } from 'react';
 import type { CSSProperties, KeyboardEvent } from 'react';
-import { chapters } from './media';
-import type { Clip } from './media';
+import { chapterAt, timestamp } from './media';
+import type { Trailer } from './media';
 import { useMediaLibrary, useVideo } from './useShowcase';
 import { Icon } from './Icon';
 import { CaptionChips } from './CaptionChips';
 import { useMediaQuery } from './usePreferences';
 import './showcase.css';
 
-function VideoPlayer({ clip, reducedMotion, label }: { clip: Clip; reducedMotion: boolean; label: string }) {
-  const player = useVideo(clip, reducedMotion);
+function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeof useVideo> }) {
   const [posterFailed, setPosterFailed] = useState(false);
   return <div className="video-player" ref={player.containerRef}>
     <div className="video-stage">
-      <div className="video-placeholder"><Icon name="terminal" size={40} /><span>{label}</span><small>See your agents at work.</small></div>
-      {!posterFailed && <img className="video-poster" src={clip.poster.src} alt={`${label} in Domios`} loading="lazy" onError={() => setPosterFailed(true)} />}
-      {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label={`${label} product demonstration`}
-        onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
+      <div className="video-placeholder"><Icon name="terminal" size={40} /><span>A place for your agents.</span><small>See Domios at work.</small></div>
+      {!posterFailed && <img className="video-poster" src={clip.poster.src} alt="Three computers connected through Domios" loading="lazy" width="1280" height="720" onError={() => setPosterFailed(true)} />}
+      {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby="trailer-description"
+        onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
         {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" onError={player.onError} /></>}
       </video>}
-      <CaptionChips caption={player.caption} />
     </div>
-    <div className="video-toolbar"><span><i className="status-dot" />{player.failed ? 'Preview coming soon' : 'A look inside Domios'}</span>
-      {!player.failed && <button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} ${label} video`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button>}
+    <CaptionChips caption={player.loaded ? player.caption : { start: 0, end: 45, text: 'A desktop app for agents. A team across your machines.' }} />
+    <div className="video-toolbar"><span><i className="status-dot" />{player.failed ? 'Preview unavailable' : 'Inside Domios'}<span className="video-time" aria-hidden="true">{timestamp(player.time)} / {timestamp(clip.duration)}</span></span>
+      {!player.failed && <button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} Domios trailer`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button>}
     </div>
-    {clip.captions.length > 0 && <details className="transcript"><summary>Read video description</summary><ol>{clip.captions.map((caption) => <li key={`${caption.start}-${caption.text}`}>{caption.text}</li>)}</ol></details>}
+    <details className="transcript" id="trailer-description"><summary>Read video description</summary><p>A desktop app opens. Agents work in tabs; a team tracks tasks on a board. Connected computers exchange messages and reports. Providers and plugins add tools. A fleet summary brings the results together.</p>{clip.captions.length > 0 && <ol>{clip.captions.map((caption) => <li key={caption.start}><button onClick={() => player.seek(caption.start)} aria-label={`Play from ${timestamp(caption.start)}: ${caption.text}`}><span>{timestamp(caption.start)}</span>{caption.text}</button></li>)}</ol>}</details>
   </div>;
 }
 
 export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
-  const [active, setActive] = useState(0);
-  const [previous, setPrevious] = useState(0);
-  const compact = useMediaQuery('(max-width: 800px)');
   const media = useMediaLibrary();
+  const chapters = media.chapters;
+  const player = useVideo(media, reducedMotion);
+  const active = chapterAt(player.time, chapters);
+  const [selection, setSelection] = useState({ active, previous: active });
+  if (selection.active !== active) setSelection({ active, previous: selection.active });
+  const previous = selection.previous;
+  const compact = useMediaQuery('(max-width: 800px)');
   const chapter = chapters[active];
-  const select = (index: number) => { setPrevious(active); setActive(index); };
+  const select = (index: number) => player.seek(chapters[index].start);
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
     if (event.code === 'ArrowRight' || event.code === 'ArrowDown') next = (index + 1) % chapters.length;
@@ -44,26 +47,23 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
     else return;
     event.preventDefault();
     select(next);
-    document.getElementById(`tab-${chapters[next].id}`)?.focus();
+    document.getElementById(`chapter-${chapters[next].id}`)?.focus({ preventScroll: true });
   };
   return <section id="explore" className="showcase section-wrap" aria-labelledby="showcase-title">
-    <div className="section-heading"><div><p className="eyebrow">FOUR WINDOWS INTO DOMIOS</p><h2 id="showcase-title">Pull up a chair.</h2></div><p>Pick a window. See how the work moves.</p></div>
+    <div className="section-heading"><div><p className="eyebrow">ONE APP. YOUR WHOLE TEAM.</p><h2 id="showcase-title">Pull up a chair.</h2></div><p>From your desktop to every machine.<br />45 seconds inside Domios.</p></div>
+    <div className="showcase-caption"><div><span className="eyebrow">0{active + 1} / {timestamp(chapter.start)}</span><h3>{chapter.title}</h3></div><p>{chapter.description}</p></div>
     <div className="showcase-workbench">
-    <div className="clip-shelf ct-liquid-segmented" role="tablist" aria-label="Product demonstrations" aria-orientation={compact ? 'horizontal' : 'vertical'} style={{
-      '--sx-from': `${compact ? previous % 2 * 100 : 0}%`, '--sx-to': `${compact ? active % 2 * 100 : 0}%`,
-      '--sy-from': `${(compact ? Math.floor(previous / 2) : previous) * 100}%`, '--sy-to': `${(compact ? Math.floor(active / 2) : active) * 100}%`,
-    } as CSSProperties}>
-      <span aria-hidden="true" key={`${active}-${compact}`} className={`shelf-thumb ${previous !== active ? 'travel' : ''}`} />
-      {chapters.map((item, index) => <button key={item.id} id={`tab-${item.id}`} role="tab" aria-selected={active === index} aria-controls={`panel-${item.id}`} tabIndex={active === index ? 0 : -1} onClick={() => select(index)} onKeyDown={(event) => onKeyDown(event, index)}>
-        <span className="clip-still"><img src={media[item.id].poster.src} alt="" loading="lazy" /><span className="clip-play"><Icon name="play" size={15} /></span></span>
-        <span className="clip-label"><span className="clip-number">0{index + 1}</span>{item.label}<Icon name="arrow" size={14} /></span>
-      </button>)}
-    </div>
-    {chapters.filter((item) => item.id !== chapter.id).map((item) => <div key={item.id} role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden />)}
-    <div className="clip-panel" role="tabpanel" id={`panel-${chapter.id}`} aria-labelledby={`tab-${chapter.id}`} tabIndex={0}>
-      <div className="showcase-caption"><div><span className="eyebrow">{chapter.tag}</span><h3>{chapter.title}</h3></div><p>{chapter.description}</p></div>
-      <VideoPlayer key={chapter.id} clip={media[chapter.id]} reducedMotion={reducedMotion} label={chapter.label} />
-    </div>
+      <nav className="clip-shelf ct-liquid-segmented" aria-label="Trailer chapters" style={{
+        '--sx-from': `${compact ? previous % 2 * 100 : 0}%`, '--sx-to': `${compact ? active % 2 * 100 : 0}%`,
+        '--sy-from': `${(compact ? Math.floor(previous / 2) : previous) * 100}%`, '--sy-to': `${(compact ? Math.floor(active / 2) : active) * 100}%`,
+      } as CSSProperties}>
+        <span aria-hidden="true" key={`${active}-${compact}`} className={`shelf-thumb ${previous !== active ? 'travel' : ''}`} />
+        {chapters.map((item, index) => <button key={item.id} id={`chapter-${item.id}`} aria-current={active === index ? 'step' : undefined} aria-controls="trailer-player" aria-label={`${item.label}, play from ${timestamp(item.start)}`} onClick={() => select(index)} onKeyDown={(event) => onKeyDown(event, index)}>
+          <span className="clip-still"><img src={`/media/${item.id}-poster.webp`} alt="" loading="lazy" width="480" height="270" /><span className="clip-play"><Icon name="play" size={15} /></span><span className="clip-start">{timestamp(item.start)}</span></span>
+          <span className="clip-label"><span className="clip-number">0{index + 1}</span>{item.label}<Icon name="arrow" size={14} /></span>
+        </button>)}
+      </nav>
+      <div className="clip-panel" id="trailer-player"><VideoPlayer clip={media} player={player} /></div>
     </div>
   </section>;
 }
