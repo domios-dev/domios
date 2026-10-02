@@ -47,6 +47,7 @@ LABELS = (
     "crashed_to_shell",
     "error_loop",
     "still_starting",
+    "other",
 )
 ACTIONABLE = {
     "provider_update_prompt",
@@ -71,6 +72,7 @@ CONTEXT_FIELDS = (
     "screen_changed",
 )
 INSTRUCTIONS = "Classify the current agent tab state from its visible terminal screen. Choose the single best label."
+CONTEXT_INSTRUCTIONS = "Classify the current agent tab state using the screen and runtime context. Choose the single best label."
 
 
 def band_for_confidence(confidence: float) -> str:
@@ -216,17 +218,22 @@ def request_body(
     criteria: dict[str, str],
 ) -> bytes:
     state: Any = screen if arm == "screen" else {"screen": screen, "context": context}
-    body = {
-        "state": state,
-        "model": model,
-        "questions": {
-            "q": {
-                "type": "choice",
-                "instructions": INSTRUCTIONS,
-                "criteria": criteria,
-            }
-        },
-    }
+    label_name = "q" if arm == "screen" else "label"
+    questions = {label_name: {
+        "type": "choice",
+        "instructions": INSTRUCTIONS if arm == "screen" else CONTEXT_INSTRUCTIONS,
+        "criteria": criteria,
+    }}
+    if arm == "context":
+        questions["prompt_visible"] = {
+            "type": "noul",
+            "instructions": "Is an interactive prompt awaiting a response on the current screen?",
+            "criteria": {
+                "true": "A currently visible interactive prompt is waiting for input or a choice.",
+                "false": "There is no currently visible interactive prompt waiting for input; historical transcript prompts do not count.",
+            },
+        }
+    body = {"state": state, "model": model, "questions": questions}
     return json.dumps(body, ensure_ascii=False).encode("utf-8")
 
 
@@ -261,7 +268,18 @@ def call_jev(
 
     elapsed = (time.perf_counter() - started) * 1000
     answers = payload.get("answers") if isinstance(payload, dict) else None
-    answer = answers.get("q") if isinstance(answers, dict) else None
+    label_name = "q" if arm == "screen" else "label"
+    answer = answers.get(label_name) if isinstance(answers, dict) else None
+    prompt_visible = None
+    if arm == "context":
+        if not isinstance(answers, dict) or set(answers) != {"label", "prompt_visible"}:
+            return None, elapsed, "invalid_answer_set"
+        prompt = answers["prompt_visible"]
+        prompt_visible = prompt.get("noul") if isinstance(prompt, dict) else None
+        if (not isinstance(prompt, dict) or prompt.get("type") != "noul"
+            or isinstance(prompt_visible, bool) or not isinstance(prompt_visible, (int, float))
+            or not math.isfinite(prompt_visible) or not 0 <= prompt_visible <= 1):
+            return None, elapsed, "invalid_prompt_visible"
     if not isinstance(answer, dict) or answer.get("type") != "choice":
         return None, elapsed, "invalid_answer_shape"
     choice = answer.get("choice")
@@ -293,6 +311,8 @@ def call_jev(
         "prediction": choice,
         "confidence": float(confidence),
         "confidence_source": source,
+        "prompt_visible": prompt_visible,
+        "probabilities": probabilities,
     }, elapsed, None
 
 
@@ -478,6 +498,7 @@ def evaluate(
         gate["verdict"] = "inconclusive"
     return {
         "arm": arm,
+        "question_names": ["q"] if arm == "screen" else ["label", "prompt_visible"],
         "model": model,
         "endpoint": endpoint,
         "dataset": str(DATASET.relative_to(ROOT)),

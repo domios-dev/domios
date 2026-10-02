@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from run import ensure_supporter_connected
+
 
 LOCAL_ROOT = Path.home() / "Developer" / "codeterm-worktrees" / "mem-eval-local"
 MISTAKES_PATH = Path(__file__).with_name("cli_mistakes.json")
@@ -35,33 +37,6 @@ def private_root() -> Path:
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
     return root
-
-
-def parent_environment() -> tuple[dict[str, str], str]:
-    env = os.environ.copy()
-    env.pop("CODETERM_INSTANCE", None)
-    result = subprocess.run(
-        ["codeterm", "identify", "--json"],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(
-            f"cannot identify parent CodeTerm connection: {result.stderr.strip()}"
-        )
-    identity = json.loads(result.stdout)
-    connection = identity.get("connection", {})
-    if connection.get("port") != 7685 or connection.get("instance"):
-        raise RuntimeError(
-            "run cli_eval.py from the parent prod tab environment; "
-            "the summary route must remain on port 7685"
-        )
-    parent_tab = env.get("CODETERM_PARENT_TAB_ID")
-    if not parent_tab:
-        raise RuntimeError("CODETERM_PARENT_TAB_ID is required to route the summary")
-    return env, parent_tab
 
 
 def cli_headings() -> set[str]:
@@ -318,11 +293,9 @@ def markdown_summary(
     return "\n".join(lines) + "\n"
 
 
-def save_and_send(
+def save_results(
     payload: dict[str, Any],
     summary: str,
-    parent_env: dict[str, str],
-    parent_tab: str,
 ) -> tuple[Path, Path]:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     result_dir = RESULTS_ROOT / timestamp
@@ -336,40 +309,15 @@ def save_and_send(
     summary_path.write_text(summary, encoding="utf-8")
     os.chmod(result_path, 0o600)
     os.chmod(summary_path, 0o600)
-    delivered = subprocess.run(
-        [
-            "codeterm",
-            "send",
-            "--tab",
-            parent_tab,
-            "--require-agent",
-            "--from-file",
-            str(summary_path),
-        ],
-        env=parent_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if delivered.returncode:
-        raise RuntimeError(f"parent summary send failed: {delivered.stderr.strip()}")
-    print(
-        json.dumps(
-            {
-                "results": str(result_path),
-                "summary": str(summary_path),
-                "send": delivered.stdout.strip(),
-            }
-        )
-    )
+    print(json.dumps({"results": str(result_path), "summary": str(summary_path)}))
     return result_path, summary_path
 
 
 def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     private_root()
-    parent_env, parent_tab = parent_environment()
     mistakes = load_mistakes()
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    ensure_supporter_connected(lib_path, args.dev_instance)
     docs_count = config_integer(lib_path, args.dev_instance, DOCS_CONFIG_KEY, 10)
     if docs_count < 3:
         raise RuntimeError(
@@ -400,11 +348,9 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         "gate_outcome": gate_outcome(values),
         "queries": rows,
     }
-    results_path, summary_path = save_and_send(
+    results_path, summary_path = save_results(
         payload,
         summary,
-        parent_env,
-        parent_tab,
     )
     return results_path, summary_path, summary
 

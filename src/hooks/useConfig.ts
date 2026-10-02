@@ -6,115 +6,115 @@ import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
 export function defaultConfig(): AppConfig {
   return {
-  theme: readCachedTheme() ?? DEFAULT_THEME,
-  font: {
-    family: "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace",
-    size: 14,
-    ligatures: true,
-  },
-  terminal: {
-    cursor_style: "block",
-    cursor_blink: true,
-    scrollback: 10000,
-    copy_on_select: false,
-  },
-  diagnostics: {
-    terminal_transport: false,
-  },
-  notifications: {
-    // Off until someone opts in; until the daemon answers, nothing interrupts.
-    desktop: false,
-    sound: false,
-    toast_duration: 5,
-    // The bell has always been drawn; until the daemon answers, it stays drawn.
-    show_bell: true,
-    // The daemon owns which channels exist; until it answers there are none.
-    channels: {},
-    // The daemon owns the level set; until it answers there is nothing to
-    // claim the user controls.
-    agent_levels: [],
-  },
-  keybindings: {
-    reopen_tab: "Ctrl+Shift+T",
-  },
-  socket: { path: null },
-  agent: {
-    poll_interval_ms: 500,
-    idle_timeout_s: 30,
-    resume_sessions: true,
-    full_access: undefined,
-  },
-  api: {
-    enabled: true,
-    host: "127.0.0.1",
-    port: 7685,
-    token: null,
-    cors: false,
-    cors_allow_origins: [],
-  },
-  agents: {},
-  general_agent: {
-    enabled: true,
-    agent_provider: "claude",
-    auto_restart: true,
-    max_restart_attempts: 3,
-    restart_delay_s: 60,
-    first_run_complete: false,
-  },
-  memory: {
-    extraction_agent: "",
-    extraction_model: "",
-    auto_extract: true,
-    dreaming_agent: "",
-    dreaming_model: "",
-    worker_model: "",
-    worker_timeout_seconds: 1800,
-    dedup_threshold: 0.15,
-    file_sync_enabled: true,
-    file_sync_interval_minutes: 60,
-  },
-  supporter: {
-    adapter: "typesafe-jev",
-    endpoint: null,
-    model: null,
-    deadline_ms: 3000,
-    memory_rerank: {
+    theme: readCachedTheme() ?? DEFAULT_THEME,
+    font: {
+      family: "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace",
+      size: 14,
+      ligatures: true,
+    },
+    terminal: {
+      cursor_style: "block",
+      cursor_blink: true,
+      scrollback: 10000,
+      copy_on_select: false,
+    },
+    diagnostics: {
+      terminal_transport: false,
+    },
+    notifications: {
+      // Off until someone opts in; until the daemon answers, nothing interrupts.
+      desktop: false,
+      sound: false,
+      toast_duration: 5,
+      // The bell has always been drawn; until the daemon answers, it stays drawn.
+      show_bell: true,
+      // The daemon owns which channels exist; until it answers there are none.
+      channels: {},
+      // The daemon owns the level set; until it answers there is nothing to
+      // claim the user controls.
+      agent_levels: [],
+    },
+    keybindings: {
+      reopen_tab: "Ctrl+Shift+T",
+    },
+    socket: { path: null },
+    agent: {
+      poll_interval_ms: 500,
+      idle_timeout_s: 30,
+      resume_sessions: true,
+      full_access: undefined,
+    },
+    api: {
+      enabled: true,
+      host: "127.0.0.1",
+      port: 7685,
+      token: null,
+      cors: false,
+      cors_allow_origins: [],
+    },
+    agents: {},
+    general_agent: {
+      enabled: true,
+      agent_provider: "claude",
+      auto_restart: true,
+      max_restart_attempts: 3,
+      restart_delay_s: 60,
+      first_run_complete: false,
+    },
+    memory: {
+      extraction_agent: "",
+      extraction_model: "",
+      auto_extract: true,
+      dreaming_agent: "",
+      dreaming_model: "",
+      worker_model: "",
+      worker_timeout_seconds: 1800,
+      dedup_threshold: 0.15,
+      file_sync_enabled: true,
+      file_sync_interval_minutes: 60,
+    },
+    supporter: {
+      adapter: "typesafe-jev",
+      endpoint: null,
+      model: "jev-latest",
+      deadline_ms: 3000,
+      calls_per_hour: 600,
+      memory_rerank: {
+        docs_hybrid: false,
+        sources: { recall: 30, graph: 3, docs: 3, sessions: 0 },
+        candidates: 50,
+        max_concurrency: 16,
+        request_mode: "per_candidate",
+        low_confidence_threshold: 0.15,
+        max_body_chars: 2000,
+      },
+    },
+    integrations: {
+      telegram_enabled: false,
+      telegram_allowed_users: [],
+      discord_enabled: false,
+      discord_allowed_users: [],
+      webhook_enabled: false,
+      webhook_port: 9090,
+      secrets: {
+        backend: "bitwarden",
+        default_organization: "",
+        default_collection: "",
+      },
+    },
+    mesh: {
       enabled: false,
-      docs_hybrid: false,
-      sources: { recall: 30, graph: 3, docs: 3, sessions: 0 },
-      candidates: 50,
-      max_concurrency: 16,
-      low_confidence_threshold: 0.15,
-      max_body_chars: 2000,
+      instance_name: "",
+      broadcast_duration_secs: 180,
     },
-    tab_state: { enabled: false },
-  },
-  integrations: {
-    telegram_enabled: false,
-    telegram_allowed_users: [],
-    discord_enabled: false,
-    discord_allowed_users: [],
-    webhook_enabled: false,
-    webhook_port: 9090,
-    secrets: {
-      backend: "bitwarden",
-      default_organization: "",
-      default_collection: "",
+    ui: {
+      memory_tab_enabled: true,
+      mesh_tab_enabled: true,
     },
-  },
-  mesh: {
-    enabled: false,
-    instance_name: "",
-    broadcast_duration_secs: 180,
-  },
-  ui: {
-    memory_tab_enabled: true,
-    mesh_tab_enabled: true,
-  },
-  orchestration: {
-    plan_reminders: true,
-    nudge_interval_secs: 1800,
-  },
+    orchestration: {
+      plan_reminders: true,
+      nudge_interval_secs: 1800,
+    },
   };
 }
 

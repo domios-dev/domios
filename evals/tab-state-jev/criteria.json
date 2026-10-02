@@ -7,5 +7,6 @@
   "model_unavailable_or_quota": "The selected model is unavailable or the provider reached a usage quota or rate limit.",
   "crashed_to_shell": "The provider TUI is gone and the terminal is showing a shell prompt.",
   "error_loop": "The provider repeatedly shows the same runtime or tool error and makes no progress.",
-  "still_starting": "The provider is initializing and has not reached a usable agent TUI state."
+  "still_starting": "The provider is initializing and has not reached a usable agent TUI state.",
+  "other": "The screen and context do not match any listed state, or there is insufficient evidence to classify the tab. Do not infer a prompt or a failure from ambiguous output."
 }

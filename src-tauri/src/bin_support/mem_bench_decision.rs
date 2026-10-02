@@ -452,6 +452,7 @@ pub(super) fn evaluate(
         return Err("decision negatives must contain at least 8 expect_none cases".into());
     }
     let cfg = StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         max_concurrency: 4,
         deadline: Duration::from_secs(10),
         low_confidence_threshold: 0.25,
@@ -789,6 +790,7 @@ mod tests {
             "unlock vault secret",
             &[unrelated, candidate.clone()],
             &StageConfig {
+                request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
                 max_concurrency: 1,
                 deadline: Duration::from_secs(1),
                 low_confidence_threshold: 0.15,
@@ -854,6 +856,7 @@ mod tests {
             "codeterm sessions get",
             &[unrelated, candidate.clone()],
             &StageConfig {
+                request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
                 max_concurrency: 1,
                 deadline: Duration::from_secs(1),
                 low_confidence_threshold: 0.15,

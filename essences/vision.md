@@ -48,7 +48,7 @@ Core stays small: one service layer over PTY, agents, plans, the message gateway
 
 ## Small judgments, bounded authority
 
-The Supporter Agent supplies fast model judgments where CodeTerm needs them: relevance for memory recall and an optional shadow view of tab state. Its features are separately enabled and leave decisions with the capability that owns the work. The [core essence](core.md#core:supporter-agent) keeps that boundary independent of any model or provider.
+The Supporter Agent supplies fast model judgments where CodeTerm needs them: relevance for memory recall and event-driven tab-state observation. A connected adapter serves both automatically under one shared budget, and a bounded journal makes its work visible. The [core essence](core.md#core:supporter-agent) keeps that boundary independent of any model or provider.
 
 ## Future capabilities
 

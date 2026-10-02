@@ -28,7 +28,7 @@ pub enum MemAction {
         #[arg(long)]
         rerank: bool,
         /// Force Supporter Agent memory re-rank on or off for this search;
-        /// omitted, `[supporter.memory_rerank].enabled` decides.
+        /// omitted, a connected Supporter runs automatically.
         #[arg(long, value_enum, value_name = "on|off")]
         supporter: Option<SupporterMode>,
     },

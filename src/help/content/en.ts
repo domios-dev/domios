@@ -183,7 +183,7 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "figure", figureId: "supporter-recall" },
         {
           type: "paragraph",
-          text: "A second look at starting tabs, off by default. It reads a new tab's screen and notes whether it looks fine or seems stuck, for example on a sign-in prompt.",
+          text: "A second look at agent tabs whenever the Supporter is connected. It reads a new tab's screen and notes whether it looks fine or seems stuck, for example on a sign-in prompt.",
         },
         { type: "figure", figureId: "supporter-tab-state" },
         { type: "heading", text: "What it costs" },
@@ -191,14 +191,14 @@ export const enHelpContent: HelpLocaleContent = {
           type: "paragraph",
           text: "About $0.0007 per memory search, so roughly 70 cents for a thousand searches. It is charged to your TypeSafe account.",
         },
-        { type: "heading", text: "Turn it on or off" },
+        { type: "heading", text: "Connect the Supporter" },
         {
           type: "list",
           ordered: true,
           items: [
             "Get a token at https://console.typesafe.ai/keys.",
             "Open the Supporter Agent settings, paste the token and press Save token.",
-            "Turn on Re-rank memory recall in Memory > Settings. Switch it off there any time.",
+            "A connected adapter works automatically for memory recall and tab state. Settings > Agents shows its activity and shared budget.",
           ],
         },
         { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
@@ -219,7 +219,7 @@ export const enHelpContent: HelpLocaleContent = {
               type: "list",
               items: [
                 "Memory re-rank — it reads the top memory candidates and re-orders them so the ones that answer come first. It never removes results, and a low-confidence flag means nothing in the pool looks like a good answer. Agent and CLI searches keep the same commands.",
-                "Tab state — shadow logging only. When enabled, it reads a starting tab's recent screen and writes one log line beside CodeTerm's own verdict. It changes nothing yet and is off by default.",
+                "Tab state — reads recent screen and runtime context on existing events. It records verdicts, gives hints and requires two agreeing strong observations before an action. An other verdict takes no action.",
               ],
             },
             {
@@ -241,8 +241,8 @@ export const enHelpContent: HelpLocaleContent = {
             {
               type: "list",
               items: [
-                "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
-                "From a terminal, pipe it in: pbpaste | codeterm supporter token set, then codeterm config set supporter.memory_rerank.enabled true. Run codeterm supporter status to check it.",
+                "In Settings > Agents > Supporter Agent, paste the token and press Save token. The connected adapter starts working automatically.",
+                "From a terminal, pipe it in: pbpaste | codeterm supporter token set, select the adapter with codeterm supporter use typesafe-jev. Run codeterm supporter status to check it.",
               ],
             },
             {
@@ -255,7 +255,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "tip",
-              text: "On a timeout, an error, or with no usable token for a required adapter, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set supporter.memory_rerank.enabled false; one search can skip it with --supporter off. Clear token removes the token entirely.",
+              text: "On a timeout, an error, or with no usable token for a required adapter, CodeTerm returns the normal search results. The shared hourly budget prevents further model calls when spent; one search can skip re-rank with --supporter off. Clear token removes the token entirely.",
             },
           ],
         },
@@ -294,7 +294,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: should I set up the Supporter Agent?",
           question:
-            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm supporter status whether a token is set, and whether supporter.memory_rerank.enabled and its graph, docs and sessions sources are on. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
+            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm supporter status whether a token is set, and whether the adapter is connected, what recent activity and budget it reports, and which graph, docs and sessions sources are configured. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
         },
       ],
     },
