@@ -491,8 +491,7 @@ impl ServiceContext {
         }
         crate::service::task_files::release_tab(self, &target.tab_id);
 
-        let session_was_stale =
-            target.session_id.is_some() && !self.session_file_present(&target);
+        let session_was_stale = target.session_id.is_some() && !self.session_file_present(&target);
         let outcome = RestartOutcome::accepted(&target, session_was_stale, force);
         let mux = self.mux.clone();
         let svc = Arc::new(self.clone());

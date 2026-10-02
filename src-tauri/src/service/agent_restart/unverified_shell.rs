@@ -21,8 +21,7 @@ impl ServiceContext {
         let candidate = self.mux.read().get_tab(&resolved).is_some_and(|tab| {
             tab.agent_type.is_some()
                 && tab.pty_id.is_some()
-                && tab.boot_stage
-                    == Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
+                && tab.boot_stage == Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
                 && !tab.agent_booting
         });
         if !candidate {
@@ -37,7 +36,7 @@ impl ServiceContext {
     }
 
     pub(super) fn is_unverified_launch_shell(&self, snap: &TabRestartSnapshot) -> bool {
-        let Some((provider, pty_id, boot_stage, agent_booting, lineage)) = {
+        let tab_fields = {
             let mux = self.mux.read();
             mux.get_tab(&snap.tab_id).map(|tab| {
                 (
@@ -48,7 +47,8 @@ impl ServiceContext {
                     tab.prior_session_binding_nonces.clone(),
                 )
             })
-        } else {
+        };
+        let Some((provider, pty_id, boot_stage, agent_booting, lineage)) = tab_fields else {
             return false;
         };
         if provider
