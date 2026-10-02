@@ -498,7 +498,7 @@ impl ServiceContext {
         structural_verdict: &str,
     ) {
         let settings = crate::config::load_config().supporter;
-        drop(spawn_observer(
+        let _ = spawn_observer(
             self,
             &settings,
             &settings.adapter,
@@ -506,7 +506,7 @@ impl ServiceContext {
             tab_id,
             trigger,
             structural_verdict,
-        ));
+        );
     }
 
     pub(crate) fn capture_exit_tab_observation(

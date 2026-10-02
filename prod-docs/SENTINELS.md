@@ -20,7 +20,7 @@ ends it without sending a message.
 
 The creator's live tab supplies its cwd, workspace, and Team. Commands are
 executed as the daemon user in that cwd, with no interactive stdin. Each probe
-has a three-second runtime limit, or the remaining lifetime if shorter.
+has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter.
 Capture retains up to 32 KiB each of stdout and stderr. The exit status is part
 of the hashed result. A probe timeout or spawn failure records a skip.
 
@@ -84,4 +84,4 @@ claims. A removed creator or changed Team stops the watch. The store admits
 at most 64 active and 256 total sentinels. Watches are local to the creator's
 machine; `--mesh` is refused.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

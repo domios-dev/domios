@@ -843,7 +843,7 @@ mod physical_tests {
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
             let mut bytes = [0; 2048];
-            stream.read(&mut bytes).unwrap();
+            assert!(stream.read(&mut bytes).unwrap() > 0);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                 .unwrap();
@@ -889,7 +889,7 @@ mod physical_tests {
             use std::io::{Read, Write};
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0; 2048];
-            stream.read(&mut buf).unwrap();
+            assert!(stream.read(&mut buf).unwrap() > 0);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                 .unwrap();
