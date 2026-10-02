@@ -87,6 +87,15 @@ Each QA run writes a full log, per-command logs, and a summary under a new
 result files behind; choosing a result with `ls -t` can mistake stale output for
 the current run. Read the path printed for the fresh run.
 
+## Filtered Cargo targets
+
+A focused CLI test can execute in one target while Cargo prints `running 0 tests`
+for unrelated integration targets. Count actual passed/failed tests across Cargo
+result lines before declaring the command empty. Keep genuinely empty or
+ignored-only runs and independent empty test runners as failures. Verify the
+counter with `node --test --test-name-pattern=qa_report scripts/tests/utility-shell-reports.test.mjs`;
+retain the original receipt instead of rerunning successful Rust tests.
+
 ## Event waits
 
 The foreground waiter consumes log lines as events and validates health on each
@@ -94,4 +103,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
