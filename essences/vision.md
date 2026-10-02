@@ -2,13 +2,13 @@
 
 ## What it is
 
-CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on — it's infrastructure that agents need to live, work, and coordinate, wrapped in a terminal because that's where developers work. What exists today, capability by capability, is mapped in `essences/capabilities.md`.
+CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on — it's infrastructure that agents need to live, work, and coordinate, wrapped in a terminal because that's where developers work. The product name remains **CodeTerm**; the spinal cord names a product idea within it. What exists today and what is planned, capability by capability, is mapped in the [capability map](capabilities.md).
 
 ## Core metaphor: spinal cord
 
-CodeTerm's **spinal cord** combines a deterministic control surface with small, bounded judgments. The CLI and APIs let any agent open a tab, read output, spawn a worker or send a message without knowing the host's internals. The Supporter Agent adds the OS reflexes that keep work moving when nobody is watching every terminal: ranking memory, naming tab states, checking uncertain heuristics, helping recover the General Agent and coordinating provider updates.
+CodeTerm's **spinal cord** combines a deterministic control surface with small, bounded judgments. The CLI and APIs let any agent open a tab, read output, spawn a worker or send a message without knowing the host's internals. The Supporter Agent adds the OS reflexes that keep work moving when nobody is watching every terminal: ranking memory, naming tab states, classifying event-level states before heuristic fallback, helping recover the General Agent and coordinating provider updates. Planned Sentinels let agents watch for changes and route outcomes without spending their own turns polling.
 
-A connected decision adapter, such as Jev or a local LM Studio adapter, responds to events under a shared budget. There are no feature switches, and without an adapter CodeTerm behaves exactly as before. **The model names the state; deterministic evidence authorizes the action.** The [Supporter contract](supporter-agent.md) owns that boundary and its hard recovery limits.
+A connected decision adapter, such as Jev or a local LM Studio adapter, responds to events with shared request accounting and visible spend. The intended default has no request cap; an explicit positive cap can bound calls. There are no feature switches, and without an adapter CodeTerm behaves exactly as before. **The model names the state; deterministic evidence authorizes the action.** The [Supporter contract](supporter-agent.md) owns that boundary and its hard recovery limits.
 
 The **General Agent** remains the brain of one machine: it manages the environment, routes messages and delegates work. Project agents retain their own identity and purpose. Small host judgments keep the environment usable without taking over an agent's task or the owner's decisions.
 
@@ -54,6 +54,7 @@ The Guide explains the spinal cord in the same terms as the product: useful refl
 
 ## Future capabilities
 
+- **Inbox triage** — a future direction, not yet planned: the spinal cord routes routine inputs for LLM agents to save their tokens; its detailed contract remains open.
 - **Project indexing** — each machine indexes its projects into memory, queryable across the mesh.
 - **Mini LLMs** inside CodeTerm for fast local classification, routing, and summarization.
 - **Context-dependent recall** — knowledge surfaces by project, task, or person, not all at once.

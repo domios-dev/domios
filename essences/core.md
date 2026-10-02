@@ -64,7 +64,7 @@ What one CodeTerm instance remembers across restarts: configuration, the workspa
 Real terminals, one per tab, and the input path into them.
 
 - Part of: core:service-layer.
-- Invariants: a payload is written at most once; after it reaches the input queue a failure may only be submit unconfirmed, never unavailable; submit recovery sends a bounded blind key-only burst without screen, composer, status, or provider-identity gating; each terminal has one resettable burst and a new send cancels the old one; only an exact user turn appended after the send to the tab's own bound session confirms delivery, and each turn confirms at most one send; screen output, pre-send transcript history, and another session never prove delivery. Screen or text classification, including a model second opinion, never authorizes refusing text or keys because the screen resembles a provider dialog. User-initiated uncertainty remains pending rather than becoming a refusal, while a programmatic send may fail only on a proven pre-write refusal. The delivery ledger is internal telemetry: Chat UI renders no delivery banners, failure cards, Retry actions, or notifications, and a daemon restart never fabricates a delivery result. Launch input goes directly to the terminal already owned by its lifecycle, outside the post-ready send path. Any change to PTY or Chat input delivery needs the owner's explicit approval first.
+- Invariants: a payload is written at most once; after it reaches the input queue a failure may only be submit unconfirmed, never unavailable; submit recovery sends a bounded blind key-only burst without screen, composer, status, or provider-identity gating; each terminal has one resettable burst and a new send cancels the old one; only an exact user turn appended after the send to the tab's own bound session confirms delivery, and each turn confirms at most one send; screen output, pre-send transcript history, and another session never prove delivery. Screen or text classification, whether heuristic or model-based, never authorizes refusing text or keys because the screen resembles a provider dialog. User-initiated uncertainty remains pending rather than becoming a refusal, while a programmatic send may fail only on a proven pre-write refusal. The delivery ledger is internal telemetry: Chat UI renders no delivery banners, failure cards, Retry actions, or notifications, and a daemon restart never fabricates a delivery result. Launch input goes directly to the terminal already owned by its lifecycle, outside the post-ready send path. Any change to PTY or Chat input delivery needs the owner's explicit approval first.
 - Dependent capabilities: message delivery.
 
 ### Agents and providers {#core:agents-and-providers}
@@ -79,7 +79,7 @@ What makes a tab an agent: provider capabilities, launch and resume, detection, 
 The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.
 
 - Part of: core:agents-and-providers.
-- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
+- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches the planned [Sentinels](supporter-agent.md#sentinels) for watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
 - Dependent capabilities: teams and roles, task-fitted personality.
 
 ### Plans and orchestration {#core:plans-and-orchestration}
@@ -121,11 +121,11 @@ The system channel participates in the same list, diff and refresh inventory as 
 
 ### Supporter Agent {#core:supporter-agent}
 
-The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, heuristic second opinions, recovery, request budgets, fan-out, spend, data handling and future onboarding and web use.
+The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, Jev-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web use.
 
 - Part of: core:service-layer.
 - Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.
-- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, provider updates, guided onboarding and the web UI.
+- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Sentinels, provider updates, guided onboarding and the web UI.
 
 ### Memory {#core:memory}
 
