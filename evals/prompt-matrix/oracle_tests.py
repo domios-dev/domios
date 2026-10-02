@@ -14,6 +14,7 @@ from report import exit_code
 from sentinel_raw_tests import SentinelRawControls, raw_outcome
 from fixture_tests import NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls
 from tls_tests import TLSControls, FailureFactControls
+from native_version_tests import NativeVersionControls
 from bounded_io_tests import DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls
 
 
@@ -221,7 +222,7 @@ def main():
                                for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
                                            NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls,
                                            DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls,
-                                           HelperControls, TLSControls, FailureFactControls))
+                                           HelperControls, TLSControls, FailureFactControls, NativeVersionControls))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
