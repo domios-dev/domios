@@ -1,45 +1,63 @@
 {
   "schemaVersion": 2,
-  "duration": 45,
+  "duration": 45.0,
+  "fps": 30,
   "width": 1280,
   "height": 720,
   "chapters": [
     {
       "id": "agents",
       "start": 0,
-      "end": 8,
-      "posterTime": 3.2
+      "end": 7.2,
+      "posterTime": 3.066666666666667
     },
     {
       "id": "board",
-      "start": 8,
-      "end": 15,
-      "posterTime": 11
+      "start": 7.2,
+      "end": 13.633333333333333,
+      "posterTime": 9.146666666666667
     },
     {
       "id": "mesh",
-      "start": 15,
-      "end": 30,
-      "posterTime": 18
+      "start": 13.633333333333333,
+      "end": 25.133333333333333,
+      "posterTime": 16.46
     },
     {
       "id": "plugins",
-      "start": 30,
-      "end": 45,
-      "posterTime": 32
+      "start": 25.133333333333333,
+      "end": 45.0,
+      "posterTime": 27.453333333333333
     }
   ],
+  "timingSha256": "7cf3286126b446e58596064e0656602364af406afdefbfc14300551350f0829f",
   "mp4": {
     "src": "/media/trailer.mp4",
-    "bytes": 2884727
+    "bytes": 2972226
   },
   "webm": {
     "src": "/media/trailer.webm",
-    "bytes": 2846694
+    "bytes": 2867133
   },
   "poster": {
     "src": "/media/trailer-poster.webp",
-    "bytes": 25604
+    "bytes": 25502
   },
-  "totalBytes": 5800809
+  "totalBytes": 5913813,
+  "hasNarration": true,
+  "subtitles": {
+    "src": "/media/captions.vtt",
+    "bytes": 988
+  },
+  "reviewOnly": false,
+  "publishable": true,
+  "rightsStatus": "cleared",
+  "music": {
+    "title": "Domios soundtrack",
+    "author": "Grok (SpaceXAI)",
+    "sourcePage": "https://x.ai/legal/faq",
+    "license": "Grok service output terms",
+    "licenseUrl": "https://x.ai/legal/terms-of-service",
+    "credit": "Music created with Grok (SpaceXAI), arranged and mixed for Domios."
+  }
 }
