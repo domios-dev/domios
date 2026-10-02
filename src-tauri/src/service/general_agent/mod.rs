@@ -18,6 +18,7 @@ pub mod identity;
 mod instructions;
 pub(crate) mod launch_lock;
 mod lifecycle;
+pub(crate) mod recovery;
 mod state;
 pub mod team_membership;
 mod watchdog;
