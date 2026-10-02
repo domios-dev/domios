@@ -308,6 +308,21 @@ fn sentinel_probe_bounded_runtime_and_output() {
         "[Console]::Out.Write(('x' * 200000))",
         "while ($true) { [Console]::Out.Write('x') }",
     );
+    // A fresh CI runner's first powershell.exe start can exceed any probe limit; warm it first.
+    #[cfg(windows)]
+    {
+        let mut warm = std::process::Command::new("powershell.exe");
+        crate::process_util::no_window_std(&mut warm);
+        let _ = warm
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "exit",
+            ])
+            .status();
+    }
     let started = std::time::Instant::now();
     let trivial = super::probe::run("echo ok", dir.path(), super::probe::PROBE_RUNTIME);
     assert!(
