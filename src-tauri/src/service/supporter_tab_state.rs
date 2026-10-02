@@ -115,6 +115,7 @@ pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
     pub(crate) action: SignalAction,
+    pub(crate) classified_frame_hash: u64,
 }
 
 pub(crate) trait ShadowHost: Clone + Send + 'static {
@@ -479,6 +480,12 @@ fn observe<H: ShadowHost>(
         log::debug!("[tab-state] token expired before choice; observation skipped");
         return None;
     }
+    let classified_frame_hash = request
+        .state
+        .get("screen")
+        .and_then(Value::as_str)
+        .map(frame_hash)
+        .unwrap_or_default();
     match model
         .decide(&request, deadline)
         .map_err(|error| error.to_string())
@@ -489,20 +496,24 @@ fn observe<H: ShadowHost>(
                 label,
                 confidence,
                 action: SignalAction::None,
+                classified_frame_hash,
             };
             let spawn_healthy = trigger.is_spawn()
                 && confidence_band(verdict.confidence) == ConfidenceBand::Strong
                 && matches!(verdict.label.as_str(), READY_IDLE | WORKING_NORMALLY);
             if verdict.label == STILL_STARTING && !trigger.after_startup_deadline() {
                 host.record(&format!(
-                    "[tab-state] suppressed early still_starting tab={tab_id}"
+                    "[tab-state] suppressed early still_starting tab={tab_id} frame_hash={:016x}",
+                    verdict.classified_frame_hash,
                 ));
                 return Some(verdict);
             }
             verdict.action = if spawn_healthy {
                 if !permit_is_current_for_launch(tab_id, &metadata.session_key, &permit) {
                     host.record(&format!(
-                        "[tab-state] stale observation discarded tab={tab_id}"
+                        "[tab-state] stale observation discarded tab={tab_id} episode={} frame_hash={:016x}",
+                        permit.episode,
+                        verdict.classified_frame_hash,
                     ));
                     return None;
                 }
@@ -518,7 +529,9 @@ fn observe<H: ShadowHost>(
                     config.weak_hints,
                 ) else {
                     host.record(&format!(
-                        "[tab-state] stale observation discarded tab={tab_id}"
+                        "[tab-state] stale observation discarded tab={tab_id} episode={} frame_hash={:016x}",
+                        permit.episode,
+                        verdict.classified_frame_hash,
                     ));
                     return None;
                 };
@@ -547,11 +560,12 @@ fn observe<H: ShadowHost>(
                 );
             }
             host.record(&format!(
-                "[tab-state] tab={tab_id} event={} label={} confidence={:.3} episode={} calls_capped={}",
+                "[tab-state] tab={tab_id} event={} label={} confidence={:.3} episode={} frame_hash={:016x} calls_capped={}",
                 trigger.label(),
                 verdict.label,
                 verdict.confidence,
                 permit.episode,
+                verdict.classified_frame_hash,
                 CALL_CAP_PER_EPISODE,
             ));
             Some(verdict)
@@ -607,6 +621,12 @@ pub(crate) fn choice_model(
 pub(crate) fn screen_tail(text: &str) -> String {
     let lines: Vec<&str> = text.trim_end().lines().collect();
     lines[lines.len().saturating_sub(SCREEN_LINES)..].join("\n")
+}
+
+fn frame_hash(frame: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    frame.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn chosen_label(answer: DecisionAnswer) -> Result<(String, f64), String> {
