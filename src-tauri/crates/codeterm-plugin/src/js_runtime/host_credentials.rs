@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use super::manifest::{CredentialConfig, PluginManifest};
+use codeterm_types::decision::TokenMode;
 
 /// Resolve a dotted path or JSON Pointer inside a JSON document.
 fn value_at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
@@ -127,6 +128,33 @@ pub(super) fn inject(credentials: &[CredentialConfig], opts_json: &str) -> Resul
         headers.insert(name, Value::String(filled));
     }
     serde_json::to_string(&opts).map_err(|e| format!("serialize fetch opts: {e}"))
+}
+
+pub(super) fn inject_supporter_token(
+    token_mode: TokenMode,
+    token: Option<&str>,
+    opts_json: &str,
+) -> Result<String, String> {
+    let Some(token) = token.filter(|_| token_mode != TokenMode::None) else {
+        return Ok(opts_json.to_string());
+    };
+    let mut opts: Value = serde_json::from_str(opts_json).map_err(|_| "bad fetch opts".to_string())?;
+    let object = opts
+        .as_object_mut()
+        .ok_or_else(|| "fetch opts is not an object".to_string())?;
+    let headers = object
+        .entry("headers".to_string())
+        .or_insert_with(|| Value::Object(Default::default()));
+    let headers = headers
+        .as_object_mut()
+        .ok_or_else(|| "fetch headers is not an object".to_string())?;
+    if !headers.keys().any(|name| name.eq_ignore_ascii_case("authorization")) {
+        headers.insert(
+            "Authorization".to_string(),
+            Value::String(format!("Bearer {token}")),
+        );
+    }
+    serde_json::to_string(&opts).map_err(|_| "could not prepare fetch request".to_string())
 }
 
 #[cfg(test)]

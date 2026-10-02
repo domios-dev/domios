@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionQuestion, DecisionRequest,
+    DecisionQuestion, DecisionRequest, TokenMode,
 };
 use serde_json::{json, Value};
 
@@ -167,6 +167,10 @@ fn probabilities(answer: &Value) -> Result<BTreeMap<String, f64>, DecisionError>
 impl DecisionModel for TypeSafeAdapter {
     fn id(&self) -> &str {
         Self::ID
+    }
+
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::Required
     }
 
     fn primitives(&self) -> DecisionPrimitives {

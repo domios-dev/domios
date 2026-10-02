@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use capabilities::{
-    Capabilities, ChatBackendCap, ChatPreprocessorCap, SecretBackendCap, WebhookReceiverCap,
-    WebhookReceiverKind,
+    Capabilities, ChatBackendCap, ChatPreprocessorCap, DecisionModelCap, SecretBackendCap,
+    WebhookReceiverCap, WebhookReceiverKind,
 };
 pub use config::{
     resolve_hook_event_roster, substitute_template, unknown_template_placeholder, CommandsConfig,
@@ -199,7 +199,7 @@ fn default_capabilities() -> Capabilities {
         agent_provider: true,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
-        decision_model: false,
+        decision_model: Default::default(),
         glance_view: false,
         status_bubble: false,
         view: false,

@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 parking_lot = "0.12"
 log = "0.4"
 uuid = { version = "1", features = ["v4"] }

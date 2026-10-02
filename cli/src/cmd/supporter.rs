@@ -145,26 +145,6 @@ fn write_features(
 }
 
 pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
-    let token = match &action {
-        SupporterAction::Token {
-            action: SupporterTokenAction::Set { .. },
-        } => Some(
-            read_token(std::io::stdin(), std::io::stdin().is_terminal()).unwrap_or_else(
-                |message| {
-                    // A missing or terminal stdin is a usage error, so --json reports invalid_argument.
-                    fail_with(
-                        2,
-                        &CliError {
-                            message,
-                            code: Some(-32602),
-                            data: None,
-                        },
-                    )
-                },
-            ),
-        ),
-        _ => None,
-    };
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api()
         .unwrap_or_else(|error| fail(1, format!("failed to build HTTP client: {error}")));
@@ -172,13 +152,6 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
 
     match action {
         SupporterAction::Enable => {
-            let status = status_request(&http, base);
-            if status.pointer("/token/present").and_then(Value::as_bool) != Some(true) {
-                fail(
-                    1,
-                    "cannot enable Supporter Agent features: no token is stored; run `codeterm supporter token set` first",
-                );
-            }
             let features = write_features(&http, base, true, true);
             emit(json_mode, &features, |value| {
                 format!(
@@ -258,7 +231,26 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
         }
         SupporterAction::Token { action } => match action {
             SupporterTokenAction::Set { adapter } => {
-                let token = token.unwrap_or_default();
+                let token_status = send(
+                    http.get(token_url(base, adapter.as_deref())),
+                    base,
+                );
+                let current = ok_body_or_exit(token_status, None);
+                if current.get("token_mode").and_then(Value::as_str) == Some("none") {
+                    emit(json_mode, &current, render_token_set);
+                    return;
+                }
+                let token = read_token(std::io::stdin(), std::io::stdin().is_terminal())
+                    .unwrap_or_else(|message| {
+                        fail_with(
+                            2,
+                            &CliError {
+                                message,
+                                code: Some(-32602),
+                                data: None,
+                            },
+                        )
+                    });
                 let mut body = json!({ "token": token });
                 if let Some(adapter) = adapter {
                     body["adapter"] = json!(adapter);

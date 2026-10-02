@@ -48,6 +48,11 @@ pub trait PluginHostCtx: Send + Sync {
     fn api_base_url(&self) -> String;
     fn api_token(&self) -> Option<String>;
 
+    /// Host-only decision credential lookup; its value never crosses the VM boundary.
+    fn supporter_token(&self, _plugin_id: &str) -> Option<String> {
+        None
+    }
+
     // ── Secrets ─────────────────────────────────────────────────────────
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;

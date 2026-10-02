@@ -18,6 +18,7 @@ const MODELS = {
   model: "fixture-model",
   adapters: [{
     id: ADAPTER,
+    token_mode: "required" as const,
     primitives: { choice: true, noul: true, score: true },
     models: [
       { id: "fixture-model", display_name: "Fixture Model" },
@@ -43,20 +44,22 @@ let writeStatus: number;
 let writeRejects: boolean;
 
 function statusFixture(
-  state: "no_token" | "token_only" | "active" = "no_token",
+  state: "ready" | "no_token" | "token_only" | "active" = "no_token",
   features = { memory_rerank: false, tab_state: false },
   present = state !== "no_token",
+  tokenMode: "required" | "optional" | "none" = "required",
 ) {
-  const token = { adapter: ADAPTER, present, path: "/x/y.json", mode_ok: true };
+  const token = { adapter: ADAPTER, token_mode: tokenMode, present, path: "/x/y.json", mode_ok: true };
   return {
     state,
+    token_mode: tokenMode,
     adapter: ADAPTER,
     model: "fixture-model",
     deadline_ms: 3000,
     features,
     token,
     adapter_registered: true,
-    adapters: [{ id: ADAPTER, primitives: { choice: true, noul: true, score: true }, models: MODELS.adapters[0].models, token }],
+    adapters: [{ id: ADAPTER, token_mode: tokenMode, primitives: { choice: true, noul: true, score: true }, models: MODELS.adapters[0].models, token }],
   };
 }
 
@@ -184,6 +187,24 @@ describe("SupporterAgentCard", () => {
     expect(input().type).toBe("password");
     expect(input().value).toBe("");
     expect(input().autocomplete).toBe("off");
+  });
+
+  it("supporter_optional_token_mode_shows_write_only_optional_field_when_ready", async () => {
+    statusBody = statusFixture("ready", undefined, false, "optional");
+    await render();
+    expect(q("supporter-agent-overall-status")?.textContent).toBe("Ready");
+    expect(q("supporter-agent-token-state")?.textContent).toBe("No token");
+    expect(host.querySelector('[aria-label="API token (optional)"]')).not.toBeNull();
+    expect(input().type).toBe("password");
+    expect(input().value).toBe("");
+    expect(input().autocomplete).toBe("off");
+  });
+
+  it("supporter_none_token_mode_hides_token_form", async () => {
+    statusBody = statusFixture("ready", undefined, false, "none");
+    await render();
+    expect(q("supporter-agent-token-state")?.textContent).toBe("No token needed");
+    expect(q("supporter-agent-token-form")).toBeNull();
   });
 
   it("supporter_token_only_state_explicitly_says_token_set", async () => {

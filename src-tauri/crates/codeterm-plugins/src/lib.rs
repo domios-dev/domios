@@ -130,6 +130,11 @@ pub enum PluginAction {
         grant: Vec<String>,
         revoke: Vec<String>,
     },
+    Settings {
+        id: String,
+        allow_host: Vec<String>,
+        disallow_host: Vec<String>,
+    },
     Pass(Vec<String>),
 }
 
@@ -175,7 +180,8 @@ fn validate_action_ids(action: &PluginAction) -> Result<(), String> {
         }
         PluginAction::Remove { id, .. }
         | PluginAction::Get { id }
-        | PluginAction::Config { id, .. } => {
+        | PluginAction::Config { id, .. }
+        | PluginAction::Settings { id, .. } => {
             PluginId::parse(id.clone())?;
         }
         _ => {}
@@ -208,6 +214,11 @@ fn dispatch(action: PluginAction) -> Result<serde_json::Value, String> {
             grant,
             revoke,
         } => config::config_command(&id, &set, values_json.as_deref(), &grant, &revoke),
+        PluginAction::Settings {
+            id,
+            allow_host,
+            disallow_host,
+        } => config::settings_command(&id, &allow_host, &disallow_host),
         PluginAction::Pass(_) => Err("plugin passthrough is not available in-process".to_string()),
     }
 }

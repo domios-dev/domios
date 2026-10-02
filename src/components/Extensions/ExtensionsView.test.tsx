@@ -113,16 +113,39 @@ const UPDATED_SNAPSHOT: PluginSnapshot = {
   ],
 };
 
-function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
+const NETWORK_SNAPSHOT: PluginSnapshot = {
+  plugins: [{
+    id: "lmstudio",
+    display_name: "LM Studio",
+    removable: true,
+    network_allow: ["old.example.test"],
+    effective_network_allow: ["old.example.test"],
+  }],
+  channels: SNAPSHOT.channels,
+  diff: [],
+  marketplace: [{ channel: "codeterm-plugins", id: "lmstudio", installed: true, drift: "same" }],
+};
+
+function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT, config: unknown = { plugins: {} }) {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
-  let current = snapshot;
+  let current = structuredClone(snapshot);
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "get_config") return config as T;
     if (cmd === "plugin_manager_snapshot") return current as T;
     if (cmd === "plugin_manager_action") {
       const action = args?.action as { kind?: string; name?: string } | undefined;
       if (action?.kind === "add-channel") current = SNAPSHOT_WITH_NEW;
+      if (action?.kind === "settings") {
+        const setting = args?.action as { pluginId: string; allowHosts?: string[]; disallowHosts?: string[] };
+        const plugin = current.plugins.find((entry) => entry.id === setting.pluginId);
+        if (plugin) {
+          const allowed = [...(plugin.network_allow ?? [])];
+          for (const host of setting.allowHosts ?? []) if (!allowed.includes(host)) allowed.push(host);
+          plugin.network_allow = allowed.filter((host) => !(setting.disallowHosts ?? []).includes(host));
+          plugin.effective_network_allow = plugin.network_allow;
+        }
+      }
       return current as T;
     }
     throw new Error(`unexpected invoke: ${cmd}`);
@@ -198,6 +221,51 @@ test("selecting a plugin opens its detail view and back returns to the list", as
     button(host, '[data-testid="extensions-detail-back"]').click();
   });
   assert(layout?.getAttribute("data-narrow-view") === "list", "back should restore the narrow plugin list");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
+test("Allowed hosts editor adds and removes grants through plugin settings action", async () => {
+  __resetPluginSnapshotStoreForTest();
+  const calls = installInvokeMock(NETWORK_SNAPSHOT, {
+    plugins: { lmstudio: { baseUrl: "http://localai.example.test:1234" } },
+  });
+  const { host, root } = await render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
+  await flush();
+  await act(async () => {
+    host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="lmstudio"]')?.click();
+  });
+  assert(host.querySelector('[data-testid="extensions-allowed-hosts"]'), "allowed hosts editor should render");
+  const inlineAllow = host.querySelector<HTMLButtonElement>('[aria-label="Allow localai.example.test:1234"]');
+  assert(inlineAllow, "configured base URL host should have an inline allow action");
+  await act(async () => inlineAllow.click());
+  await flush();
+
+  const hostInput = host.querySelector<HTMLInputElement>('[aria-label="Host or host:port"]');
+  assert(hostInput, "host entry control should have an accessible name");
+  await act(async () => changeInput(hostInput, "new.example.test:9443"));
+  await act(async () => button(host, '[aria-label="Allow host"]').click());
+  await flush();
+
+  const actionCalls = calls.filter((call) => call.cmd === "plugin_manager_action");
+  const add = actionCalls.find((call) => {
+    const action = call.args?.action as { kind?: string; allowHosts?: string[] } | undefined;
+    return action?.kind === "settings" && action.allowHosts?.includes("new.example.test:9443");
+  });
+  assert(add, "adding a host should call the shared settings route");
+  const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove old.example.test"]');
+  assert(remove, "the current user-granted host should have a named remove button");
+  await act(async () => remove.click());
+  await flush();
+  const removeCall = calls.filter((call) => call.cmd === "plugin_manager_action").find((call) => {
+    const action = call.args?.action as { kind?: string; disallowHosts?: string[] } | undefined;
+    return action?.kind === "settings" && action.disallowHosts?.includes("old.example.test");
+  });
+  assert(removeCall, "removing a host should call the shared settings route");
+  assert(!host.textContent?.includes("old.example.test"), "removed host should disappear from the refreshed editor");
 
   await act(async () => root.unmount());
   cleanup();
