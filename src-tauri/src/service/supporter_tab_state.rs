@@ -15,7 +15,9 @@ use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
+mod candidates;
 pub(crate) mod coordinator;
+pub(crate) use candidates::{allows_prompt as candidate_allows_prompt, CandidateVerdict};
 mod delivery;
 mod identity;
 mod observer;
@@ -71,6 +73,7 @@ pub(crate) enum ObservationTrigger {
     SpawnReady,
     SpawnDeadline,
     StartupEscalation,
+    PromptCandidate,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
@@ -82,6 +85,7 @@ impl ObservationTrigger {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
             Self::StartupEscalation => ObservationEvent::StartupEscalation,
+            Self::PromptCandidate => ObservationEvent::PromptCandidate,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
@@ -93,6 +97,7 @@ impl ObservationTrigger {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
             Self::StartupEscalation => "startup_escalation",
+            Self::PromptCandidate => "prompt_candidate",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",

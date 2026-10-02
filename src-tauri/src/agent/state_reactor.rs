@@ -160,28 +160,60 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
         screen_text,
     };
 
+    if svc.scrape_model_connected()
+        && matches!(status, TabStatus::Idle | TabStatus::Waiting)
+        && svc.is_scrape_candidate(&agent_type, &snapshot.screen_text)
+    {
+        let fallback = snapshot.clone();
+        svc.observe_scrape_candidate(snapshot, move |service| {
+            react_heuristic(
+                &std::sync::Arc::new(service.clone()),
+                status,
+                &fallback,
+                auto_approve,
+                permission_auto_confirm,
+            );
+        });
+        return;
+    }
+    react_heuristic(
+        svc,
+        status,
+        &snapshot,
+        auto_approve,
+        permission_auto_confirm,
+    );
+}
+
+fn react_heuristic(
+    svc: &ServiceState,
+    status: TabStatus,
+    snapshot: &TabStateSnapshot,
+    auto_approve: bool,
+    permission_auto_confirm: bool,
+) {
+    let tab_id = &snapshot.tab_id;
+    let agent_type = &snapshot.agent_type;
     // Ask the tab's OWN provider. No lock held across this call.
     let classification = svc
         .agent_registry
-        .with_provider(&agent_type, |provider| {
-            provider.classify_tab_state(&snapshot)
-        })
+        .with_provider(agent_type, |provider| provider.classify_tab_state(snapshot))
         .unwrap_or(None);
 
     match decide(status, classification.as_ref()) {
         ReactorDecision::Ignore => {}
-        ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
+        ReactorDecision::Surface(surface) => surface_to_user(svc, tab_id, surface),
         ReactorDecision::Act(action) => {
             if !route_classified_prompt(
                 svc,
-                &tab_id,
-                &agent_type,
+                tab_id,
+                agent_type,
                 &snapshot.screen_text,
                 classification.as_ref(),
                 auto_approve,
                 permission_auto_confirm,
             ) {
-                execute_action(svc, &tab_id, action);
+                execute_action(svc, tab_id, action);
             }
         }
     }

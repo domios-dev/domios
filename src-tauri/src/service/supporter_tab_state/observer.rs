@@ -5,11 +5,11 @@ use codeterm_types::decision::DecisionError;
 pub(crate) struct EnvelopeContext {
     pub(crate) local: Option<identity::LocalIdentity>,
     pub(crate) frame_hash: u64,
-    raw_tail_hash: u64,
-    observation: coordinator::ObservationIdentity,
-    ledgers: coordinator::LedgerSnapshot,
-    captured_at: Instant,
-    observation_id: u64,
+    pub(super) raw_tail_hash: u64,
+    pub(super) observation: coordinator::ObservationIdentity,
+    pub(super) ledgers: coordinator::LedgerSnapshot,
+    pub(super) captured_at: Instant,
+    pub(super) observation_id: u64,
     pub(crate) adapter: Option<Arc<dyn DecisionModel>>,
     pub(crate) policy_hash: Option<String>,
 }
@@ -149,7 +149,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
     )
 }
 
-fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
+pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
     if config.adapter.is_empty()
         || config.adapter != adapter
         || host.supporter_models().get(adapter).is_none()
@@ -332,7 +332,7 @@ fn observe_guarded_inner<H: ShadowHost>(
     observe(host, &model, config, adapter_id, tab_id, trigger, envelope)
 }
 
-fn record<H: ShadowHost>(
+pub(super) fn record<H: ShadowHost>(
     host: &H,
     tab: &str,
     observation: u64,
@@ -687,6 +687,25 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
     if !prompt_visible.is_finite() || !(0.0..=1.0).contains(&prompt_visible) {
         return Err("decision model gave invalid prompt_visible".into());
     }
+    let prompt_visible = match answers.remove("input_area") {
+        None => prompt_visible,
+        Some(DecisionAnswer::Choice {
+            choice,
+            probabilities,
+            confidence,
+        }) => {
+            let confidence = confidence
+                .or_else(|| probabilities.get(&choice).copied())
+                .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+                .ok_or("decision model gave invalid input_area confidence")?;
+            match choice.as_str() {
+                "active_modal" if confidence >= 0.60 => prompt_visible.min(confidence),
+                "active_modal" | "composer" | "historical_or_draft_text" | OTHER => 0.0,
+                _ => return Err("decision model gave unknown input_area".into()),
+            }
+        }
+        Some(_) => return Err("decision model gave invalid input_area".into()),
+    };
     let safe_choice = answers.remove("safe_choice").and_then(|answer| {
         let DecisionAnswer::Choice {
             choice,
