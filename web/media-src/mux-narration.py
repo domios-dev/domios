@@ -1,4 +1,4 @@
-"""Mix the intact voice take and optional licensed music, copying reviewed video streams."""
+"""Mix intact voice and licensed or explicitly private prepared music, copying reviewed video."""
 
 import argparse
 import json
@@ -10,6 +10,7 @@ from pathlib import Path
 from media_contract import prepare_output, probe, read_timing, require, run, write_captions, write_json, write_manifest
 from narration_proof import sha256, verify_words, verify_character_alignment
 from soundtrack_proof import audio_record, measure_balance, enforce_balance
+from music_review import PRIVATE_MARKERS, validate_music, credit_payload, protect_private_path, prepared_music
 
 
 def measure_loudness(source):
@@ -52,7 +53,8 @@ def master_stems(soundtrack, voice_stem, music_stem, final, proof_dir):
     return stems, mastering
 
 
-def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music=None, music_metadata=None):
+def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music=None, music_metadata=None,
+        music_prepared=False, private_review=False):
     timing = read_timing(timing_path)
     verify_words(timing)
     verify_character_alignment(timing, alignment)
@@ -66,13 +68,23 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
         captions = [{key: cue[key] for key in ('id', 'start', 'end', 'text')} for cue in timing['cues']]
     require(not music or music_metadata, 'Music needs root-reviewed license metadata')
     require((music is None) == (music_metadata is None), 'Provide music and metadata together')
+    require(not music_prepared or music is not None, 'Prepared mode requires music input')
+    require(not private_review or (music is not None and music_prepared), 'Private review requires prepared music/provenance')
     credit = json.loads(music_metadata.read_text(encoding='utf-8-sig')) if music else None
-    if credit:
-        for key in ('title', 'author', 'sourcePage', 'license', 'licenseUrl', 'credit', 'sha256'):
-            require(bool(credit.get(key)), f'Missing music provenance: {key}')
-        require(sha256(music) == credit['sha256'], 'Music hash differs from license record')
-    prepare_output(output_dir, [video_dir, audio, timing_path, alignment] + ([music] if music else []))
-    prepare_output(proof_dir, [output_dir, video_dir, audio, timing_path])
+    require(not music or isinstance(credit, dict), 'Music provenance must be a metadata object')
+    if credit is not None:
+        credit = validate_music(credit, private_review)
+        require(sha256(music).lower() == credit['sha256'].lower(), 'Music hash differs from provenance record')
+    music_input = prepared_music(music, timing['duration']) if music_prepared else None
+    inputs = [video_dir, audio, timing_path, alignment, captions_path, music, music_metadata]
+    if private_review:
+        inputs.append(Path(credit['arrangement']['path']))
+        protect_private_path(output_dir, inputs + [proof_dir])
+        protect_private_path(proof_dir, inputs + [output_dir])
+    for directory in (output_dir, proof_dir):
+        require(not directory.exists() or not any(directory.iterdir()), 'Output/proof directory must be empty')
+    prepare_output(output_dir, [path for path in inputs if path is not None])
+    prepare_output(proof_dir, [output_dir] + [path for path in inputs if path is not None])
     voice = proof_dir / 'narration-aligned.wav'
     offset = timing['narration']['offset']
     duration = timing['duration']
@@ -84,10 +96,10 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
     voice_stem, music_stem = proof_dir / 'voice-post-duck.wav', proof_dir / 'music-post-duck.wav'
     inputs = ['ffmpeg', '-v', 'error', '-y', '-i', normalized_voice]
     if music:
-        inputs += ['-stream_loop', '-1', '-i', music]
+        inputs += (['-i', music] if music_prepared else ['-stream_loop', '-1', '-i', music])
+        fades = '' if music_prepared else f',afade=t=in:d=1,afade=t=out:st={duration - 3}:d=3'
         graph = (f'[0:a]asplit=3[voice][key][voiceStem];[1:a]aresample=48000,aformat=channel_layouts=mono,'
-                 f'atrim=duration={duration},loudnorm=I=-32:TP=-3:LRA=9,aresample=48000,'
-                 f'afade=t=in:d=1,afade=t=out:st={duration - 3}:d=3[music];'
+                 f'atrim=duration={duration},loudnorm=I=-32:TP=-3:LRA=9,aresample=48000{fades}[music];'
                  '[music][key]sidechaincompress=threshold=0.018:ratio=8:attack=15:release=450[postDuck];'
                  '[postDuck]asplit=2[ducked][musicStem];'
                  '[voice][ducked]amix=inputs=2:duration=first:normalize=0[out]')
@@ -100,8 +112,11 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
     final = proof_dir / 'soundtrack.wav'
     stems, mastering = master_stems(soundtrack, voice_stem, music_stem, final, proof_dir)
     balance = measure_balance(timing, stems, audio_record(final), mastering)
-    write_json(proof_dir / 'soundtrack-balance.json', dict(mixGraph=graph, stems=stems, mastering=mastering, phraseBalance=balance))
+    markers = PRIVATE_MARKERS if private_review else {}
+    write_json(proof_dir / 'soundtrack-balance.json', dict(mixGraph=graph, stems=stems, mastering=mastering,
+                                                        phraseBalance=balance, **markers))
     enforce_balance(balance)
+    exported_credit = credit_payload(credit, private_review) if credit else None
     for kind, codec, bitrate in [('mp4', 'aac', '64k'), ('webm', 'libopus', '48k')]:
         video = video_dir / f'trailer.{kind}'
         require(abs(float(probe(video)['format']['duration']) - duration) <= .06, 'Reviewed picture duration mismatch')
@@ -109,7 +124,7 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
                    '-c:v', 'copy', '-c:a', codec, '-b:a', bitrate, '-ar', '48000', '-ac', '1',
                    '-map_metadata', '-1', '-metadata', 'title=Domios — a home for your agents']
         if credit:
-            command += ['-metadata', f'comment={credit["credit"]}', '-metadata', f'copyright={credit["credit"]}']
+            command += ['-metadata', f'comment={exported_credit["credit"]}', '-metadata', f'copyright={exported_credit["credit"]}']
         if kind == 'mp4':
             command += ['-movflags', '+faststart']
         run(command + [output_dir / video.name])
@@ -117,12 +132,13 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
         shutil.copyfile(path, output_dir / path.name)
     write_captions(output_dir, captions, timing)
     manifest.update(hasNarration=True, subtitles=dict(src='/media/captions.vtt', bytes=(output_dir / 'captions.vtt').stat().st_size))
+    manifest.update(markers)
     for kind in ('mp4', 'webm'):
         manifest[kind]['bytes'] = (output_dir / f'trailer.{kind}').stat().st_size
     if credit:
-        manifest['music'] = {key: credit[key] for key in ('title', 'author', 'sourcePage', 'license', 'licenseUrl', 'credit')}
+        manifest['music'] = exported_credit
         write_json(output_dir / 'credits.json', manifest['music'])
-        (output_dir / 'credits.txt').write_text(credit['credit'] + '\n', encoding='utf-8', newline='\n')
+        (output_dir / 'credits.txt').write_text(exported_credit['credit'] + '\n', encoding='utf-8', newline='\n')
     proof = dict(timingSha256=sha256(timing_path), sourceAudio=dict(path=str(audio.resolve()), sha256=sha256(audio)),
                  sourceAlignment=dict(path=str(alignment.resolve()), sha256=sha256(alignment)),
                  alignedVoice=dict(path=str(voice.resolve()), sha256=sha256(voice)),
@@ -130,6 +146,8 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
                  sourceMusic=dict(path=str(music.resolve()), sha256=sha256(music)) if music else None,
                  narration=timing['narration'], music=credit, loudnessFirstPass=mastering['measurement'],
                  mixGraph=graph, mixStems=stems, mastering=mastering, phraseBalance=balance,
+                 musicInput=music_input,
+                 **markers,
                  listening='Pending root full A/V audition and cue-boundary review')
     write_json(proof_dir / 'narration-alignment.json', proof)
     write_manifest(output_dir, manifest)
@@ -141,6 +159,8 @@ if __name__ == '__main__':
         parser.add_argument(f'--{name}', type=Path, required=True)
     for name in ('captions', 'music', 'music-metadata'):
         parser.add_argument(f'--{name}', type=Path)
+    parser.add_argument('--music-prepared', action='store_true')
+    parser.add_argument('--private-review', action='store_true')
     args = parser.parse_args()
     mux(args.video_dir, args.audio, args.timing, args.alignment, args.captions, args.output_dir,
-        args.proof_dir, args.music, args.music_metadata)
+        args.proof_dir, args.music, args.music_metadata, args.music_prepared, args.private_review)
