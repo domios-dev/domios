@@ -14,16 +14,16 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
     <div className="video-stage">
       <div className="video-placeholder"><Icon name="terminal" size={40} /><span>A place for your agents.</span><small>See Domios at work.</small></div>
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt="Three computers connected through Domios" loading="lazy" width="1280" height="720" onError={() => setPosterFailed(true)} />}
-      {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby="trailer-description"
-        onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
-        {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" onError={player.onError} /></>}
+      {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={!player.soundEnabled} playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby="trailer-description"
+        onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onEnded={player.onEnded} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
+        {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" />{clip.subtitles && <track kind="captions" src={clip.subtitles.src} srcLang="en" label="English" onLoad={(event) => { event.currentTarget.track.mode = 'hidden'; }} />}</>}
       </video>}
     </div>
-    <CaptionChips caption={player.loaded ? player.caption : { start: 0, end: 45, text: 'A desktop app for agents. A team across your machines.' }} />
+    <CaptionChips caption={player.loaded ? player.caption : { start: 0, end: clip.duration, text: 'A desktop app for agents. A team across your machines.' }} />
     <div className="video-toolbar"><span><i className="status-dot" />{player.failed ? 'Preview unavailable' : 'Inside Domios'}<span className="video-time" aria-hidden="true">{timestamp(player.time)} / {timestamp(clip.duration)}</span></span>
-      {!player.failed && <button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} Domios trailer`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button>}
+      {!player.failed && <div className="video-controls">{clip.hasNarration && <button className="sound-control" onClick={player.toggleSound} aria-pressed={player.soundEnabled} aria-label={player.soundEnabled ? 'Mute narration' : 'Turn narration on'}>{player.soundEnabled ? 'Sound on' : 'Sound off'}</button>}<button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} Domios trailer`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button></div>}
     </div>
-    <details className="transcript" id="trailer-description"><summary>Read video description</summary><p>A desktop app opens. Agents work in tabs; a team tracks tasks on a board. Connected computers exchange messages and reports. Providers and plugins add tools. A fleet summary brings the results together.</p>{clip.captions.length > 0 && <ol>{clip.captions.map((caption) => <li key={caption.start}><button onClick={() => player.seek(caption.start)} aria-label={`Play from ${timestamp(caption.start)}: ${caption.text}`}><span>{timestamp(caption.start)}</span>{caption.text}</button></li>)}</ol>}</details>
+    <details className="transcript" id="trailer-description"><summary>{clip.hasNarration ? 'Read narration transcript' : 'Read video description'}</summary><p>A desktop app opens. Agents work in tabs; a team tracks tasks on a board. Connected computers exchange messages and reports. Providers and plugins add tools. A fleet summary brings the results together.</p>{clip.captions.length > 0 && <ol>{clip.captions.map((caption) => <li key={caption.start}><button onClick={() => player.seek(caption.start)} aria-label={`Play from ${timestamp(caption.start)}: ${caption.text}`}><span>{timestamp(caption.start)}</span>{caption.text}</button></li>)}</ol>}{clip.music && <p className="music-credit">Music: <a href={clip.music.sourcePage}>{clip.music.title}</a> by {clip.music.author}, licensed under <a href={clip.music.licenseUrl}>{clip.music.license}</a>. Excerpt edited and mixed under narration.</p>}</details>
   </div>;
 }
 
@@ -50,7 +50,7 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
     document.getElementById(`chapter-${chapters[next].id}`)?.focus({ preventScroll: true });
   };
   return <section id="explore" className="showcase section-wrap" aria-labelledby="showcase-title">
-    <div className="section-heading"><div><p className="eyebrow">ONE APP. YOUR WHOLE TEAM.</p><h2 id="showcase-title">Pull up a chair.</h2></div><p>From your desktop to every machine.<br />45 seconds inside Domios.</p></div>
+    <div className="section-heading"><div><p className="eyebrow">ONE APP. YOUR WHOLE TEAM.</p><h2 id="showcase-title">Pull up a chair.</h2></div><p>From your desktop to every machine.<br />{Math.round(media.duration)} seconds inside Domios.</p></div>
     <div className="showcase-caption"><div><span className="eyebrow">0{active + 1} / {timestamp(chapter.start)}</span><h3>{chapter.title}</h3></div><p>{chapter.description}</p></div>
     <div className="showcase-workbench">
       <nav className="clip-shelf ct-liquid-segmented" aria-label="Trailer chapters" style={{
