@@ -7,9 +7,11 @@ Public fixture EC key d=1 is intentionally public; no real token/config is read.
 
 import argparse
 import base64
+import errno
 import hashlib
 import json
 from pathlib import Path
+import selectors
 import socket
 import ssl
 import sys
@@ -125,34 +127,89 @@ class LoopbackFixture:
     def __init__(self, case, context, operation_end, hard_end):
         self.case, self.context = case, context
         self.operation_end, self.hard_end = operation_end, hard_end
-        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.listener.bind(("127.0.0.1", 0))
-        self.port = self.listener.getsockname()[1]
-        self.listener.listen(1)
-        self.ready, self.headers_sent, self.release, self.done = (threading.Event() for _ in range(4))
-        self.thread = threading.Thread(target=self.serve, name="jev-fixture-server", daemon=False)
+        self.ready, self.headers_sent, self.release, self.done, self.cancelled = (threading.Event() for _ in range(5))
+        self.lock = threading.RLock()
+        self.condition = threading.Condition(self.lock)
         self.requests, self.responses, self.request_bytes = 0, 0, None
         self.body_completed, self.response_bytes_sha256 = False, None
-        self.error, self.accepted_closed, self.listener_closed = None, False, False
+        self.error, self.cleanup_errors = None, []
         self.accepted = None
-        self.lock = threading.Lock()
+        self.accept_observed, self.accepted_closed = False, False
+        self.listener_closed, self.selector_closed = False, False
+        self.wake_reader_closed, self.wake_writer_closed = False, False
+        self.wake_sent, self.wake_observed, self.cancel_observed = False, False, False
+        self.cancellation_phase, self.thread_started, self.thread_joined = None, False, False
+        self.listener = self.wake_reader = self.wake_writer = self.selector = None
+        try:
+            t.remaining(operation_end, time.monotonic)
+            self.wake_reader, self.wake_writer = socket.socketpair()
+            self.wake_writer.setblocking(False)
+            self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.listener.bind(("127.0.0.1", 0))
+            self.port = self.listener.getsockname()[1]
+            self.listener.listen(1)
+            self.listener.setblocking(False)
+            self.selector = selectors.DefaultSelector()
+            self.selector.register(self.listener, selectors.EVENT_READ, "listener")
+            self.selector.register(self.wake_reader, selectors.EVENT_READ, "cancel")
+            self.thread = threading.Thread(target=self.serve, name="jev-fixture-server", daemon=False)
+            t.remaining(operation_end, time.monotonic)
+        except BaseException as error:
+            self.retire()
+            self.close_resource("wake_writer", "wake_writer_closed")
+            raise t.TransportFailure(getattr(error, "code", "fixture_creation_os"), self.snapshot()) from error
 
     def start(self):
         self.thread.start()
+        self.thread_started = True
         event_wait(self.ready, self.operation_end, "fixture_not_ready")
 
-    def serve(self):
-        stream = None
-        try:
-            self.ready.set()
-            self.listener.settimeout(t.remaining(self.operation_end, time.monotonic))
+    def request_cancel(self):
+        with self.condition:
+            if self.done.is_set():
+                return
+            self.cancelled.set()
+            self.release.set()
+            if not self.wake_sent:
+                try:
+                    self.wake_sent = self.wake_writer.send(b"C") == 1
+                    if not self.wake_sent:
+                        self.cleanup_errors.append("fixture_wake_unconfirmed")
+                except OSError:
+                    self.cleanup_errors.append("fixture_wake_os")
+            if self.accepted is not None and not self.accepted_closed:
+                try:
+                    self.accepted.shutdown(socket.SHUT_RDWR)
+                except OSError as error:
+                    if error.errno != errno.ENOTCONN:
+                        self.cleanup_errors.append("fixture_peer_shutdown_os")
+            self.condition.notify_all()
+
+    def accept_or_cancel(self):
+        self.ready.set()
+        events = self.selector.select(t.remaining(self.operation_end, time.monotonic))
+        t.remaining(self.operation_end, time.monotonic)
+        if any(key.data == "cancel" for key, _ in events):
+            self.wake_observed = self.wake_reader.recv(1) == b"C"
+            t.require(self.wake_observed and self.cancelled.is_set(), "fixture_wake_shape")
+        with self.lock:
+            if self.cancelled.is_set():
+                self.cancel_observed, self.cancellation_phase = True, "pre_accept"
+                raise t.TransportFailure("fixture_cancelled")
+            t.require(any(key.data == "listener" for key, _ in events), "fixture_accept_deadline")
             plain, _ = self.listener.accept()
-            with self.lock:
-                self.accepted = plain
+            self.accepted, self.accept_observed = plain, True
             plain.settimeout(t.remaining(self.operation_end, time.monotonic))
-            stream = self.context.wrap_socket(plain, server_side=True)
+            # Publish TLS authority before blocking handshake so cancellation owns its wake.
+            self.accepted = self.context.wrap_socket(plain, server_side=True, do_handshake_on_connect=False)
+            return self.accepted
+
+    def serve(self):
+        try:
+            stream = self.accept_or_cancel()
+            stream.do_handshake()
             with self.lock:
-                self.accepted = stream
+                t.require(not self.cancelled.is_set(), "fixture_cancelled")
             self.request_bytes = read_request(stream, self.operation_end)
             self.requests += 1
             body = c.encode({"answers": {"q": {"type": "choice", "choice": "opaque",
@@ -167,46 +224,82 @@ class LoopbackFixture:
                 b"\r\nConnection: close\r\n\r\n"
             stream.settimeout(t.remaining(self.operation_end, time.monotonic))
             stream.sendall(headers)
-            self.headers_sent.set()
-            self.responses += 1
+            with self.condition:
+                self.headers_sent.set()
+                self.responses += 1
+                self.condition.notify_all()
             if self.case in ("held_response_deadline", "cancel_after_headers"):
                 event_wait(self.release, self.hard_end, "fixture_hold_deadline")
+                self.cancel_observed = self.cancelled.is_set()
+                self.cancellation_phase = "accepted" if self.cancel_observed else None
             else:
                 for offset in range(0, len(body), 4096):
                     stream.settimeout(t.remaining(self.operation_end, time.monotonic))
                     stream.sendall(body[offset:offset + 4096])
                 self.body_completed = True
         except BaseException as error:
-            if not (self.case in ("response_oversize", "redirect_refused") and isinstance(error, OSError)):
+            if self.cancelled.is_set() and (isinstance(error, OSError) or
+                    getattr(error, "code", None) == "fixture_cancelled"):
+                self.cancel_observed = True
+                self.cancellation_phase = "accepted" if self.accept_observed else "pre_accept"
+            elif not (self.case in ("response_oversize", "redirect_refused") and isinstance(error, OSError)):
                 self.error = getattr(error, "code", type(error).__name__)
         finally:
-            try:
-                if stream is not None:
-                    stream.close()
-                elif self.accepted is not None:
-                    self.accepted.close()
-                self.accepted_closed = self.accepted is not None
-            except OSError:
-                self.error = "fixture_peer_close"
-            self.done.set()
+            with self.condition:
+                self.retire()
+                self.done.set()
+                self.condition.notify_all()
+
+    def close_resource(self, name, fact):
+        with self.lock:
+            resource = getattr(self, name)
+            if resource is not None and not getattr(self, fact):
+                try:
+                    resource.close()
+                    setattr(self, fact, True)
+                except BaseException:
+                    self.cleanup_errors.append("fixture_" + name + "_close")
+
+    def retire(self):
+        for name, fact in (("accepted", "accepted_closed"), ("listener", "listener_closed"),
+                           ("selector", "selector_closed"), ("wake_reader", "wake_reader_closed")):
+            self.close_resource(name, fact)
+
+    def wait_for_headers(self):
+        with self.condition:
+            while not self.headers_sent.is_set() and not self.done.is_set() and not self.cancelled.is_set():
+                self.condition.wait(t.remaining(self.operation_end, time.monotonic))
+            t.require(self.headers_sent.is_set(), "fixture_headers_unconfirmed")
+            t.remaining(self.operation_end, time.monotonic)
+
+    def snapshot(self):
+        return {"listener_opened": self.listener is not None, "requests": self.requests, "responses": self.responses,
+                "accept_observed": self.accept_observed, "accepted_closed": self.accepted_closed,
+                "listener_closed": self.listener_closed, "selector_closed": self.selector_closed,
+                "wake_reader_closed": self.wake_reader_closed, "wake_writer_closed": self.wake_writer_closed,
+                "thread_started": self.thread_started, "thread_joined": self.thread_joined,
+                "retirement_observed": self.done.is_set(), "cancel_requested": self.cancelled.is_set(),
+                "wake_sent": self.wake_sent, "wake_observed": self.wake_observed,
+                "cancel_observed": self.cancel_observed, "cancellation_phase": self.cancellation_phase,
+                "body_completed": self.body_completed, "error": self.error,
+                "cleanup_errors": list(self.cleanup_errors)}
 
     def close(self):
-        self.release.set()
-        with self.lock:
-            if self.accepted is not None and not self.done.is_set():
-                try:
-                    self.accepted.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-        self.listener.close()
-        self.listener_closed = True
-        event_wait(self.done, self.hard_end, "fixture_server_unconfirmed")
-        self.thread.join(t.remaining(self.hard_end, time.monotonic))
-        if self.thread.is_alive():
-            raise t.TransportFailure("fixture_thread_unconfirmed")
-        return {"requests": self.requests, "responses": self.responses, "accepted_closed": self.accepted_closed,
-                "listener_closed": self.listener_closed, "thread_joined": True, "body_completed": self.body_completed,
-                "error": self.error}
+        self.request_cancel()
+        try:
+            if self.thread_started:
+                event_wait(self.done, self.hard_end, "fixture_server_unconfirmed")
+                self.thread.join(t.remaining(self.hard_end, time.monotonic))
+                t.require(not self.thread.is_alive(), "fixture_thread_unconfirmed")
+                self.thread_joined = True
+            else:
+                self.retire()
+                self.done.set()
+            self.close_resource("wake_writer", "wake_writer_closed")
+            t.remaining(self.hard_end, time.monotonic)
+        except BaseException as error:
+            self.cleanup_errors.append(getattr(error, "code", "fixture_cleanup_os"))
+        return self.snapshot()
 
 
 class PartialCapture:
@@ -223,9 +316,19 @@ class PartialCapture:
         return raw
 
 
-def fixture_plan_factory(ca_path, fixture):
+def fixture_plan_factory(ca_path, fixture, prepared_plan):
     def build(wire, operation_end, hard_end, clock):
-        plan = t.prepare_plan(wire, operation_end, hard_end, clock)
+        plan = prepared_plan
+        t.require(abs(plan["header"]["hard_end"] - hard_end) <= 0.000001 and
+                  abs(plan["header"]["operation_end"] - operation_end) <= 0.000001 and
+                  plan["header"]["wire_sha256"] == c.sha256(wire), "fixture_original_deadline")
+        for path, field in ((plan["argv"][0], "interpreter_sha256"),
+                            (Path(__file__).with_name("jev_request_worker.py"), "worker_sha256"),
+                            (Path(__file__).with_name("request_contract.py"), "contract_sha256")):
+            exact, digest = t.identity_hash(path, operation_end, clock)
+            t.require(digest == plan["header"][field], "trusted_file_changed")
+            if field == "interpreter_sha256":
+                t.require(str(exact) == plan["header"]["interpreter"], "trusted_file_changed")
         worker = Path(__file__).with_name("jev_request_worker.py").resolve()
         # Only this harness builds the private in-process policy; production has no switch or allowlist.
         bootstrap = "\n".join([
@@ -239,9 +342,43 @@ def fixture_plan_factory(ca_path, fixture):
             f"policy = {{'endpoint': 'https://127.0.0.1:{fixture.port}/v1/systemone', 'port': {fixture.port}, 'context': context}}",
             "sys.exit(worker.main(policy=policy))",
         ])
-        plan["argv"] = plan["argv"][:4] + ["-c", bootstrap]
-        return plan
+        return {**plan, "argv": plan["argv"][:4] + ["-c", bootstrap]}
     return build
+
+
+def unstarted_fixture_receipt():
+    return {"listener_opened": False, "requests": 0, "responses": 0, "accept_observed": False,
+            "accepted_closed": False, "listener_closed": False, "thread_started": False,
+            "thread_joined": False, "retirement_observed": False, "error": None, "cleanup_errors": []}
+
+
+def oracle_error(case, outcome, receipt, fixture, fixture_receipt, cancel_errors, transport, wire):
+    expected = {"success": {"completed"}, "response_oversize": {"response_oversize"},
+                "redirect_refused": {"redirect_refused"}, "held_response_deadline": {"deadline"},
+                "cancel_after_headers": {"cancelled"}, "partial_capture_failure": {"cleanup_unconfirmed"}}[case]
+    if outcome not in expected:
+        return "fixture_wrong_predicate"
+    if not all(receipt.get(key) is True for key in (
+            "created", "exit_observed", "reap_confirmed", "stdout_closed", "stderr_closed",
+            "credential_channel_closed", "threads_joined", "handle_closed", "cwd_closed")):
+        return "fixture_native_completion_unconfirmed"
+    if fixture is None or not all(fixture_receipt.get(key) is True for key in (
+            "accept_observed", "accepted_closed", "listener_closed", "selector_closed", "wake_reader_closed",
+            "wake_writer_closed", "retirement_observed", "thread_joined")) or \
+            fixture_receipt["error"] is not None or fixture_receipt["cleanup_errors"] or cancel_errors:
+        return "fixture_resource_unconfirmed"
+    if fixture.request_bytes != wire or fixture.requests != 1 or fixture.responses != 1:
+        return "fixture_wire_or_count"
+    if case == "success" and (not fixture.body_completed or
+            receipt.get("helper", {}).get("response_bytes_sha256") != fixture.response_bytes_sha256):
+        return "fixture_response_completion"
+    if case == "partial_capture_failure":
+        if receipt["completion_confirmed"] or not transport.poisoned or receipt["stdout_bytes"] <= 0 or \
+                not fixture.body_completed:
+            return "fixture_partial_capture_laundered"
+    elif receipt["completion_confirmed"] is not True:
+        return "fixture_capture_completion_unconfirmed"
+    return None
 
 
 def run_case(case):
@@ -249,99 +386,139 @@ def run_case(case):
     run_end = started + 600
     hard_end = min(started + 60, run_end)
     operation_end = hard_end - 5
-    t.native_support()
-    wire = c.encode({"state": "synthetic loopback mechanism fixture", "model": "fixture-alias", "questions": {
-        "q": {"type": "choice", "instructions": "opaque", "criteria": {"opaque": "opaque"}}}})
-    fixture, cancel_thread, receipt = None, None, None
-    outcome, fixture_receipt = None, None
-    with tempfile.TemporaryDirectory(prefix="jev-public-tls-fixture-") as directory:
-        root = Path(directory)
+    report = {"case": case, "oracle": "failed", "platform": sys.platform,
+              "interpreter": sys.version.split()[0], "selected_interpreter": str(Path(sys.executable).resolve()),
+              "fixture_type": "synthetic_mechanism", "case_started": started,
+              "operation_end": operation_end, "hard_end": hard_end, "run_end": run_end,
+              "transport": {}, "fixture": unstarted_fixture_receipt(), "cleanup_errors": [],
+              "preparation": {"plan_created": False, "lease_created": False, "cwd_closed": False,
+                              "certificate_files_closed": False},
+              "expected_requests": 1, "expected_responses": 1}
+    fixture = cancel_thread = transport = temporary = prepared_plan = wire = None
+    lease_created, cancel_errors = False, []
+    outcome, receipt = None, {}
+    phase = "preparation"
+    try:
+        t.native_support()
+        wire = c.encode({"state": "synthetic loopback mechanism fixture", "model": "fixture-alias", "questions": {
+            "q": {"type": "choice", "instructions": "opaque", "criteria": {"opaque": "opaque"}}}})
+        c.validate_wire(wire)
+        t.token_bytes(SYNTHETIC_TOKEN)
+        prepared_plan = t.prepare_plan(wire, operation_end, hard_end, time.monotonic)
+        report["preparation"]["plan_created"] = True
+        report["selected_interpreter"] = prepared_plan["header"]["interpreter"]
+        report["python_wire_bytes_sha256"] = c.sha256(wire)
+        temporary = tempfile.TemporaryDirectory(prefix="jev-public-tls-fixture-")
+        root = Path(temporary.__enter__())
         certificate, key = public_fixture_certificate()
         ca_path, key_path = root / "public-test-ca.pem", root / "public-test-key.pem"
         ca_path.write_bytes(certificate)
         key_path.write_bytes(key)
+        report["public_test_ca_bytes_sha256"] = c.sha256(certificate)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(str(ca_path), str(key_path))
+        t.remaining(operation_end, time.monotonic)
+        phase = "fixture"
         fixture = LoopbackFixture(case, context, operation_end, hard_end)
         fixture.start()
         def lease_factory(plan, operation_end, hard_end, **kwargs):
+            nonlocal lease_created
             source = (lambda name, stream: PartialCapture(stream) if name == "stdout" else stream) \
                 if case == "partial_capture_failure" else None
-            return t.OwnedLease(plan, operation_end, hard_end, capture_source=source, **kwargs)
-        transport = t.JevTransport(plan_factory=fixture_plan_factory(ca_path, fixture), lease_factory=lease_factory)
-        cancel_error = []
+            lease = t.OwnedLease(plan, operation_end, hard_end, capture_source=source, **kwargs)
+            lease_created = True
+            report["preparation"]["lease_created"] = True
+            return lease
+        transport = t.JevTransport(plan_factory=fixture_plan_factory(ca_path, fixture, prepared_plan),
+                                   lease_factory=lease_factory)
+        transport.run_started, transport.run_end = started, run_end
         if case == "cancel_after_headers":
             def cancel_on_headers():
                 try:
-                    event_wait(fixture.headers_sent, operation_end, "fixture_headers_unconfirmed")
+                    fixture.wait_for_headers()
                     transport.cancel()
                 except BaseException as error:
-                    cancel_error.append(getattr(error, "code", type(error).__name__))
+                    cancel_errors.append(getattr(error, "code", type(error).__name__))
             cancel_thread = threading.Thread(target=cancel_on_headers, name="jev-fixture-cancel", daemon=False)
             cancel_thread.start()
-        try:
-            result = transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
-            receipt, outcome = result.receipt, "completed"
-            if case != "success" or result.payload["answers"]["q"]["choice"] != "opaque":
-                raise t.TransportFailure("fixture_unexpected_success", receipt)
-        except t.TransportFailure as error:
-            receipt, outcome = error.receipt, error.code
-        finally:
-            fixture_receipt = fixture.close()
-            if cancel_thread is not None:
-                cancel_thread.join(t.remaining(hard_end, time.monotonic))
-                if cancel_thread.is_alive():
-                    raise t.TransportFailure("fixture_cancel_thread_unconfirmed")
-        expected = {"success": {"completed"}, "response_oversize": {"response_oversize"},
-                    "redirect_refused": {"redirect_refused"}, "held_response_deadline": {"deadline"},
-                    "cancel_after_headers": {"cancelled"}, "partial_capture_failure": {"cleanup_unconfirmed"}}[case]
-        if outcome not in expected:
-            raise t.TransportFailure("fixture_wrong_predicate", receipt)
-        if receipt is None or not all(receipt.get(key) is True for key in (
-                "created", "exit_observed", "reap_confirmed", "stdout_closed", "stderr_closed",
-                "credential_channel_closed", "threads_joined", "handle_closed", "cwd_closed")):
-            raise t.TransportFailure("fixture_native_completion_unconfirmed", receipt)
-        if not all(fixture_receipt[key] for key in ("accepted_closed", "listener_closed", "thread_joined")) or \
-                fixture_receipt["error"] is not None or cancel_error:
-            raise t.TransportFailure("fixture_resource_unconfirmed", receipt)
-        if fixture.request_bytes != wire or fixture.requests != 1 or fixture.responses != 1:
-            raise t.TransportFailure("fixture_wire_or_count", receipt)
-        if case == "success" and (not fixture.body_completed or
-                receipt.get("helper", {}).get("response_bytes_sha256") != fixture.response_bytes_sha256):
-            raise t.TransportFailure("fixture_response_completion", receipt)
-        if case == "partial_capture_failure":
-            if receipt["completion_confirmed"] or not transport.poisoned or receipt["stdout_bytes"] <= 0 or \
-                    not fixture.body_completed:
-                raise t.TransportFailure("fixture_partial_capture_laundered", receipt)
+        phase = "transport"
+        result = transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
+        receipt, outcome = result.receipt, "completed"
+        if case != "success" or result.payload["answers"]["q"]["choice"] != "opaque":
+            outcome = "fixture_unexpected_success"
+    except BaseException as error:
+        outcome = getattr(error, "code", type(error).__name__)
+        receipt = getattr(error, "receipt", {})
+        if phase == "preparation":
+            receipt = {**receipt, "error": outcome, "phase": "preparation", "process_admitted": False,
+                       "completion_confirmed": False, "operation_end": operation_end, "hard_end": hard_end,
+                       "run_end": run_end}
+        elif phase == "fixture" and fixture is None and receipt:
+            report["fixture"] = receipt
+            receipt = {}
+    finally:
+        if fixture is not None:
             try:
-                transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
-            except t.TransportFailure as error:
-                if error.code != "lease_unavailable":
-                    raise
-            else:
-                raise t.TransportFailure("fixture_unknown_completion_admitted_request", receipt)
-        elif receipt["completion_confirmed"] is not True:
-            raise t.TransportFailure("fixture_capture_completion_unconfirmed", receipt)
-        return {"case": case, "oracle": "satisfied", "platform": sys.platform,
-                "interpreter": sys.version.split()[0], "fixture_type": "synthetic_mechanism",
-                "outcome": outcome, "expected_requests": 1, "expected_responses": 1,
-                "python_wire_bytes_sha256": c.sha256(wire), "public_test_ca_bytes_sha256": c.sha256(certificate),
-                "transport": receipt, "fixture": fixture_receipt}
+                report["fixture"] = fixture.close()
+            except BaseException as error:
+                report["fixture"] = fixture.snapshot()
+                report["cleanup_errors"].append(getattr(error, "code", "fixture_cleanup_os"))
+        if cancel_thread is not None:
+            try:
+                cancel_thread.join(t.remaining(hard_end, time.monotonic))
+                t.require(not cancel_thread.is_alive(), "fixture_cancel_thread_unconfirmed")
+            except BaseException as error:
+                report["cleanup_errors"].append(getattr(error, "code", "fixture_cancel_cleanup_os"))
+        report["cancel_thread"] = {"created": cancel_thread is not None,
+                                   "joined": cancel_thread is not None and not cancel_thread.is_alive(),
+                                   "errors": cancel_errors}
+        if prepared_plan is not None and not lease_created:
+            try:
+                t.shutil.rmtree(prepared_plan["cwd"])
+                report["preparation"]["cwd_closed"] = True
+                t.remaining(hard_end, time.monotonic)
+            except BaseException as error:
+                report["cleanup_errors"].append(getattr(error, "code", "fixture_plan_cleanup_os"))
+        elif lease_created:
+            report["preparation"]["cwd_closed"] = receipt.get("cwd_closed") is True
+        if temporary is not None:
+            try:
+                temporary.cleanup()
+                report["preparation"]["certificate_files_closed"] = True
+                t.remaining(hard_end, time.monotonic)
+            except BaseException as error:
+                report["cleanup_errors"].append(getattr(error, "code", "fixture_files_cleanup_os"))
+    report.update(outcome=outcome, transport=receipt)
+    try:
+        predicate = oracle_error(case, outcome, receipt, fixture, report["fixture"], cancel_errors, transport, wire)
+    except BaseException:
+        predicate = "fixture_oracle_schema"
+    if case == "partial_capture_failure" and predicate is None:
+        try:
+            transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
+        except BaseException as error:
+            if getattr(error, "code", None) != "lease_unavailable":
+                predicate = "fixture_unknown_completion_admitted_request"
+        else:
+            predicate = "fixture_unknown_completion_admitted_request"
+    if report["cleanup_errors"] and predicate is None:
+        predicate = "fixture_cleanup_unconfirmed"
+    if time.monotonic() >= hard_end and predicate is None:
+        predicate = "fixture_deadline"
+    report["oracle_error"] = predicate
+    report["oracle"] = "satisfied" if predicate is None else "failed"
+    report["error"] = None if predicate is None else outcome if outcome != "completed" else predicate
+    report["elapsed_seconds"] = time.monotonic() - started
+    return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", choices=CASES, required=True)
     args = parser.parse_args()
-    try:
-        receipt = run_case(args.case)
-    except BaseException as error:
-        print(json.dumps({"case": args.case, "oracle": "failed", "platform": sys.platform,
-                          "error": getattr(error, "code", type(error).__name__),
-                          "transport": getattr(error, "receipt", {})}, sort_keys=True))
-        return 1
+    receipt = run_case(args.case)
     print(json.dumps(receipt, sort_keys=True))
-    return 0
+    return 0 if receipt["oracle"] == "satisfied" else 1
 
 
 if __name__ == "__main__":
