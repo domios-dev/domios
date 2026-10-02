@@ -22,6 +22,9 @@ from sentinel_oracles import judge_sentinel
 from sentinel_scenarios import SentinelScenario
 from transport import Dev, Events, Finding, InstanceLock, Pending, Transcript, read_secret, run_group
 from attribution import binding_ready
+from launch_env import register_scope, remove_scope
+from native_assembly import require_native
+from coordinator_scenarios import CoordinatorScenario, preflight as courier_preflight
 
 
 def arguments():
@@ -165,7 +168,13 @@ def read_transcript(directory):
 def create_owner(dev, root, provider):
     require(provider, "--create-owner requires --provider")
     require(not (root / "owner.json").exists(), "Matrix owner already exists")
-    workspace = dev.dc("workspace", "create", "Matrixowner", "--provision")
+    pins = json.loads((HERE / "versions.json").read_text())["providers"].get(provider, {})
+    if provider == "cursor":
+        raise Pending("Cursor fixture-native executable remains unbound")
+    require_native(root, provider, pins["target"])
+    fixture = case_fixture(root, provider, "observer", "default", "")
+    workspace = dev.dc("workspace", "create", "Matrixowner", "--cwd", fixture["cwd"])
+    register_scope(root, fixture, Path(fixture["cwd"]))
     ws = identifier(workspace, "id")
     task = root / "owner-task.txt"
     task.write_text(
@@ -180,10 +189,11 @@ def create_owner(dev, root, provider):
                              "--workspace", ws, "--task-file", str(task))
             tab = identifier(created, "tab_id")
             events.until(lambda: ready(dev.snapshot(tab)[0]), "Matrix owner AgentReady and own bound session")
-        write_json(root / "owner.json", {"tab_id": tab, "workspace_id": ws})
+        write_json(root / "owner.json", {"tab_id": tab, "workspace_id": ws, "fixture": fixture})
     except BaseException:
         dev.deadline = time.monotonic() + 30
         dev.dc("workspace", "close", ws)
+        remove_scope(root, fixture["scope_id"])
         raise
 
 
@@ -210,6 +220,8 @@ def live(options, root):
         if options.remove_owner:
             owner = json.loads((root / "owner.json").read_text())
             dev.dc("workspace", "close", owner["workspace_id"])
+            remove_scope(root, owner["fixture"]["scope_id"])
+            shutil.rmtree(owner["fixture"]["case_root"])
             (root / "owner.json").unlink()
             result.update(status="SMOKE", reason="Owned observer workspace closed")
             return 0
@@ -251,6 +263,8 @@ def live(options, root):
         if contracts["isolation"]["status"] != "bound":
             raise Pending(contracts["isolation"]["reason"])
         pending_special(options)
+        if options.case == "update-coordinator":
+            courier_preflight(contracts, options, root)
         if options.case == "sentinel" and options.variant == "activity-feed":
             require(options.jev == "on", "Feed regression has one connected-Jev cell")
             fixture = case_fixture(root, "codex", options.case, options.variant, options.bad_model)
@@ -291,18 +305,26 @@ def live(options, root):
                 result.update(status="PASS", evidence=evidence, path=evidence["path"], reason="Bound Sentinel oracles passed")
             return 0
         require(options.provider, "--provider is required")
-        meta = json.loads((root / "instance.json").read_text())
-        if not meta["binaries"].get(options.provider):
-            raise Pending(f"Real {options.provider} executable is not installed; launch was not attempted")
+        if options.provider == "cursor":
+            raise Pending("Cursor fixture-native availability remains pending; owner executable is forbidden")
+        version = json.loads((HERE / "versions.json").read_text())["providers"][options.provider]["target"]
+        if options.case in ("update", "update-coordinator"):
+            version = install_older(dev, root, options.older_version, options.provider)
+        require_native(root, options.provider, version)
         fixture = case_fixture(root, options.provider, options.case, options.variant, options.bad_model)
         fixture["point_field"] = point_field
         fixture["decision_point"] = point
-        if options.case == "update":
-            install_older(dev, root, options.older_version, options.provider)
+        fixture["version"] = version
         baseline = dev.dc("notify", "list")
         before_ids = {item["id"] for item in objects(baseline) if item.get("id")}
         journal_start = len(load_journal(data_dir))
         with Events(dev) as events:
+            if options.case == "update-coordinator":
+                scenario = CoordinatorScenario(dev, events, root, fixture, options, data_dir, contracts)
+                evidence = scenario.run()
+                result.update(status="PASS", evidence=evidence, path=evidence["path"],
+                              reason="Independent Courier outcomes and attribution verified")
+                return 0
             scenario = Scenario(dev, events, root, fixture, options)
             scenario.start()
             launches = len(scenario.launches())
@@ -352,7 +374,7 @@ def live(options, root):
         if fixture:
             transcript.record("provider_launches", scenario.launches() if isinstance(scenario, Scenario) else [])
             shutil.rmtree(fixture["case_root"])
-            (root / "active.json").unlink(missing_ok=True)
+            remove_scope(root, fixture["scope_id"])
         write_json(transcript.directory / "result.json", result)
         print(json.dumps(result, indent=2))
         if result.get("cleanup_failure"):
