@@ -1,5 +1,6 @@
 """Trusted one-request interpreter helper; no subprocesses or descendant spawning."""
 
+import ctypes
 import hashlib
 import importlib.util
 import json
@@ -7,11 +8,15 @@ import math
 import os
 from pathlib import Path
 import re
+import secrets
 import socket
 import ssl
 import stat
 import struct
 import sys
+import sysconfig
+import tempfile
+import types
 import time
 from urllib.parse import urlsplit
 
@@ -24,6 +29,7 @@ MAX_FIELDS = 100
 MAX_DIAGNOSTIC = 4096
 MAX_TOKEN = 4096
 MAX_STDOUT = 4096
+WINDOWS_ACTIVE_TRUST = None
 
 
 class WorkerError(ValueError):
@@ -258,7 +264,366 @@ def https_exchange(raw, token, end, *, policy=None, clock=time.monotonic):
             raise WorkerError("socket_close_unconfirmed", **facts) from error
 
 
+WINDOWS_SUBPROCESS_SHA256 = "6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9"
+WINDOWS_ADMINS = frozenset(("S-1-5-18", "S-1-5-32-544"))
+WINDOWS_MUTATION = 0x500D0156
+WINDOWS_REPLACEMENT = 0x500D0140
+
+
+def windows_acl_policy(security, user, *, private=False, ancestor=False):
+    trusted = WINDOWS_ADMINS | {user}
+    require(security["owner"] in trusted, "windows_owner")
+    require(security["dacl_present"] and security["aces"] is not None, "windows_dacl")
+    require(not private or security["owner"] == user and security["protected"], "windows_private_dacl")
+    for kind, flags, mask, sid in security["aces"]:
+        require(kind in (0, 1) and not flags & ~0x1f, "windows_ace_unsupported")
+        if kind == 0 and sid not in trusted:
+            if ancestor and flags & 0x8:
+                continue
+            forbidden = mask if private else mask & (WINDOWS_REPLACEMENT if ancestor else WINDOWS_MUTATION)
+            require(not forbidden, "windows_foreign_authority")
+
+
+class WindowsApi:
+    def __init__(self):
+        self.allocations = set()
+        self.token_closed = False
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.security = ctypes.WinDLL("advapi32", use_last_error=True)
+        p, u, b, s = ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32, ctypes.c_wchar_p
+        pp = ctypes.POINTER(p)
+        bindings = ((self.kernel, "CreateFileW", (s, u, u, p, u, u, p), p),
+                    (self.kernel, "CloseHandle", (p,), b), (self.kernel, "LocalFree", (p,), p),
+                    (self.kernel, "GetCurrentProcess", (), p),
+                    (self.kernel, "GetFileType", (p,), u), (self.kernel, "GetDriveTypeW", (s,), u),
+                    (self.kernel, "GetFileInformationByHandleEx", (p, u, p, u), b),
+                    (self.kernel, "GetFinalPathNameByHandleW", (p, p, u, u), u),
+                    (self.kernel, "GetVolumeInformationByHandleW", (p, p, u, p, p, p, p, u), b),
+                    (self.kernel, "ReadFile", (p, p, u, p, p), b),
+                    (self.kernel, "CreateDirectoryW", (s, p), b), (self.kernel, "RemoveDirectoryW", (s,), b),
+                    (self.security, "OpenProcessToken", (p, u, pp), b),
+                    (self.security, "GetTokenInformation", (p, u, p, u, p), b),
+                    (self.security, "GetSecurityInfo", (p, u, u, pp, pp, pp, pp, pp), u),
+                    (self.security, "GetSecurityDescriptorLength", (p,), u),
+                    (self.security, "GetSecurityDescriptorControl", (p, p, p), b),
+                    (self.security, "GetSecurityDescriptorDacl", (p, p, pp, p), b),
+                    (self.security, "GetAce", (p, u, pp), b), (self.security, "IsValidAcl", (p,), b),
+                    (self.security, "IsValidSid", (p,), b), (self.security, "GetLengthSid", (p,), u),
+                    (self.security, "ConvertSidToStringSidW", (p, pp), b),
+                    (self.security, "ConvertStringSecurityDescriptorToSecurityDescriptorW", (s, u, pp, p), b))
+        for dll, name, arguments, result in bindings:
+            function = getattr(dll, name)
+            function.argtypes, function.restype = arguments, result
+
+    def close(self, handle):
+        require(self.kernel.CloseHandle(handle), "windows_handle_close")
+
+    def free(self, pointer):
+        require(not self.kernel.LocalFree(pointer), "windows_descriptor_close")
+        self.allocations.discard(pointer.value)
+
+    def allocated(self, pointer):
+        if pointer.value:
+            self.allocations.add(pointer.value)
+
+    def receipt(self):
+        return {"token_handle_closed": self.token_closed, "unclosed_native_allocations": len(self.allocations)}
+
+    def sid(self, pointer):
+        require(pointer and self.security.IsValidSid(pointer) and self.security.GetLengthSid(pointer) <= 68, "windows_sid")
+        raw = ctypes.c_void_p()
+        try:
+            result = self.security.ConvertSidToStringSidW(pointer, ctypes.byref(raw))
+            self.allocated(raw)
+            require(result and raw.value, "windows_sid")
+            value = ctypes.wstring_at(raw)
+            require(len(value) <= 184, "windows_sid")
+            return value
+        finally:
+            if raw.value:
+                self.free(raw)
+
+    def current_user(self):
+        token = ctypes.c_void_p()
+        require(self.security.OpenProcessToken(self.kernel.GetCurrentProcess(), 8, ctypes.byref(token)), "windows_token")
+        try:
+            size = ctypes.c_uint32()
+            self.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+            require(0 < size.value <= MAX_HEADERS, "windows_token_size")
+            raw = ctypes.create_string_buffer(size.value)
+            require(self.security.GetTokenInformation(token, 1, raw, size.value, ctypes.byref(size)), "windows_token")
+            return self.sid(ctypes.c_void_p.from_buffer(raw).value)
+        finally:
+            self.close(token)
+            self.token_closed = True
+
+    def descriptor(self, handle):
+        owner, acl, descriptor = (ctypes.c_void_p() for _ in range(3))
+        result = self.security.GetSecurityInfo(handle, 1, 5, ctypes.byref(owner), None,
+                                               ctypes.byref(acl), None, ctypes.byref(descriptor))
+        self.allocated(descriptor)
+        try:
+            require(result == 0 and descriptor.value, "windows_security_read")
+            length = self.security.GetSecurityDescriptorLength(descriptor)
+            require(0 < length <= MAX_HEADERS, "windows_security_size")
+            control, revision = ctypes.c_uint16(), ctypes.c_uint32()
+            require(self.security.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)),
+                    "windows_security_control")
+            require(control.value & 0x8000 and revision.value == 1, "windows_security_form")
+            present, defaulted = ctypes.c_int32(), ctypes.c_int32()
+            require(self.security.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(acl),
+                                                           ctypes.byref(defaulted)), "windows_dacl")
+            records = None
+            if acl.value:
+                require(self.security.IsValidAcl(acl), "windows_dacl")
+                header = ctypes.string_at(acl, 8)
+                acl_revision, _, acl_size, count, _ = struct.unpack("<BBHHH", header)
+                require(acl_revision in (2, 4) and 8 <= acl_size <= MAX_HEADERS and count <= MAX_FIELDS, "windows_acl_size")
+                records = []
+                for index in range(count):
+                    ace = ctypes.c_void_p()
+                    require(self.security.GetAce(acl, index, ctypes.byref(ace)), "windows_ace")
+                    require(acl.value <= ace.value and ace.value + 8 <= acl.value + acl_size, "windows_ace_size")
+                    kind, flags, size, mask = struct.unpack("<BBHI", ctypes.string_at(ace, 8))
+                    require(kind in (0, 1) and 16 <= size <= acl_size and
+                            acl.value <= ace.value and ace.value + size <= acl.value + acl_size, "windows_ace_unsupported")
+                    sid = ace.value + 8
+                    require(self.security.IsValidSid(sid) and 8 + self.security.GetLengthSid(sid) == size, "windows_ace_sid")
+                    records.append((kind, flags, mask, self.sid(sid)))
+            raw = ctypes.string_at(descriptor, length)
+            return {"owner": self.sid(owner), "dacl_present": bool(present.value), "aces": records,
+                    "protected": bool(control.value & 0x1000), "bytes": raw}
+        finally:
+            if descriptor.value:
+                self.free(descriptor)
+
+    def inspect(self, handle):
+        require(self.kernel.GetFileType(handle) == 1, "windows_object_type")
+        basic, standard, identity = (ctypes.create_string_buffer(size) for size in (40, 24, 24))
+        for kind, raw in ((0, basic), (1, standard), (18, identity)):
+            require(self.kernel.GetFileInformationByHandleEx(handle, kind, raw, len(raw)), "windows_file_identity")
+        creation, _, written, changed, attributes = struct.unpack_from("<qqqqI", basic.raw)
+        _, size, links, deleting, directory = struct.unpack_from("<qqIBB", standard.raw)
+        require(not attributes & 0x400 and not deleting and (directory or links == 1), "windows_reparse_or_links")
+        filesystem = ctypes.create_unicode_buffer(32)
+        flags = ctypes.c_uint32()
+        require(self.kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, ctypes.byref(flags),
+                                                         filesystem, len(filesystem)) and
+                filesystem.value == "NTFS" and flags.value & 8, "windows_local_ntfs")
+        final = ctypes.create_unicode_buffer(32768)
+        length = self.kernel.GetFinalPathNameByHandleW(handle, final, len(final), 0)
+        require(0 < length < len(final) and final.value.startswith("\\\\?\\") and
+                re.fullmatch(r"[A-Za-z]:\\.*", final.value[4:]), "windows_local_path")
+        require(self.kernel.GetDriveTypeW(final.value[4:7]) == 3, "windows_local_volume")
+        security = self.descriptor(handle)
+        return {"identity": identity.raw, "size": size, "directory": bool(directory), "security": security,
+                "signature": (identity.raw, creation, attributes, security["bytes"]) if directory else
+                (identity.raw, creation, written, changed, attributes, size, security["bytes"]),
+                "final": final.value[4:]}
+
+    def open(self, path, *, directory=False):
+        access = 0x20080 if directory else 0x80020000
+        handle = self.kernel.CreateFileW(str(path), access, 1, None, 3, 0x02200000, None)
+        require(handle not in (None, 0, ctypes.c_void_p(-1).value), "windows_open")
+        return handle
+
+    def remove_directory(self, path):
+        return bool(self.kernel.RemoveDirectoryW(str(path)))
+
+    def read(self, handle):
+        raw, size = ctypes.create_string_buffer(CHUNK), ctypes.c_uint32()
+        require(self.kernel.ReadFile(handle, raw, CHUNK, ctypes.byref(size), None) and size.value <= CHUNK,
+                "windows_read")
+        return raw.raw[:size.value]
+
+    def create_directory(self, path, sddl):
+        class Attributes(ctypes.Structure):
+            _fields_ = [("length", ctypes.c_uint32), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int32)]
+        descriptor = ctypes.c_void_p()
+        try:
+            result = self.security.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None)
+            self.allocated(descriptor)
+            require(result and descriptor.value, "windows_creation_descriptor")
+            attributes = Attributes(ctypes.sizeof(Attributes), descriptor, 0)
+            require(self.kernel.CreateDirectoryW(str(path), ctypes.byref(attributes)), "windows_directory_create")
+        finally:
+            if descriptor.value:
+                self.free(descriptor)
+
+
+class WindowsTrust:
+    def __init__(self, end, *, clock=time.monotonic, api=None):
+        self.end, self.clock = end, clock
+        self.check_time()
+        self.api = WindowsApi() if api is None else api
+        self.user = self.api.current_user()
+        self.objects, self.cwd = [], None
+        self.created_directory = None
+        self.closed, self.lost = False, False
+
+    def check_time(self):
+        remaining(self.end, self.clock)
+
+    def opened(self, path, *, directory=False, private=False, ancestor=False):
+        self.check_time()
+        path = Path(os.path.abspath(path))
+        require(re.fullmatch(r"[A-Za-z]:[\\/].*", str(path)), "windows_local_path")
+        handle = self.api.open(path, directory=directory)
+        entry = {"path": path, "handle": handle, "closed": False}
+        self.objects.append(entry)
+        facts = self.api.inspect(handle)
+        entry["facts"] = facts
+        windows_acl_policy(facts["security"], self.user, private=private, ancestor=ancestor)
+        require(facts["directory"] == directory and os.path.normcase(facts["final"]) == os.path.normcase(str(path)),
+                "windows_path_identity")
+        self.check_time()
+        return entry
+
+    def file(self, path, *, collect=False):
+        path = Path(os.path.abspath(path))
+        for parent in reversed(path.parents):
+            self.opened(parent, directory=True, ancestor=True)
+        entry = self.opened(path)
+        digest, chunks, size = hashlib.sha256(), [], 0
+        while True:
+            self.check_time()
+            raw = self.api.read(entry["handle"])
+            require(type(raw) is bytes and len(raw) <= CHUNK, "windows_read_shape")
+            if not raw:
+                break
+            digest.update(raw)
+            if collect:
+                size += len(raw)
+                require(size <= MAX_REQUEST, "windows_source_size")
+                chunks.append(raw)
+        self.revalidate()
+        return entry["path"], digest.hexdigest(), b"".join(chunks)
+
+    def directory(self, path, *, private=False):
+        path = Path(os.path.abspath(path))
+        for parent in reversed(path.parents):
+            self.opened(parent, directory=True, ancestor=True)
+        entry = self.opened(path, directory=True, private=private)
+        if private:
+            self.cwd = entry
+        return entry
+
+    def revalidate(self, *, end=None):
+        end = self.end if end is None else end
+        require(self.clock() < end, "deadline")
+        for entry in self.objects:
+            if entry["closed"]:
+                continue
+            require(self.clock() < end, "deadline")
+            facts = self.api.inspect(entry["handle"])
+            if "facts" not in entry or facts["signature"] != entry["facts"]["signature"] or \
+                    os.path.normcase(facts["final"]) != os.path.normcase(str(entry["path"])):
+                self.lost = True
+                raise WorkerError("windows_identity_changed")
+        require(self.clock() < end, "deadline")
+
+    def create_private(self):
+        parent = Path(os.path.abspath(tempfile.gettempdir()))
+        self.directory(parent)
+        path = parent / ("jev-owned-" + secrets.token_hex(16))
+        sddl = f"O:{self.user}D:P(A;OICI;FA;;;{self.user})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+        self.created_directory = path
+        try:
+            self.api.create_directory(path, sddl)
+            self.directory(path, private=True)
+        except BaseException as error:
+            raise WorkerError(getattr(error, "code", "windows_private_creation_unconfirmed"),
+                              directory_creation_unconfirmed=True) from error
+        return path
+
+    def close_entry(self, entry):
+        if entry["closed"]:
+            return
+        require(not entry.get("close_attempted"), "windows_close_unconfirmed")
+        entry["close_attempted"] = True
+        try:
+            self.api.close(entry["handle"])
+            entry["closed"] = True
+        except BaseException:
+            self.lost = True
+            raise
+
+    def close(self, *, remove_cwd=False, cleanup_end=None):
+        if self.closed:
+            return
+        end = self.end if cleanup_end is None else cleanup_end
+        first = None
+        if remove_cwd:
+            try:
+                require(not self.lost and self.cwd is not None, "windows_cleanup_identity")
+                self.revalidate(end=end)
+                self.close_entry(self.cwd)
+                require(self.api.remove_directory(self.cwd["path"]), "windows_directory_remove")
+                self.created_directory = None
+            except BaseException as error:
+                first = error
+        for entry in reversed(self.objects):
+            try:
+                self.close_entry(entry)
+            except BaseException as error:
+                first = first or error
+        self.closed = all(entry["closed"] for entry in self.objects) and \
+            not getattr(self.api, "allocations", ()) and getattr(self.api, "token_closed", True)
+        if first is not None:
+            raise first
+        require(self.closed, "windows_native_resource_unconfirmed")
+        require(self.clock() < end, "deadline")
+
+    def receipt(self):
+        native = self.api.receipt() if isinstance(self.api, WindowsApi) else {"fixture_type": "synthetic_mechanism"}
+        return {"native_resources": native, "current_token_sid": self.user,
+                "trusted_administration_sids": sorted(WINDOWS_ADMINS),
+                "local_filesystem": "NTFS", "handles_closed": self.closed, "identity_lost": self.lost,
+                "objects": [{"path": str(entry["path"]), "closed": entry["closed"],
+                             "volume_and_file_id": entry["facts"]["identity"].hex(),
+                             "owner_sid": entry["facts"]["security"]["owner"],
+                             "dacl_sha256": hashlib.sha256(entry["facts"]["security"]["bytes"]).hexdigest(),
+                             "dacl_protected": entry["facts"]["security"]["protected"],
+                             "directory": entry["facts"]["directory"]}
+                            for entry in self.objects if "facts" in entry]}
+
+    def runtime(self, interpreter):
+        root = Path(sys.base_prefix).absolute()
+        require(sys.implementation.name == "cpython" and sys.platform == "win32" and
+                sys.version_info[:3] == (3, 14, 6) and sys.prefix == sys.base_prefix and
+                Path(interpreter).parent == root and Path(interpreter).name.lower() == "python.exe" and
+                sysconfig.get_platform() == "win-amd64" and not sysconfig.get_config_var("Py_GIL_DISABLED") and
+                not hasattr(sys, "gettotalrefcount"), "windows_runtime_layout")
+        require(not any((root / name).exists() for name in ("pyvenv.cfg", "python314._pth", "python._pth")),
+                "windows_runtime_layout")
+        for directory in (root, root / "Lib", root / "DLLs"):
+            self.directory(directory)
+        for name in (root / "python314.dll", root / "python3.dll", root / "DLLs" / "_ssl.pyd",
+                     root / "DLLs" / "_socket.pyd"):
+            self.file(name)
+        _, digest, _ = self.file(root / "Lib" / "subprocess.py")
+        require(digest == WINDOWS_SUBPROCESS_SHA256, "windows_runtime_source")
+
+
 def file_hash(path, end):
+    if os.name == "nt":
+        guard = WindowsTrust(end)
+        failure, digest = None, None
+        try:
+            digest = guard.file(path)[1]
+        except BaseException as error:
+            failure = error
+        try:
+            guard.close()
+        except BaseException as error:
+            if failure is None:
+                raise
+            raise WorkerError(getattr(failure, "code", "windows_file_hash"),
+                              trust_handles_closed=guard.closed,
+                              trust_cleanup_error=getattr(error, "code", "windows_trust_close")) from failure
+        if failure is not None:
+            raise failure
+        return digest
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
         while True:
@@ -286,6 +651,26 @@ def frame(stream, limit):
 
 
 def load_contract(header, end):
+    global WINDOWS_ACTIVE_TRUST
+    if os.name == "nt":
+        guard = WindowsTrust(end)
+        WINDOWS_ACTIVE_TRUST = guard
+        guard.hard_end = header["hard_end"]
+        own, worker_hash, _ = guard.file(__file__)
+        _, contract_hash, source = guard.file(own.with_name("request_contract.py"), collect=True)
+        interpreter, interpreter_hash, _ = guard.file(sys.executable)
+        require(worker_hash == header["worker_sha256"] and contract_hash == header["contract_sha256"] and
+                os.path.normcase(str(interpreter)) == os.path.normcase(header["interpreter"]) and
+                interpreter_hash == header["interpreter_sha256"], "trusted_identity")
+        guard.runtime(interpreter)
+        guard.directory(header["cwd"], private=True)
+        guard.revalidate()
+        module = types.ModuleType("request_contract")
+        module.__file__ = str(own.with_name("request_contract.py"))
+        sys.modules[module.__name__] = module
+        exec(compile(source, module.__file__, "exec"), module.__dict__)
+        guard.revalidate()
+        return module
     own = Path(__file__).resolve()
     contract = own.with_name("request_contract.py")
     require(file_hash(own, end) == header["worker_sha256"] and
@@ -317,9 +702,10 @@ def helper_input():
     endpoint_policy(header["endpoint"])
     cwd = Path(header["cwd"])
     require(cwd.is_absolute() and cwd.resolve() == cwd and Path.cwd() == cwd and not cwd.is_symlink(), "private_cwd")
-    identity = cwd.stat()
-    require(os.name == "posix" and identity.st_uid == os.getuid() and
-            stat.S_IMODE(identity.st_mode) == 0o700, "private_cwd_permissions")
+    if os.name != "nt":
+        identity = cwd.stat()
+        require(os.name == "posix" and identity.st_uid == os.getuid() and
+                stat.S_IMODE(identity.st_mode) == 0o700, "private_cwd_permissions")
     contract = load_contract(header, end)
     wire = frame(sys.stdin.buffer, MAX_REQUEST)
     require(hashlib.sha256(wire).hexdigest() == header["wire_sha256"], "wire_hash")
@@ -339,6 +725,8 @@ def main(*, policy=None):
     try:
         header, wire, request, token, contract = helper_input()
         receipt["credential_channel_closed"] = True
+        if WINDOWS_ACTIVE_TRUST is not None:
+            WINDOWS_ACTIVE_TRUST.revalidate()
         receipt["wire_sha256"] = header["wire_sha256"]
         body, facts = https_exchange(wire, token, header["operation_end"], policy=policy)
         receipt.update(facts)
@@ -361,6 +749,17 @@ def main(*, policy=None):
         receipt.update(status="failed", error=reason)
         receipt.pop("answers", None)
     finally:
+        if WINDOWS_ACTIVE_TRUST is not None:
+            try:
+                WINDOWS_ACTIVE_TRUST.close(cleanup_end=WINDOWS_ACTIVE_TRUST.hard_end)
+                receipt["windows_trust_closed"] = WINDOWS_ACTIVE_TRUST.closed
+            except BaseException as error:
+                if "error" in receipt:
+                    receipt["primary_error"] = receipt["error"]
+                receipt.update(status="failed", error=getattr(error, "code", "windows_trust_close"),
+                               windows_trust_closed=WINDOWS_ACTIVE_TRUST.closed)
+                receipt.pop("answers", None)
+                code = 1
         try:
             sys.stdin.close()
             receipt["credential_channel_closed"] = True
@@ -370,7 +769,8 @@ def main(*, policy=None):
     raw = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     if len(raw) > MAX_STDOUT:
         compact = {key: receipt[key] for key in ("credential_channel_closed", "network_attempted", "wire_sha256",
-                   "socket_closed", "http_status", "header_bytes", "header_fields", "response_bytes") if key in receipt}
+                   "socket_closed", "http_status", "header_bytes", "header_fields", "response_bytes",
+                   "windows_trust_closed", "primary_error") if key in receipt}
         compact.update(version=1, status="failed", error="capture_size", receipt_bytes=len(raw), receipt_limit=MAX_STDOUT)
         raw = json.dumps(compact, sort_keys=True, separators=(",", ":")).encode()
         code = 1

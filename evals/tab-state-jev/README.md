@@ -121,13 +121,38 @@ sole reaping, avoiding destructor ownership transfer. Supported source semantics
 are CPython 3.9–3.14 on Linux/macOS; native acceptance is pending the actual local
 oracles. Other interpreters/platforms fail preflight without network admission.
 
-A Windows candidate adapter waits on and terminates through the originally
-captured CPython `_handle`, then closes that handle; pure injected tests exercise
-it. **Windows transport admission currently fails
-`private_directory_unsupported`** because private-directory ACL confinement is
-not implemented/proven. Windows native transport is an explicit open gap, never
-a green skip or a claim inferred from the adapter tests. A Windows extension needs
-Fermi's concrete disposition before any extra ownership is requested.
+Windows source admission is restricted to standard native CPython3.14.6 x64,
+local fixed NTFS volumes, understood ordinary allow/deny DACL entries, and the
+current process-token SID plus SYSTEM and Builtin Administrators. This trusts the
+same user and these administration principals; it does not protect against their
+concurrent modification or attest every runtime dependency. Other runtime versions,
+venvs, debug/free-threaded builds, embedded layouts, reparse points, hard-linked
+files, remote volumes, unknown ACEs and unreadable/null DACLs refuse.
+
+Parent and worker independently open source/interpreter/runtime roots and private
+cwd objects with READ_CONTROL, deny write/delete sharing, inspect volume/file IDs,
+owner/DACLs and ancestor replacement rights, and revalidate captured identities.
+Private cwd creation supplies a protected DACL in the creation call. The parent
+retains these guards through exact exit/capture settlement; the worker compiles
+and executes the contract from the exact verified bytes. No new header field,
+identity fabrication, interpreter copy, ACL repair or owner-environment mutation
+is involved. Path-based execution/removal does not establish an atomic guarantee.
+Lost identity prevents removal, and native memory/token/file/process handle close
+failures stay unconfirmed. Unknown directory creation is retained as unknown.
+
+Windows uses only CPython's originally captured `_handle`, an exact blocking
+handle wait, unsigned GetExitCodeProcess result, one TerminateProcess request and
+one handle Close. Pinned subprocess source SHA256 is
+`6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9`.
+A different installed source byte hash refuses; no newline normalization or
+runtime installation is attempted. The assumed handle layout comes from
+[CPython3.14.6 subprocess](https://github.com/python/cpython/blob/v3.14.6/Lib/subprocess.py).
+Opened-object security and creation follow
+[GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo)
+and [file security](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights).
+There is no arbitrary PID open, POSIX signal normalization or post-reap signalling.
+Windows native qualification and an existing exact installed interpreter path
+remain absent. Source admission support and injected controls are not native proof.
 
 Kernel creation, IO, termination and filesystem close can be noninterruptible.
 The failure deadline bounds waiting/admission, not a universal OS stop guarantee.
@@ -219,8 +244,8 @@ to `/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions
 current-user-owned mode0755. Read-only metadata supports selection, not executable
 qualification. Use that exact path for future macOS commands so helper preparation
 pins the same binary. No chmod, interpreter install/copy or trust weakening is
-part of this repair. Linux needs its own separately reviewed trusted interpreter
-selection and native receipts; Windows private-directory admission stays unsupported.
+part of this repair. Those Linux and Windows native gaps were open at that historical repair checkpoint.
+The platform continuation below records the later Linux receipt and current Windows scope.
 
 A relative remaining-time timeout sampled by the caller can be converted using
 a later admission clock and advance the original case end. `JevTransport.send`
@@ -301,3 +326,94 @@ Rollback removes the contract/transport/helper/tests/docs evaluator unit togethe
 restoring the prior evaluator implementation. Original criteria, variants,
 datasets, qualification and prior evidence require no restoration. Product and
 protected source behavior is unchanged.
+
+
+## Platform continuation and deferred proof
+
+Fermi qualified the six macOS synthetic HTTPS/resource cases at canonical
+`1d142119ff8c3efe3731e566e62d185a913c3fdc` using the exact Homebrew3.14.6 candidate
+above. The original failed55.375664s attempt stays immutable. Focused Linux
+[CI37053282843](https://github.com/rollacode/codeterm/actions/runs/37053282843)
+qualified 99 pure cases (zero failed/skipped) and six synthetic native cases only
+at `8def2537bfdc45c61a84f5040d496e010a4cfac1`, on actual ubunta-linux-build/x86_64,
+with `/usr/bin/python3` resolving to `/usr/bin/python3.12`, CPython3.12.3 and
+interpreter SHA256 `e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f`.
+These are Fermi-reported scoped receipts; this Worker ran no gates. They do not
+qualify later source, Windows, remote inference, runtime parity, authentic data,
+automatic actions, the90 live matrix or release.
+
+Windows tests-first ancestor `31fb3cd28761af22ee56fad5f18bf912ae680033` was real-merged
+at `a126424c5e4fb5da1ddc86257886a8f368bc5fc6`. Fermi confirmed selected1/exit1 for
+captured Handle.Close called2 rather than1 through the existing wait/close/cancel
+API. No setup/import/native error served as the red; no repeat red is requested.
+The source repair preserves that assertion and adds injected ACL/identity,
+protected creation, verified bytes, ABI, cleanup and receipt controls. Existing
+POSIX authority controls inject status conversion and signal operations on Windows;
+none is skipped. Authored counts at this platform repair: focused33 and full132
+(run14, contract21, transport58, regressions35, heldout4). All are deferred.
+
+After an ancestry-preserving merge, canonical focused commands are:
+
+```bash
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsPlatformTests.test_captured_windows_process_handle_is_closed_exactly_once'
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsPlatformTests test_regressions.WindowsTrustTests test_regressions.WindowsHandleFailureTests test_regressions.WindowsNativeInspectionTests test_regressions.WindowsHarnessTests test_regressions.WindowsCompletionTests'
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
+```
+
+Expected1,33,132 executed/pass respectively, zero failed/skipped; stop on the first
+unexpected failure. These are injected mechanisms, not Windows resource proof.
+The one consolidated suite at this repair head replaces repeated historical suites.
+The shared process authority/settlement edits justify one macOS success smoke at
+the same exact Homebrew interpreter after canonical review; no six-case repeat.
+
+The separately reviewed focused workflow inputs are `evaluator_scope` (`full`,
+`jev-linux`, `jev-windows`), `expected_source_sha` and `interpreter_path`. Focused
+source SHA must equal dispatch workflow SHA and checkout HEAD. Existing full
+jobs/triggers remain independent. There is no interpreter setup/install/fallback,
+new secret or retry. Windows dispatch remains held until a real existing exact
+native3.14.6 path and this complete source unit have been reviewed. No path is
+invented here. `$jevQaPython` below means that separately selected existing absolute
+path supplied as data, not an installation instruction. Canonical PowerShell
+commands, each foreground and separately approved, are:
+
+```powershell
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case preflight
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case trusted_directory
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case foreign_write
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case null_dacl
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case inherited_write
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case reparse_refused
+& $jevQaPython -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case success
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case response_oversize
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case redirect_refused
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case held_response_deadline
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case cancel_after_headers
+& $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case partial_capture_failure
+```
+
+Read every full JSON plus immediate `$LASTEXITCODE` and Stopwatch elapsed value;
+expected native wrapper exit0 means the named oracle held, not all inference
+succeeded. Trust controls expect no helper/listener/network and predicates
+accepted, accepted, windows_foreign_authority, windows_dacl,
+windows_foreign_authority, windows_reparse_or_links respectively. Negative DACLs
+and links are created only in newly owned disposable resources under a retained
+protected root; inherited_write checks an actual inherited ACE. Native preflight
+records token SID, NTFS/file IDs, source hashes and owner/DACL hashes, token/heap
+and file handle closure and cwd removal. Unavailable runtime/ACL/symlink privileges
+return `oracle=not_run`, exit1, with cleanup facts; they are never green skips.
+
+All native controls retain original55s operation/60s hard/600s run ends and cleanup
+inside5s. The six TLS oracles remain unchanged; Windows actual termination/exit
+codes are reported unsigned and are not POSIX -9. Partial capture must remain
+completion_confirmed=false and poison the next lease despite closed actual resources.
+The focused workflow already has bounded foreground native steps; extra trust
+controls above need Fermi's concrete canonical placement before execution. Outer
+Actions timeout is failure containment only. No Worker gate or Windows dispatch
+is authorized by this document.
+
+Windows rollback is the six-file platform unit back to canonical `a126424c` (or
+restore honest unsupported Windows admission together with its tests/docs). The
+focused workflow checkpoint is independently retained; criteria/datasets and all
+product/shared/protected paths require no restoration. Existing live/release holds
+and separately owned platform/runtime prerequisites remain open.
