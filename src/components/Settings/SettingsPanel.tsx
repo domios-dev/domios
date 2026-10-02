@@ -29,6 +29,7 @@ import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { HelpPanel } from "../../help/HelpPanel";
 import type { HelpSectionId } from "../../help/types";
+import type { GuideRequest } from "../../help/guideNavigation";
 import {
   type SectionId,
   SECTION_ICONS,
@@ -45,6 +46,7 @@ interface SettingsPanelProps {
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId;
+  guideRequest?: GuideRequest;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
@@ -60,11 +62,12 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
   initialSection,
+  guideRequest,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
     normalizedInitial
-      ? [{ kind: "root" }, { kind: "section", id: normalizedInitial }]
+      ? [{ kind: "root" }, { kind: "section", id: normalizedInitial, helpSection: normalizedInitial === "guide" ? guideRequest?.section : undefined }]
       : [{ kind: "root" }],
   );
   const top = stack[stack.length - 1];
@@ -76,11 +79,11 @@ export function SettingsPanel({
   useEffect(() => {
     const n = normalizeSection(initialSection);
     if (n) {
-      setStack([{ kind: "root" }, { kind: "section", id: n }]);
+      setStack([{ kind: "root" }, { kind: "section", id: n, helpSection: n === "guide" ? guideRequest?.section : undefined }]);
     } else {
       setStack([{ kind: "root" }]);
     }
-  }, [initialSection]);
+  }, [initialSection, guideRequest]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
   useEffect(() => {
@@ -486,6 +489,7 @@ export function SettingsPanel({
                   <HelpPanel
                     config={localConfig}
                     initialSection={top.helpSection}
+                    focusRequest={guideRequest}
                     onOpenSettings={(target) => {
                       const route = settingsRouteForHelpTarget(target);
                       push({ kind: "section", id: route.section, card: route.card });
