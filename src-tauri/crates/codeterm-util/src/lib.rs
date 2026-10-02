@@ -1,8 +1,10 @@
 pub mod atomic_write;
 pub mod child_slot;
 pub mod lock_hold;
+pub mod network_host;
 pub mod persisted_state;
 pub mod process_util;
+pub mod plugin_grants;
 pub mod shell;
 pub mod task_files;
 pub mod terminal;

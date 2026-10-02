@@ -6,6 +6,13 @@ CLI identity rules, environment variables, agent integration, and desktop behavi
 
 Use `codeterm <command> --help` for the installed CLI contract.
 
+Plugin outbound hosts can be granted per plugin with
+`codeterm plugin settings <id> --allow-host <host[:port]>`; remove a user grant
+with `--disallow-host`. A host without a port covers that exact hostname on any
+port; a host:port grant is scoped to that port. Schemes, paths, credentials,
+wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow`
+entries remain unchanged and combine with user grants when the plugin loads.
+
 Message and pad file options accept `-` as UTF-8 stdin, including
 `plan task dispatch --message-file -`, `send --from-file -`, and `--from-pad -`.
 For `plan create`, an implicit project path from a Team-bound caller is the
@@ -197,4 +204,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

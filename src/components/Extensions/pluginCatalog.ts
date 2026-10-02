@@ -31,6 +31,8 @@ export interface CatalogEntry {
   pendingReload?: boolean | null;
   capabilities?: PluginCapabilities | null;
   grantedPermissions?: string[] | null;
+  networkAllow?: string[] | null;
+  effectiveNetworkAllow?: string[] | null;
   settingsSchema?: SettingField[] | null;
   description?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
@@ -100,6 +102,8 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     pendingReload: p.pending_reload ?? false,
     capabilities: p.capabilities ?? null,
     grantedPermissions: p.granted_permissions ?? null,
+    networkAllow: p.network_allow ?? [],
+    effectiveNetworkAllow: p.effective_network_allow ?? [],
     settingsSchema: p.settings_schema ?? null,
     description: p.description ?? null,
     configHelp: p.config_help ?? null,
@@ -136,6 +140,8 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
+    networkAllow: base?.networkAllow ?? m.network_allow ?? [],
+    effectiveNetworkAllow: base?.effectiveNetworkAllow ?? m.effective_network_allow ?? [],
     settingsSchema: base?.settingsSchema ?? null,
     description: base?.description ?? m.description ?? null,
     configHelp: base?.configHelp ?? m.config_help ?? null,

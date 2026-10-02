@@ -33,6 +33,8 @@ export interface InstalledPlugin {
   dev?: boolean;
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
+  network_allow?: string[] | null;
+  effective_network_allow?: string[] | null;
   settings_schema?: SettingField[] | null;
   /** Manifest flag: the capability can't hot-activate (§1.8). */
   requires_reload?: boolean | null;
@@ -81,6 +83,8 @@ export interface MarketplaceRow extends DiffRow {
   display_name?: string | null;
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
+  network_allow?: string[] | null;
+  effective_network_allow?: string[] | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;

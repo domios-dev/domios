@@ -64,6 +64,16 @@ pub enum PluginAction {
         #[arg(long = "revoke", value_name = "PERMISSION")]
         revoke: Vec<String>,
     },
+    /// Manage a plugin's exact-host network grants.
+    Settings {
+        id: String,
+        /// Allow a host or host:port for outbound fetch (repeatable).
+        #[arg(long = "allow-host", value_name = "HOST[:PORT]")]
+        allow_host: Vec<String>,
+        /// Remove a user-granted host or host:port (repeatable).
+        #[arg(long = "disallow-host", value_name = "HOST[:PORT]")]
+        disallow_host: Vec<String>,
+    },
     /// Validate a plugin directory without installing it: strict manifest parse
     /// (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of
     /// the entry script, then a report of which AgentProvider exports plugin.js

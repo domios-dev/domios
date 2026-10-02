@@ -5,7 +5,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use codeterm_types::config::SupporterTabStateConfig;
-use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+use codeterm_types::decision::{
+    DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest, TokenMode,
+};
 use serde_json::Value;
 
 use super::startup_nudge::StartupNudge;
@@ -152,6 +154,13 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
+        if self
+            .supporter_models
+            .get(adapter_id)
+            .is_some_and(|model| model.token_mode() != TokenMode::Required)
+        {
+            return true;
+        }
         let store = crate::mem::decision::token_store::TokenStore::new(
             crate::api::mem_routes::decision::supporter_token_dir(),
         );

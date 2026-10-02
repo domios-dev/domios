@@ -47,6 +47,16 @@ fn fixture(source: &str) -> Value {
     serde_json::from_str(source).unwrap()
 }
 
+#[test]
+fn typesafe_jev_declares_a_required_token() {
+    let adapter = TypeSafeAdapter::new(
+        TokenStore::new(std::env::temp_dir().join("typesafe-token-mode-fixture")),
+        None,
+        None,
+    );
+    assert_eq!(adapter.token_mode(), TokenMode::Required);
+}
+
 fn request_from_fixture(source: &str) -> (DecisionRequest, Value) {
     let body = fixture(source);
     let question_body = &body["questions"]["q"];

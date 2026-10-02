@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionQuestion, DecisionRequest,
+    DecisionQuestion, DecisionRequest, TokenMode,
 };
 use serde_json::json;
 
@@ -13,17 +13,26 @@ use super::vm::{call_json, PluginVm, VmError};
 pub struct JsDecisionModel {
     vm: Arc<PluginVm>,
     id: String,
+    token_mode: TokenMode,
 }
 
 impl JsDecisionModel {
-    pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
-        Self { vm, id: id.into() }
+    pub fn new(vm: Arc<PluginVm>, id: impl Into<String>, token_mode: TokenMode) -> Self {
+        Self {
+            vm,
+            id: id.into(),
+            token_mode,
+        }
     }
 }
 
 impl DecisionModel for JsDecisionModel {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn token_mode(&self) -> TokenMode {
+        self.token_mode
     }
 
     fn primitives(&self) -> DecisionPrimitives {
@@ -168,7 +177,7 @@ mod tests {
                     };
                 }
             }"#);
-        let model = JsDecisionModel::new(vm, "decision-fixture");
+        let model = JsDecisionModel::new(vm, "decision-fixture", TokenMode::Optional);
         assert_eq!(
             model.primitives(),
             DecisionPrimitives {
@@ -232,6 +241,7 @@ mod tests {
                     models() { return [{ id: "loaded", display_name: "Loaded model" }]; }
                 };"#),
             "decision-models",
+            TokenMode::Optional,
         );
         assert_eq!(
             model.models(),
@@ -249,6 +259,7 @@ mod tests {
         let throwing = JsDecisionModel::new(
             vm(r#"module.exports.default = { decide() { throw new Error("private detail"); } };"#),
             "decision-throw",
+            TokenMode::Optional,
         );
         let request = request(DecisionQuestion::Noul { criteria: None });
         assert!(matches!(
@@ -259,6 +270,7 @@ mod tests {
         let malformed = JsDecisionModel::new(
             vm(r#"module.exports.default = { decide() { return { type: "noul", p: "bad" }; } };"#),
             "decision-malformed",
+            TokenMode::Optional,
         );
         assert!(matches!(
             malformed.decide(&request, deadline()),

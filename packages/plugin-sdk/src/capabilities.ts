@@ -414,6 +414,12 @@ export interface DecisionModelCapability {
   primitives(): DecisionPrimitives;
 }
 
+/** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
+export type DecisionModelTokenMode = "required" | "optional" | "none";
+export type DecisionModelManifestCapability =
+  | boolean
+  | { tokenMode: DecisionModelTokenMode };
+
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
 export type ToolEventKind =

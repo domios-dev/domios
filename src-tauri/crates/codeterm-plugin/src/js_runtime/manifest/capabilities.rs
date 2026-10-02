@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
+use codeterm_types::decision::TokenMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {
@@ -60,6 +61,61 @@ impl Serialize for ChatPreprocessorCap {
             }
             _ => s.serialize_bool(self.enabled),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DecisionModelCap {
+    pub enabled: bool,
+    pub token_mode: TokenMode,
+}
+
+impl<'de> Deserialize<'de> for DecisionModelCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(rename = "tokenMode")]
+                token_mode: TokenMode,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                token_mode: if enabled {
+                    TokenMode::Optional
+                } else {
+                    TokenMode::None
+                },
+            },
+            Raw::Obj { token_mode } => Self {
+                enabled: true,
+                token_mode,
+            },
+        })
+    }
+}
+
+impl Serialize for DecisionModelCap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if !self.enabled {
+            return serializer.serialize_bool(false);
+        }
+        if self.token_mode == TokenMode::Optional {
+            return serializer.serialize_bool(true);
+        }
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry("tokenMode", &self.token_mode)?;
+        map.end()
     }
 }
 
@@ -296,7 +352,7 @@ pub struct Capabilities {
     #[serde(default)]
     pub transcriber: bool,
     #[serde(default)]
-    pub decision_model: bool,
+    pub decision_model: DecisionModelCap,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
     #[serde(default)]
     pub glance_view: bool,

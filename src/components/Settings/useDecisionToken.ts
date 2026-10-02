@@ -2,20 +2,23 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 export interface SupporterTokenStatus {
   adapter: string;
+  token_mode: "required" | "optional" | "none";
   present: boolean;
-  path: string;
-  mode_ok: boolean | null;
+  path?: string;
+  mode_ok?: boolean | null;
 }
 
 export interface SupporterAdapter {
   id: string;
+  token_mode: SupporterTokenStatus["token_mode"];
   primitives: { choice: boolean; noul: boolean; score: boolean };
   models: { id: string; display_name: string }[];
   token: SupporterTokenStatus;
 }
 
 export interface SupporterStatus {
-  state: "active" | "token_only" | "no_token" | "feature_without_token" | "token_unusable" | "adapter_unavailable";
+  state: "active" | "ready" | "token_only" | "no_token" | "feature_without_token" | "token_unusable" | "adapter_unavailable";
+  token_mode: SupporterTokenStatus["token_mode"];
   adapter: string;
   model: string | null;
   deadline_ms: number;

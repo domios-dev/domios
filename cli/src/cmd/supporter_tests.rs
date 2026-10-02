@@ -169,3 +169,18 @@ fn supporter_models_and_status_render_discovered_state() {
         "fixture: No token\n"
     );
 }
+
+#[test]
+fn supporter_ready_status_renders_optional_token_mode_without_a_token() {
+    let status = json!({
+        "state": "ready", "token_mode": "optional", "adapter": "fixture", "model": "local-model",
+        "adapter_registered": true, "deadline_ms": 3000,
+        "features": {"memory_rerank": false, "tab_state": false},
+        "token": {"adapter": "fixture", "token_mode": "optional", "present": false, "mode_ok": null},
+        "adapters": []
+    });
+    let text = render_status(&status);
+    assert!(text.contains("Ready"));
+    assert!(text.contains("Token mode: optional"));
+    assert!(text.contains("No token"));
+}

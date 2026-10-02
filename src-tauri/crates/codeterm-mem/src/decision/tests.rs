@@ -12,7 +12,7 @@ use super::rerank::{
 };
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionPrimitives, DecisionQuestion,
-    DecisionRequest,
+    DecisionRequest, TokenMode,
 };
 
 type Respond = Box<dyn Fn(&DecisionRequest) -> Result<DecisionAnswer, DecisionError> + Send + Sync>;
@@ -26,6 +26,10 @@ struct StubModel {
 impl DecisionModel for StubModel {
     fn id(&self) -> &str {
         "stub"
+    }
+
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::None
     }
 
     fn primitives(&self) -> DecisionPrimitives {
