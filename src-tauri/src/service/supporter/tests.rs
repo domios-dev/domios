@@ -96,7 +96,7 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
     let dir = tempfile::tempdir().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
-    let model = budgeted_model(
+    let model = budgeted_model_with_activity(
         Arc::new(Model {
             mode: TokenMode::None,
             calls: calls.clone(),
@@ -104,6 +104,7 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
         runtime.clone(),
         1,
         VerdictKind::Rerank,
+        None,
         None,
         None,
     );
@@ -142,7 +143,7 @@ fn supporter_budget_gate_blocks_past_cap_and_falls_back() {
 fn supporter_journal_records_distribution_model_id_and_criteria_version() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
-    let model = budgeted_model(
+    let model = budgeted_model_with_activity(
         Arc::new(Model {
             mode: TokenMode::None,
             calls: Arc::default(),
@@ -152,6 +153,7 @@ fn supporter_journal_records_distribution_model_id_and_criteria_version() {
         VerdictKind::TabState,
         Some("tab".into()),
         Some(criteria_hash(b"criteria")),
+        None,
     );
     model
         .decide(
