@@ -1,7 +1,7 @@
 use super::*;
 use codeterm_types::config::SupporterConnection;
 use codeterm_types::decision::{
-    DecisionModelInfo, DecisionPrimitives, DecisionQuestion, DecisionRequest, TokenMode,
+    deadline, DecisionModelInfo, DecisionPrimitives, DecisionQuestion, DecisionRequest, TokenMode,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -58,6 +58,16 @@ impl DecisionModel for Model {
             confidence: Some(1.0),
             probabilities: BTreeMap::from([("accepted".into(), 1.0)]),
         })
+    }
+}
+
+fn request() -> DecisionRequest {
+    DecisionRequest {
+        state: json!("opaque-private-input"),
+        instructions: "opaque-instructions".into(),
+        question: DecisionQuestion::Choice {
+            options: BTreeMap::from([("accepted".into(), "opaque-option".into())]),
+        },
     }
 }
 
@@ -145,6 +155,8 @@ fn heartbeat_connections_respect_token_mode_and_choice_capability() {
 
 #[test]
 fn heartbeat_connections_share_budget_and_journal_the_selected_model() {
+    let clock = deadline::FixtureClock::new(Instant::now() - Duration::from_secs(60));
+    let _scope = clock.enter();
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(supporter::SupporterRuntime::new(dir.path().into()));
     let registry = SupporterRegistry::new();
@@ -159,17 +171,14 @@ fn heartbeat_connections_share_budget_and_journal_the_selected_model() {
         "owner",
     )
     .unwrap();
-    let request = DecisionRequest {
-        state: json!("opaque-private-input"),
-        instructions: "opaque-instructions".into(),
-        question: DecisionQuestion::Choice {
-            options: BTreeMap::from([("accepted".into(), "opaque-option".into())]),
-        },
-    };
-    let deadline = Instant::now() + Duration::from_secs(1);
-    model.decide(&request, deadline).unwrap();
+    let request = request();
+    model
+        .decide(&request, deadline::now() + Duration::from_secs(1))
+        .unwrap();
     assert_eq!(
-        model.decide(&request, deadline).unwrap_err(),
+        model
+            .decide(&request, deadline::now() + Duration::from_secs(1))
+            .unwrap_err(),
         DecisionError::Budget
     );
     assert_eq!(active.calls.load(Ordering::SeqCst), 1);
@@ -182,4 +191,71 @@ fn heartbeat_connections_share_budget_and_journal_the_selected_model() {
         .unwrap();
     assert_eq!(verdict["model_id"], "second");
     assert!(!journal.contains("opaque-private-input"));
+}
+
+#[test]
+fn heartbeat_real_expired_deadline_rejects_before_physical_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(supporter::SupporterRuntime::new(dir.path().into()));
+    let registry = SupporterRegistry::new();
+    let active = Model::new("active", "second", TokenMode::None, true);
+    registry.register("active", active.clone());
+    let model = connected_model(
+        &config(),
+        &registry,
+        &supporter::TokenSnapshot::default(),
+        runtime.clone(),
+        "owner",
+    )
+    .unwrap();
+    let request = request();
+    assert_eq!(
+        model.decide(&request, Instant::now()).unwrap_err(),
+        DecisionError::Deadline,
+    );
+    assert_eq!(active.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(runtime.status(1)["calls_last_hour"], 0);
+    assert!(codeterm_types::decision::physical::current().is_none());
+    assert!(!dir.path().join("journal.jsonl").exists());
+}
+
+#[test]
+fn heartbeat_fixture_clock_expiry_stays_distinct_from_shared_budget() {
+    let clock = deadline::FixtureClock::new(Instant::now() - Duration::from_secs(60));
+    let _scope = clock.enter();
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(supporter::SupporterRuntime::new(dir.path().into()));
+    let registry = SupporterRegistry::new();
+    let active = Model::new("active", "second", TokenMode::None, true);
+    registry.register("active", active.clone());
+    let model = connected_model(
+        &config(),
+        &registry,
+        &supporter::TokenSnapshot::default(),
+        runtime.clone(),
+        "owner",
+    )
+    .unwrap();
+    let request = request();
+    assert_eq!(
+        model.decide(&request, clock.now()).unwrap_err(),
+        DecisionError::Deadline,
+    );
+    assert_eq!(active.calls.load(Ordering::SeqCst), 0);
+    let limit = clock.now() + Duration::from_secs(1);
+    model.decide(&request, limit).unwrap();
+    clock.advance_to(limit);
+    assert_eq!(
+        model.decide(&request, limit).unwrap_err(),
+        DecisionError::Deadline,
+    );
+    assert_eq!(
+        model
+            .decide(&request, clock.now() + Duration::from_secs(1))
+            .unwrap_err(),
+        DecisionError::Budget,
+    );
+    assert_eq!(active.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(runtime.status(1)["calls_last_hour"], 1);
+    assert!(codeterm_types::decision::physical::current().is_none());
 }

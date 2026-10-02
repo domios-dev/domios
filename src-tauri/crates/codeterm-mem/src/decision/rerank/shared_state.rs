@@ -18,22 +18,24 @@ pub(super) fn run(
 ) -> StageOutcome {
     let request = build_request(primitive, query, candidates, cfg.max_body_chars);
     let expected = request.clone();
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = deadline::channel();
+    let context = deadline::capture();
     let worker = std::thread::Builder::new()
         .name("mem-supporter-shared-state".into())
         .spawn(move || {
+            let _scope = context.enter();
             let _ = tx.send(model.decide_questions(&request, deadline));
         });
     if worker.is_err() {
         return fallback(FallbackReason::AdapterError);
     }
-    let response = match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+    let response = match rx.recv_until(deadline) {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => return fallback(FallbackReason::from_error(&error)),
         Err(RecvTimeoutError::Timeout) => return fallback(FallbackReason::Deadline),
         Err(RecvTimeoutError::Disconnected) => return fallback(FallbackReason::AdapterError),
     };
-    if Instant::now() >= deadline {
+    if deadline::now() >= deadline {
         return fallback(FallbackReason::Deadline);
     }
     if expected.validate_answers(&response.answers).is_err() {
