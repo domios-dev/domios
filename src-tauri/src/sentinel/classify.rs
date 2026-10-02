@@ -97,13 +97,17 @@ pub fn classify(
         let request = request(job, output);
         let version =
             supporter::criteria_hash(&serde_json::to_vec(&request.question).unwrap_or_default());
-        let model = supporter::budgeted_model(
+        let model = supporter::budgeted_model_with_activity(
             model,
             supporter::runtime_with_notifications(svc),
             config.calls_per_hour.unwrap_or(0),
             VerdictKind::Sentinel,
             Some(job.creator_tab_id.clone()),
             Some(version),
+            Some(supporter::ActivityContext::Sentinel {
+                job: job.id.clone(),
+                buckets: job.buckets.clone(),
+            }),
         );
         decide(
             model,

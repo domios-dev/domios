@@ -14,6 +14,7 @@ pub(crate) enum VerdictKind {
     Rerank,
     TabState,
     Sentinel,
+    Heartbeat,
 }
 
 impl VerdictKind {
@@ -22,6 +23,7 @@ impl VerdictKind {
             Self::Rerank => "rerank",
             Self::TabState => "tab_state",
             Self::Sentinel => "sentinel",
+            Self::Heartbeat => "heartbeat",
         }
     }
 }
@@ -30,7 +32,8 @@ impl VerdictKind {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Action {
     SpawnOk,
-    StrongAction,
+    #[serde(rename = "strong_action")]
+    Strong,
     WeakHint,
     Rerank,
     Recovery,
@@ -44,6 +47,8 @@ pub(crate) struct ActionRecord<'a> {
     pub(crate) confidence: f64,
     pub(crate) action: Action,
     pub(crate) reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) asked: Option<Vec<super::narrative::QuestionAnswer>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -130,7 +135,11 @@ impl Journal {
     }
 
     pub(super) fn append(&self, value: &Value) -> io::Result<()> {
-        let mut bytes = serde_json::to_vec(value)?;
+        let mut value = value.clone();
+        if let Some(asked) = value.get("asked") {
+            value["asked"] = serde_json::to_value(super::narrative::project(asked))?;
+        }
+        let mut bytes = serde_json::to_vec(&value)?;
         bytes.push(b'\n');
         if bytes.len() as u64 > MAX_JOURNAL_BYTES {
             return Err(io::Error::new(

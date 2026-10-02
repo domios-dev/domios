@@ -385,6 +385,7 @@ pub struct ServiceContext {
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
+    pub(crate) heartbeat_gate: Arc<hierarchy::heartbeat_gate::Gate>,
     pub(crate) stalled_team_nudges:
         Arc<crate::service::hierarchy::stalled_team::StallEpisodeTracker>,
     pub(crate) pending_delivery_payloads:

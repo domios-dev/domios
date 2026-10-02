@@ -6,6 +6,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
         "sentinel" => "sentinel",
+        "heartbeat" => "heartbeat",
         "tab_state" if value["action"] == "recovery" => "recovery",
         "tab_state" => "tab_state",
         _ => return None,
@@ -26,6 +27,9 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "error_loop",
             "other",
             "still_starting",
+            "action_needed",
+            "nothing_changed",
+            "status_only",
         ],
         if value["label"].is_null() && kind == "rerank" {
             "relevance_scored"
@@ -49,6 +53,8 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "cron",
             "stop",
             "skip",
+            "wake",
+            "suppress",
         ],
         "notify_only",
     );
@@ -85,6 +91,11 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "adapter_disconnected",
             "invalid_answer",
             "route_failed",
+            "hard_wake",
+            "same_snapshot",
+            "healthy_snapshot",
+            "soft_cooldown",
+            "safety_status",
         ],
         "redacted",
     );
@@ -97,7 +108,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         Some(_) => "low",
         None => "unknown",
     };
-    Some(json!({
+    let mut entry = json!({
         "time": value["time"].as_i64()?, "team_id": identifier(&value["team_id"]),
         "kind": kind, "label": label, "confidence_band": band,
         "action": if action == "verdict" || action == "weak_hint" { "notify_only" } else { action },
@@ -105,7 +116,11 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         "budget_reached": value["budget"]["reached"].as_bool(),
         "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
-    }))
+    });
+    if let Some(asked) = super::narrative::project(&value["asked"]) {
+        entry["asked"] = json!(asked);
+    }
+    Some(entry)
 }
 
 fn identifier(value: &Value) -> Option<&str> {
@@ -123,3 +138,6 @@ fn allowed<'a>(value: &Value, choices: &[&'a str], fallback: &'a str) -> &'a str
         .find(|choice| value.as_str() == Some(choice))
         .unwrap_or(fallback)
 }
+
+#[cfg(test)]
+mod tests;

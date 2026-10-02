@@ -46,10 +46,20 @@ export function ActivityFeed({ api, teamId, embedded = false }: { api: ApiConfig
                   >
                     {validTime ? date.toLocaleTimeString() : "Unknown time"}
                   </time>
-                  <span className="min-w-0 flex-1 truncate">{activitySummary(text)}</span>
+                  <span className="min-w-0 flex-1 truncate">{activitySummary(text, entry.asked)}</span>
                   {attention && <Chip variant={entry.fallback === true ? "warning" : "muted"}>{entry.fallback === true ? "fallback" : "low confidence"}</Chip>}
                 </summary>
                 <div className={`${UI_TEXT.detailMuted} space-y-0.5 pb-2 pl-1`}>
+                  {entry.asked && entry.asked.length > 0 && (
+                    <dl aria-label="Questions and answers" className="space-y-1 pb-1 text-[var(--ct-fg)]">
+                      {entry.asked.map((pair, questionIndex) => (
+                        <div key={`${pair.name}:${questionIndex}`}>
+                          <dt className="break-words font-medium">{pair.question}</dt>
+                          <dd className="break-words">{pair.answer}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                   <p>{text.kind} · {text.label} · {text.confidence} confidence</p>
                   <p>Action: {text.action}</p>
                   <p>Reason: {text.reason}</p>

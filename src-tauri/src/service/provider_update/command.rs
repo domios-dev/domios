@@ -88,7 +88,7 @@ fn capture(
         .name("provider-update-capture".into())
         .spawn(move || {
             const LIMIT: usize = 32 * 1024;
-            let mut tail = std::collections::VecDeque::with_capacity(LIMIT);
+            let mut tail = std::collections::VecDeque::<u8>::with_capacity(LIMIT);
             let mut chunk = [0u8; 4096];
             loop {
                 match stream.read(&mut chunk) {

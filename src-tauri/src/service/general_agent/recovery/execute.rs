@@ -319,11 +319,17 @@ pub(crate) fn recover(
 }
 
 fn record_action(
-    _service: &ServiceContext,
+    service: &ServiceContext,
     tab_id: &str,
     verdict: &ShadowVerdict,
     reason: &'static str,
 ) -> bool {
+    let title = service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .map(|tab| tab.title.clone())
+        .unwrap_or_else(|| tab_id.into());
     crate::service::supporter::runtime()
         .try_action(crate::service::supporter::ActionRecord {
             kind: crate::service::supporter::VerdictKind::TabState,
@@ -332,6 +338,9 @@ fn record_action(
             confidence: verdict.confidence,
             action: crate::service::supporter::Action::Recovery,
             reason,
+            asked: Some(crate::service::supporter::recovery_questions(
+                &title, reason,
+            )),
         })
         .is_ok()
 }

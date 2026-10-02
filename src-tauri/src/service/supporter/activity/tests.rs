@@ -102,6 +102,7 @@ fn supporter_status_exposes_activity_and_budget() {
             criteria_version: "fixture-version",
             state_hash: "fixture-hash",
             question_set_hash: "fixture-question-hash",
+            asked: None,
         },
     );
     let status = runtime.status(10);
@@ -175,6 +176,7 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
             criteria_version: "criteria",
             state_hash: "state-hash",
             question_set_hash: "questions-hash",
+            asked: None,
         },
     );
     let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
@@ -231,6 +233,7 @@ fn supporter_feed_journal_records_team_id_at_append() {
         confidence: 0.9,
         action: super::super::Action::WeakHint,
         reason: "launch_ready",
+        asked: None,
     });
     *team.lock() = None;
     assert_eq!(lines(&dir)[0]["team_id"], "team_aabbccdd");
@@ -280,7 +283,8 @@ fn supporter_feed_failed_append_emits_no_event() {
             label: "ranked",
             confidence: 0.8,
             action: super::super::Action::Rerank,
-            reason: "all_candidates_scored"
+            reason: "all_candidates_scored",
+            asked: None,
         })
         .is_err());
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
@@ -329,6 +333,7 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
             criteria_version: "fixture-criteria",
             state_hash: "private-state",
             question_set_hash: "fixture-questions",
+            asked: None,
         },
     );
     runtime

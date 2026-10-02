@@ -93,6 +93,9 @@ pub fn run(command: &str, cwd: &Path, limit: Duration) -> Result<Output, &'stati
         use std::os::windows::process::CommandExt;
         use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED};
         let mut cmd = Command::new("powershell.exe");
+        crate::process_util::no_window_std(&mut cmd);
+        // Suspended start lets the job object own the probe before it runs, so the
+        // flags are set together after the shared no-window helper.
         cmd.args([
             "-NoLogo",
             "-NoProfile",

@@ -155,6 +155,20 @@ impl ServiceContext {
         orchestrator_idle: bool,
         gone_tab_id: Option<&str>,
     ) {
+        let svc = self.clone();
+        let plan = plan.clone();
+        let gone_tab_id = gone_tab_id.map(str::to_string);
+        tauri::async_runtime::spawn_blocking(move || {
+            svc.nudge_stalled_team_blocking(&plan, orchestrator_idle, gone_tab_id.as_deref());
+        });
+    }
+
+    fn nudge_stalled_team_blocking(
+        &self,
+        plan: &Plan,
+        orchestrator_idle: bool,
+        gone_tab_id: Option<&str>,
+    ) {
         let Some(orchestrator_tab_id) = plan.owner.tab_id.as_deref() else {
             return;
         };
@@ -176,6 +190,7 @@ impl ServiceContext {
                     },
                     NudgeKind::StalledTeam,
                 )
+                .map(|_| ())
             },
         ) {
             log::warn!(

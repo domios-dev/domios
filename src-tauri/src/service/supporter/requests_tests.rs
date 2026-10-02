@@ -76,11 +76,92 @@ fn request(n: usize) -> DecisionQuestionsRequest {
 }
 
 #[test]
+fn supporter_feed_multi_question_request_one_row_expands() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let query = "fixture-query";
+    let titles = ["fixture-first", "fixture-second", "fixture-third"];
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: calls.clone(),
+            exhausted: false,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::Rerank,
+        None,
+        None,
+        Some(ActivityContext::Rerank {
+            query: query.into(),
+            titles: titles.iter().map(|title| (*title).into()).collect(),
+        }),
+    );
+    let response = model
+        .decide_questions(
+            &request(titles.len()),
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+    assert_eq!(response.answers.len(), titles.len());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let feed = runtime.feed(10, None).unwrap();
+    assert_eq!(feed.len(), 1);
+    let asked = feed[0]["asked"].as_array().unwrap();
+    assert_eq!(asked.len(), titles.len());
+    for (index, title) in titles.iter().enumerate() {
+        assert_eq!(asked[index]["name"], format!("candidate_{index}"));
+        assert!(asked[index]["question"].as_str().unwrap().contains(*title));
+        assert!(asked[index]["question"].as_str().unwrap().contains(query));
+        assert!(asked[index]["answer"].as_str().unwrap().contains("80"));
+    }
+    for private in ["private screen", "private token", "opaque"] {
+        assert!(!feed[0].to_string().contains(private));
+    }
+}
+
+#[test]
+fn supporter_feed_failed_request_preserves_fallback_and_scrubbed_question() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let secret = "supplied-credit-secret";
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: Arc::default(),
+            exhausted: true,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::Rerank,
+        None,
+        None,
+        Some(ActivityContext::Rerank {
+            query: format!("supplied-query OPENAI_API_KEY={secret}"),
+            titles: vec!["supplied-title".into()],
+        }),
+    );
+    assert_eq!(
+        model.decide_questions(&request(1), Instant::now() + Duration::from_secs(2)),
+        Err(DecisionError::CreditExhausted)
+    );
+    let feed = runtime.feed(10, None).unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["fallback"], true);
+    assert_eq!(feed[0]["reason"], "credit_exhausted");
+    assert_eq!(feed[0]["asked"].as_array().unwrap().len(), 1);
+    assert!(feed[0]["asked"][0]["question"]
+        .as_str()
+        .unwrap()
+        .contains("supplied-query"));
+    assert!(!feed[0].to_string().contains(secret));
+}
+
+#[test]
 fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
     let calls = Arc::new(AtomicUsize::new(0));
-    let model = budgeted_model(
+    let model = budgeted_model_with_activity(
         Arc::new(Model {
             calls: calls.clone(),
             exhausted: false,
@@ -89,6 +170,7 @@ fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage
         1,
         VerdictKind::Rerank,
         Some("tab".into()),
+        None,
         None,
     );
     let response = model
@@ -138,7 +220,7 @@ fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
     let captured = alerts.clone();
     runtime.attach_alert_sink(Arc::new(move |alert| captured.lock().push(alert)));
     let calls = Arc::new(AtomicUsize::new(0));
-    let model = budgeted_model(
+    let model = budgeted_model_with_activity(
         Arc::new(Model {
             calls: calls.clone(),
             exhausted: true,
@@ -146,6 +228,7 @@ fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
         runtime.clone(),
         600,
         VerdictKind::TabState,
+        None,
         None,
         None,
     );
@@ -190,7 +273,7 @@ fn supporter_low_balance_owner_notification_is_journaled_once() {
     let alerts = Arc::new(Mutex::new(Vec::new()));
     let captured = alerts.clone();
     runtime.attach_alert_sink(Arc::new(move |alert| captured.lock().push(alert)));
-    let model = budgeted_model(
+    let model = budgeted_model_with_activity(
         Arc::new(Model {
             calls: Arc::default(),
             exhausted: false,
@@ -198,6 +281,7 @@ fn supporter_low_balance_owner_notification_is_journaled_once() {
         runtime.clone(),
         600,
         VerdictKind::Rerank,
+        None,
         None,
         None,
     );
