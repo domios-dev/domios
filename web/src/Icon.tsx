@@ -1,5 +1,6 @@
-export type IconName = 'arrow' | 'download' | 'github' | 'sun' | 'moon' | 'terminal' | 'grid' | 'mesh' | 'layers' | 'branch' | 'memory' | 'play' | 'pause';
+export type IconName = 'arrow' | 'download' | 'github' | 'sun' | 'moon' | 'terminal' | 'grid' | 'mesh' | 'layers' | 'branch' | 'memory' | 'play' | 'pause' | 'plus';
 const paths: Record<IconName, string> = {
+  plus: 'M12 5v14M5 12h14',
   arrow: 'M5 12h14m-6-6 6 6-6 6',
   download: 'M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4',
   github: 'M9 19c-4 1-4-2-6-2m12 5v-4c0-1 .1-2-.6-2.5 3-.3 6-1.5 6-6.5 0-1.5-.5-2.5-1.4-3.5.2-1 .2-2.5-.5-3.5-1.5 0-3 1-4 1.5a13 13 0 0 0-6 0C7.5 3 6 2 4.5 2c-.7 1-.7 2.5-.5 3.5C3 6.5 2.5 7.5 2.5 9c0 5 3 6.2 6 6.5-.7.5-.7 1.5-.7 2.5v4',
