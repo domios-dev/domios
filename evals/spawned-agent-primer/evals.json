@@ -53,7 +53,7 @@
       "id": 5,
       "name": "notify-escalation-role-and-trigger",
       "response_mode": "text",
-      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally — do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains — how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished — what do you do?",
+      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally \u2014 do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains \u2014 how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished \u2014 what do you do?",
       "expected_output": "Role-scoped rare-escalation policy: Workers never notify the user directly; solo agents and Orchestrators use codeterm notify send only for genuine user-attention need or an explicit user request.",
       "expectations": [
         "In scenario (a) does NOT send the user a notification for routine Worker completion and instead reports through its reporting channel",
@@ -82,6 +82,17 @@
       "expectations": [
         "Assigns a tab title containing a single word",
         "Places the monitoring and filter work summary in the tab description"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "opens-known-guide-section-with-native-directive",
+      "response_mode": "text",
+      "prompt": "The user wants to open the existing supporter-agent section of CodeTerm's Guide from your chat reply. Give only the minimal native reply syntax for that known section id. Do not run a shell command or invent a URL.",
+      "expected_output": "A standalone @ct-guide directive carries the known section id.",
+      "expectations": [
+        "Emits @ct-guide supporter-agent as a standalone paragraph outside a code fence",
+        "Does not use a URL fragment, filesystem path or shell command to navigate to the Guide"
       ]
     }
   ]

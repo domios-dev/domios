@@ -9,6 +9,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
+import { GuideDirective, parseGuideDirective } from "./GuideDirective";
 import { rehypeSourceOffsets } from "./sourceOffsets";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
@@ -59,6 +60,20 @@ function sourceForNode(source: string, node: unknown): string | null {
   const start = position?.start?.offset;
   const end = position?.end?.offset;
   if (typeof start !== "number" || typeof end !== "number") return null;
+  return source.slice(start, end);
+}
+
+function sourceForStandaloneLine(source: string, node: unknown): string | null {
+  const position = (node as {
+    position?: { start?: { offset?: number }; end?: { offset?: number } };
+  } | undefined)?.position;
+  const start = position?.start?.offset;
+  const end = position?.end?.offset;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+  const nextLine = source.indexOf("\n", end);
+  const lineEnd = nextLine < 0 ? source.length : nextLine;
+  if (source.slice(lineStart, start).trim() || source.slice(end, lineEnd).trim()) return null;
   return source.slice(start, end);
 }
 
@@ -198,6 +213,13 @@ export function RichMarkdown({
           const directiveSource = textChild === null
             ? null
             : sourceForNode(renderedText, node) ?? textChild;
+          const guideSource = textChild === null ? null : sourceForStandaloneLine(renderedText, node);
+          const guideSection = localArtifacts && guideSource
+            ? parseGuideDirective(guideSource)
+            : null;
+          if (guideSection !== null) {
+            return <GuideDirective sectionId={guideSection} />;
+          }
           const directive = localArtifacts && directiveSource
             ? parseLocalArtifactDirective(directiveSource)
             : null;
