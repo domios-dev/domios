@@ -220,6 +220,7 @@ fn update_coordinator_journal_correlates_provider_target_and_tab() {
                 confidence: 1.0,
                 action: crate::service::supporter::Action::Recovery,
                 reason: "provider_update_restart",
+                asked: None,
             },
         )
         .unwrap();

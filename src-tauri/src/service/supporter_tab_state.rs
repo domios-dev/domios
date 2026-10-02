@@ -630,13 +630,17 @@ fn observe_guarded_inner<H: ShadowHost>(
             return None;
         }
     };
-    let model = supporter::budgeted_model(
+    let model = supporter::budgeted_model_with_activity(
         model,
         host.supporter_runtime(),
         config.calls_per_hour.unwrap_or(0),
         VerdictKind::TabState,
         Some(tab_id.to_owned()),
         Some(supporter::criteria_hash(CRITERIA_JSON.as_bytes())),
+        Some(supporter::ActivityContext::TabState {
+            title: metadata.title.clone(),
+            declared_safe_choice: metadata.declared_safe_choice.clone(),
+        }),
     );
     observe(
         host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
@@ -748,6 +752,7 @@ fn observe<H: ShadowHost>(
                     confidence: verdict.confidence,
                     action: Action::SpawnOk,
                     reason: trigger.label(),
+                    asked: Some(supporter::tab_questions(&metadata.title, &verdict.label)),
                 });
                 host.deliver(
                     tab_id,
@@ -771,6 +776,7 @@ fn observe<H: ShadowHost>(
                         Action::WeakHint
                     },
                     reason: trigger.label(),
+                    asked: Some(supporter::tab_questions(&metadata.title, &verdict.label)),
                 });
                 host.deliver(
                     tab_id,
