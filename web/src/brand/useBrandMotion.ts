@@ -4,15 +4,23 @@ import type { BrandPose } from './motion';
 
 export type BrandMotion = 'static' | 'interactive' | 'load';
 
-export function useBrandMotion(motion: BrandMotion) {
+export function useBrandMotion(motion: BrandMotion, onRest?: () => void) {
   const ref = useRef<SVGSVGElement>(null);
+  const restCallback = useRef(onRest);
+  const loadFinished = useRef(false);
+  useLayoutEffect(() => { restCallback.current = onRest; }, [onRest]);
   useLayoutEffect(() => {
+    const completeLoad = () => {
+      if (motion !== 'load' || loadFinished.current) return;
+      loadFinished.current = true;
+      restCallback.current?.();
+    };
     const svg = ref.current;
-    if (!svg || motion === 'static') return;
+    if (!svg || motion === 'static') { completeLoad(); return; }
     const path = svg.querySelector('path')!;
     const group = svg.querySelector('g')!;
     const control = svg.closest<HTMLElement>('a, button, [tabindex]');
-    if (!control) return;
+    if (!control) { completeLoad(); return; }
     const preference = matchMedia('(prefers-reduced-motion: reduce)');
     const motionOwner = svg.closest('[data-motion]');
     let ease = (progress: number) => progress;
@@ -22,7 +30,8 @@ export function useBrandMotion(motion: BrandMotion) {
     let heldAmount = 0;
     let releaseAmount = 0;
     let pointer: number | null = null;
-    const enabled = () => !preference.matches && !document.hidden && motionOwner?.getAttribute('data-motion') !== 'paused';
+    let disposed = false;
+    const enabled = () => !disposed && !preference.matches && !document.hidden && motionOwner?.getAttribute('data-motion') !== 'paused';
     const paint = (pose: BrandPose) => {
       path.setAttribute('d', pose.path);
       if (pose === REST) group.removeAttribute('transform');
@@ -35,21 +44,24 @@ export function useBrandMotion(motion: BrandMotion) {
       mode = 'rest';
       pointer = null;
       paint(REST);
+      completeLoad();
     }
     function tick(timestamp: number) {
       frame = 0;
       if (!enabled()) return reset();
       const seconds = Math.max(0, (timestamp - started) / 1000);
       if (mode === 'open') {
-        if (seconds >= 1.6) return reset();
-        paint(surfaceTension(seconds));
+        const pose = surfaceTension(seconds);
+        if (pose === REST) return reset();
+        paint(pose);
       } else if (mode === 'hold') {
         heldAmount = .12 + .88 * ease(seconds / .16);
         paint(compression(heldAmount));
         if (seconds >= .16) return;
       } else if (mode === 'release') {
-        if (seconds >= 1.2) return reset();
-        paint(release(seconds, releaseAmount));
+        const pose = release(seconds, releaseAmount);
+        if (pose === REST) return reset();
+        paint(pose);
       } else return;
       frame = requestAnimationFrame(tick);
     }
@@ -62,6 +74,7 @@ export function useBrandMotion(motion: BrandMotion) {
     }
     function press() {
       if (!enabled()) return;
+      if (mode === 'open') reset();
       ease = liquidEasing(getComputedStyle(path).getPropertyValue('--ct-ease-liquid-settle'));
       cancelAnimationFrame(frame);
       mode = 'hold';
@@ -80,7 +93,7 @@ export function useBrandMotion(motion: BrandMotion) {
       pointer = null;
       frame = requestAnimationFrame(tick);
     }
-    const down = (event: PointerEvent) => { if (event.button === 0 && enabled()) { pointer = event.pointerId; press(); } };
+    const down = (event: PointerEvent) => { if (event.button === 0 && enabled()) { press(); pointer = event.pointerId; } };
     const up = (event: PointerEvent) => { if (pointer === event.pointerId) lift(); };
     const keyDown = (event: KeyboardEvent) => {
       if ((event.code === 'Space' || event.code === 'Enter') && enabled()) {
@@ -96,11 +109,12 @@ export function useBrandMotion(motion: BrandMotion) {
       }
     };
     const sync = () => { if (!enabled()) reset(); };
+    const hover = () => { if (motion === 'interactive') open(); };
     const blur = () => { if (mode === 'hold') reset(); };
     const observer = new MutationObserver(sync);
     if (motionOwner) observer.observe(motionOwner, { attributes: true, attributeFilter: ['data-motion'] });
-    control.addEventListener('pointerenter', open);
-    control.addEventListener('focus', open);
+    control.addEventListener('pointerenter', hover);
+    control.addEventListener('focus', hover);
     control.addEventListener('pointerdown', down);
     control.addEventListener('keydown', keyDown);
     control.addEventListener('keyup', keyUp);
@@ -110,12 +124,16 @@ export function useBrandMotion(motion: BrandMotion) {
     window.addEventListener('blur', reset);
     document.addEventListener('visibilitychange', sync);
     preference.addEventListener('change', sync);
-    if (motion === 'load') open();
+    if (motion === 'load' && !loadFinished.current) {
+      if (enabled()) open();
+      else reset();
+    }
     return () => {
+      disposed = true;
       reset();
       observer.disconnect();
-      control.removeEventListener('pointerenter', open);
-      control.removeEventListener('focus', open);
+      control.removeEventListener('pointerenter', hover);
+      control.removeEventListener('focus', hover);
       control.removeEventListener('pointerdown', down);
       control.removeEventListener('keydown', keyDown);
       control.removeEventListener('keyup', keyUp);
