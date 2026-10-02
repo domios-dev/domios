@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
 import { usageForModel } from "../../lib/modelGroups";
-import { SupporterAllowanceRow } from "./SupporterAllowanceRow";
 import type { ApiConfig, ModelGroup } from "../../lib/types";
 import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
@@ -90,10 +89,9 @@ export function UsageBubble({
     setFlipUp(room < 360);
   }, [open]);
 
-  if (!trackingEnabled) return <SupporterAllowanceRow api={api} />;
-  if (!active) return <SupporterAllowanceRow api={api} />;
+  if (!trackingEnabled || !active) return null;
   const ageMs = Date.now() - active.captured_at;
-  if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return <SupporterAllowanceRow api={api} />;
+  if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
   // to threshold against — render the cycle spend as a neutral pill.
@@ -170,8 +168,6 @@ export function UsageBubble({
         )}
         {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
       </button>
-
-      <SupporterAllowanceRow api={api} />
 
       {open && isSpend && (
         <UsageSpendDetail
