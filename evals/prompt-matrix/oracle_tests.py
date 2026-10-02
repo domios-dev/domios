@@ -13,7 +13,7 @@ from binding_tests import AttributionControls, CourierControls, proposed_contrac
 from report import exit_code
 from sentinel_raw_tests import SentinelRawControls, raw_outcome
 from fixture_tests import NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls
-from bounded_io_tests import DeadlineControls, ArchiveCollisionControls, AcquisitionControls
+from bounded_io_tests import DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls
 
 
 def notification_evidence():
@@ -178,6 +178,7 @@ def main():
     parser.add_argument("--red-binding-demo", action="store_true")
     parser.add_argument("--red-courier-demo", action="store_true")
     parser.add_argument("--red-sentinel-provenance-demo", action="store_true")
+    parser.add_argument("--red-acquisition-demo", action="store_true")
     options = parser.parse_args()
     if options.red_demo:
         evidence = notification_evidence() | {"notifications": 2}
@@ -206,10 +207,19 @@ def main():
         evidence["journal"][2]["recipient_receipt"] = "invented"
         validate_raw(evidence["journal"], evidence["raw_scope"])
         return 0
+    if options.red_acquisition_demo:
+        from acquisition_transport import AcquisitionProcess
+        from bounded_io_tests import Clock, Flag, ImmediateThread
+        from deadline_io import Deadline
+        deadline = Deadline(10, Clock())
+        lifecycle = AcquisitionProcess({"operation": deadline}, deadline, event_factory=Flag, thread_factory=ImmediateThread)
+        lifecycle.finished.set()
+        lifecycle.finish(cancel=False)
+        return 0
     suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
                                for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
                                            NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls,
-                                           DeadlineControls, ArchiveCollisionControls, AcquisitionControls))
+                                           DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 

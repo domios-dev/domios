@@ -341,6 +341,7 @@
     "trigger_status": "pending",
     "confinement_status": "pending",
     "absolute_transport_status": "pending",
-    "absolute_transport_reason": "Standard urllib has no certified absolute-deadline open/read/cancel/completion seam here. Unsafe fallback removed; native_archive.acquire refuses with no adapter. Exact narrow bounded transport proposal is in ACQUISITION-TRANSPORT.md. Fake transport controls do not qualify a real adapter."
+    "absolute_transport_source": "source_authored_NOT_RUN",
+    "absolute_transport_reason": "Owned isolated Python registry helper and parent lifecycle authored under Fermi source GO, NOT RUN. Default acquisition uses reviewed fixture inputs, one original deadline and actual exit/handle completion before independent byte validation. Process creation/termination and cross-platform private CPython seams remain unqualified. Pure fake controls do not qualify actual acquisition."
   }
 }
