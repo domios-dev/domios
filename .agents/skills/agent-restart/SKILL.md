@@ -16,8 +16,7 @@ Cross-references:
 
 ## What the flow does
 
-Agent restart takes an observed live provider through its graceful exit command and then auto-resumes
-the same Tab; a provider that already exited to its shell is recovered in place (section 6). Update shutdown is deliberately different: it tears down owned
+Agent restart takes an observed live provider through its graceful exit command and then resumes or fresh-launches it in the same Tab; a provider that already exited to its shell is recovered in place (section 6). A confirmed `LaunchBindingUnconfirmed` shell with a known PTY provider and no verified recovery session selectable from its lineage or journal also starts that provider fresh from its recorded launch. Update shutdown is deliberately different: it tears down owned
 PTY process trees without sending `/exit`, preserves each Tab's session binding
 and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 
@@ -103,9 +102,9 @@ header. Wait for the cooldown, retry, and the call should succeed.
 ## 4. Error cases
 
 - **`404`** — Tab id doesn't exist (typo, closed Tab).
-- **`400`** — the Tab has no agent and no verified prior session, its
-  exited session is not owned by exactly one provider, it has no live
-  shell, or the provider doesn't support restart.
+- **`400`** — liveness is unobserved and the Tab is not a confirmed bare
+  shell eligible for fresh launch, its exited session is not owned by exactly
+  one provider, it has no live shell, or the provider doesn't support restart.
 - **`500`** — internal failure (PTY spawn error). Check
   `~/.codeterm-dev/logs/codeterm.log` for the trace.
 
@@ -214,6 +213,12 @@ from `codeterm tab list` shows the tab `absent`, then run `codeterm agent restar
 `agent_ready` with `recovered_in_place: true` and the prior `session_id`, the
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
+
+For a bare shell at `LaunchBindingUnconfirmed`, with a known provider and no
+verified recovery session selectable from lineage or journal, run `codeterm agent restart --tab <id>`. It replaces
+the shell PTY, launches the provider from the recorded spawn without resuming
+the unverified session, and reports `action=fresh_launch`. If the provider or
+recorded launch cannot be used, the command fails instead of reporting success.
 
 ## Internal references
 

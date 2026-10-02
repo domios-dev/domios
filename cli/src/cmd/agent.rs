@@ -951,14 +951,30 @@ fn render_startup_hold(value: &serde_json::Value) -> String {
     )
 }
 
-/// Success (exit 0) vs. failure (exit 1); the unreported-vs-foreign-session
-/// distinction is already resolved server-side by the time `status` arrives.
+/// A `202` means accepted; readiness and the completed action must also be observed.
 fn restart_response_outcome(
     status: reqwest::StatusCode,
     val: &serde_json::Value,
 ) -> Result<(), String> {
     if status.is_success() {
-        return Ok(());
+        if val.get("agent_ready").and_then(serde_json::Value::as_bool) != Some(true) {
+            return Err("restart response did not confirm agent readiness".to_string());
+        }
+        return match val
+            .get("session_action")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("resumed")
+                if val
+                    .get("session_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|session_id| !session_id.is_empty()) =>
+            {
+                Ok(())
+            }
+            Some("fresh_launch") => Ok(()),
+            _ => Err("restart response did not confirm the completed action".to_string()),
+        };
     }
     let msg = val
         .get("error")
@@ -971,19 +987,21 @@ fn render_restart_success(val: &serde_json::Value, tab_id: &str) -> String {
     let action = val
         .get("session_action")
         .and_then(|v| v.as_str())
-        .unwrap_or("fresh");
+        .unwrap_or("unknown");
     let full_access = val
         .get("full_access")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let sid = val.get("session_id").and_then(|v| v.as_str());
     let session = match (action, sid) {
-        ("resume", Some(s)) => format!("resume {}", s),
-        _ => "fresh session".to_string(),
+        ("resumed", Some(s)) => format!("session_id={s}"),
+        ("fresh_launch", _) => "new session".to_string(),
+        _ => "session details unavailable".to_string(),
     };
     format!(
-        "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
+        "Restarting Tab {}: action={}, {}, full access={}",
         tab_id,
+        action,
         session,
         if full_access { "on" } else { "off" }
     )
