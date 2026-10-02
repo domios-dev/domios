@@ -107,6 +107,66 @@ fn tab_state_verdict_discarded_across_new_launch() {
 }
 
 #[test]
+fn supporter_first_opinion_old_launch_verdict_preserves_current_episode() {
+    let tab_id = tab();
+    let old = claim_observation(&tab_id, "launch-1", ObservationEvent::WorkerIdle).unwrap();
+    let current = claim_observation(&tab_id, "launch-2", ObservationEvent::WorkerIdle).unwrap();
+    let before = snapshot_episode(&tab_id);
+
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-1", &old, "error_loop", 0.95),
+        None
+    );
+    assert_eq!(snapshot_episode(&tab_id), before);
+    assert!(permit_is_current(&tab_id, "launch-2", &current));
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-2", &current, "error_loop", 0.95),
+        Some(SignalAction::WeakHint)
+    );
+}
+
+#[test]
+fn supporter_first_opinion_unclaimed_verdict_does_not_create_episode() {
+    let tab_id = tab();
+    let permit = ObservationPermit {
+        episode: 1,
+        observation_id: 1,
+        spawn_claim: None,
+    };
+    let before = snapshot_episode(&tab_id);
+
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-1", &permit, "error_loop", 0.95),
+        None
+    );
+    assert_eq!(snapshot_episode(&tab_id), before);
+}
+
+#[test]
+fn supporter_first_opinion_duplicate_observation_cannot_supply_agreement() {
+    let tab_id = tab();
+    let first = claim_observation(&tab_id, "launch-1", ObservationEvent::WorkerIdle).unwrap();
+    let second =
+        claim_observation(&tab_id, "launch-1", ObservationEvent::StartupEscalation).unwrap();
+
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-1", &first, "error_loop", 0.95),
+        Some(SignalAction::WeakHint)
+    );
+    let before = snapshot_episode(&tab_id);
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-1", &first, "error_loop", 0.95),
+        None
+    );
+    assert_eq!(snapshot_episode(&tab_id), before);
+    assert_ne!(first.observation_id, second.observation_id);
+    assert_eq!(
+        apply_observed_verdict(&tab_id, "launch-1", &second, "error_loop", 0.95),
+        Some(SignalAction::StrongAction)
+    );
+}
+
+#[test]
 fn tab_state_spawn_health_fires_once_ready_or_deadline() {
     let tab = tab();
     assert!(claim_observation(&tab, "launch-1", ObservationEvent::SpawnReady).is_ok());
