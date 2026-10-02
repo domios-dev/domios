@@ -227,7 +227,7 @@ When enabled, CodeTerm starts with a single "General" workspace instead of the d
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
 
-General Agent recovery, its thresholds and owner-notification rules: `codeterm docs TAB-LIFECYCLE`, section "General Agent recovery".
+General Agent recovery, its thresholds and owner-notification rules, and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates".
 
 ## Worker lane provisioning
 
@@ -235,6 +235,6 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 ## Related documents
 
-Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`. Full behaviour: `codeterm docs TAB-LIFECYCLE`, section "Provider updates".
+Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 84 -->
+<!-- revision: 85 -->
