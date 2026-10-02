@@ -40,6 +40,7 @@ impl DecisionModel for Model {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self.exhausted {
             return Err(DecisionError::Http(402));
@@ -222,4 +223,35 @@ fn supporter_low_balance_owner_notification_is_journaled_once() {
             .count(),
         1
     );
+}
+
+#[test]
+fn supporter_first_opinion_physical_requests_counted_per_real_request() {
+    struct Local;
+    impl DecisionModel for Local {
+        fn id(&self) -> &str { "local" }
+        fn token_mode(&self) -> TokenMode { TokenMode::None }
+        fn primitives(&self) -> DecisionPrimitives { DecisionPrimitives { noul: true, ..Default::default() } }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            Ok(DecisionAnswer::Noul { p: 0.8 })
+        }
+    }
+    struct Sequential;
+    impl DecisionModel for Sequential {
+        fn id(&self) -> &str { "sequential" }
+        fn token_mode(&self) -> TokenMode { TokenMode::None }
+        fn primitives(&self) -> DecisionPrimitives { DecisionPrimitives { noul: true, ..Default::default() } }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            codeterm_types::decision::physical::before_request()?;
+            Ok(DecisionAnswer::Noul { p: 0.8 })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let local = budgeted_model(Arc::new(Local), runtime.clone(), 2, VerdictKind::Rerank, None, None);
+    local.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)).unwrap();
+    assert_eq!(runtime.status(2)["calls_last_hour"], 0);
+    let wire = budgeted_model(Arc::new(Sequential), runtime.clone(), 2, VerdictKind::Rerank, None, None);
+    assert_eq!(wire.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)), Err(DecisionError::Budget));
+    assert_eq!(runtime.status(2)["calls_last_hour"], 2);
 }

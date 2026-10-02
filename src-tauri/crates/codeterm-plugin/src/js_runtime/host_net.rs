@@ -722,3 +722,43 @@ mod tests {
         assert!(escaped_rx.recv_timeout(Duration::from_millis(100)).is_err());
     }
 }
+
+#[cfg(test)]
+mod physical_tests {
+    use super::*;
+    use codeterm_types::decision::{physical, DecisionError};
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+    struct Meter(AtomicUsize);
+    impl physical::RequestObserver for Meter {
+        fn before_request(&self) -> Result<(), DecisionError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn decision_physical_fetch_workers_propagate_call_scope() {
+        let meter = Arc::new(Meter(AtomicUsize::new(0)));
+        let scope = physical::RequestScope::enter(meter.clone());
+        let malformed: serde_json::Value = serde_json::from_str(&run("{}")).unwrap();
+        assert!(malformed["error"].is_string());
+        assert_eq!(meter.0.load(Ordering::SeqCst), 0);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let serve = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0; 2048];
+            stream.read(&mut buf).unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").unwrap();
+        });
+        let opts = serde_json::json!({"url": url}).to_string();
+        let result: serde_json::Value = serde_json::from_str(&run(&opts)).unwrap();
+        assert_eq!(result["status"], 200);
+        serve.join().unwrap();
+        assert_eq!(meter.0.load(Ordering::SeqCst), 1);
+        drop(scope);
+        assert!(physical::current().is_none());
+    }
+}

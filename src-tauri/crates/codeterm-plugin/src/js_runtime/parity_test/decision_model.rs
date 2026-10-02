@@ -198,3 +198,16 @@ fn parity_decision_model_multi_question_shared_state_and_sequential_local_adapte
         assert_eq!(response.answers.len(), 3);
     }
 }
+
+#[test]
+fn parity_decision_model_explicit_batch_capability() {
+    for declared in [false, true] {
+        let source = format!("module.exports.default = {{ supportsQuestionBatch() {{ return {declared}; }}, decideQuestions() {{ return {{ answers: {{}}, usage: null }}; }} }};");
+        let vm = Arc::new(PluginVm::from_source("batch-fixture", source).unwrap());
+        let js = JsDecisionModel::new(vm, "batch-fixture", TokenMode::None);
+        assert_eq!(js.supports_question_batch(), declared);
+    }
+    let implicit = Arc::new(PluginVm::from_source("implicit", "module.exports.default = { decideQuestions() { return null; } };".into()).unwrap());
+    assert!(!JsDecisionModel::new(implicit, "implicit", TokenMode::None).supports_question_batch());
+    assert!(!NativeDecisionModel(TokenMode::None).supports_question_batch());
+}

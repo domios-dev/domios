@@ -279,6 +279,7 @@ impl StubModel {
 }
 
 impl DecisionModel for StubModel {
+    fn supports_question_batch(&self) -> bool { true }
     fn id(&self) -> &str {
         "fixture"
     }
@@ -309,6 +310,7 @@ impl DecisionModel for StubModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.seen.lock() = Some(request.clone());
         if let Some(on_decide) = &self.on_decide {
@@ -999,3 +1001,6 @@ fn tab_state_uses_configured_adapter_with_choice_capability() {
 mod connected_tests;
 #[path = "metadata_tests.rs"]
 mod metadata_tests;
+
+#[path = "first_opinion_tests.rs"]
+mod first_opinion_tests;
