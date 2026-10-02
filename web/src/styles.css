@@ -15,7 +15,7 @@ svg { flex-shrink: 0; }
 .skip-link { position: fixed; z-index: 20; left: 20px; top: -70px; padding: 14px 20px; background: var(--ct-accent); color: var(--ct-on-accent); border-radius: 10px; }
 .skip-link:focus { top: 12px; }
 .site-header { height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border-bottom: 1px solid var(--ct-border); }
-.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ct-heading); font-size: 25px; font-weight: 650; letter-spacing: -1px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ct-heading); font-size: 25px; font-weight: 700; letter-spacing: -1px; }
 .brand-mark { color: var(--ct-accent); }
 .site-header nav, .header-actions { display: flex; align-items: center; gap: 28px; }
 .site-header nav { margin-left: auto; margin-right: 18px; }
@@ -39,6 +39,7 @@ svg { flex-shrink: 0; }
 
 .hero-badge { display: inline-flex; align-items: center; gap: 11px; padding: 8px 12px; border: 1px solid var(--ct-border); border-radius: 99px; font: 10px var(--ct-font-mono); letter-spacing: 1.35px; color: var(--ct-muted-fg); }
 .hero-badge > span:last-child { padding-left: 8px; color: var(--ct-accent); }
+.hero-badge .brand-mark { width: 16px; height: 16px; flex: none; }
 .status-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); box-shadow: 0 0 8px color-mix(in srgb, var(--ct-green) 30%, transparent); }
 h1 { margin: 27px 0 22px; font-size: clamp(56px, 7.3vw, 91px); font-weight: 550; line-height: 1.04; letter-spacing: -.065em; color: var(--ct-heading); }
 h1 span { color: var(--ct-accent); }
@@ -132,7 +133,6 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
 .provider-list svg { color: var(--ct-muted-fg); }
 .provider-list li:last-child { border-left: 1px dashed var(--ct-muted); padding-left: 20px; }
 .provider-strip > p { color: var(--ct-muted-fg); font-size: 12px; line-height: 1.7; }
-.motion-control { display: flex; align-items: center; gap: 6px; margin: 0 auto 28px; padding: 9px; border: 0; background: transparent; color: var(--ct-muted-fg); font-size: 11px; }
 .field-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; padding: 45px 0; }
 .field-notes h3 { font-size: 21px; font-weight: 500; letter-spacing: -.7px; margin: 15px 0 12px; }
 .field-notes p, .coming-note p { color: var(--ct-muted-fg); font-size: 13px; line-height: 1.8; }
