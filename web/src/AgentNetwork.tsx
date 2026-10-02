@@ -11,6 +11,16 @@ const machines: { id: string; number: string; name: string; kind: string; agents
   { id: 'cloud', number: '04', name: 'Cloud VM', kind: 'ANOTHER PLACE TO WORK', agents: [{ name: 'Vale', provider: 'Claude Code', icon: 'branch' }], task: 'Keep the work connected' },
 ];
 
+function MachineHardware({ kind }: { kind: string }) {
+  return <div className={`machine-hardware hardware-${kind}`} aria-hidden="true">
+    <span className="device-frame" />
+    {kind === 'laptop' && <><span className="device-camera" /><span className="laptop-deck"><i /></span></>}
+    {kind === 'workstation' && <><span className="monitor-stand" /><span className="workstation-tower"><i /><i /><i /></span></>}
+    {kind === 'server' && <><span className="server-bays"><i /><i /><i /></span><span className="server-feet" /></>}
+    {kind === 'cloud' && <><span className="cloud-layer" /><svg className="cloud-symbol" viewBox="0 0 64 36" fill="none"><path d="M17 29h32a10 10 0 0 0 1-20 16 16 0 0 0-29-1 11 11 0 0 0-4 21Z" /><path d="M25 21h14M29 16h6" /></svg></>}
+  </div>;
+}
+
 export function AgentNetwork() {
   const desk = useLiquidMesh();
   return <figure className="agent-network" role="img" aria-label="Domios windows on your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports. For example: Build the landing page. Done: 3 files, tests pass.">
@@ -27,6 +37,7 @@ export function AgentNetwork() {
       </svg>
       <div className="mesh-center"><span>Work flows.</span><span>Wherever you are.</span></div>
       {machines.map((machine) => <div className={`machine-home machine-${machine.id}`} key={machine.id}>
+        <MachineHardware kind={machine.id} />
         <div className="machine-body">
           <div className="machine-sheen" />
           <div className="machine-heading"><span className="machine-controls" aria-hidden="true"><i /><i /><i /></span><span className="machine-title"><BrandMark /><span>domios</span></span><span className="machine-number">{machine.number}</span></div>
@@ -45,7 +56,7 @@ export function AgentNetwork() {
             <path d="M-12 0C-12-7-6-11 1-10C9-10 13-5 13 0S9 10 1 10C-6 11-12 7-12 0Z" />
             <ellipse className="liquid-glint" cx="2" cy="-4" rx="5" ry="2" />
           </g>
-          <g className="liquid-label"><text textAnchor="middle" dy="3.5" /></g>
+          <g className="liquid-label"><rect x="-28" y="-10" width="56" height="20" rx="10" /><text textAnchor="middle" dy="3.5">Task</text></g>
         </g>)}
       </svg>
     </div>
