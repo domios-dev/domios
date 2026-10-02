@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "totalBytes": 2164309,
+  "clips": [
+    {
+      "id": "board",
+      "duration": 7.0,
+      "width": 1600,
+      "height": 1256,
+      "loop": true,
+      "captions": [
+        {
+          "start": 0,
+          "end": 7,
+          "text": "One board for the whole team"
+        }
+      ],
+      "mp4": {
+        "src": "/media/board.mp4",
+        "bytes": 67108
+      },
+      "webm": {
+        "src": "/media/board.webm",
+        "bytes": 43653
+      },
+      "poster": {
+        "src": "/media/board-poster.webp",
+        "bytes": 17886
+      }
+    },
+    {
+      "id": "mesh",
+      "duration": 12.0,
+      "width": 1600,
+      "height": 1256,
+      "loop": true,
+      "captions": [
+        {
+          "start": 0,
+          "end": 2,
+          "text": "Your machines, connected"
+        },
+        {
+          "start": 2,
+          "end": 6,
+          "text": "Open a peer"
+        },
+        {
+          "start": 6,
+          "end": 10,
+          "text": "The same workspace in your browser"
+        },
+        {
+          "start": 10,
+          "end": 12,
+          "text": "One shared mesh"
+        }
+      ],
+      "mp4": {
+        "src": "/media/mesh.mp4",
+        "bytes": 145450
+      },
+      "webm": {
+        "src": "/media/mesh.webm",
+        "bytes": 138962
+      },
+      "poster": {
+        "src": "/media/mesh-poster.webp",
+        "bytes": 20882
+      }
+    },
+    {
+      "id": "plugins",
+      "duration": 10.0,
+      "width": 1600,
+      "height": 1256,
+      "loop": true,
+      "captions": [
+        {
+          "start": 0,
+          "end": 3,
+          "text": "Choose your agent"
+        },
+        {
+          "start": 3,
+          "end": 5,
+          "text": "Add capabilities"
+        },
+        {
+          "start": 5,
+          "end": 7,
+          "text": "Connect your secret store"
+        },
+        {
+          "start": 7,
+          "end": 10,
+          "text": "Extend your workspace"
+        }
+      ],
+      "mp4": {
+        "src": "/media/plugins.mp4",
+        "bytes": 586376
+      },
+      "webm": {
+        "src": "/media/plugins.webm",
+        "bytes": 438344
+      },
+      "poster": {
+        "src": "/media/plugins-poster.webp",
+        "bytes": 51530
+      }
+    },
+    {
+      "id": "mesh-talk",
+      "duration": 26.0,
+      "width": 1600,
+      "height": 1256,
+      "loop": true,
+      "captions": [
+        {
+          "start": 0,
+          "end": 3,
+          "text": "Ask your agent about the mesh"
+        },
+        {
+          "start": 3,
+          "end": 6,
+          "text": "Prepare one check-in"
+        },
+        {
+          "start": 6,
+          "end": 9,
+          "text": "Contact the online machines"
+        },
+        {
+          "start": 9,
+          "end": 16,
+          "text": "Watch messages cross the mesh"
+        },
+        {
+          "start": 16,
+          "end": 21,
+          "text": "Replies arrive"
+        },
+        {
+          "start": 21,
+          "end": 26,
+          "text": "One fleet summary"
+        }
+      ],
+      "mp4": {
+        "src": "/media/mesh-talk.mp4",
+        "bytes": 281885
+      },
+      "webm": {
+        "src": "/media/mesh-talk.webm",
+        "bytes": 345761
+      },
+      "poster": {
+        "src": "/media/mesh-talk-poster.webp",
+        "bytes": 21534
+      }
+    }
+  ]
+}
