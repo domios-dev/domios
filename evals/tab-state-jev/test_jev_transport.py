@@ -686,5 +686,26 @@ class HarnessBoundaryTests(unittest.TestCase):
         self.assertTrue(report["preparation"]["cwd_closed"] and report["preparation"]["certificate_files_closed"])
 
 
+class AbsoluteDeadlineHandoffTests(unittest.TestCase):
+    def test_run_case_hands_off_captured_absolute_request_end(self):
+        with ExitStack() as stack:
+            _, fixture_receipt = HarnessRegressionTests.harness_patches(self, stack)
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "argv": ["/synthetic-interpreter", "-I", "-S", "-B", "/synthetic-helper"],
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+            stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
+            stack.enter_context(patch.object(t.shutil, "rmtree"))
+            transport = stack.enter_context(patch.object(t, "JevTransport"))
+            transport.return_value.send.side_effect = t.TransportFailure("synthetic_mechanism_refusal")
+            report = local.run_case("success")
+        send = transport.return_value.send
+        send.assert_called_once()
+        self.assertEqual(report["error"], "synthetic_mechanism_refusal")
+        self.assertEqual(report["fixture"], fixture_receipt)
+        self.assertEqual(send.call_args.kwargs.get("request_end"), report["hard_end"])
+        self.assertEqual(send.call_args.kwargs["timeout"], t.REQUEST_SECONDS)
+        self.assertEqual(transport.return_value.run_end, report["run_end"])
+
+
 if __name__ == "__main__":
     unittest.main()
