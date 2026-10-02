@@ -45,14 +45,13 @@ function control(point: Point, side: Side, reach: number): Point {
   return { x: point.x + (side === 'left' ? -reach : side === 'right' ? reach : 0), y: point.y + (side === 'top' ? -reach : side === 'bottom' ? reach : 0) };
 }
 
-export function measureChannels(cards: HTMLElement[], mobile: boolean): Channel[] {
+export function measureChannels(cards: HTMLElement[], mobile: boolean, compact: boolean): Channel[] {
   const links: [number, number, Side, Side][] = mobile
-    ? [[0, 1, 'right', 'top'], [1, 2, 'left', 'top']]
-    : [[0, 1, 'right', 'left'], [1, 2, 'right', 'top'], [2, 3, 'left', 'right'], [3, 0, 'top', 'bottom']];
+    ? [[0, 1, 'bottom', 'top'], [1, 2, 'bottom', 'top']]
+    : [[0, 1, 'right', 'left'], [1, 2, compact ? 'bottom' : 'right', 'top'], [2, 3, 'left', 'right'], [3, 0, 'top', 'bottom']];
   return links.map(([from, to, sourceSide, targetSide]) => {
     const start = port(cards[from], sourceSide);
     const end = port(cards[to], targetSide);
-    if (mobile) end.x += cards[to].offsetWidth * .28 * (sourceSide === 'right' ? 1 : -1);
     const reach = Math.min(mobile ? 58 : 125, Math.hypot(start.x - end.x, start.y - end.y) * .5);
     const curve = { start, end, c1: control(start, sourceSide, reach), c2: control(end, targetSide, reach) };
     let length = 0;
