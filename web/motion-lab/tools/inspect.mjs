@@ -34,6 +34,31 @@ try {
     if (!tab.selected.includes(expected) || tab.focused !== 'true' || tab.panelCount !== 1) throw new Error(JSON.stringify(tab));
     results.push({ keyboard: code, ...tab });
   }
+  await browser.evaluate(`document.querySelector('.pause-study').click()`);
+  await browser.evaluate(`document.querySelectorAll('[role="tab"]')[1].click(); document.querySelectorAll('.caption-controls button')[1].click()`);
+  const pausedCaption = await browser.evaluate(`({opacity: getComputedStyle(document.querySelector('.liquid-caption')).opacity, panelOpacity: getComputedStyle(document.querySelector('.showcase-sheet')).opacity, caption: document.querySelector('.liquid-caption').textContent})`);
+  if (pausedCaption.opacity !== '1' || pausedCaption.panelOpacity !== '1' || !pausedCaption.caption.includes('second home')) throw new Error(JSON.stringify(pausedCaption));
+  results.push({ pausedCaption });
+  await browser.navigate(`${base}/?piece=mesh&theme=light`);
+  const frameSample = await browser.evaluate(`new Promise(resolve => {
+    const times = [];
+    const observe = now => {
+      times.push(now);
+      if (times.length < 181) requestAnimationFrame(observe);
+      else {
+        const intervals = times.slice(1).map((time, index) => time - times[index]).sort((a,b) => a-b);
+        resolve({frames: intervals.length, medianMs: intervals[90], p95Ms: intervals[171], maxMs: intervals[179], over25Ms: intervals.filter(value => value > 25).length});
+      }
+    };
+    requestAnimationFrame(observe);
+  })`);
+  results.push({ animationFrameSample: frameSample });
+  await browser.evaluate(`document.querySelector('.pause-study').click()`);
+  const stopped = await browser.evaluate(`Array.from(document.querySelectorAll('[data-parcel]'), node => node.getAttribute('transform'))`);
+  await browser.evaluate(`new Promise(resolve => { let count = 0; const frame = () => ++count === 30 ? resolve() : requestAnimationFrame(frame); requestAnimationFrame(frame); })`);
+  const held = await browser.evaluate(`Array.from(document.querySelectorAll('[data-parcel]'), node => node.getAttribute('transform'))`);
+  if (JSON.stringify(stopped) !== JSON.stringify(held)) throw new Error('Hero moved while paused');
+  results.push({ heroPauseHeldAcrossFrames: 30 });
   await browser.command('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   for (const piece of ['mesh', 'waterline', 'showcase', 'gather']) {
     await browser.navigate(`${base}/?piece=${piece}&theme=dark`);
