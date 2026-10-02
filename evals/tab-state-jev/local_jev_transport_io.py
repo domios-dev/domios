@@ -534,11 +534,33 @@ def run_trust_case(case):
               "helper_count": 0, "requests": 0, "responses": 0, "listener_opened": False,
               "cleanup_errors": [], "runtime": {}, "fixture": {}, "native_control": "NOT RUN"}
     plan = guard = probe = None
-    child = target = link = captured = inheriting = inherited_facts = target_facts = None
-    predicate = None
+    paths, partial_owners, predicate = [], [], None
     expected = {"preflight": None, "trusted_directory": None, "foreign_write": "windows_foreign_authority",
                 "null_dacl": "windows_dacl", "inherited_write": "windows_foreign_authority",
                 "reparse_refused": "windows_reparse_or_links"}[case]
+
+    def created(path, descriptor=None, *, target=None):
+        node = {"path": path, "reparse": target is not None, "creation_confirmed": False,
+                "entry": None, "identity_confirmed": False, "removed": False}
+        paths.append(node)
+        t.remaining(operation_end, time.monotonic)
+        if target is None:
+            guard.api.create_directory(path, descriptor)
+        else:
+            try:
+                os.symlink(target, path, target_is_directory=True)
+            except OSError as error:
+                raise t.TransportFailure("windows_reparse_control_unavailable") from error
+        node["creation_confirmed"] = True
+        entry = guard.capture(path, directory=True)
+        node["entry"] = entry
+        facts = guard.api.identify(entry["handle"]) if target is not None else guard.api.inspect(entry["handle"])
+        entry["facts"] = facts
+        t.require(facts["directory"] and os.path.normcase(facts["final"]) == os.path.normcase(str(path)),
+                  "windows_fixture_identity")
+        node["identity_confirmed"] = True
+        return node
+
     try:
         t.require(t.native_support() == "nt", "windows_native_required")
         wire = c.encode({"state": "synthetic Windows admission fixture", "model": "fixture-alias", "questions": {
@@ -552,8 +574,8 @@ def run_trust_case(case):
                              "subprocess_sha256": t.worker_support.WINDOWS_SUBPROCESS_SHA256,
                              "trust": plan["windows_guard"].receipt()}
         plan["windows_guard"].close(remove_cwd=True, cleanup_end=hard_end)
-        report["runtime"]["trust_handles_closed"] = plan["windows_guard"].closed
-        report["runtime"]["cwd_closed"] = plan["windows_guard"].created_directory is None
+        report["runtime"].update(trust_handles_closed=plan["windows_guard"].closed,
+                                 cwd_closed=plan["windows_guard"].created_directory is None)
         if case != "preflight":
             guard = t.worker_support.WindowsTrust(operation_end)
             root = guard.create_private()
@@ -567,32 +589,19 @@ def run_trust_case(case):
                 descriptor = f"O:{user}D:NO_ACCESS_CONTROL"
             elif case == "inherited_write":
                 inheriting = root / "inheriting"
-                guard.api.create_directory(inheriting, secure + "(A;OICIIO;FW;;;WD)")
-                handle = guard.api.open(inheriting, directory=True)
-                try:
-                    inherited_facts = guard.api.inspect(handle)
-                finally:
-                    guard.api.close(handle)
+                created(inheriting, secure + "(A;OICIIO;FW;;;WD)")
                 child = inheriting / "control"
                 descriptor = secure.replace("D:P", "D:")
             if case == "reparse_refused":
                 target = root / "target"
-                guard.api.create_directory(target, secure)
-                target_facts = target.lstat()
-                try:
-                    os.symlink(target, child, target_is_directory=True)
-                except OSError as error:
-                    raise t.TransportFailure("windows_reparse_control_unavailable") from error
-                link = (child.lstat(), os.readlink(child))
+                created(target, secure)
+                control = created(child, target=target)
+                t.require(control["entry"]["facts"]["attributes"] & 0x400, "windows_reparse_control_unavailable")
             else:
-                guard.api.create_directory(child, descriptor)
-                handle = guard.api.open(child, directory=True)
-                captured = {"handle": handle, "facts": guard.api.inspect(handle), "closed": False}
-                guard.api.close(handle)
-                captured["closed"] = True
+                control = created(child, descriptor)
                 if case == "inherited_write":
                     t.require(any(kind == 0 and flags & 0x10 and sid == "S-1-1-0" and mask & 2
-                                  for kind, flags, mask, sid in captured["facts"]["security"]["aces"]),
+                                  for kind, flags, mask, sid in control["entry"]["facts"]["security"]["aces"]),
                               "windows_inherited_control_unavailable")
             probe = t.worker_support.WindowsTrust(operation_end)
             try:
@@ -600,74 +609,65 @@ def run_trust_case(case):
             except t.worker_support.WorkerError as error:
                 predicate = error.code
             report["native_control"] = "EXECUTED"
-            report["fixture"] = {"observed_predicate": predicate, "expected_predicate": expected,
-                                 "root": guard.receipt(), "probe_handles_closed": False}
+            report["fixture"].update(observed_predicate=predicate, expected_predicate=expected)
         else:
             report["native_control"] = "EXECUTED"
         t.require(predicate == expected, "windows_trust_wrong_predicate")
     except BaseException as error:
         report["error"] = getattr(error, "code", type(error).__name__)
-        report["preparation"] = getattr(error, "receipt", {})
+        report["preparation"] = getattr(error, "receipt", getattr(error, "facts", {}))
+        owner = getattr(error, "owner", None)
+        if owner is not None:
+            partial_owners.append(owner)
+            t.worker_support.WINDOWS_UNCONFIRMED_OWNERS[id(owner)] = owner
     finally:
         if probe is not None:
             try:
                 probe.close(cleanup_end=hard_end)
-                report["fixture"]["probe_handles_closed"] = probe.closed
             except BaseException as error:
                 report["cleanup_errors"].append(getattr(error, "code", "windows_probe_close"))
+            report["fixture"]["probe_handles_closed"] = probe.closed
         if guard is not None:
-            report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None,
-                                     created_child=str(child) if child is not None else None,
-                                     created_target=str(target) if target is not None else None,
-                                     created_inheriting=str(inheriting) if inheriting is not None else None)
+            safe = (probe is None or probe.closed) and all(getattr(owner, "closed", False) for owner in partial_owners)
+            for node in reversed(paths):
+                entry = node["entry"]
+                if safe and node["identity_confirmed"]:
+                    try:
+                        t.remaining(hard_end, time.monotonic)
+                        current = guard.api.identify(entry["handle"]) if node["reparse"] else guard.api.inspect(entry["handle"])
+                        t.require(current["signature"] == entry["facts"]["signature"], "windows_fixture_identity")
+                        guard.close_entry(entry)
+                        t.require(guard.api.remove_directory(node["path"]), "windows_fixture_remove")
+                        node["removed"] = True
+                    except BaseException as error:
+                        safe = False
+                        report["cleanup_errors"].append(getattr(error, "code", "windows_fixture_close"))
+                else:
+                    safe = False
             try:
-                guard.revalidate(end=hard_end)
-                if link is not None:
-                    current = child.lstat()
-                    t.require((current.st_dev, current.st_ino, current.st_mode, current.st_ctime_ns) ==
-                              (link[0].st_dev, link[0].st_ino, link[0].st_mode, link[0].st_ctime_ns) and
-                              os.readlink(child) == link[1], "windows_fixture_identity")
-                    child.unlink()
-                elif captured is not None and captured["closed"]:
-                    handle = guard.api.open(child, directory=True)
-                    try:
-                        t.require(guard.api.inspect(handle)["signature"] == captured["facts"]["signature"],
-                                  "windows_fixture_identity")
-                    finally:
-                        guard.api.close(handle)
-                    t.require(guard.api.remove_directory(child), "windows_fixture_remove")
-                if target is not None:
-                    current = target.lstat()
-                    t.require((current.st_dev, current.st_ino, current.st_mode) ==
-                              (target_facts.st_dev, target_facts.st_ino, target_facts.st_mode), "windows_fixture_identity")
-                    t.require(guard.api.remove_directory(target), "windows_fixture_remove")
-                if inheriting is not None:
-                    handle = guard.api.open(inheriting, directory=True)
-                    try:
-                        t.require(guard.api.inspect(handle)["signature"] == inherited_facts["signature"],
-                                  "windows_fixture_identity")
-                    finally:
-                        guard.api.close(handle)
-                    t.require(guard.api.remove_directory(inheriting), "windows_fixture_remove")
-                guard.close(remove_cwd=True, cleanup_end=hard_end)
-                report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None,
-                                         child_closed=child is None or not child.exists())
+                guard.close(remove_cwd=safe and all(node["removed"] for node in paths), cleanup_end=hard_end)
             except BaseException as error:
                 report["cleanup_errors"].append(getattr(error, "code", "windows_fixture_close"))
-                try:
-                    guard.close(cleanup_end=hard_end)
-                except BaseException as close:
-                    report["cleanup_errors"].append(getattr(close, "code", "windows_fixture_handle_close"))
-        if guard is not None:
-            report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None)
+            report["fixture"].update(root=guard.receipt(), root_handles_closed=guard.closed,
+                                     root_closed=guard.created_directory is None,
+                                     child_closed=bool(paths) and paths[-1]["removed"],
+                                     unconfirmed_paths=[{"path": str(node["path"]), "creation_confirmed": node["creation_confirmed"],
+                                                         "identity_confirmed": node["identity_confirmed"],
+                                                         "handle": node["entry"]["handle"] if node["entry"] is not None else None,
+                                                         "handle_closed": node["entry"]["closed"] if node["entry"] is not None else False}
+                                                        for node in paths if not node["removed"]])
+            if guard.created_directory is not None and not paths:
+                report["fixture"]["unconfirmed_paths"].append({"path": str(guard.created_directory),
+                                                               "creation_confirmed": False, "identity_confirmed": False})
+            if not guard.closed or guard.created_directory is not None:
+                t.worker_support.WINDOWS_UNCONFIRMED_OWNERS[id(guard)] = guard
+                if report["error"] is None:
+                    report["error"] = "windows_cleanup_unconfirmed"
         if plan is not None:
-            if not plan["windows_guard"].closed:
-                try:
-                    plan["windows_guard"].close(remove_cwd=True, cleanup_end=hard_end)
-                except BaseException as error:
-                    report["cleanup_errors"].append(getattr(error, "code", "windows_preflight_close"))
             report["runtime"].update(trust_handles_closed=plan["windows_guard"].closed,
                                      cwd_closed=plan["windows_guard"].created_directory is None)
+            if not plan["windows_guard"].closed or plan["windows_guard"].created_directory is not None:
+                t.worker_support.WINDOWS_UNCONFIRMED_OWNERS[id(plan["windows_guard"])] = plan["windows_guard"]
     if report["error"] is None and report["cleanup_errors"]:
         report["error"] = "windows_cleanup_unconfirmed"
     if time.monotonic() >= hard_end and report["error"] is None:
@@ -676,6 +676,7 @@ def run_trust_case(case):
         "not_run" if report["native_control"] == "NOT RUN" else "failed"
     report["elapsed_seconds"] = time.monotonic() - started
     return report
+
 
 
 def main():

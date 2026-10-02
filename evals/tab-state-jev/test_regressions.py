@@ -474,6 +474,7 @@ class WindowsHandleFailureTests(unittest.TestCase):
 class WindowsNativeInspectionTests(unittest.TestCase):
     def api(self, kernel):
         api = object.__new__(worker_module.WindowsApi)
+        api.owners, api.allocations, api.token_closed = [], set(), True
         api.kernel = kernel
         api.descriptor = Mock(return_value={"bytes": b"supplied descriptor"})
         kernel.GetFileType.return_value = 1
@@ -782,6 +783,239 @@ class WindowsAcquisitionRegressionTests(unittest.TestCase):
             kernel.CloseHandle.assert_called_once()
             kernel.LocalFree.assert_called_once()
 
+
+
+class WindowsAcquisitionRepairTests(unittest.TestCase):
+    def fixture(self, stack):
+        api, guards = WindowsApiFixture(), []
+        original = worker_module.WindowsTrust
+        stack.enter_context(patch.object(worker_module, "Path", PureWindowsPath))
+        stack.enter_context(patch.object(worker_module.os.path, "abspath", side_effect=lambda path: str(path)))
+        stack.enter_context(patch.object(worker_module.tempfile, "gettempdir", return_value=r"C:\private"))
+        stack.enter_context(patch.object(worker_module.secrets, "token_hex", return_value="supplied-nonce"))
+        stack.enter_context(patch.object(local_module.time, "monotonic", return_value=0))
+        def factory(end):
+            guard = original(end, api=api, clock=lambda: 0)
+            guards.append(guard)
+            return guard
+        stack.enter_context(patch.object(worker_module, "WindowsTrust", side_effect=factory))
+        stack.enter_context(patch.object(transport_module, "native_support", return_value="nt"))
+        prepared = Mock(closed=False, created_directory="supplied cwd")
+        prepared.receipt.return_value = {"objects": []}
+        def close_prepared(**kwargs):
+            prepared.closed, prepared.created_directory = True, None
+        prepared.close.side_effect = close_prepared
+        plan = {"header": {"interpreter": "supplied interpreter", "interpreter_sha256": "a" * 64,
+                           "worker_sha256": "b" * 64, "contract_sha256": "c" * 64}, "windows_guard": prepared}
+        stack.enter_context(patch.object(transport_module, "prepare_plan", return_value=plan))
+        return api, guards
+
+    def test_successful_control_uses_registered_original_handles_and_removes_owned_paths(self):
+        with ExitStack() as stack:
+            api, guards = self.fixture(stack)
+            report = local_module.run_trust_case("trusted_directory")
+        self.assertEqual(report["oracle"], "satisfied")
+        self.assertIsNone(report["error"])
+        self.assertEqual(report["cleanup_errors"], [])
+        self.assertEqual(report["fixture"]["unconfirmed_paths"], [])
+        self.assertTrue(report["fixture"]["root_closed"])
+        self.assertTrue(all(guard.closed for guard in guards))
+        self.assertEqual(len(api.closed), len(set(api.closed)))
+        self.assertEqual(set(api.closed), set(api.handles))
+        self.assertEqual(len([path for path in api.removed if path.endswith("\\control")]), 1)
+        self.assertEqual((report["operation_end"], report["hard_end"], report["run_end"]), (55, 60, 600))
+        self.assertEqual((report["helper_count"], report["requests"], report["listener_opened"]), (0, 0, False))
+
+    def test_adjacent_created_objects_are_closed_once_after_inspection_failure(self):
+        for case, suffix in (("inherited_write", "\\inheriting"), ("reparse_refused", "\\target")):
+            with self.subTest(case=case), ExitStack() as stack:
+                api, _ = self.fixture(stack)
+                inspect = api.inspect
+                def fail(handle):
+                    if api.handles[handle]["path"].endswith(suffix):
+                        raise WorkerError("windows_file_identity")
+                    return inspect(handle)
+                api.inspect = fail
+                report = local_module.run_trust_case(case)
+                acquired = [handle for handle, value in api.handles.items() if value["path"].endswith(suffix)]
+                self.assertEqual(len(acquired), 1)
+                self.assertEqual(api.closed.count(acquired[0]), 1)
+                self.assertEqual(report["error"], "windows_file_identity")
+                self.assertTrue(report["fixture"]["unconfirmed_paths"])
+                self.assertFalse(any(path.endswith(suffix) for path in api.removed))
+                self.assertNotEqual(report["oracle"], "satisfied")
+
+    def test_created_path_without_opened_identity_is_retained_without_removal(self):
+        with ExitStack() as stack:
+            api, _ = self.fixture(stack)
+            opening = api.open
+            def fail(path, **kwargs):
+                if str(path).endswith("\\control"):
+                    raise WorkerError("windows_open")
+                return opening(path, **kwargs)
+            api.open = fail
+            report = local_module.run_trust_case("trusted_directory")
+        self.assertEqual(report["error"], "windows_open")
+        self.assertTrue(report["fixture"]["root_handles_closed"])
+        self.assertFalse(report["fixture"]["root_closed"])
+        self.assertEqual(api.removed, [])
+        pending = report["fixture"]["unconfirmed_paths"][0]
+        self.assertTrue(pending["creation_confirmed"])
+        self.assertFalse(pending["identity_confirmed"])
+        self.assertIsNone(pending["handle"])
+
+    def test_partial_probe_constructor_blocks_fixture_removal_and_retains_its_owner(self):
+        with ExitStack() as stack:
+            api, guards = self.fixture(stack)
+            original = worker_module.WindowsTrust.side_effect
+            owner = SimpleNamespace(closed=False)
+            failure = WorkerError("windows_token")
+            failure.owner = owner
+            def factory(end):
+                if guards:
+                    raise failure
+                return original(end)
+            worker_module.WindowsTrust.side_effect = factory
+            report = local_module.run_trust_case("trusted_directory")
+        self.assertEqual(report["error"], "windows_token")
+        self.assertEqual(api.removed, [])
+        self.assertTrue(report["fixture"]["root_handles_closed"])
+        self.assertFalse(report["fixture"]["root_closed"])
+        self.assertIs(worker_module.WINDOWS_UNCONFIRMED_OWNERS[id(owner)], owner)
+
+    def test_native_information_failure_preserves_primary_and_ambiguous_token_owner(self):
+        with ExitStack() as stack:
+            api, kernel = WindowsAcquisitionRegressionTests().native_api(stack)
+            api.security.GetTokenInformation.side_effect = OSError("synthetic native failure")
+            kernel.CloseHandle.return_value = 0
+            with self.assertRaises(WorkerError) as caught:
+                api.current_user()
+            self.assertEqual(caught.exception.code, "windows_native_os")
+            self.assertEqual(caught.exception.facts["cleanup_errors"], ["windows_handle_close"])
+            self.assertIs(caught.exception.owner, api)
+            with self.assertRaises(WorkerError):
+                api.settle_known()
+            with self.assertRaisesRegex(WorkerError, "windows_native_resource_unconfirmed"):
+                api.current_user()
+            kernel.CloseHandle.assert_called_once()
+            api.security.OpenProcessToken.assert_called_once()
+            self.assertFalse(api.receipt()["all_resources_closed"])
+
+    def test_failed_sid_with_confirmed_cleanup_retains_primary_and_settled_owner(self):
+        with ExitStack() as stack:
+            api, kernel = WindowsAcquisitionRegressionTests().native_api(stack, failed=True)
+            kernel.LocalFree.return_value = None
+            kernel.CloseHandle.return_value = 1
+            with self.assertRaises(WorkerError) as caught:
+                worker_module.WindowsTrust(55, api=api, clock=lambda: 0)
+            self.assertEqual(caught.exception.code, "windows_sid")
+            self.assertTrue(caught.exception.owner.closed)
+            self.assertTrue(caught.exception.facts["windows_trust"]["native_resources"]["all_resources_closed"])
+            self.assertFalse(caught.exception.facts["constructor_complete"])
+            kernel.LocalFree.assert_called_once()
+            kernel.CloseHandle.assert_called_once()
+
+    def test_worker_primary_failure_and_independent_cleanup_survive_json_receipt(self):
+        with ExitStack() as stack:
+            guard = Mock(closed=False, hard_end=60)
+            guard.close.side_effect = WorkerError("windows_handle_close")
+            guard.receipt.return_value = {"handles_closed": False, "native_resources": {
+                "owned_resources": [{"kind": "token", "identity": 77, "release_attempted": True, "closed": False}],
+                "all_resources_closed": False}}
+            stack.enter_context(patch.object(worker_module, "WINDOWS_ACTIVE_TRUST", guard))
+            stack.enter_context(patch.object(worker_module, "helper_input", side_effect=WorkerError("windows_sid")))
+            stack.enter_context(patch.object(worker_module.sys, "stdin", Mock()))
+            stack.enter_context(patch.object(worker_module.sys, "stderr", Mock()))
+            output = Mock()
+            def write(raw):
+                output.raw = raw
+                return len(raw)
+            output.buffer.write.side_effect = write
+            stack.enter_context(patch.object(worker_module.sys, "stdout", output))
+            self.assertEqual(worker_module.main(), 1)
+            report = json.loads(output.raw)
+        self.assertEqual(report["error"], "windows_sid")
+        self.assertEqual(report["cleanup_errors"], ["windows_handle_close"])
+        self.assertFalse(report["windows_trust_closed"])
+        self.assertEqual(report["native_resources"]["owned_resources"][0]["identity"], 77)
+        self.assertNotIn("answers", report)
+        guard.close.assert_called_once_with(cleanup_end=60)
+
+
+    def test_api_capture_settles_handle_when_guard_registration_fails(self):
+        with ExitStack() as stack:
+            api, kernel = WindowsAcquisitionRegressionTests().native_api(stack)
+            kernel.CreateFileW.return_value = 88
+            guard, _ = WindowsTrustTests().guard(stack, api=api)
+            class BrokenRecords(list):
+                def append(self, value):
+                    raise MemoryError("synthetic ownership registration failure")
+            guard.objects = BrokenRecords()
+            with self.assertRaises(MemoryError):
+                guard.capture(r"C:\fixture")
+            guard.close()
+            guard.close()
+            self.assertTrue(guard.closed)
+            self.assertTrue(api.settled())
+            self.assertEqual(sum(call.args == (88,) for call in kernel.CloseHandle.call_args_list), 1)
+            self.assertTrue(api.record("file", 88)["closed"])
+
+    def test_descriptor_and_creation_allocations_preserve_primary_on_failed_free(self):
+        for boundary, expected in (("descriptor", "windows_security_read"),
+                                   ("creation", "windows_creation_descriptor")):
+            with self.subTest(boundary=boundary), ExitStack() as stack:
+                api, kernel = WindowsAcquisitionRegressionTests().native_api(stack)
+                kernel.LocalFree.return_value = 99
+                def descriptor(*args):
+                    args[-1]._obj.value = 99
+                    return 5
+                def creation(source, version, output, length):
+                    output._obj.value = 99
+                    return 0
+                api.security.GetSecurityInfo.side_effect = descriptor
+                api.security.ConvertStringSecurityDescriptorToSecurityDescriptorW.side_effect = creation
+                invoke = (lambda: api.descriptor(88)) if boundary == "descriptor" else \
+                    (lambda: api.create_directory("supplied path", "supplied descriptor"))
+                with self.assertRaises(WorkerError) as caught:
+                    invoke()
+                self.assertEqual(caught.exception.code, expected)
+                self.assertEqual(caught.exception.facts["cleanup_errors"], ["windows_descriptor_close"])
+                self.assertIs(caught.exception.owner, api)
+                with self.assertRaises(WorkerError):
+                    api.settle_known()
+                kernel.LocalFree.assert_called_once()
+                kernel.CreateDirectoryW.assert_not_called()
+                resource = api.receipt()["owned_resources"][0]
+                self.assertEqual((resource["identity"], resource["release_attempted"], resource["closed"]), (99, True, False))
+
+
+    def test_parent_preserves_failed_helper_owner_and_blocks_next_lease(self):
+        wire = contract.encode({"state": "synthetic ownership fixture", "model": "fixture-alias", "questions": {
+            "q": {"type": "choice", "instructions": "opaque", "criteria": {"x": "opaque"}}}})
+        owner = {"kind": "token", "identity": 77, "release_attempted": True, "closed": False}
+        lease = Mock(cancelled=False, facts={"start_finished": True, "error": None})
+        lease.stdout = contract.encode({"version": 1, "status": "failed", "error": "windows_sid",
+            "credential_channel_closed": True, "windows_trust_closed": False,
+            "native_resources": {"owned_resources": [owner], "all_resources_closed": False}})
+        lease.finish.return_value = {"completion_confirmed": True, "error": None, "returncode": 1,
+                                    "exit_observed": True, "reap_confirmed": True}
+        plan = Mock(return_value={"windows_guard": Mock(), "header": {
+            "interpreter_sha256": "a" * 64, "worker_sha256": "b" * 64}})
+        transport = transport_module.JevTransport(clock=lambda: 0, plan_factory=plan,
+                                                  lease_factory=Mock(return_value=lease))
+        with self.assertRaises(TransportFailure) as caught:
+            transport.send(wire, token="synthetic-token")
+        self.assertEqual(caught.exception.code, "windows_sid")
+        report = caught.exception.receipt
+        self.assertEqual(report["helper"]["native_resources"]["owned_resources"], [owner])
+        self.assertTrue(report["process_completion_confirmed"] and report["exit_observed"] and report["reap_confirmed"])
+        self.assertFalse(report["completion_confirmed"])
+        self.assertTrue(report["helper_trust_unconfirmed"])
+        with self.assertRaisesRegex(TransportFailure, "lease_unavailable"):
+            transport.send(wire, token="synthetic-token")
+        plan.assert_called_once()
+        lease.start.assert_called_once()
+        lease.cancel.assert_not_called()
 
 
 if __name__ == "__main__":
