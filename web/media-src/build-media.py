@@ -73,7 +73,7 @@ def build(source_dir, output_dir, font, preview_dir, review_range=None, timing_p
         common = ['ffmpeg', '-v', 'error', '-y', '-i', master, '-an', '-map_metadata', '-1']
         run(common + ['-c:v', 'libx264', '-preset', 'slow', '-crf', '27', '-threads', '6',
                       '-pix_fmt', 'yuv420p', '-movflags', '+faststart', mp4], timeout=1800)
-        run(common + ['-c:v', 'libvpx-vp9', '-crf', '39', '-b:v', '0', '-cpu-used', '4',
+        run(common + ['-c:v', 'libvpx-vp9', '-crf', '40', '-b:v', '0', '-cpu-used', '4',
                       '-row-mt', '1', '-threads', '6', webm], timeout=1800)
     if review_range:
         write_json(output_dir / 'review-audit.json', audit)
