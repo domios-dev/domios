@@ -6,9 +6,11 @@ CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on
 
 ## Core metaphor: spinal cord
 
-The CodeTerm CLI and APIs are the **spinal cord** — low-level reflexes that any agent uses to act within the environment. An agent doesn't need to understand how tabs, workspaces, or mesh work internally. It just uses the tools: open a tab, read output, spawn a worker, send a message.
+CodeTerm's **spinal cord** combines a deterministic control surface with small, bounded judgments. The CLI and APIs let any agent open a tab, read output, spawn a worker or send a message without knowing the host's internals. The Supporter Agent adds the OS reflexes that keep work moving when nobody is watching every terminal: ranking memory, naming tab states, checking uncertain heuristics, helping recover the General Agent and coordinating provider updates.
 
-The **General Agent** is the brain of one machine — manages the environment, routes messages, delegates work. It is one agent among many. Other agents get the spinal cord (the `/codeterm` control surface) but never the General Agent's identity or personality.
+A connected decision adapter, such as Jev or a local LM Studio adapter, responds to events under a shared budget. There are no feature switches, and without an adapter CodeTerm behaves exactly as before. **The model names the state; deterministic evidence authorizes the action.** The [Supporter contract](supporter-agent.md) owns that boundary and its hard recovery limits.
+
+The **General Agent** remains the brain of one machine: it manages the environment, routes messages and delegates work. Project agents retain their own identity and purpose. Small host judgments keep the environment usable without taking over an agent's task or the owner's decisions.
 
 ## Meta-teams
 
@@ -22,7 +24,7 @@ CodeTerm teams are meta-teams: their leads shape the agents that do the work.
 
 ## Agent-agnostic
 
-Model-agnostic, provider-agnostic. Claude, Codex, local models, custom agents — anything that runs in a terminal. CodeTerm provides the substrate, not the intelligence. Each agent type gets its own provider for detection and integration, but the tools are universal.
+Model-agnostic, provider-agnostic. Claude, Codex, local models, custom agents — anything that runs in a terminal. CodeTerm provides the substrate and bounded host judgments; task reasoning stays with the agents. Each agent type gets its own provider for detection and integration, but the tools are universal.
 
 ## Isolation principle
 
@@ -46,9 +48,9 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. The [core essence](core.md) describes provider and plugin boundaries.
 
-## Small judgments, bounded authority
+## A foundation for onboarding and the web
 
-The Supporter Agent supplies fast model judgments where CodeTerm needs them: relevance for memory recall and event-driven tab-state observation. A connected adapter serves both automatically under one shared budget, and a bounded journal makes its work visible. The [core essence](core.md#core:supporter-agent) keeps that boundary independent of any model or provider.
+The Guide explains the spinal cord in the same terms as the product: useful reflexes, visible cost, unchanged behavior without an adapter and evidence before action. First-run setup introduces the Supporter only after the user is established. Future onboarding and the future web experience build on this shared host capability, so understanding and recovering the environment do not depend on sitting beside its desktop. Their detailed journeys remain open; the authority boundary does not.
 
 ## Future capabilities
 
@@ -58,7 +60,7 @@ The Supporter Agent supplies fast model judgments where CodeTerm needs them: rel
 
 ## Design principles
 
-1. **Spinal cord, not brain** — CodeTerm provides reflexes (tools), not intelligence (models)
+1. **Bounded reflexes** — the OS supplies tools and small judgments; deterministic evidence authorizes actions and agents retain task reasoning
 2. **Agent-agnostic** — never hardcode for one provider
 3. **Isolation** — agents don't leak into each other's identity or scope
 4. **Fitted personalities** — every Worker starts from the framing its task needs
