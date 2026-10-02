@@ -119,7 +119,7 @@ class CoordinatorScenario(Scenario):
         child.start()
         child.wait_ready()
         argv = [sys.executable, str(HERE / "busy_fixture.py"), "--port", str(self.busy_gate.port),
-                "--nonce", self.busy_gate.nonce]
+                "--nonce", self.busy_gate.nonce, "--deadline", str(self.dev.deadline)]
         import subprocess, os
         command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
         task = Path(fixture["case_root"]) / "busy-task.txt"
@@ -191,7 +191,10 @@ class CoordinatorScenario(Scenario):
     def close(self):
         failures = []
         if self.busy_gate:
-            self.busy_gate.close()
+            try:
+                self.busy_gate.close()
+            except Exception as error:
+                failures.append(str(error))
         for child in self.children:
             try:
                 child.close()

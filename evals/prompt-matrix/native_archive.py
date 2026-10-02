@@ -6,10 +6,10 @@ import json
 from pathlib import Path, PurePosixPath
 import tarfile
 import time
-import urllib.request
 from urllib.parse import urlsplit
 
 from native_layout import demand
+from deadline_io import Deadline
 
 MAX_ARCHIVE = 512 * 1024 * 1024
 MAX_EXPANDED = 1024 * 1024 * 1024
@@ -56,12 +56,6 @@ def verify_archive(path, metadata):
             "bytes": Path(path).stat().st_size, "source": metadata["tarball"]}
 
 
-class RegistryOnly(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        registry_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def registry_url(url):
     parsed = urlsplit(url)
     demand(parsed.scheme == "https" and parsed.hostname == "registry.npmjs.org" and
@@ -69,33 +63,74 @@ def registry_url(url):
            "Archive URL is outside pinned HTTPS registry")
 
 
-def acquire(metadata, destination, deadline):
+def acquire(metadata, destination, deadline, transport=None, clock=time.monotonic):
     registry_url(metadata["tarball"])
-    remaining = deadline - time.monotonic()
-    demand(remaining > 0, "Acquisition deadline exceeded")
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), RegistryOnly())
-    with opener.open(metadata["tarball"], timeout=min(10, remaining)) as response:
-        registry_url(response.url)
-        demand(int(response.headers.get("Content-Length", "0")) <= MAX_ARCHIVE,
+    demand(transport is not None, "Absolute-deadline registry transport unavailable; acquisition withheld")
+    hard = Deadline(deadline, clock)
+    operation = hard.reserve(2)
+    failed = True
+    try:
+        operation.remaining()
+        stream = transport.open(metadata["tarball"], operation)
+        operation.remaining()
+        registry_url(stream.url)
+        demand(stream.content_length is None or 0 <= stream.content_length <= MAX_ARCHIVE,
                "Archive byte limit exceeded")
         count = 0
         with Path(destination).open("xb") as output:
             while True:
-                demand(time.monotonic() < deadline, "Acquisition deadline exceeded")
-                chunk = response.read(1024 * 1024)
+                operation.remaining()
+                chunk = stream.read_chunk(64 * 1024, operation)
+                operation.remaining()
+                demand(isinstance(chunk, bytes) and len(chunk) <= 64 * 1024,
+                       "Archive transport exceeded bounded chunk")
                 if not chunk:
                     break
                 count += len(chunk)
                 demand(count <= MAX_ARCHIVE, "Archive byte limit exceeded")
                 output.write(chunk)
-    return verify_archive(destination, metadata)
+                operation.remaining()
+        operation.remaining()
+        demand(stream.content_length is None or count == stream.content_length,
+               "Archive body ended before declared completion")
+        failed = False
+    finally:
+        receipt = transport.finish(cancel=failed, deadline=hard)
+        demand(isinstance(receipt, dict) and receipt.get("completed") is True,
+               "Acquisition transport completion unconfirmed")
+        hard.remaining()
+    result = verify_archive(destination, metadata)
+    hard.remaining()
+    return result
+
+
+class ArchiveComponents:
+    def __init__(self):
+        self.paths = {}
+
+    def add(self, relative, directory):
+        parts = relative.parts
+        for index in range(1, len(parts) + 1):
+            spelling = parts[:index]
+            key = tuple(part.casefold() for part in spelling)
+            leaf = index == len(parts)
+            kind = "directory" if not leaf or directory else "file"
+            existing = self.paths.get(key)
+            if existing is None:
+                self.paths[key] = {"spelling": spelling, "kind": kind, "declared": leaf}
+                continue
+            demand(existing["spelling"] == spelling, "Archive case-colliding component")
+            demand(existing["kind"] == kind, "Archive file/directory component conflict")
+            if leaf:
+                demand(kind == "directory" and not existing["declared"], "Duplicate archive member")
+                existing["declared"] = True
 
 
 def extract(archive, destination, deadline):
     destination = Path(destination)
     demand(not destination.exists(), "Extraction destination already exists")
     destination.mkdir(parents=True, mode=0o700)
-    count, size, names = 0, 0, set()
+    count, size, components = 0, 0, ArchiveComponents()
     with tarfile.open(archive, "r:gz") as source:
         for member in source:
             demand(time.monotonic() < deadline, "Extraction deadline exceeded")
@@ -107,9 +142,7 @@ def extract(archive, destination, deadline):
             if not relative.parts:
                 demand(member.isdir(), "Archive root is not a directory")
                 continue
-            key = relative.as_posix().casefold()
-            demand(key not in names, "Duplicate or case-colliding archive member")
-            names.add(key)
+            components.add(relative, member.isdir())
             path = within(destination, destination / relative)
             if member.isdir():
                 path.mkdir(parents=True, exist_ok=True, mode=0o700)

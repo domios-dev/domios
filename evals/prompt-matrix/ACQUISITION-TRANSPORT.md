@@ -1,0 +1,21 @@
+# Absolute acquisition transport — pending source proposal
+
+Fermi's source review of3906b3b46 found that urllib's socket inactivity timeout does not bound the entire request. A buffered body read can perform multiple receives without returning to the monotonic check. Header/open/redirect handling also lacks a certified public absolute-deadline cancellation/completion handle in this harness. `read1` alone does not establish the whole open/header/body/cleanup boundary.
+
+The unsafe urllib fallback is removed. `native_archive.acquire` refuses before any network or archive file creation when no bounded adapter is supplied. No real adapter is wired, and all acquisition/assembly/native qualification remains PENDING/NOT RUN. Its injectable stream seam exists only for deterministic controls until the Orchestrator approves and reviews an actual implementation. Returning EOF, closing one reader or claiming a timeout never supplies completion. The parent checks the same absolute deadline before and after every bounded operation and requires a positive resource-completion receipt, including on cancellation.
+
+## Narrow proposed follow-up
+
+Implement one cohesive tester-owned supervised acquisition helper, not a daemon change:
+
+1. Parent launches one owned Python helper in an isolated process with no provider/installer commands, no descendant-spawn capability and a restricted environment. It receives exact metadata URL/integrity/digest, output paths and the one absolute acquisition deadline. It retains the existing HTTPS registry/redirect/size checks and bounded64KiB body chunks. DNS/TLS/header/redirect/body reads occur only inside this supervised helper.
+2. Parent waits on process exit as an explicit completion event, using remaining absolute time. Reserve cleanup time from the original deadline before starting IO; do not grant a new post-timeout budget. On failure/cancellation, terminate the owned process and require observed exit and closed output handles before accepting cleanup. A timeout is failure, never receipt/readiness. Failure to observe termination stays unconfirmed and blocks qualification.
+3. Helper makes no subprocesses or background threads. If implementation requires descendants, an actual complete owned-tree termination receipt becomes necessary; parent exit alone is insufficient. Do not reuse Courier's current parent-exit stopped fact as that proof.
+4. Receipt and error data are bounded files or bounded raw frames, not `communicate` buffering of arbitrary output. Complete immutable archive bytes plus SHA512 and reviewed SHA256 must match the exact input metadata. Partial archives remain incomplete; no retry, target drift, installer execution or readiness inference.
+5. Add only fake process/event/clock refusal controls to the pure suite. Later real helper invocation needs separate exact canonical authorization; no network/process acquisition is added to the pure gate.
+
+Proposed source boundary: native_archive.acquire and a new tester-owned acquisition helper/parent lifecycle module, plus the existing metadata/qualification docs and focused controls. No product policy, PTY/delivery, provider implementation, shared bench, owner profiles or updater opt-in is required. If process creation/cancellation cannot itself establish the bounded completion contract on a target platform, retain pending status and return that exact platform gap. This proposal is not an implementation approval or executable gate.
+
+## Current injectable seam
+
+`transport.open(url, operation_deadline)` must own cancellation handles before blocking and return a stream with the actual final URL and optional authoritative content length. `stream.read_chunk(64KiB, operation_deadline)` must bound both bytes and the whole operation, rather than renew an inactivity timeout. `transport.finish(cancel, hard_deadline)` must signal cancellation even if the deadline has already expired, then return `completed=true` only for actually closed/terminated owned resources. It cannot wait beyond the original hard deadline. The operation deadline reserves2 seconds from that original deadline for completion/cancellation; this is no additional budget. No standard urllib object is silently adapted to this interface. Fake seam results prove validator behavior only.

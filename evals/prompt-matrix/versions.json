@@ -2796,5 +2796,6 @@
       "bytes": 33763
     }
   },
-  "native_assembly_status": "source_authored_NOT_RUN"
+  "native_assembly_status": "source_authored_NOT_RUN",
+  "native_transport_status": "pending_absolute_deadline_adapter"
 }
