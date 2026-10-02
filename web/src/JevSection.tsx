@@ -1,39 +1,83 @@
+import { useEffect, useRef } from 'react';
+import { BrandMark } from './BrandMark';
 import './jev.css';
 
-function JevReflex() {
-  return <figure className="jev-reflex" aria-labelledby="jev-reflex-caption">
-    <figcaption id="jev-reflex-caption" className="jev-diagram-caption"><span>SMALL MODEL. QUICK REFLEXES.</span><span>Illustrative flow</span></figcaption>
-    <div className="jev-inputs"><span><i />Tab activity</span><span><i />Memory</span><span><i />Host events</span></div>
-    <div className="jev-core-stage">
-      <div className="jev-streams" aria-hidden="true"><i /><i /><i /></div>
-      <div className="jev-orbit" aria-hidden="true" />
-      <div className="jev-core"><div className="jev-liquid" aria-hidden="true" /><span>JEV<small>decision model</small></span></div>
-      <span className="jev-signal jev-signal-left" aria-hidden="true">observe</span><span className="jev-signal jev-signal-right" aria-hidden="true">understand</span>
+function useSpineMotion() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const site = element.closest('.site');
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let visible = false;
+
+    const sync = () => {
+      const active = visible && !document.hidden && !preference.matches
+        && site?.getAttribute('data-motion') !== 'paused'
+        && site?.getAttribute('data-entrance') !== 'pending';
+      element.dataset.flow = active ? 'running' : 'paused';
+    };
+    const intersection = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      sync();
+    });
+    const motion = new MutationObserver(sync);
+    intersection.observe(element);
+    if (site) motion.observe(site, { attributes: true, attributeFilter: ['data-motion', 'data-entrance'] });
+    document.addEventListener('visibilitychange', sync);
+    preference.addEventListener('change', sync);
+    sync();
+
+    return () => {
+      intersection.disconnect();
+      motion.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+      preference.removeEventListener('change', sync);
+      element.dataset.flow = 'paused';
+    };
+  }, []);
+
+  return ref;
+}
+
+function SpineExchange() {
+  return <div className="jev-exchange" role="img" aria-label="Agents send requests to Domios; Domios returns results to agents.">
+    <div className="jev-lane jev-lane-out" aria-hidden="true">
+      <div className="jev-channel"><i className="jev-arrow" /><div className="jev-flight"><i className="jev-drop" /></div></div>
     </div>
-    <div className="jev-verdict"><span className="jev-verdict-dot" aria-hidden="true" /><span>Blocked on a prompt</span><span className="jev-verdict-label">STATE</span></div>
-    <div className="jev-evidence">
-      <span className="jev-gate-icon" aria-hidden="true">↳</span>
-      <div><span className="jev-evidence-label">EVIDENCE BEFORE ACTION</span><p>Permission required? <strong>Your call.</strong></p><p>Provider exited? <strong>Bounded recovery.</strong></p></div>
+    <div className="jev-lane jev-lane-back" aria-hidden="true">
+      <div className="jev-channel"><i className="jev-arrow" /><div className="jev-flight"><i className="jev-drop" /></div></div>
     </div>
-    <p className="jev-boundary">JEV never grants permissions or types answers for you.</p>
-  </figure>;
+  </div>;
 }
 
 export function JevSection() {
+  const scene = useSpineMotion();
   return <section id="jev" className="jev-section section-wrap" aria-labelledby="jev-title">
-    <div className="jev-heading"><p className="eyebrow">MEET THE SPINAL CORD</p><h2 id="jev-title">The OS thinks<br /><span>for itself.</span></h2><p>A little intelligence in the infrastructure. JEV is the small, fast decision model that helps Domios keep its bearings.</p></div>
-    <div className="jev-layout">
-      <JevReflex />
-      <div className="jev-details">
-        <ol className="jev-points">
-          <li><span className="jev-number" aria-hidden="true">01</span><div><h3>A pulse on every tab.</h3><p>Working, idle, blocked on a prompt, or crashed. JEV gives what’s happening a name.</p></div></li>
-          <li><span className="jev-number" aria-hidden="true">02</span><div><h3>The right things remembered.</h3><p>Ranks what your agents should remember, so useful context comes first.</p></div></li>
-          <li><span className="jev-number" aria-hidden="true">03</span><div><h3>Reflexes for when you’re away.</h3><p>Helps Domios recover the General agent within hard limits and coordinate provider updates.</p></div></li>
-        </ol>
-        <div className="jev-connect" aria-label="Example conversation to connect JEV"><p><span>you</span><code>connect JEV</code></p><p><span>agent</span><span>Done. JEV is watching your tabs.</span></p></div>
-        <p className="jev-setup">Just ask your agent. Domios handles the rest.<br />Prefer a switch? Connect it in Settings.</p>
+    <div className="jev-heading">
+      <h2 id="jev-title">Your agents’ home.<br /><span>With a spinal cord.</span></h2>
+      <p className="jev-intro">Domios organizes memory, runs schedules and carries work across paired machines, with bounded recovery.</p>
+    </div>
+    <div className="jev-scene" ref={scene} data-flow="paused">
+      <div className="jev-agents">
+        <span className="jev-agent-glyphs" aria-hidden="true"><i /><i /><i /></span>
+        <strong>Agents</strong>
+        <span className="jev-support">Tabs · crons · memory</span>
+      </div>
+      <SpineExchange />
+      <div className="jev-home">
+        <BrandMark motion="static" />
+        <strong>Domios</strong>
+        <span className="jev-home-label">Spinal cord</span>
+        <div className="jev-spine" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+      </div>
+      <div className="jev-socket" aria-hidden="true"><i /><i /></div>
+      <div className="jev-engine-group">
+        <div className="jev-engine"><strong>JEV</strong><span className="jev-support">Replaceable engine</span></div>
+        <span className="jev-support jev-model-choice">Suitable local models, too—via LM Studio adapters.</span>
       </div>
     </div>
-    <div className="jev-footer"><p className="jev-principle">The model names the state.<br /><strong>Deterministic evidence authorizes the action.</strong></p><p>One connection. Every reflex. No feature switches.<br />Local models too, through adapters such as LM Studio. Spend stays visible.<br />Without JEV, Domios works exactly as before.</p></div>
+    <p className="jev-authority">The model names states. Domios’ deterministic core authorizes actions from evidence.</p>
   </section>;
 }
