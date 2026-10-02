@@ -10,6 +10,7 @@ import base64
 import errno
 import hashlib
 import json
+import os
 from pathlib import Path
 import selectors
 import socket
