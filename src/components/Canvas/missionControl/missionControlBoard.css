@@ -979,13 +979,6 @@
   background: repeating-linear-gradient(135deg, var(--ct-muted-fg) 0 1.5px, transparent 1.5px 4px);
 }
 
-.mc-board-chart-note {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--ct-muted);
-}
-
 .mc-board-chart-hit {
   width: 100%;
   padding: 0;
