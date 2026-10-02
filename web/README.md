@@ -42,6 +42,8 @@ Colors are ported from the application's GitHub Dark/Light palettes and `themeTo
 
 If Vercel refuses more than 15,000 uploaded files, verify that `.vercelignore` is present in `web/`. The website keeps local recordings and review evidence under `.local/`; Git exclusions alone do not define the Vercel upload. The deployment allowlist includes only application source, public assets, API handlers, and build configuration. Keep private evidence and environment files excluded instead of archiving the entire working directory to bypass the limit.
 
+Use directory exceptions without trailing slashes (`!src`, `!api`, `!public`). Vercel CLI 58.4.4 tests directory paths without a trailing slash before descending; `!src/` therefore left the directory excluded by `/*`, uploading only five root files and causing TS18003. Verify the selected file tree includes every tracked application input before deploying.
+
 The production build embeds the small landing-page stylesheet in HTML through `vite.config.mjs`, removing a render-blocking request on mobile. Development retains Vite's CSS hot reload. If styles disappear after changing the build pipeline, inspect the emitted HTML for its `<style>` tag and verify the stylesheet asset lookup against Vite's output bundle; do not replace it with delayed style loading.
 
 If TypeScript rejects an `Object.fromEntries` cast to the media library with TS2352, the generated object's keys are not proven complete. Keep the explicit typed four-clip record and shared clip factory in `src/media.ts`; do not mask it with a double cast. Run `npm run build` again after the correction.
