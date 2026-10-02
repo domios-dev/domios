@@ -827,6 +827,10 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
+        super::update_prompt::availability(screen)
+    }
+
     fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
         None
     }

@@ -234,7 +234,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "Recovery needs two agreeing observations, at least 0.90 confidence and deterministic evidence. A crash restart requires the provider process to be absent; text on a live tab alone never authorizes a restart. Automatic actions are qualified by a separate held-out evaluation; unqualified actions notify instead. An update prompt can use only a provider-declared safe option agreed by the model. Owner notifications also need two agreeing observations, each at least 0.80 confidence; observations below 0.60 are ignored. An other verdict takes no action.",
+              text: "Recovery needs two agreeing observations, at least 0.90 confidence and deterministic evidence. A crash restart requires the provider process to be absent; text on a live tab alone never authorizes a restart. Automatic actions are qualified by a separate held-out evaluation; unqualified actions notify instead. The automatic provider coordinator answers classified update prompts with the declared safe option; model recovery outside it also requires agreement. Owner notifications also need two agreeing observations, each at least 0.80 confidence; observations below 0.60 are ignored. An other verdict takes no action.",
             },
             {
               type: "paragraph",
