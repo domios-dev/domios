@@ -20,6 +20,7 @@ mod launch_exit;
 mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
+mod model_candidates;
 pub(crate) use manual_update::observation_revision as manual_update_observation_revision;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
@@ -242,16 +243,22 @@ impl ServiceContext {
             }
         }
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            let trust_candidate = trust_candidate::candidate_for_output(
-                self,
-                pid,
-                at,
-                changed_screen.as_deref(),
-                directory_trust_eligible,
-                shared_directory_trust_eligible,
-                is_auto_approve,
-                directory_trust_skip,
-            );
+            let model_owned = self.scrape_model_connected();
+            let trust_candidate = if model_owned {
+                self.maybe_detect_agent_session(pid, at);
+                false
+            } else {
+                trust_candidate::candidate_for_output(
+                    self,
+                    pid,
+                    at,
+                    changed_screen.as_deref(),
+                    directory_trust_eligible,
+                    shared_directory_trust_eligible,
+                    is_auto_approve,
+                    directory_trust_skip,
+                )
+            };
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -306,8 +313,24 @@ impl ServiceContext {
                 } else {
                     None
                 };
+                if model_owned && structured.is_none() && screen_changed {
+                    if let Some(screen) = changed_screen
+                        .as_deref()
+                        .filter(|screen| has_active_prompt || self.is_scrape_candidate(at, screen))
+                    {
+                        self.observe_output_scrape_candidate(
+                            codeterm_plugin::tab_state::TabStateSnapshot {
+                                tab_id: pid.to_string(),
+                                agent_type: at.to_string(),
+                                session_id: agent_session_id.clone(),
+                                cwd: tab_cwd.clone(),
+                                screen_text: screen.to_string(),
+                            },
+                        );
+                    }
+                }
                 let manual_update_candidate = structured.is_none() && update_candidate;
-                if manual_update_candidate && screen_changed {
+                if manual_update_candidate && screen_changed && !model_owned {
                     let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
                         tab_id: pid.to_string(),
                         agent_type: at.to_string(),
@@ -325,7 +348,7 @@ impl ServiceContext {
                     codeterm_types::pty::PromptKind::Provider
                 };
                 let (provider_prompt, directory_trust_prompt, prompt_kind) =
-                    if structured.is_none() && !manual_update_candidate {
+                    if structured.is_none() && !manual_update_candidate && !model_owned {
                         clean_text
                             .as_deref()
                             .and_then(|screen| {
@@ -365,7 +388,7 @@ impl ServiceContext {
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
-                let decision = if manual_update_candidate {
+                let decision = if manual_update_candidate || (model_owned && parsed.is_none()) {
                     PromptDecision::None
                 } else {
                     self.prompt_detector.lock().evaluate_pty_output_parsed(
@@ -705,30 +728,6 @@ impl ServiceContext {
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
         self.apply_prompt_decision_with_screen(decision, None, false, false);
-    }
-
-    fn classify_manual_update_prompt_off_runtime(
-        &self,
-        pty_id: String,
-        snapshot: codeterm_plugin::tab_state::TabStateSnapshot,
-    ) {
-        let svc = self.clone();
-        std::thread::spawn(move || {
-            let classified = svc
-                .agent_registry
-                .with_provider(&snapshot.agent_type, |provider| {
-                    parse_manual_update_prompt_with_response(provider, &snapshot)
-                })
-                .flatten();
-            let Some((prompt, skip_value)) = classified else {
-                return;
-            };
-            let screen = svc.screen_state.lock().get_screen_text(&pty_id);
-            if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
-                return;
-            }
-            resolve_classified_manual_update_prompt(&svc, &snapshot, prompt, skip_value);
-        });
     }
 
     /// Set (or clear) a tab's pending prompt from a PUSH structured handle
