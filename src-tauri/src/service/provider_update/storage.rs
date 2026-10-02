@@ -1,41 +1,48 @@
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::io::Write;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+use std::path::{Path, PathBuf};
 
 pub(super) struct MachineUpdateLock(File);
 
-pub(super) fn version_was_offered(key: &str) -> bool {
-    let Some(path) = provider_update_state_dir().map(|dir| dir.join("provider-update-offers"))
-    else {
-        return true;
+pub(super) const STATE_FILE: &str = "provider-update-state.json";
+
+pub(super) fn transact<T>(
+    change: impl FnOnce(&mut super::state::Coordinator) -> T,
+) -> Result<T, String> {
+    let dir =
+        provider_update_state_dir().ok_or_else(|| "home directory is unavailable".to_string())?;
+    transact_in(&dir, change)
+}
+
+pub(super) fn transact_in<T>(
+    dir: &Path,
+    change: impl FnOnce(&mut super::state::Coordinator) -> T,
+) -> Result<T, String> {
+    let _lock = acquire_machine_update_lock(dir)?;
+    let path = dir.join(STATE_FILE);
+    let mut state: super::state::Coordinator = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string())?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(error.to_string()),
     };
-    let mut contents = String::new();
-    match File::open(&path) {
-        Ok(mut file) => {
-            if file.read_to_string(&mut contents).is_err() {
-                return true;
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return true,
+    let before = state.clone();
+    let value = change(&mut state);
+    if state != before {
+        let bytes = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
+        codeterm_util::atomic_write::write_atomic(&path, bytes)
+            .map_err(|error| error.to_string())?;
     }
-    contents.lines().any(|line| line == key)
+    Ok(value)
 }
 
-pub(super) fn record_version_offered(key: &str) -> std::io::Result<()> {
-    let path = provider_update_state_dir()
-        .ok_or_else(|| std::io::Error::other("home directory is unavailable"))?
-        .join("provider-update-offers");
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(file, "{key}")
+pub(super) fn read() -> Result<super::state::Coordinator, String> {
+    transact(|state| state.clone())
 }
 
-pub(super) fn acquire_machine_update_lock() -> Result<MachineUpdateLock, String> {
-    let path = provider_update_state_dir()
-        .ok_or_else(|| "could not resolve the home CodeTerm directory".to_string())?
-        .join("provider-update.lock");
+fn acquire_machine_update_lock(dir: &Path) -> Result<MachineUpdateLock, String> {
+    let path = dir.join("provider-update.lock");
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -44,7 +51,7 @@ pub(super) fn acquire_machine_update_lock() -> Result<MachineUpdateLock, String>
         .open(path)
         .map_err(|error| error.to_string())?;
     #[cfg(unix)]
-    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 };
+    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) == 0 };
     #[cfg(windows)]
     let locked = lock_windows_file(&file, true);
     if !locked {
@@ -116,10 +123,9 @@ fn lock_windows_file(file: &File, acquire: bool) -> bool {
     };
     unsafe {
         if acquire {
-            LockFileEx(file.as_raw_handle().cast(), 0x3, 0, 1, 0, &mut overlapped) != 0
+            LockFileEx(file.as_raw_handle().cast(), 0x2, 0, 1, 0, &mut overlapped) != 0
         } else {
             UnlockFileEx(file.as_raw_handle().cast(), 0, 1, 0, &mut overlapped) != 0
         }
     }
 }
-

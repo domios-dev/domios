@@ -1,32 +1,18 @@
-use super::{
-    newly_discovered_targets, offer_instance_name, update_consent, update_gate,
-    NotificationOrigin, PushIntent, RestartTarget, UpdateConsent, UpdateGate, LATER,
-};
-use codeterm_types::pty::TabStatus;
-use std::collections::HashSet;
 use std::path::Path;
 
 #[test]
-fn provider_update_waits_for_owner_choice_and_idle_agents() {
-    assert_eq!(update_consent(LATER), UpdateConsent::Declined);
+fn only_default_production_instance_updates_without_opt_in() {
     assert_eq!(
-        update_gate(&[Some(TabStatus::Working)]),
-        UpdateGate::WaitForIdle
-    );
-    assert_eq!(update_gate(&[Some(TabStatus::Idle)]), UpdateGate::Ready);
-    assert_eq!(update_gate(&[None]), UpdateGate::WaitForIdle);
-}
-
-#[test]
-fn only_default_production_instance_offers_without_opt_in() {
-    assert_eq!(
-        offer_instance_name(None, 7685, false).as_deref(),
+        super::update_instance_name(None, 7685, false).as_deref(),
         Some("production")
     );
-    assert_eq!(offer_instance_name(None, 7686, false), None);
-    assert_eq!(offer_instance_name(Some("dev-a"), 7685, false), None);
+    assert_eq!(super::update_instance_name(None, 7686, false), None);
     assert_eq!(
-        offer_instance_name(Some("dev-a"), 7686, true).as_deref(),
+        super::update_instance_name(Some("dev-a"), 7685, false),
+        None
+    );
+    assert_eq!(
+        super::update_instance_name(Some("dev-a"), 7686, true).as_deref(),
         Some("dev-a")
     );
 }
@@ -34,120 +20,29 @@ fn only_default_production_instance_offers_without_opt_in() {
 #[test]
 fn npm_windows_shim_resolves_to_a_direct_node_script() {
     let parent = Path::new("C:/Users/owner/AppData/Roaming/npm");
-    let shim =
-        "@ECHO off\n\"%_prog%\" \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\" %*\n";
+    let shim = "@ECHO off\n\"%_prog%\" \"%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js\" %*\n";
     assert_eq!(
-        super::npm_shim_script(parent, shim),
+        super::command::npm_shim_script(parent, shim),
         Some(parent.join("node_modules/@openai/codex/bin/codex.js"))
     );
 }
 
-#[test]
-fn post_lock_snapshot_keeps_new_tabs_and_skips_already_paused_tabs() {
-    let target = |tab_id: &str| RestartTarget {
-        tab_id: tab_id.into(),
-        cwd: "cwd".into(),
-        session_id: format!("session-{tab_id}"),
-    };
-    let paused = HashSet::from(["already-paused".to_string()]);
-    let remaining = newly_discovered_targets(
-        vec![target("already-paused"), target("opened-after-consent")],
-        &paused,
-    );
-    assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].tab_id, "opened-after-consent");
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn http_answer_is_refused_then_owner_answer_queues_update() {
-    use super::{Offer, ACCEPTED, OFFERS, UPDATE_NOW};
-    use crate::plugin::agent_claude::ClaudeProvider;
-    use crate::service::test_fixture::ServiceFixture;
-    use codeterm_plugin::provider::ProviderUpdateAvailability;
-    use codeterm_types::notification::CallerAction;
-    use codeterm_types::pty::{BootStage, TabVerdict, TimelineState};
-    use std::sync::Arc;
-
-    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let workspace = mux.list_workspaces()[0].id.clone();
-    let tab_id = mux.create_tab(&workspace).unwrap();
-    let pty_id = "update-consent-busy-pty";
-    let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.pty_id = Some(pty_id.into());
-    tab.agent_type = Some("claude".into());
-    tab.boot_stage = Some(BootStage::AgentReady);
-    tab.agent_state = Some(
-        TabVerdict {
-            state: TimelineState::Working,
-            subtype: None,
-        }
-        .into(),
-    );
-    let fixture = ServiceFixture::new(mux);
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(ClaudeProvider::new()));
-    fixture
-        .service
-        .agent_tracker
-        .lock()
-        .update_output(pty_id, [1u8; 32]);
-    let id = fixture.service.create_notification_ext(
-        "Update available".into(),
-        Some("version 1 -> 2".into()),
-        Some("info"),
-        Some(vec![
-            CallerAction::Answer {
-                label: UPDATE_NOW.into(),
-            },
-            CallerAction::Answer {
-                label: LATER.into(),
-            },
-        ]),
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some("provider-update-test".into()),
-        },
-        None,
-    );
-    OFFERS.lock().insert(
-        id.clone(),
-        Offer {
-            provider: Arc::new(ClaudeProvider::new()),
-            version: ProviderUpdateAvailability {
-                current_version: "1.0.0".into(),
-                latest_version: "2.0.0".into(),
-            },
-            command: "codex update".into(),
-        },
-    );
-
-    assert!(fixture
-        .service
-        .answer_notification(&id, UPDATE_NOW)
-        .is_err());
-    assert!(OFFERS.lock().contains_key(&id));
-    fixture
-        .service
-        .answer_owner_notification(&id, UPDATE_NOW)
-        .expect("owner answer should be recorded");
-    assert!(ACCEPTED.lock().contains_key(&id));
-    ACCEPTED.lock().remove(&id);
-    OFFERS.lock().remove(&id);
-}
-
 use super::state::{Admission, Coordinator, RestartState, RunOutcome, TabReadiness};
 fn idle() -> TabReadiness {
-    TabReadiness { idle: true, active_turn: false, active_attempt: false }
+    TabReadiness {
+        idle: true,
+        active_turn: false,
+        active_attempt: false,
+    }
 }
 fn succeeded(tabs: &[&str]) -> Coordinator {
     let mut state = Coordinator::default();
     assert_eq!(state.begin("fixture", "1", "2"), Admission::Started);
-    state.finish("fixture:2", Ok(()), &tabs.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+    state.finish(
+        "fixture:2",
+        Ok(()),
+        &tabs.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+    );
     state
 }
 
@@ -161,9 +56,30 @@ fn update_coordinator_idle_tab_restarts_with_resume() {
 #[test]
 fn update_coordinator_busy_tab_pending_then_restarts_on_idle_event() {
     let mut state = succeeded(&["busy"]);
-    assert!(!state.claim_restart("fixture:2", "busy", TabReadiness { idle: false, ..idle() }));
-    assert!(!state.claim_restart("fixture:2", "busy", TabReadiness { active_turn: true, ..idle() }));
-    assert!(!state.claim_restart("fixture:2", "busy", TabReadiness { active_attempt: true, ..idle() }));
+    assert!(!state.claim_restart(
+        "fixture:2",
+        "busy",
+        TabReadiness {
+            idle: false,
+            ..idle()
+        }
+    ));
+    assert!(!state.claim_restart(
+        "fixture:2",
+        "busy",
+        TabReadiness {
+            active_turn: true,
+            ..idle()
+        }
+    ));
+    assert!(!state.claim_restart(
+        "fixture:2",
+        "busy",
+        TabReadiness {
+            active_attempt: true,
+            ..idle()
+        }
+    ));
     assert_eq!(state.runs["fixture:2"].counts(), (0, 1));
     assert!(state.claim_restart("fixture:2", "busy", idle()));
     state.settle_restart("fixture:2", "busy", RestartState::FreshLaunch);
@@ -175,7 +91,10 @@ fn update_coordinator_failure_restarts_nothing_and_notifies_once() {
     state.begin("fixture", "1", "2");
     state.finish("fixture:2", Err("captured error".into()), &["idle".into()]);
     assert!(!state.claim_restart("fixture:2", "idle", idle()));
-    assert_eq!(state.runs["fixture:2"].outcome, RunOutcome::Failed("captured error".into()));
+    assert_eq!(
+        state.runs["fixture:2"].outcome,
+        RunOutcome::Failed("captured error".into())
+    );
     assert!(state.claim_notice("fixture:2"));
     assert!(!state.claim_notice("fixture:2"));
 }
@@ -204,6 +123,287 @@ fn update_coordinator_one_restart_per_tab() {
     assert!(state.claim_restart("fixture:2", "idle", idle()));
     assert!(!state.claim_restart("fixture:2", "idle", idle()));
     state.settle_restart("fixture:2", "idle", RestartState::Failed);
-    let mut restored: Coordinator = serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+    let mut restored: Coordinator =
+        serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
     assert!(!restored.claim_restart("fixture:2", "idle", idle()));
+}
+
+#[test]
+fn update_coordinator_success_waits_for_command_completion() {
+    let mut state = Coordinator::default();
+    state.begin("fixture", "1", "2");
+    state.enroll("fixture:2", &["idle".into()]);
+    assert!(!state.claim_restart("fixture:2", "idle", idle()));
+    assert!(!state.claim_notice("fixture:2"));
+    state.finish("fixture:2", Ok(()), &["during-update".into()]);
+    assert!(state.claim_restart("fixture:2", "idle", idle()));
+    assert!(state.claim_restart("fixture:2", "during-update", idle()));
+}
+
+#[test]
+fn update_coordinator_provider_scopes_are_independent() {
+    let mut state = Coordinator::default();
+    assert_eq!(state.begin("first", "1", "2"), Admission::Started);
+    assert_eq!(state.begin("second", "1", "2"), Admission::Started);
+    state.finish("first:2", Err("failure".into()), &[]);
+    assert_eq!(state.begin("first", "1", "2"), Admission::Duplicate);
+    assert_eq!(state.begin("first", "1", "3"), Admission::Started);
+}
+
+#[test]
+fn update_coordinator_refused_busy_restart_returns_to_pending() {
+    let mut state = succeeded(&["idle"]);
+    assert!(state.claim_restart("fixture:2", "idle", idle()));
+    state.defer_restart("fixture:2", "idle");
+    assert!(state.claim_restart("fixture:2", "idle", idle()));
+    state.settle_restart("fixture:2", "idle", RestartState::Resumed);
+    state.defer_restart("fixture:2", "idle");
+    assert!(!state.claim_restart("fixture:2", "idle", idle()));
+}
+
+#[test]
+fn update_coordinator_prompt_tab_answers_safe_choice() {
+    use codeterm_plugin::provider::AgentProvider;
+    let provider = crate::plugin::agent_claude::ClaudeProvider::new();
+    let prompt = codeterm_plugin::prompt::build_prompt(
+        "opaque".into(),
+        vec![
+            ("Update now".into(), "apply".into()),
+            ("Skip".into(), "defer".into()),
+        ],
+    );
+    assert_eq!(
+        provider.update_prompt_safe_choice(&prompt).as_deref(),
+        Some("defer")
+    );
+    let missing = codeterm_plugin::prompt::build_prompt(
+        "opaque".into(),
+        vec![("Update now".into(), "apply".into())],
+    );
+    assert_eq!(provider.update_prompt_safe_choice(&missing), None);
+}
+
+#[test]
+fn update_coordinator_unstopped_updater_blocks_further_runs() {
+    let mut state = Coordinator::default();
+    state.begin("fixture", "1", "2");
+    state.finish(
+        "fixture:2",
+        Err("termination unconfirmed".into()),
+        &["idle".into()],
+    );
+    state.block_unstopped("fixture:2");
+    assert_eq!(state.begin("fixture", "1", "3"), Admission::ProviderBusy);
+    assert!(!state.claim_restart("fixture:2", "idle", idle()));
+    assert!(state.claim_notice("fixture:2"));
+    assert!(!state.claim_notice("fixture:2"));
+}
+
+#[test]
+fn update_coordinator_journal_correlates_provider_target_and_tab() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = crate::service::supporter::SupporterRuntime::new(dir.path().into());
+    runtime
+        .provider_update_action(
+            "fixture",
+            Some("2"),
+            crate::service::supporter::ActionRecord {
+                kind: crate::service::supporter::VerdictKind::TabState,
+                tab: Some("tab-a"),
+                label: "resumed",
+                confidence: 1.0,
+                action: crate::service::supporter::Action::Recovery,
+                reason: "provider_update_restart",
+            },
+        )
+        .unwrap();
+    let contents = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(contents.trim()).unwrap();
+    assert_eq!(entry["provider"], "fixture");
+    assert_eq!(entry["target_version"], "2");
+    assert_eq!(entry["tab"], "tab-a");
+    assert_eq!(entry["label"], "resumed");
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn update_coordinator_service_idle_general_and_busy_projection() {
+    use crate::plugin::agent_claude::ClaudeProvider;
+    use crate::service::test_fixture::ServiceFixture;
+    use codeterm_types::pty::{BootStage, TabVerdict, TimelineState};
+    let (mut mux, root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.list_workspaces()[0].id.clone();
+    mux.set_workspace_protected(&workspace, true);
+    crate::service::general_agent::ensure_general_workspace(&mut mux, false);
+    assert_eq!(
+        mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS),
+        Some(root.clone())
+    );
+    let busy = mux.create_tab(&workspace).unwrap();
+    for (id, pty, state) in [
+        (&root, "update-root-pty", TimelineState::Idle),
+        (&busy, "update-busy-pty", TimelineState::Working),
+    ] {
+        let tab = mux.get_tab_mut(id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.pty_id = Some(pty.into());
+        tab.boot_stage = Some(BootStage::AgentReady);
+        tab.agent_state = Some(
+            TabVerdict {
+                state,
+                subtype: None,
+            }
+            .into(),
+        );
+    }
+    let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(ClaudeProvider::new()));
+    for pty in ["update-root-pty", "update-busy-pty"] {
+        fixture
+            .service
+            .agent_tracker
+            .lock()
+            .update_output(pty, [1u8; 32]);
+    }
+    fixture
+        .service
+        .agent_tracker
+        .lock()
+        .set_idle("update-root-pty");
+    assert!(super::restarts::provider_tabs(&fixture.service, "claude").contains(&root));
+    assert!(super::restarts::readiness(&fixture.service, &root).can_restart());
+    assert!(!super::restarts::readiness(&fixture.service, &busy).can_restart());
+    assert!(!super::restart_eligible(&fixture.service, "absent"));
+    let mut plan = crate::plan::Plan::new(
+        "fixture".into(),
+        fixture.temp.path().display().to_string(),
+        crate::plan::OrchestratorRef {
+            tab_id: None,
+            session_id: None,
+            title: None,
+        },
+    );
+    plan.status = crate::plan::PlanStatus::Active;
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "fixture".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    plan = fixture.service.plan_store.get(&plan.id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.status = crate::plan::TaskStatus::InProgress;
+    task.execution_attempts
+        .push(crate::plan::TaskExecutionAttempt {
+            executor_tab_id: root.clone(),
+            ..Default::default()
+        });
+    fixture.service.plan_store.save(&mut plan, 3).unwrap();
+    assert!(!super::restarts::readiness(&fixture.service, &root).can_restart());
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .status = crate::plan::TaskStatus::InReview;
+    fixture.service.plan_store.save(&mut plan, 4).unwrap();
+    assert!(super::restarts::readiness(&fixture.service, &root).can_restart());
+}
+
+#[test]
+fn update_coordinator_interrupted_claims_never_replay() {
+    let mut state = succeeded(&["idle"]);
+    assert!(state.claim_restart("fixture:2", "idle", idle()));
+    let interrupted = state.recover_interrupted(|_| false);
+    assert_eq!(interrupted.len(), 1);
+    assert_eq!(state.runs["fixture:2"].tabs["idle"], RestartState::Failed);
+    assert!(!state.claim_restart("fixture:2", "idle", idle()));
+    assert!(state.recover_interrupted(|_| false).is_empty());
+    assert_eq!(state.begin("fixture", "2", "3"), Admission::Started);
+    assert_eq!(state.recover_interrupted(|_| false).len(), 1);
+    assert_eq!(state.begin("fixture", "2", "3"), Admission::Duplicate);
+    assert_eq!(state.begin("fixture", "2", "4"), Admission::ProviderBusy);
+}
+
+#[test]
+fn update_coordinator_machine_claim_dedupes_concurrent_tabs_and_disk_reload() {
+    use std::sync::{Arc, Barrier};
+    let dir = tempfile::tempdir().unwrap();
+    let barrier = Arc::new(Barrier::new(4));
+    let threads = (0..4)
+        .map(|index| {
+            let barrier = barrier.clone();
+            let path = dir.path().to_path_buf();
+            std::thread::spawn(move || {
+                barrier.wait();
+                super::storage::transact_in(&path, |state| {
+                    let admission = state.begin("fixture", "1", "2");
+                    state.enroll("fixture:2", &[format!("tab-{index}")]);
+                    admission
+                })
+                .unwrap()
+            })
+        })
+        .collect::<Vec<_>>();
+    let admissions = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        admissions
+            .iter()
+            .filter(|admission| **admission == Admission::Started)
+            .count(),
+        1
+    );
+    assert_eq!(
+        admissions
+            .iter()
+            .filter(|admission| **admission == Admission::Duplicate)
+            .count(),
+        3
+    );
+    super::storage::transact_in(dir.path(), |state| {
+        assert_eq!(state.runs["fixture:2"].tabs.len(), 4);
+        assert_eq!(state.begin("fixture", "1", "2"), Admission::Duplicate);
+        assert_eq!(state.begin("fixture", "1", "3"), Admission::ProviderBusy);
+        state.finish("fixture:2", Ok(()), &[]);
+    })
+    .unwrap();
+    super::storage::transact_in(dir.path(), |state| {
+        assert_eq!(state.begin("fixture", "1", "2"), Admission::Duplicate);
+        assert!(state.claim_restart("fixture:2", "tab-0", idle()));
+        state.settle_restart("fixture:2", "tab-0", RestartState::Resumed);
+    })
+    .unwrap();
+    super::storage::transact_in(dir.path(), |state| {
+        assert!(!state.claim_restart("fixture:2", "tab-0", idle()));
+    })
+    .unwrap();
+}
+
+#[test]
+fn update_coordinator_corrupt_durable_claim_refuses_dispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(super::storage::STATE_FILE), b"invalid-json").unwrap();
+    let called = std::sync::atomic::AtomicBool::new(false);
+    let result = super::storage::transact_in(dir.path(), |_| {
+        called.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    assert!(result.is_err());
+    assert!(!called.load(std::sync::atomic::Ordering::Relaxed));
 }

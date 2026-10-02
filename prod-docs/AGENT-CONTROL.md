@@ -128,7 +128,7 @@ The General Agent watchdog reacts to PTY death, provider exit to a shell and lau
 
 | Observed condition | Required evidence and response |
 |---|---|
-| Update prompt | The provider declares a safe option; the model agrees with it. Answer only that option through the structured prompt responder. Without agreement or a declared option, notify the owner. |
+| Update prompt | The automatic provider coordinator answers classified prompts with the declared safe option. Outside that coordinator, model recovery additionally requires agreement with the option; otherwise notify. Details: `codeterm docs CONFIG`. |
 | Crash to shell | The provider is absent from this tab's process tree and its recovery session is verified. Resume in the same tab. |
 | Startup failure after its deadline | One restart within the overall episode limit. |
 | Error loop | One restart, then an owner notification if the condition continues. |
@@ -158,4 +158,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

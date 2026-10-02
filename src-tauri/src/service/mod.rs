@@ -660,7 +660,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
-        provider_update::on_state_change(self);
         publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish();
     }

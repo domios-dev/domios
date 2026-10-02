@@ -32,6 +32,7 @@ export type Action =
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
+  | { type: "UPDATE_NOTIFICATION_SUMMARY"; id: string; title: string; body: string }
   | { type: "RESOLVE_NOTIFICATION"; id: string }
   | { type: "ANSWER_NOTIFICATION"; id: string; answered: string; delivered: boolean }
   | { type: "MARK_ALL_READ" }
@@ -517,6 +518,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         notifications: replaceById(state.notifications, action.notification),
         toasts: capToasts(replaceById(state.toasts, action.notification)),
       };
+    }
+
+    case "UPDATE_NOTIFICATION_SUMMARY": {
+      const update = (items: Notification[]) => items.map((item) => item.id === action.id
+        ? { ...item, title: action.title, body: action.body } : item);
+      return { ...state, notifications: update(state.notifications), toasts: update(state.toasts) };
     }
 
     case "UPSERT_TOAST": {

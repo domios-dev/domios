@@ -49,7 +49,7 @@ fn provider(state: TabState, prompt: PendingPrompt) -> MockProvider {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn codex_update_dialog_resolves_to_skip_with_one_notification() {
+fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     let screen = update_frame();
     let visible = menu_options(&screen);
     let parsed = PendingPrompt {

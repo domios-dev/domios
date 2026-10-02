@@ -1,470 +1,337 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 
 use codeterm_plugin::provider::{AgentProvider, ProviderUpdateAvailability};
-use codeterm_types::notification::CallerAction;
-use codeterm_types::pty::TabStatus;
 use parking_lot::Mutex;
 
 use super::{
     notification::{NotificationOrigin, PushIntent},
     ServiceContext,
 };
-use crate::notification::answer::AnswerAdmission;
+use state::Admission;
 
 mod command;
-mod storage;
+mod restarts;
 mod state;
-use command::{platform_key, run_update_command};
-use storage::{acquire_machine_update_lock, version_was_offered, record_version_offered};
-#[cfg(test)]
-use command::npm_shim_script;
+mod storage;
+mod watch;
 
-const UPDATE_NOW: &str = "Update now";
-const LATER: &str = "Later";
+pub(crate) const IDLE_REFUSAL: &str = "provider update restart deferred until tab is idle";
 
-struct Offer {
+pub(crate) fn restart_eligible(service: &ServiceContext, tab: &str) -> bool {
+    let provider = service
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.agent_type.clone());
+    let Some(provider) = provider else {
+        return false;
+    };
+    let Ok(state) = storage::read() else {
+        return false;
+    };
+    if state.runs.values().any(|run| {
+        run.provider == provider
+            && matches!(
+                run.outcome,
+                state::RunOutcome::Running | state::RunOutcome::UnstoppedFailure(_)
+            )
+    }) {
+        return false;
+    }
+    restarts::readiness(service, tab).can_restart()
+}
+
+struct Update {
     provider: Arc<dyn AgentProvider>,
     version: ProviderUpdateAvailability,
     command: String,
 }
 
-static OFFERS: LazyLock<Mutex<HashMap<String, Offer>>> =
+static ENABLED: AtomicBool = AtomicBool::new(false);
+static WAITING: LazyLock<Mutex<HashMap<String, Update>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static ACCEPTED: LazyLock<Mutex<HashMap<String, Offer>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-static OFFERED_VERSIONS: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-static INSTALLING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-static SNAPSHOT_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
 
 pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_prod: bool) {
-    let providers = service.agent_registry.all_provider_arcs();
     let instance_override = std::env::var("CODETERM_INSTANCE").ok();
-    let instance = offer_instance_name(instance_override.as_deref(), api_port, allow_non_prod);
-    let spawned = std::thread::Builder::new()
-        .name("provider-update-check".into())
-        .spawn(move || {
-            for provider in providers {
-                if !provider.supports_update_check() {
-                    continue;
-                }
-                let Some(command) = provider.update_command(platform_key()) else {
-                    continue;
-                };
-                let Some(version) = provider.check_for_update() else {
-                    continue;
-                };
-                if let Some(instance) = instance.as_deref() {
-                    offer(service.as_ref(), provider, version, command, instance);
-                } else {
-                    log::info!(
-                        "[provider-update] {} update available: {} -> {}; this instance cannot offer provider updates",
-                        provider.display_name(), version.current_version, version.latest_version
-                    );
-                }
+    let allowed =
+        update_instance_name(instance_override.as_deref(), api_port, allow_non_prod).is_some();
+    ENABLED.store(allowed, Ordering::Release);
+    if allowed {
+        watch::start(service.as_ref());
+        restarts::schedule_async(service.as_ref(), None);
+    }
+    let providers = service.agent_registry.all_provider_arcs();
+    spawn_utility("provider-update-check", move || {
+        for provider in providers {
+            if !provider.supports_update_check() {
+                continue;
             }
-        });
-    if let Err(error) = spawned {
-        log::error!("[provider-update] version-check utility thread failed: {error}");
-    }
-}
-
-fn offer_instance_name(
-    instance_override: Option<&str>,
-    api_port: u16,
-    allow_non_prod: bool,
-) -> Option<String> {
-    if let Some(name) = instance_override {
-        let name = name.trim();
-        if !name.is_empty() {
-            return allow_non_prod.then(|| name.to_string());
-        }
-    }
-    if api_port == 7685 {
-        return Some("production".into());
-    }
-    allow_non_prod.then(|| format!("instance on port {api_port}"))
-}
-
-fn offer(
-    service: &ServiceContext,
-    provider: Arc<dyn AgentProvider>,
-    version: ProviderUpdateAvailability,
-    command: String,
-    instance: &str,
-) {
-    let key = format!("{}:{}", provider.id(), version.latest_version);
-    if OFFERED_VERSIONS.lock().contains(&key) {
-        return;
-    }
-    let Ok(_lock) = acquire_machine_update_lock() else {
-        log::info!("[provider-update] offer deferred because another instance holds the machine update lock");
-        return;
-    };
-    if version_was_offered(&key) {
-        return;
-    }
-    let actions = Some(vec![
-        CallerAction::Answer {
-            label: UPDATE_NOW.to_string(),
-        },
-        CallerAction::Answer {
-            label: LATER.to_string(),
-        },
-    ]);
-    let id = service.create_notification_ext(
-        format!("{} update available in {instance}", provider.display_name()),
-        Some(format!(
-            "{instance}: {} {} -> {} is available.",
-            provider.display_name(),
-            version.current_version,
-            version.latest_version
-        )),
-        Some("info"),
-        actions,
-        Some(true),
-        NotificationOrigin::default(),
-        PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-            event_key: Some(format!("provider-update:{key}")),
-        },
-        None,
-    );
-    OFFERS.lock().insert(
-        id,
-        Offer {
-            provider,
-            version,
-            command,
-        },
-    );
-    OFFERED_VERSIONS.lock().insert(key.clone());
-    if let Err(error) = record_version_offered(&key) {
-        log::warn!("[provider-update] could not persist offer deduplication: {error}");
-    }
-}
-
-pub fn answer(
-    service: &ServiceContext,
-    id: &str,
-    label: &str,
-) -> Option<Result<serde_json::Value, String>> {
-    let offer = OFFERS.lock().remove(id)?;
-    let admission = service.notif.lock().record_detached_answer(id, label);
-    let AnswerAdmission::Recorded(answer) = admission else {
-        OFFERS.lock().insert(id.to_string(), offer);
-        return Some(Err(
-            "The provider update choice could not be recorded".into()
-        ));
-    };
-    service.notif.lock().mark_answer_delivered(id);
-    service.notify_event(
-        "notification-answered",
-        serde_json::json!({"id": id, "answered": answer, "delivered": true}),
-    );
-    if update_consent(label) == UpdateConsent::Accepted {
-        ACCEPTED.lock().insert(id.to_string(), offer);
-        process_accepted(service);
-    }
-    Some(Ok(
-        serde_json::json!({ "answered": answer, "delivered": true }),
-    ))
-}
-
-pub(super) fn is_offer(id: &str) -> bool {
-    OFFERS.lock().contains_key(id)
-}
-
-pub fn on_state_change(service: &ServiceContext) {
-    process_accepted(service);
-}
-
-fn process_accepted(service: &ServiceContext) {
-    let jobs = std::mem::take(&mut *ACCEPTED.lock());
-    for (id, offer) in jobs {
-        match restart_targets(service, &offer.provider) {
-            Ok(RestartReadiness::Ready(_)) => start_update(service.clone(), id, offer),
-            Ok(RestartReadiness::Busy) => {
-                ACCEPTED.lock().insert(id, offer);
-            }
-            Ok(RestartReadiness::SnapshotBusy) => {
-                ACCEPTED.lock().insert(id, offer);
-                wake_after_snapshot(service);
-            }
-            Err(reason) => {
-                log::warn!("[provider-update] update declined after consent: {reason}");
-                notify_owner(
-                    service,
-                    format!("{} update is waiting", offer.provider.display_name()),
-                    reason,
+            let Some(command) = provider.update_command(command::platform_key()) else {
+                continue;
+            };
+            let Some(version) = provider.check_for_update() else {
+                continue;
+            };
+            if allowed {
+                start_update(
+                    service.as_ref(),
+                    Update {
+                        provider,
+                        version,
+                        command,
+                    },
+                );
+            } else {
+                log::info!(
+                    "[provider-update] {} {} -> {} available; instance updates are disabled",
+                    provider.display_name(),
+                    version.current_version,
+                    version.latest_version
                 );
             }
         }
-    }
+    });
 }
 
-fn wake_after_snapshot(service: &ServiceContext) {
-    if SNAPSHOT_WAKE_ARMED.swap(true, Ordering::AcqRel) {
+pub(crate) fn coordinates_prompt(service: &ServiceContext, provider: &str) -> bool {
+    ENABLED.load(Ordering::Acquire)
+        && service
+            .agent_registry
+            .provider_arc(provider)
+            .is_some_and(|provider| provider.update_command(command::platform_key()).is_some())
+}
+
+pub(crate) fn manual_prompt_observed(
+    service: &ServiceContext,
+    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+) {
+    if !ENABLED.load(Ordering::Acquire) {
         return;
+    }
+    let provider_id = service
+        .mux
+        .read()
+        .get_tab(&snapshot.tab_id)
+        .and_then(|tab| {
+            (tab.agent_type.as_deref() == Some(snapshot.agent_type.as_str())
+                && tab.agent_session_id == snapshot.session_id)
+                .then(|| tab.agent_type.clone())
+                .flatten()
+        });
+    let Some(provider) = provider_id.and_then(|id| service.agent_registry.provider_arc(&id)) else {
+        return;
+    };
+    let Some(command) = provider.update_command(command::platform_key()) else {
+        return;
+    };
+    let screen = snapshot.screen_text.clone();
+    let service = service.clone();
+    spawn_utility("provider-update-prompt", move || {
+        if let Some(version) = provider
+            .update_prompt_availability(&screen)
+            .or_else(|| provider.check_for_update())
+        {
+            start_update(
+                &service,
+                Update {
+                    provider,
+                    version,
+                    command,
+                },
+            );
+        } else {
+            log::warn!(
+                "[provider-update] classified prompt has no provider-declared target version"
+            );
+        }
+    });
+}
+
+fn update_instance_name(instance: Option<&str>, port: u16, allow_non_prod: bool) -> Option<String> {
+    if let Some(name) = instance.map(str::trim).filter(|name| !name.is_empty()) {
+        return allow_non_prod.then(|| name.into());
+    }
+    if port == 7685 {
+        return Some("production".into());
+    }
+    allow_non_prod.then(|| format!("instance on port {port}"))
+}
+
+fn start_update(service: &ServiceContext, update: Update) {
+    let provider_id = update.provider.id().to_string();
+    let key = format!("{provider_id}:{}", update.version.latest_version);
+    let tabs = restarts::provider_tabs(service, &provider_id);
+    let admission = storage::transact(|state| {
+        let admission = state.begin(
+            &provider_id,
+            &update.version.current_version,
+            &update.version.latest_version,
+        );
+        state.enroll(&key, &tabs);
+        admission
+    });
+    match admission {
+        Ok(Admission::Duplicate) => {
+            restarts::schedule(service, None);
+            return;
+        }
+        Ok(Admission::ProviderBusy) => {
+            WAITING.lock().insert(provider_id, update);
+            return;
+        }
+        Err(error) => {
+            log::error!("[provider-update] durable admission failed: {error}");
+            return;
+        }
+        Ok(Admission::Started) => {}
     }
     let service = service.clone();
-    if let Err(error) = std::thread::Builder::new()
-        .name("provider-update-state-wake".into())
-        .spawn(move || {
-            super::status_reconciliation::wait_until_snapshot_readable(
-                &service.mux,
-                &service.agent_tracker,
-            );
-            SNAPSHOT_WAKE_ARMED.store(false, Ordering::Release);
-            process_accepted(&service);
-        })
-    {
-        SNAPSHOT_WAKE_ARMED.store(false, Ordering::Release);
-        log::error!("[provider-update] state wake thread failed: {error}");
-    }
-}
-
-struct RestartTarget {
-    tab_id: String,
-    cwd: String,
-    session_id: String,
-}
-
-fn newly_discovered_targets(
-    targets: Vec<RestartTarget>,
-    paused_ids: &HashSet<String>,
-) -> Vec<RestartTarget> {
-    targets
-        .into_iter()
-        .filter(|target| !paused_ids.contains(&target.tab_id))
-        .collect()
-}
-
-enum RestartReadiness {
-    Busy,
-    SnapshotBusy,
-    Ready(Vec<RestartTarget>),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum UpdateGate {
-    WaitForIdle,
-    Ready,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum UpdateConsent {
-    Pending,
-    Accepted,
-    Declined,
-}
-
-fn update_consent(label: &str) -> UpdateConsent {
-    match label {
-        UPDATE_NOW => UpdateConsent::Accepted,
-        LATER => UpdateConsent::Declined,
-        _ => UpdateConsent::Pending,
-    }
-}
-
-fn update_gate(statuses: &[Option<TabStatus>]) -> UpdateGate {
-    if statuses.iter().any(|status| {
-        !matches!(
-            status,
-            Some(TabStatus::Idle | TabStatus::Error | TabStatus::Dead)
-        )
-    }) {
-        return UpdateGate::WaitForIdle;
-    }
-    UpdateGate::Ready
-}
-
-fn restart_targets(
-    service: &ServiceContext,
-    provider: &Arc<dyn AgentProvider>,
-) -> Result<RestartReadiness, String> {
-    let Some(snapshot) = service.try_snapshot_with_reconciled_status() else {
-        return Ok(RestartReadiness::SnapshotBusy);
-    };
-    let tabs = snapshot
-        .tabs
-        .iter()
-        .filter(|(_, tab)| tab.agent_type.as_deref() == Some(provider.id()))
-        .collect::<Vec<_>>();
-    let statuses = tabs
-        .iter()
-        .map(|(tab_id, _)| {
-            snapshot.tab_statuses.get(*tab_id).copied().or_else(|| {
-                (crate::agent::live_state::observe_tab_liveness(service, tab_id)
-                    == codeterm_types::pty::AgentLiveness::Absent)
-                    .then_some(TabStatus::Dead)
-            })
-        })
-        .collect::<Vec<_>>();
-    if update_gate(&statuses) == UpdateGate::WaitForIdle {
-        return Ok(RestartReadiness::Busy);
-    }
-    let mut targets = Vec::new();
-    for ((tab_id, tab), status) in tabs.into_iter().zip(statuses) {
-        match status {
-            Some(TabStatus::Dead) => continue,
-            Some(TabStatus::Error) => {}
-            Some(TabStatus::Idle) => {}
-            Some(TabStatus::Working | TabStatus::Waiting) | None => unreachable!(),
-        }
-        let (Some(cwd), Some(session_id)) = (tab.cwd.as_deref(), tab.agent_session_id.as_deref())
-        else {
-            return Err(format!("Tab {tab_id} has no bound session to resume"));
-        };
-        targets.push(RestartTarget {
-            tab_id: tab_id.clone(),
-            cwd: cwd.to_string(),
-            session_id: session_id.to_string(),
-        });
-    }
-    Ok(RestartReadiness::Ready(targets))
-}
-
-fn start_update(service: ServiceContext, id: String, offer: Offer) {
-    if !INSTALLING.lock().insert(offer.provider.id().to_string()) {
-        ACCEPTED.lock().insert(id, offer);
-        return;
-    }
-    let provider_id = offer.provider.id().to_string();
-    let thread_provider_id = provider_id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("provider-update-install".into())
-        .spawn(move || {
-            let outcome = acquire_machine_update_lock().and_then(|_lock| {
-                let mut paused = Vec::new();
-                let mut paused_ids = HashSet::new();
-                loop {
-                    let targets = match restart_targets(&service, &offer.provider)? {
-                        RestartReadiness::Ready(targets) => targets,
-                        RestartReadiness::Busy => {
-                            let failures = resume_paused(&service, paused);
-                            return Err(format!(
-                                "a provider agent became busy before update; {}",
-                                failures.join("; ")
-                            ));
-                        }
-                        RestartReadiness::SnapshotBusy => {
-                            let failures = resume_paused(&service, paused);
-                            return Err(format!(
-                                "provider state changed before update; {}",
-                                failures.join("; ")
-                            ));
-                        }
-                    };
-                    let targets = newly_discovered_targets(targets, &paused_ids);
-                    if targets.is_empty() {
-                        break;
-                    }
-                    for target in targets {
-                        if !offer
-                            .provider
-                            .session_exists(&target.cwd, &target.session_id)
-                        {
-                            let failures = resume_paused(&service, paused);
-                            return Err(format!(
-                                "Tab {} no longer has its bound session; {}",
-                                target.tab_id,
-                                failures.join("; ")
-                            ));
-                        }
-                        match service.pause_for_provider_update(
-                            &target.tab_id,
-                            offer.provider.id(),
-                            &target.session_id,
-                        ) {
-                            Ok(tab) => {
-                                paused_ids.insert(target.tab_id);
-                                paused.push(tab);
-                            }
-                            Err(error) => {
-                                let resume_errors = resume_paused(&service, paused);
-                                return Err(format!(
-                                    "could not pause tabs: {error}; {}",
-                                    resume_errors.join("; ")
-                                ));
-                            }
-                        }
-                    }
-                }
-                let update_result = run_update_command(&offer.command);
-                if let Err(failure) = &update_result {
-                    if !failure.child_stopped {
-                        return Err(format!(
-                            "{}; updater could not be stopped, so affected tabs remain stopped",
-                            failure.reason
-                        ));
-                    }
-                }
-                let resume_errors = resume_paused(&service, paused);
-                match (update_result, resume_errors.is_empty()) {
-                    (Ok(()), true) => Ok(()),
-                    (Err(error), _) => {
-                        Err(format!("{}; {}", error.reason, resume_errors.join("; ")))
-                    }
-                    (Ok(()), false) => {
-                        Err(format!("tab resume failed: {}", resume_errors.join("; ")))
-                    }
-                }
-            });
-            match outcome {
-                Ok(()) => {
-                    service.create_notification(
-                        format!("{} updated", offer.provider.display_name()),
-                        Some(format!(
-                            "Updated to version {}.",
-                            offer.version.latest_version
-                        )),
-                        Some("info"),
-                    );
-                }
-                Err(error) => {
-                    log::error!("[provider-update] installer failed: {error}");
-                    notify_owner(
-                        &service,
-                        format!("{} update failed", offer.provider.display_name()),
-                        error,
-                    );
-                }
-            }
-            INSTALLING.lock().remove(&thread_provider_id);
-        });
+    let failure_service = service.clone();
+    let failure_key = key.clone();
+    let builder = std::thread::Builder::new().name("provider-update-install".into());
+    let spawned = builder.spawn(move || install(service, key, provider_id, update));
     if let Err(error) = spawned {
-        INSTALLING.lock().remove(&provider_id);
-        log::error!("[provider-update] installer utility thread failed: {error}");
+        let _ = storage::transact(|state| {
+            state.finish(
+                &failure_key,
+                Err(format!("installer utility thread failed: {error}")),
+                &[],
+            )
+        });
+        restarts::schedule(&failure_service, None);
     }
 }
 
-fn resume_paused(
-    service: &ServiceContext,
-    paused: Vec<crate::service::agent_restart::ProviderUpdatePause>,
-) -> Vec<String> {
-    paused
-        .into_iter()
-        .filter_map(|tab| service.resume_after_provider_update(tab).err())
-        .collect()
+fn install(service: ServiceContext, key: String, provider_id: String, update: Update) {
+    let mut child_stopped = true;
+    let mut result = if journal(
+        &provider_id,
+        Some(&update.version.latest_version),
+        None,
+        "update_started",
+        "provider_update_command",
+    ) {
+        command::run_update_command(&update.command).map_err(|failure| {
+            child_stopped = failure.child_stopped;
+            failure.reason
+        })
+    } else {
+        Err("update withheld because the Supporter journal is unavailable".into())
+    };
+    if !journal(
+        &provider_id,
+        Some(&update.version.latest_version),
+        None,
+        if result.is_ok() {
+            "update_succeeded"
+        } else {
+            "update_failed"
+        },
+        "provider_update_command",
+    ) && result.is_ok()
+    {
+        result = Err(
+            "update command succeeded but its journal write failed; automatic restarts withheld"
+                .into(),
+        );
+    }
+    let tabs = restarts::provider_tabs(&service, &provider_id);
+    if let Err(error) = storage::transact(|state| {
+        state.finish(&key, result, &tabs);
+        if !child_stopped {
+            state.block_unstopped(&key);
+        }
+    }) {
+        log::error!("[provider-update] completion persistence failed; restart withheld: {error}");
+    }
+    restarts::schedule(&service, None);
+    process_waiting(&service);
 }
 
-fn notify_owner(service: &ServiceContext, title: String, body: String) {
+fn process_waiting(service: &ServiceContext) {
+    let updates = std::mem::take(&mut *WAITING.lock());
+    for (_, update) in updates {
+        start_update(service, update);
+    }
+}
+
+pub(crate) fn task_state_changed(service: &ServiceContext) {
+    if ENABLED.load(Ordering::Acquire) {
+        restarts::schedule_async(service, None);
+    }
+}
+
+pub(crate) fn tab_became_idle(service: &ServiceContext, tab_id: &str) {
+    if ENABLED.load(Ordering::Acquire) {
+        restarts::schedule_async(service, Some(tab_id.to_string()));
+    }
+}
+
+fn spawn_utility(name: &str, work: impl FnOnce() + Send + 'static) {
+    if let Err(error) = std::thread::Builder::new().name(name.into()).spawn(work) {
+        log::error!("[provider-update] utility thread failed: {error}");
+    }
+}
+
+pub(crate) fn record_safe_prompt_answer(provider: &str, tab: &str) {
+    journal(
+        provider,
+        None,
+        Some(tab),
+        "safe_choice_answered",
+        "provider_declared_update_safe_choice",
+    );
+}
+
+fn journal(
+    provider: &str,
+    target: Option<&str>,
+    tab: Option<&str>,
+    label: &str,
+    reason: &'static str,
+) -> bool {
+    super::supporter::runtime()
+        .provider_update_action(
+            provider,
+            target,
+            super::supporter::ActionRecord {
+                kind: super::supporter::VerdictKind::TabState,
+                tab,
+                label,
+                confidence: 1.0,
+                action: super::supporter::Action::Recovery,
+                reason,
+            },
+        )
+        .is_ok()
+}
+
+fn notify_owner(
+    service: &ServiceContext,
+    key: &str,
+    title: String,
+    body: String,
+    failed: bool,
+) -> String {
     service.create_notification_ext(
         title,
         Some(body),
-        Some("warning"),
+        Some(if failed { "warning" } else { "info" }),
         None,
         Some(true),
         NotificationOrigin::default(),
         PushIntent {
-            level: Some(crate::notification::push::NotifyLevel::Failure),
-            event_key: None,
+            level: Some(if failed {
+                crate::notification::push::NotifyLevel::Failure
+            } else {
+                crate::notification::push::NotifyLevel::Verbose
+            }),
+            event_key: Some(format!("provider-update:{key}")),
         },
         None,
-    );
+    )
 }
 
 #[cfg(test)]
