@@ -405,7 +405,8 @@ fn supporter_models_lists_registered_models() {
         registered_adapters(&registry),
         vec![json!({
             "id": STUB_ID,
-            "token_mode": "required",
+            "token_mode": "none",
+            "pricing": null,
             "primitives": { "choice": false, "noul": true, "score": false },
             "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
         })]

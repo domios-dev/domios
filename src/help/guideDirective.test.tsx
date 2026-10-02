@@ -117,7 +117,8 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
       await act(async () => memoryNav.click());
       const selector = host.querySelector('[data-testid="help-section-select"]') as HTMLSelectElement;
       assert(selector.value === "memory", "Guide navigation did not change section");
-      await act(async () => control.click());
+      const liveControl = host.querySelector('[data-testid="chat-ct-guide"] button') as HTMLButtonElement;
+      await act(async () => liveControl.click());
       assertDestination(host, "supporter-agent");
     });
   });

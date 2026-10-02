@@ -36,8 +36,10 @@ function updatePromptSafeChoice(prompt) {
     return null;
   }
   const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  if (safe.length !== 1) return null;
-  const [label, value] = safe[0];
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
   if (!value || /\bupdate\b/i.test(label)) return null;
   if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
   return value;
