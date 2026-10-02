@@ -18,7 +18,8 @@ mod state;
 
 pub(crate) use state::{
     apply_observed_verdict, claim_observation, confidence_band, launch_episode_key, note_output,
-    permit_is_current, ConfidenceBand, ObservationEvent, SignalAction, CALL_CAP_PER_EPISODE,
+    permit_is_current_for_launch, ConfidenceBand, ObservationEvent, SignalAction,
+    CALL_CAP_PER_EPISODE,
 };
 
 pub(crate) const SCREEN_LINES: usize = 40;
@@ -499,7 +500,7 @@ fn observe<H: ShadowHost>(
                 return Some(verdict);
             }
             verdict.action = if spawn_healthy {
-                if !permit_is_current(tab_id, &metadata.session_key, &permit) {
+                if !permit_is_current_for_launch(tab_id, &metadata.session_key, &permit) {
                     host.record(&format!(
                         "[tab-state] stale observation discarded tab={tab_id}"
                     ));

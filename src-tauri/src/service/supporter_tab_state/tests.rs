@@ -421,6 +421,56 @@ fn tab_state_spawn_observation_survives_session_binding() {
 }
 
 #[test]
+fn tab_state_spawn_ok_survives_output_during_decide() {
+    let tab_id = tab();
+    let output_tab = tab_id.clone();
+    let model = StubModel::answering_with_hook(Ok(choice(READY_IDLE, 0.95)), move || {
+        state::note_output(&output_tab);
+    });
+    let (host, calls, _) = StubHost::new("ready composer", model);
+
+    let verdict = run(&host, &tab_id, ObservationTrigger::SpawnReady)
+        .expect("launch output must not discard the healthy observation");
+
+    assert_eq!(verdict.label, READY_IDLE);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.deliveries.lock().as_slice(),
+        &[(
+            ObservationTrigger::SpawnReady,
+            READY_IDLE.to_owned(),
+            SignalAction::SpawnOk,
+        )]
+    );
+    assert!(!host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("stale observation discarded")));
+}
+
+#[test]
+fn tab_state_non_spawn_output_during_decide_is_discarded() {
+    for trigger in [ObservationTrigger::WorkerIdle, ObservationTrigger::TabExit] {
+        let tab_id = tab();
+        let output_tab = tab_id.clone();
+        let model = StubModel::answering_with_hook(Ok(choice(ERROR_LOOP, 0.94)), move || {
+            state::note_output(&output_tab);
+        });
+        let (host, calls, _) = StubHost::new("repeating error", model);
+
+        assert!(run(&host, &tab_id, trigger).is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(host.deliveries.lock().is_empty());
+        assert!(host
+            .records
+            .lock()
+            .iter()
+            .any(|line| line.contains("stale observation discarded")));
+    }
+}
+
+#[test]
 fn tab_state_one_spawn_ok_per_launch() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.95)));
     let (host, calls, _) = StubHost::new("ready screen", model);
