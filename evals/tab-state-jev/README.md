@@ -40,7 +40,7 @@ The Orchestrator reads each screen and supplies its label. drop --id CAPTURE_ID
 discards a frame that does not clearly show the target state. The label set is
 ready_idle, working_normally, provider_update_prompt,
 trust_or_permission_prompt, login_or_auth_required,
-model_unavailable_or_quota, crashed_to_shell, error_loop, and still_starting.
+model_unavailable_or_quota, crashed_to_shell, error_loop, still_starting, and other.
 
 Collect at least four frames per label pooled across providers and include both
 `pty` and `chat_backend` transports. Reproduce a closed-port proxy, folder

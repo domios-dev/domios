@@ -257,12 +257,10 @@ pub(crate) fn apply_verdict(
     session_key: &str,
     label: &str,
     confidence: f64,
-    strong_actions: bool,
-    weak_hints: bool,
 ) -> SignalAction {
     let mut all = episodes().lock();
     let state = state_for_session(&mut all, tab_id, session_key);
-    apply_verdict_to_state(state, label, confidence, strong_actions, weak_hints)
+    apply_verdict_to_state(state, label, confidence)
 }
 
 pub(crate) fn apply_observed_verdict(
@@ -271,21 +269,13 @@ pub(crate) fn apply_observed_verdict(
     permit: &ObservationPermit,
     label: &str,
     confidence: f64,
-    strong_actions: bool,
-    weak_hints: bool,
 ) -> Option<SignalAction> {
     let mut all = episodes().lock();
     let state = state_for_session(&mut all, tab_id, session_key);
     if state.episode != permit.episode {
         return None;
     }
-    Some(apply_verdict_to_state(
-        state,
-        label,
-        confidence,
-        strong_actions,
-        weak_hints,
-    ))
+    Some(apply_verdict_to_state(state, label, confidence))
 }
 
 #[cfg(test)]
@@ -315,13 +305,11 @@ pub(crate) fn permit_is_current_for_launch(
     })
 }
 
-fn apply_verdict_to_state(
-    state: &mut EpisodeState,
-    label: &str,
-    confidence: f64,
-    strong_actions: bool,
-    weak_hints: bool,
-) -> SignalAction {
+fn apply_verdict_to_state(state: &mut EpisodeState, label: &str, confidence: f64) -> SignalAction {
+    if label == super::OTHER {
+        state.previous_strong_label = None;
+        return SignalAction::None;
+    }
     let action = match confidence_band(confidence) {
         ConfidenceBand::Ignored => {
             state.previous_strong_label = None;
@@ -329,7 +317,7 @@ fn apply_verdict_to_state(
         }
         ConfidenceBand::Weak => {
             state.previous_strong_label = None;
-            if weak_hints && !state.weak_emitted {
+            if !state.weak_emitted {
                 state.weak_emitted = true;
                 SignalAction::WeakHint
             } else {
@@ -339,9 +327,9 @@ fn apply_verdict_to_state(
         ConfidenceBand::Strong => {
             let consecutive = state.previous_strong_label.as_deref() == Some(label);
             state.previous_strong_label = Some(label.to_owned());
-            if consecutive && strong_actions && state.acted_labels.insert(label.to_owned()) {
+            if consecutive && state.acted_labels.insert(label.to_owned()) {
                 SignalAction::StrongAction
-            } else if weak_hints && !state.weak_emitted {
+            } else if !state.weak_emitted {
                 state.weak_emitted = true;
                 SignalAction::WeakHint
             } else {

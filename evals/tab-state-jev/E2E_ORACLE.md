@@ -11,7 +11,7 @@
 - Canonical checkout remained on `release/1.12.4` and was not edited, committed, or switched by this run. The named instance health endpoint reported `tabstate`, API port `7697`, version `1.12.3`, build `fa5e163c7d9072469ef9c646804c8c4ea748bb39`.
 - The instance was restarted after canonical advanced from the earlier `e3b680069` build. All cases below ran against `fa5e163c7`.
 - Temporary Team: `team_cb9a4522`; Plan: `pl_122kvd`; Orchestrator: `4a116298`; Planner: `bce56ddb`.
-- The Jev token was piped from `~/.codeterm/supporter/typesafe-jev.json`; its value was never printed. `supporter.tab_state.enabled`, `strong_actions`, and `weak_hints` were enabled only in this instance during the run, then disabled and reset to false. No shipping default changed.
+- The Jev token was piped from `~/.codeterm/supporter/typesafe-jev.json`; its value was never printed. The historical tab-state observation and signal switches were enabled only in this instance during the run, then disabled and reset to false. No shipping default changed.
 - Claude and Codex failure wrappers were temporarily disabled for the healthy launches, then restored for their targeted cases. The first Claude attempt accidentally used the proxy wrapper; it was cancelled and excluded. The clean healthy Claude rerun still had no `spawn-ok`.
 - Every `dc` command ran under Bash after exporting the named instance variables and sourcing `evals/_lib/lib.sh`. No project tests or other validation gates ran, and no source files were changed.
 - `healthy_cursor` was excluded because its earlier launch exited before readiness with no retained diagnostics. `healthy_lmstudio` was excluded because the plugin lacks `chatBackend.sessionConfig` and spawn returns `chat_backend_session_config_required`.
@@ -35,7 +35,7 @@
 - **Two agreeing strong observations before action:** not demonstrated. Login produced one strong observation and no tab-state action; trust produced no tab-state observation. No pair of agreeing strong observations was recorded. The separate worker-startup `action_needed` advisory on the trust prompt was not a tab-state action; it led only to inspection, with no prompt response.
 - **No action on a weak hint:** no weak hint and no tab-state action appeared. The weak-hint path itself was not exercised.
 - **Proxy and bad-model signals:** visible ground truth was present in both cases, but neither tab-state classifier signal was delivered.
-- **Recommendation:** keep `strong_actions=false` and `weak_hints=false` as shipping defaults. This run does not validate the required healthy coverage or the two-observation gate.
+- **Recommendation:** keep automatic actions and hints off as the historical shipping defaults. This run does not validate the required healthy coverage or the two-observation gate.
 
 ### Evidence and limits
 
@@ -70,7 +70,7 @@ CODETERM_INSTANCE=tabstate CODETERM_API_PORT=7697 ./build.sh dev --wait
 # Earlier setup on the same instance; token never printed.
 python3 -c "import json,sys; sys.stdout.write(json.load(open('/Users/dev/.codeterm/decision-models/typesafe-jev.json'))['token'])" | dc supporter token set
 dc supporter status
-dc supporter features --tab-state on
+dc supporter use typesafe-jev
 dc plugin install lmstudio
 
 # All dc and capture-helper calls below used this instance binding.

@@ -31,6 +31,10 @@ impl DecisionModel for JsDecisionModel {
         &self.id
     }
 
+    fn model_id(&self) -> Option<String> {
+        call_json_or_default(&self.vm, &self.id, "modelId")
+    }
+
     fn token_mode(&self) -> TokenMode {
         self.token_mode
     }

@@ -426,7 +426,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
         </div>
       </SettingsCard>
 
-      <DecisionRerankCard supporter={config.supporter} onUpdate={onUpdate} onOpenAgentsSettings={onOpenAgentsSettings} />
+      <DecisionRerankCard onOpenAgentsSettings={onOpenAgentsSettings} />
     </SettingsPage>
   );
 }

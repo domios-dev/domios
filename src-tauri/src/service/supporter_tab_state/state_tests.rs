@@ -22,7 +22,7 @@ fn tab_state_band_mapping() {
 fn tab_state_single_strong_hint_non_actionable() {
     let tab = tab();
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, true),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::WeakHint
     );
     assert!(!snapshot_episode(&tab).signaled);
@@ -32,15 +32,15 @@ fn tab_state_single_strong_hint_non_actionable() {
 fn tab_state_two_consecutive_strong_acts_once_per_label() {
     let tab = tab();
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
-        SignalAction::None
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
+        SignalAction::WeakHint
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::StrongAction
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::None
     );
 }
@@ -49,24 +49,24 @@ fn tab_state_two_consecutive_strong_acts_once_per_label() {
 fn tab_state_dedup_per_tab_label_episode() {
     let tab = tab();
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
-        SignalAction::None
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
+        SignalAction::WeakHint
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::StrongAction
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::None
     );
     note_output(&tab);
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
-        SignalAction::None
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
+        SignalAction::WeakHint
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::StrongAction
     );
 }
@@ -88,7 +88,7 @@ fn tab_state_verdict_discarded_across_new_launch() {
     let tab = tab();
     let first = claim_observation(&tab, "launch-1", ObservationEvent::WorkerIdle).unwrap();
     assert_eq!(
-        apply_observed_verdict(&tab, "launch-1", &first, "error_loop", 0.9, true, true,),
+        apply_observed_verdict(&tab, "launch-1", &first, "error_loop", 0.9,),
         Some(SignalAction::WeakHint)
     );
     note_output(&tab);
@@ -97,11 +97,11 @@ fn tab_state_verdict_discarded_across_new_launch() {
     let next = claim_observation(&tab, "launch-2", ObservationEvent::TabExit).unwrap();
     assert_ne!(first.episode, next.episode);
     assert_eq!(
-        apply_observed_verdict(&tab, "launch-2", &first, "error_loop", 0.9, true, true,),
+        apply_observed_verdict(&tab, "launch-2", &first, "error_loop", 0.9,),
         None
     );
     assert_eq!(
-        apply_observed_verdict(&tab, "launch-2", &next, "error_loop", 0.9, true, true,),
+        apply_observed_verdict(&tab, "launch-2", &next, "error_loop", 0.9,),
         Some(SignalAction::WeakHint)
     );
 }
@@ -150,8 +150,8 @@ fn tab_state_spawn_claim_survives_signal_episode_bump() {
 
     let bumped = tab();
     let permit = claim_observation(&bumped, "launch-1", ObservationEvent::SpawnReady).unwrap();
-    apply_verdict(&bumped, "launch-1", "error_loop", 0.9, true, true);
-    apply_verdict(&bumped, "launch-1", "error_loop", 0.9, true, true);
+    apply_verdict(&bumped, "launch-1", "error_loop", 0.9);
+    apply_verdict(&bumped, "launch-1", "error_loop", 0.9);
     note_output(&bumped);
     assert_eq!(snapshot_episode(&bumped).episode, permit.episode + 1);
     assert!(!permit_is_current(&bumped, "launch-1", &permit));
@@ -163,18 +163,11 @@ fn tab_state_spawn_claim_survives_signal_episode_bump() {
 fn tab_state_disagreeing_strong_no_action() {
     let tab = tab();
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.9, true, false),
-        SignalAction::None
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
+        SignalAction::WeakHint
     );
     assert_eq!(
-        apply_verdict(
-            &tab,
-            "launch-1",
-            "model_unavailable_or_quota",
-            0.9,
-            true,
-            false,
-        ),
+        apply_verdict(&tab, "launch-1", "model_unavailable_or_quota", 0.9,),
         SignalAction::None
     );
     assert!(!snapshot_episode(&tab).signaled);
@@ -184,20 +177,20 @@ fn tab_state_disagreeing_strong_no_action() {
 fn tab_state_weak_band_one_hint_per_episode() {
     let tab = tab();
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.7, true, true),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.7,),
         SignalAction::WeakHint
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.7, true, true),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.7,),
         SignalAction::None
     );
     note_output(&tab);
     assert_eq!(
-        apply_verdict(&tab, "launch-1", "error_loop", 0.7, true, true),
+        apply_verdict(&tab, "launch-1", "error_loop", 0.7,),
         SignalAction::None
     );
     assert_eq!(
-        apply_verdict(&tab, "launch-2", "error_loop", 0.7, true, true),
+        apply_verdict(&tab, "launch-2", "error_loop", 0.7,),
         SignalAction::WeakHint
     );
     assert!(!snapshot_episode(&tab).signaled);
@@ -213,4 +206,25 @@ fn tab_state_busy_event_is_once_until_new_output() {
     );
     note_output(&tab);
     assert!(claim_observation(&tab, "launch-1", ObservationEvent::BusyNoOutput).is_ok());
+}
+
+#[test]
+fn tab_state_other_interrupts_consecutive_strong_agreement() {
+    let tab_id = tab();
+    assert_eq!(
+        apply_verdict(&tab_id, "launch", "error_loop", 0.9),
+        SignalAction::WeakHint
+    );
+    assert_eq!(
+        apply_verdict(&tab_id, "launch", super::super::OTHER, 0.99),
+        SignalAction::None
+    );
+    assert_eq!(
+        apply_verdict(&tab_id, "launch", "error_loop", 0.9),
+        SignalAction::None
+    );
+    assert_eq!(
+        apply_verdict(&tab_id, "launch", "error_loop", 0.9),
+        SignalAction::StrongAction
+    );
 }

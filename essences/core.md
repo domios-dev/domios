@@ -121,17 +121,17 @@ The system channel participates in the same list, diff and refresh inventory as 
 
 ### Supporter Agent {#core:supporter-agent}
 
-A small decision model that answers bounded judgment questions for CodeTerm. Memory uses it to judge relevance; shadow tab observation uses it to classify visible state. It is a shared capability, with no Team role, task execution or input authority of its own.
+A small decision model that answers bounded judgment questions for CodeTerm. Memory uses it to judge relevance; tab observation uses it to classify visible state on existing events. It is a shared capability, with no Team role, task execution or input authority of its own.
 
 - Part of: core:service-layer.
-- Invariants: callers select declared choice, yes/no probability (`noul`) or score capabilities through a common registry, never branch on provider identity; each feature is independently optional and keeps its own failure boundary; model output never grants permission, proves session ownership or confirms input delivery.
+- Invariants: callers select declared choice, yes/no probability (`noul`) or score capabilities through a common registry, never branch on provider identity; a registered, selected adapter is connected when its token capability permits it, and connected adapters serve every Supporter use automatically; all tabs share one rolling request budget; model output never grants permission, proves session ownership or confirms input delivery.
 - Dependent capabilities: memory decision recall, health and diagnostics.
 
-TypeSafe Jev is the first adapter. The contract belongs to the host and stays independent of that adapter. Calls have bounded failure deadlines. Memory sends the query and candidate titles and bounded body text; tab observation sends recent screen text. Enabling one use does not enable another.
+TypeSafe Jev is the first adapter. The contract belongs to the host and stays independent of that adapter. Calls have bounded failure deadlines. Memory sends the query and candidate titles and bounded body text; tab observation sends recent screen text and runtime context. Without a connected adapter, recall and tab behavior remain deterministic. Budget exhaustion falls back to baseline recall and skips observation, with the next available time visible in status.
 
 Credentials belong to the instance and adapter. They enter through CLI stdin or the write-only field in Settings > Agents > Supporter Agent, never argv, and never appear in logs or status responses. Owner-only local files (0600 on Unix) keep them outside the vault to meet the recall latency requirement; Unix permissions and Windows access controls enforce that boundary. Status exposes adapter availability, token presence and permission evidence without returning the token.
 
-Shadow tab observation is off by default. At a startup-health check it records a model label and confidence alongside the structural verdict, including agreement, disagreement or uncertainty. It cannot change the nudge, readiness, delivery or prompt response. Failure leaves the structural path unchanged. Shadow evidence is observation, not authority to automate a recovery.
+Connected tab observation records a model label and confidence alongside the structural verdict on existing lifecycle and output events. A first strong observation produces a non-actionable hint; an action requires two consecutive agreeing strong observations of the same launch. An other verdict takes no action and sends no hint. Model output cannot establish session ownership, readiness or delivery evidence. Failure leaves the structural path unchanged. A bounded durable journal records automatic actions, budget transitions and decision distributions with adapter-reported model ids, criteria versions and input hashes; tokens and raw input never enter it. Settings > Agents exposes activity, recent calls, verdicts and the global budget without feature switches.
 
 ### Memory {#core:memory}
 
@@ -144,11 +144,11 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 
 Recall can add an optional second stage that judges how directly and usefully each candidate answers the query. The first stage retains ordinary hybrid retrieval; the [Supporter Agent](#core:supporter-agent) judges candidates independently and orders the pool by absolute relevance. Each candidate receives one yes/no probability judgment when supported, otherwise a normalized score. Ties keep the original order.
 
-- Ordinary search callers keep their existing query, filters and limit. Instance configuration enables the stage; a caller may override it for one search. It is off by default, and when off the response is byte-identical to ordinary recall.
+- Ordinary search callers keep their existing query, filters and limit. A connected Supporter enables the stage; a caller may override it diagnostically for one search. Without a connected adapter, the response is byte-identical to ordinary recall.
 - Relevance changes order, never eligibility: every pool candidate remains eligible for the returned list, cut only to the caller's limit. Every hit returned by an applied stage carries `relevance`. `low_confidence` flags that the maximum relevance is below the configured threshold; it never removes results.
 - The second stage is all-or-nothing under one bounded failure deadline, defaulting to 3 seconds. On unavailable or failed decision scoring, the caller receives exactly ordinary recall hits for the original query and limit. An unregistered adapter id, unsupported decision capabilities, an adapter error, or expiry adds a fallback reason in the decision envelope. Missing credentials also fall back when the pool requires scoring. A partially judged pool is never returned.
 - Gathering and judging candidates record no access. Only memory hits actually returned record access, once per item, using ordinary memory access accounting. Additional candidates never inflate usage or evidence merely by entering the pool.
-- Memory > Settings controls recall; the memory search CLI and API expose whether the stage applied, fell back or was skipped. Shared credentials and adapter status belong to the Supporter Agent. Explicitly requesting both decision recall and legacy reranking is refused; legacy reranking requested while decision recall is enabled only by configuration runs with a skipped reason.
+- Memory > Settings controls recall; the memory search CLI and API expose whether the stage applied, fell back or was skipped. Shared credentials and adapter status belong to the Supporter Agent. Explicitly requesting both decision recall and legacy reranking is refused; legacy reranking requested while decision recall is selected by the connected adapter runs with a skipped reason.
 
 #### Optional candidate sources
 

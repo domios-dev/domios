@@ -4,10 +4,9 @@ use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use codeterm_types::config::SupporterTabStateConfig;
-use codeterm_types::decision::{
-    DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest, TokenMode,
-};
+use super::supporter::{self, Action, ActionRecord, SupporterRuntime, TokenSnapshot, VerdictKind};
+use codeterm_types::config::SupporterConfig;
+use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
 use serde_json::Value;
 
 use super::startup_nudge::StartupNudge;
@@ -37,6 +36,7 @@ pub(crate) const LOGIN_OR_AUTH_REQUIRED: &str = "login_or_auth_required";
 pub(crate) const MODEL_UNAVAILABLE_OR_QUOTA: &str = "model_unavailable_or_quota";
 pub(crate) const CRASHED_TO_SHELL: &str = "crashed_to_shell";
 pub(crate) const ERROR_LOOP: &str = "error_loop";
+pub(crate) const OTHER: &str = "other";
 pub(crate) const STILL_STARTING: &str = "still_starting";
 
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
@@ -124,6 +124,9 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String>;
     fn supporter_models(&self) -> Arc<SupporterRegistry>;
     fn token_available(&self, adapter_id: &str) -> bool;
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        supporter::runtime()
+    }
     fn metadata(
         &self,
         tab_id: &str,
@@ -154,23 +157,7 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
-        if self
-            .supporter_models
-            .get(adapter_id)
-            .is_some_and(|model| model.token_mode() != TokenMode::Required)
-        {
-            return true;
-        }
-        let store = crate::mem::decision::token_store::TokenStore::new(
-            crate::api::mem_routes::decision::supporter_token_dir(),
-        );
-        match store.status(adapter_id) {
-            Ok(status) => status.present && status.mode_ok != Some(false),
-            Err(error) => {
-                log::debug!("[tab-state] token status unavailable: {error}");
-                false
-            }
-        }
+        TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter_id).usable
     }
 
     fn metadata(
@@ -337,7 +324,7 @@ impl ServiceContext {
         let settings = crate::config::load_config().supporter;
         drop(spawn_observer(
             self,
-            &settings.tab_state,
+            &settings,
             &settings.adapter,
             settings.deadline_ms,
             tab_id,
@@ -398,14 +385,14 @@ impl ServiceContext {
 
 pub(crate) fn spawn_observer<H: ShadowHost>(
     host: &H,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     configured_deadline_ms: u64,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<JoinHandle<Option<ShadowVerdict>>> {
-    if !config.enabled {
+    if config.adapter.is_empty() || host.supporter_models().get(&config.adapter).is_none() {
         return None;
     }
     let host = host.clone();
@@ -435,15 +422,17 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
 
 fn observe_guarded<H: ShadowHost>(
     host: &H,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     configured_deadline_ms: u64,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] no usable token; tab={tab_id} observation skipped");
+    let snapshot = TokenSnapshot {
+        usable: host.token_available(adapter_id),
+    };
+    if !supporter::supporter_connected(config, &host.supporter_models(), &snapshot) {
         return None;
     }
     let models = host.supporter_models();
@@ -453,14 +442,13 @@ fn observe_guarded<H: ShadowHost>(
     };
     let deadline =
         Instant::now() + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
-    let (request, metadata) =
-        match prepare_observation(host, adapter_id, tab_id, trigger, structural_verdict) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
-                return None;
-            }
-        };
+    let (request, metadata) = match prepare_observation(host, tab_id, trigger, structural_verdict) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
+            return None;
+        }
+    };
     let permit = match claim_observation(tab_id, &metadata.session_key, trigger.event()) {
         Ok(permit) => permit,
         Err(reason) => {
@@ -468,6 +456,14 @@ fn observe_guarded<H: ShadowHost>(
             return None;
         }
     };
+    let model = supporter::budgeted_model(
+        model,
+        host.supporter_runtime(),
+        config.calls_per_hour,
+        VerdictKind::TabState,
+        Some(tab_id.to_owned()),
+        supporter::criteria_hash(CRITERIA_JSON.as_bytes()),
+    );
     observe(
         host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
     )
@@ -476,7 +472,7 @@ fn observe_guarded<H: ShadowHost>(
 fn observe<H: ShadowHost>(
     host: &H,
     model: &Arc<dyn DecisionModel>,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     tab_id: &str,
     trigger: ObservationTrigger,
@@ -485,8 +481,10 @@ fn observe<H: ShadowHost>(
     metadata: TabStateMetadata,
     permit: state::ObservationPermit,
 ) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] token expired before choice; observation skipped");
+    let snapshot = TokenSnapshot {
+        usable: host.token_available(adapter_id),
+    };
+    if !supporter::supporter_connected(config, &host.supporter_models(), &snapshot) {
         return None;
     }
     let classified_frame_hash = request
@@ -534,8 +532,6 @@ fn observe<H: ShadowHost>(
                     &permit,
                     &verdict.label,
                     verdict.confidence,
-                    config.strong_actions,
-                    config.weak_hints,
                 ) else {
                     host.record(&format!(
                         "[tab-state] stale observation discarded tab={tab_id} episode={} frame_hash={:016x}",
@@ -546,7 +542,18 @@ fn observe<H: ShadowHost>(
                 };
                 action
             };
+            if verdict.label == OTHER {
+                return Some(verdict);
+            }
             if spawn_healthy {
+                host.supporter_runtime().action(ActionRecord {
+                    kind: VerdictKind::TabState,
+                    tab: Some(tab_id),
+                    label: &verdict.label,
+                    confidence: verdict.confidence,
+                    action: Action::SpawnOk,
+                    reason: trigger.label(),
+                });
                 host.deliver(
                     tab_id,
                     &metadata,
@@ -558,6 +565,18 @@ fn observe<H: ShadowHost>(
                 );
             }
             if verdict.action != SignalAction::None && !spawn_healthy {
+                host.supporter_runtime().action(ActionRecord {
+                    kind: VerdictKind::TabState,
+                    tab: Some(tab_id),
+                    label: &verdict.label,
+                    confidence: verdict.confidence,
+                    action: if verdict.action == SignalAction::StrongAction {
+                        Action::StrongAction
+                    } else {
+                        Action::WeakHint
+                    },
+                    reason: trigger.label(),
+                });
                 host.deliver(
                     tab_id,
                     &metadata,
@@ -588,7 +607,6 @@ fn observe<H: ShadowHost>(
 
 fn prepare_observation<H: ShadowHost>(
     host: &H,
-    adapter_id: &str,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
@@ -602,9 +620,6 @@ fn prepare_observation<H: ShadowHost>(
         .and_then(Value::as_str)
         .ok_or("screen read returned no text")?;
     let metadata = host.metadata(tab_id, trigger, structural_verdict, text)?;
-    if !host.token_available(adapter_id) {
-        return Err("decision token is no longer available".into());
-    }
     let request = DecisionRequest {
         state: serde_json::json!({
             "screen": screen_tail(text),
