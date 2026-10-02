@@ -74,7 +74,11 @@ fn manifest_unknown_capability_is_ignored_and_known_ones_load() {
         }"#,
     )
     .expect("unknown capabilities are ignored");
-    assert!(manifest.capabilities.decision_model);
+    assert!(manifest.capabilities.decision_model.enabled);
+    assert_eq!(
+        manifest.capabilities.decision_model.token_mode,
+        codeterm_types::decision::TokenMode::Optional
+    );
     assert_eq!(
         manifest
             .capabilities
@@ -82,6 +86,43 @@ fn manifest_unknown_capability_is_ignored_and_known_ones_load() {
             .collect::<Vec<_>>(),
         vec!["futureCapability"]
     );
+}
+
+#[test]
+fn decision_model_token_modes_round_trip_backward_compatibly() {
+    for (value, expected) in [
+        (serde_json::json!(true), serde_json::json!(true)),
+        (
+            serde_json::json!({ "tokenMode": "required" }),
+            serde_json::json!({ "tokenMode": "required" }),
+        ),
+        (
+            serde_json::json!({ "tokenMode": "optional" }),
+            serde_json::json!(true),
+        ),
+        (
+            serde_json::json!({ "tokenMode": "none" }),
+            serde_json::json!({ "tokenMode": "none" }),
+        ),
+    ] {
+        let caps: Capabilities = serde_json::from_value(serde_json::json!({
+            "decisionModel": value
+        }))
+        .expect("parse decisionModel capability");
+        assert!(caps.decision_model.enabled);
+        assert_eq!(
+            serde_json::to_value(caps).expect("serialize capabilities")["decisionModel"],
+            expected
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(DecisionModelCap::default()).expect("serialize disabled cap"),
+        false
+    );
+    assert!(serde_json::from_value::<Capabilities>(serde_json::json!({
+        "decisionModel": {}
+    }))
+    .is_err());
 }
 
 #[test]

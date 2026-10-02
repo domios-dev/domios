@@ -7,6 +7,7 @@ use serde_json::Value;
 
 pub trait DecisionModel: Send + Sync {
     fn id(&self) -> &str;
+    fn token_mode(&self) -> TokenMode;
     fn primitives(&self) -> DecisionPrimitives;
     fn models(&self) -> Vec<DecisionModelInfo> {
         Vec::new()
@@ -19,6 +20,15 @@ pub trait DecisionModel: Send + Sync {
         request: &DecisionRequest,
         deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError>;
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenMode {
+    Required,
+    Optional,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -374,6 +374,13 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         crate::config::load_config().api.token
     }
 
+    fn supporter_token(&self, plugin_id: &str) -> Option<String> {
+        stored_supporter_token(
+            plugin_id,
+            &crate::api::mem_routes::decision::supporter_token_dir(),
+        )
+    }
+
     // ── Secrets ──────────────────────────────────────────────────────────
 
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String> {
@@ -400,6 +407,32 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             return host_json(Err(ReceiverTargetError::ReceiverNotFound));
         }
         host_json(self.clear_receiver_target(plugin_id))
+    }
+}
+
+fn stored_supporter_token(plugin_id: &str, token_dir: &std::path::Path) -> Option<String> {
+    let store = crate::mem::decision::token_store::TokenStore::new(token_dir.to_path_buf());
+    if store.status(plugin_id).ok()?.mode_ok == Some(false) {
+        return None;
+    }
+    store.load(plugin_id).ok().flatten().map(|token| token.expose().to_string())
+}
+
+#[cfg(test)]
+mod supporter_token_tests {
+    use super::*;
+
+    #[test]
+    fn host_reads_only_the_plugin_id_supporter_store_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::mem::decision::token_store::TokenStore::new(dir.path().to_path_buf());
+        store.set("decision-plugin", "stored-fixture").unwrap();
+
+        assert_eq!(
+            stored_supporter_token("decision-plugin", dir.path()).as_deref(),
+            Some("stored-fixture")
+        );
+        assert_eq!(stored_supporter_token("another-plugin", dir.path()), None);
     }
 }
 

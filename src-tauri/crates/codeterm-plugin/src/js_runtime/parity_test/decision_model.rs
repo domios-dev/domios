@@ -4,17 +4,21 @@ use std::time::Instant;
 
 use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionQuestion, DecisionRequest,
+    DecisionQuestion, DecisionRequest, TokenMode,
 };
 use serde_json::json;
 
 use crate::js_runtime::{JsDecisionModel, PluginVm};
 
-struct NativeDecisionModel;
+struct NativeDecisionModel(TokenMode);
 
 impl DecisionModel for NativeDecisionModel {
     fn id(&self) -> &str {
         "native-fixture"
+    }
+
+    fn token_mode(&self) -> TokenMode {
+        self.0
     }
 
     fn primitives(&self) -> DecisionPrimitives {
@@ -97,24 +101,35 @@ fn parity_decision_model_matches_shared_fixtures() {
         }
     };"#;
     let vm = Arc::new(PluginVm::from_source("js-fixture", source.into()).expect("vm"));
-    let native = NativeDecisionModel;
-    let javascript = JsDecisionModel::new(vm, "js-fixture");
-    assert_eq!(native.primitives(), javascript.primitives());
-    assert_eq!(native.models(), javascript.models());
-    assert!(native.select_model("fixture-model"));
-    assert_eq!(
-        native.select_model("fixture-model"),
-        javascript.select_model("fixture-model")
-    );
-    assert_eq!(
-        native.select_model("missing"),
-        javascript.select_model("missing")
-    );
-    for request in shared_fixtures() {
-        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+    let forms = [
+        (json!(true), TokenMode::Optional),
+        (json!({ "tokenMode": "required" }), TokenMode::Required),
+        (json!({ "tokenMode": "none" }), TokenMode::None),
+    ];
+    for (form, expected) in forms {
+        let caps: crate::js_runtime::manifest::Capabilities =
+            serde_json::from_value(json!({ "decisionModel": form })).expect("manifest cap");
+        let native = NativeDecisionModel(expected);
+        let javascript = JsDecisionModel::new(vm.clone(), "js-fixture", caps.decision_model.token_mode);
+        assert_eq!(native.token_mode(), expected);
+        assert_eq!(native.token_mode(), javascript.token_mode());
+        assert_eq!(native.primitives(), javascript.primitives());
+        assert_eq!(native.models(), javascript.models());
+        assert!(native.select_model("fixture-model"));
         assert_eq!(
-            native.decide(&request, deadline),
-            javascript.decide(&request, deadline),
+            native.select_model("fixture-model"),
+            javascript.select_model("fixture-model")
         );
+        assert_eq!(
+            native.select_model("missing"),
+            javascript.select_model("missing")
+        );
+        for request in shared_fixtures() {
+            let deadline = Instant::now() + std::time::Duration::from_secs(2);
+            assert_eq!(
+                native.decide(&request, deadline),
+                javascript.decide(&request, deadline),
+            );
+        }
     }
 }

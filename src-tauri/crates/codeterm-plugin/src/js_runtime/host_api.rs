@@ -28,6 +28,7 @@ mod sqlite;
 use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
+use codeterm_types::decision::TokenMode;
 
 const PLUGIN_READ_FILE_LIMIT: u64 = 1024 * 1024;
 
@@ -122,6 +123,7 @@ pub(super) struct PluginSandbox {
     exec_allow: Vec<String>,
     /// `host.fetch` host allowlist (host_api v2). Empty unless declared.
     net_allow: Vec<String>,
+    token_mode: TokenMode,
     /// Whether `host.secret*` is permitted.
     secrets_allowed: bool,
     /// `agent_commands` grant — gates routing a spawned agent's `codeterm plugin <id> <verb>` to `onAgentCommand`.
@@ -153,6 +155,7 @@ impl PluginSandbox {
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
+            token_mode: TokenMode::None,
             secrets_allowed: true,
             agent_commands_allowed: true,
             manage_workspaces_allowed: true,
@@ -175,6 +178,7 @@ impl PluginSandbox {
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
+            token_mode: TokenMode::None,
             secrets_allowed: false,
             agent_commands_allowed: false,
             manage_workspaces_allowed: false,
@@ -219,6 +223,11 @@ impl PluginSandbox {
         self
     }
 
+    pub(super) fn with_token_mode(mut self, token_mode: TokenMode) -> Self {
+        self.token_mode = token_mode;
+        self
+    }
+
     pub(super) fn plugin_id(&self) -> &str {
         &self.plugin_id
     }
@@ -259,11 +268,11 @@ impl PluginSandbox {
             return true;
         }
         let host = host.trim();
-        self.net_allow.iter().any(|allowed| {
-            allowed == host
-                || host.split(':').next() == Some(allowed.as_str())
-                || allowed.split(':').next() == Some(host)
-        })
+        codeterm_util::network_host::network_host_allowed(host, &self.net_allow)
+    }
+
+    pub(super) fn supporter_token_allowed(&self, host: &str) -> bool {
+        codeterm_util::network_host::network_host_allowed(host, &self.net_allow)
     }
 
     pub(super) fn secrets_allowed(&self) -> bool {
@@ -734,7 +743,7 @@ pub(super) fn install(
             log::warn!("[plugin] denied fetch({host}) — not in network.allow");
             return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
         }
-        match super::host_credentials::inject(sb.credentials(), &opts_json) {
+        match prepare_fetch(&sb, &opts_json) {
             Ok(prepared) => super::host_net::run(&prepared),
             Err(e) => serde_json::json!({ "error": e }).to_string(),
         }
@@ -746,7 +755,7 @@ pub(super) fn install(
             log::warn!("[plugin] denied fetch.async({host}) — not in network.allow");
             return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
         }
-        match super::host_credentials::inject(sb.credentials(), &opts_json) {
+        match prepare_fetch(&sb, &opts_json) {
             Ok(prepared) => super::host_net::start(sb.plugin_id(), &prepared),
             Err(e) => serde_json::json!({ "error": e }).to_string(),
         }
@@ -759,7 +768,10 @@ pub(super) fn install(
             log::warn!("[plugin] denied fetch.stream({host}) — not in network.allow");
             return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
         }
-        super::host_net::stream(sb.plugin_id(), &opts_json)
+        match prepare_fetch(&sb, &opts_json) {
+            Ok(prepared) => super::host_net::stream(sb.plugin_id(), &prepared),
+            Err(e) => serde_json::json!({ "error": e }).to_string(),
+        }
     });
     let sb = sandbox.clone();
     bind!("fetchStreamPoll", move |job_id: String| -> String {
@@ -807,6 +819,26 @@ pub(super) fn install(
         .catch(ctx)
         .map_err(|e| VmError::Script(format!("set host global: {e:?}")))?;
     Ok(())
+}
+
+fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, String> {
+    let host = super::host_net::host_of(opts_json).unwrap_or_default();
+    if !sandbox.can_reach(&host) {
+        return Err("fetch denied".to_string());
+    }
+    let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
+    let token = if sandbox.token_mode == TokenMode::None || !sandbox.supporter_token_allowed(&host) {
+        None
+    } else {
+        sandbox
+            .service()
+            .and_then(|service| service.supporter_token(sandbox.plugin_id()))
+    };
+    super::host_credentials::inject_supporter_token(
+        sandbox.token_mode,
+        token.as_deref(),
+        &prepared,
+    )
 }
 
 /// Wall-clock duration since UNIX epoch. Clock-set-before-1970 returns

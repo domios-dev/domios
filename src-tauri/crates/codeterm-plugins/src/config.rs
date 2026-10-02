@@ -6,7 +6,6 @@
 use super::*;
 use codeterm_util::persisted_state::{write_atomic, Loaded, StateFile};
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 /// `codeterm plugin get <id>` — the agent's discover handle.
 pub(super) fn get_command(id: &str) -> Result<Value, String> {
@@ -138,6 +137,58 @@ pub(super) fn config_command(
     }))
 }
 
+pub(super) fn settings_command(
+    id: &str,
+    allow_hosts: &[String],
+    disallow_hosts: &[String],
+) -> Result<Value, String> {
+    let id = PluginId::parse(id.to_string())?;
+    let dir = plugin_dir(&id);
+    if !dir.exists() {
+        return Err(format!("plugin '{}' is not installed", id.as_str()));
+    }
+    if allow_hosts.is_empty() && disallow_hosts.is_empty() {
+        return Err("nothing to do (use --allow-host or --disallow-host)".into());
+    }
+    let file = grants_file(&dir);
+    let mut grants = match file.load(parse_grants) {
+        Loaded::Parsed(grants) | Loaded::Recovered { value: grants, .. } => grants,
+        Loaded::Missing if file.held().is_none() => Default::default(),
+        Loaded::Missing | Loaded::Unrecoverable { .. } => {
+            return Err(file
+                .held()
+                .map(|hold| hold.refusal())
+                .unwrap_or_else(|| format!("{} failed to load", file.path().display())))
+        }
+    };
+    let allow_hosts = normalize_hosts(allow_hosts)?;
+    let disallow_hosts = normalize_hosts(disallow_hosts)?;
+    for host in &allow_hosts {
+        if !grants.network_allow.contains(host) {
+            grants.network_allow.push(host.clone());
+        }
+    }
+    grants
+        .network_allow
+        .retain(|host| !disallow_hosts.contains(host));
+    grants.network_allow.sort();
+    let body = serde_yaml::to_string(&grants).map_err(|e| format!("encode grants: {e}"))?;
+    file.save(&body)?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "id": id.as_str(),
+        "network_allow": grants.network_allow,
+        "effective": "reload",
+    }))
+}
+
+fn normalize_hosts(hosts: &[String]) -> Result<Vec<String>, String> {
+    hosts
+        .iter()
+        .map(|host| codeterm_util::network_host::normalize_network_host(host))
+        .collect()
+}
+
 /// Merge grant/revoke into the plugin's `grants.yaml` (a flat `{ permission: bool }`
 /// map the host reads), validated against [`GRANTABLE_PERMS`]. Returns the changed names.
 fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec<String>, String> {
@@ -155,7 +206,7 @@ fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec
     let file = grants_file(dir);
     let mut map = match file.load(parse_grants) {
         Loaded::Parsed(map) | Loaded::Recovered { value: map, .. } => map,
-        Loaded::Missing if file.held().is_none() => BTreeMap::new(),
+        Loaded::Missing if file.held().is_none() => Default::default(),
         Loaded::Missing | Loaded::Unrecoverable { .. } => {
             return Err(file
                 .held()
@@ -165,11 +216,11 @@ fn apply_grants(dir: &Path, grants: &[String], revokes: &[String]) -> Result<Vec
     };
     let mut changed = Vec::new();
     for p in grants {
-        map.insert(p.clone(), true);
+        map.permissions.insert(p.clone(), true);
         changed.push(p.clone());
     }
     for p in revokes {
-        map.insert(p.clone(), false);
+        map.permissions.insert(p.clone(), false);
         changed.push(p.clone());
     }
     let body = serde_yaml::to_string(&map).map_err(|e| format!("encode grants: {e}"))?;
@@ -184,11 +235,16 @@ fn grants_file(dir: &Path) -> StateFile {
         .with_validator(validate_grants)
 }
 
-fn parse_grants(text: &str) -> Result<BTreeMap<String, bool>, String> {
+fn parse_grants(text: &str) -> Result<codeterm_util::plugin_grants::PluginGrants, String> {
     if text.trim().is_empty() {
-        return Ok(BTreeMap::new());
+        return Ok(Default::default());
     }
-    serde_yaml::from_str(text).map_err(|e| e.to_string())
+    let grants: codeterm_util::plugin_grants::PluginGrants =
+        serde_yaml::from_str(text).map_err(|e| e.to_string())?;
+    for host in &grants.network_allow {
+        codeterm_util::network_host::normalize_network_host(host)?;
+    }
+    Ok(grants)
 }
 
 fn validate_grants(text: &str) -> Result<(), String> {
@@ -519,5 +575,30 @@ spawn_agents: [
         collect_all_keys(&schema, &mut all);
         assert!(all.contains(&"serverUrl".to_string()));
         assert!(all.contains(&"OPENAI_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn settings_persists_only_validated_exact_host_grants() {
+        let root = temp_dir();
+        let _ctx = enter_ctx(PluginCtx {
+            data_root: root.clone(),
+            version: None,
+        });
+        let id = PluginId::parse("local-model".into()).unwrap();
+        let dir = plugin_dir(&id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("grants.yaml"), "spawn_agents: true\n").unwrap();
+
+        settings_command("local-model", &["API.Example.test:8443".into()], &[]).unwrap();
+        let body = fs::read_to_string(dir.join("grants.yaml")).unwrap();
+        let grants = parse_grants(&body).unwrap();
+        assert_eq!(grants.permissions.get("spawn_agents"), Some(&true));
+        assert_eq!(grants.network_allow, ["api.example.test:8443"]);
+
+        assert!(settings_command("local-model", &["https://example.test".into()], &[]).is_err());
+        assert!(settings_command("local-model", &["*.example.test".into()], &[]).is_err());
+        let after_refusals = fs::read_to_string(dir.join("grants.yaml")).unwrap();
+        assert_eq!(parse_grants(&after_refusals).unwrap().network_allow, ["api.example.test:8443"]);
+        let _ = fs::remove_dir_all(root);
     }
 }

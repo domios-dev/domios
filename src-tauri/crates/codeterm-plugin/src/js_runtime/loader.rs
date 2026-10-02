@@ -171,6 +171,7 @@ fn compute_sandbox(
 
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
+        .with_token_mode(manifest.capabilities.decision_model.token_mode)
         .with_settings(settings_json)
 }
 
