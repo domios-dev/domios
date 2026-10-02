@@ -706,6 +706,195 @@ class AbsoluteDeadlineHandoffTests(unittest.TestCase):
         self.assertEqual(send.call_args.kwargs["timeout"], t.REQUEST_SECONDS)
         self.assertEqual(transport.return_value.run_end, report["run_end"])
 
+    def prepared_path(self, stack, clock, *, hard_end=60, run_end=600, complete=True):
+        wire, plan = HarnessBoundaryTests.plan_fixture(self)
+        plan["header"].update(hard_end=hard_end, operation_end=hard_end - 5)
+        stack.enter_context(patch.object(t, "identity_hash", side_effect=lambda path, end, observed_clock: (
+            Path("/pinned-interpreter") if str(path) == "/pinned-interpreter" else Path(path),
+            "a" * 64 if str(path) == "/pinned-interpreter" else
+            "b" * 64 if Path(path).name == "jev_request_worker.py" else "c" * 64)))
+        factory = Mock(wraps=local.fixture_plan_factory(Path("/public-fixture-ca"), SimpleNamespace(port=43210), plan))
+        leases = []
+        def lease_factory(prepared, operation_end, actual_end, **kwargs):
+            lease = Mock(facts={"start_finished": True, "error": None}, cancelled=False)
+            answers = {"q": {"type": "choice", "choice": "x", "probabilities": {"x": 1}}}
+            lease.stdout = c.encode({"version": 1, "status": "completed", "credential_channel_closed": True,
+                                    "socket_closed": True, "wire_sha256": c.sha256(wire), "answers": answers,
+                                    "tls": {"certificate_verified": True, "hostname_verified": True,
+                                            "root_count": 1, "root_der_set_sha256": "d" * 64}})
+            receipt = {key: True for key in ("start_finished", "created", "exit_observed", "reap_confirmed",
+                       "stdout_complete", "stderr_complete", "stdout_closed", "stderr_closed",
+                       "credential_channel_closed", "threads_joined", "handle_closed", "cwd_closed")}
+            receipt.update(operation_end=operation_end, hard_end=actual_end, returncode=0,
+                           completion_confirmed=complete, error=None if complete else "cleanup_unconfirmed")
+            lease.finish.return_value = receipt
+            lease.streams_and_exit_done.return_value = True
+            def await_state(predicate, end):
+                self.assertTrue(predicate(lease.facts))
+                t.remaining(end, kwargs["clock"])
+            lease.await_state.side_effect = await_state
+            leases.append((lease, prepared, operation_end, actual_end))
+            return lease
+        admission = Mock(side_effect=lease_factory)
+        transport = t.JevTransport(clock=clock, plan_factory=factory, lease_factory=admission)
+        transport.run_end = run_end
+        return SimpleNamespace(wire=wire, plan=plan, factory=factory, admission=admission,
+                               transport=transport, leases=leases)
+
+    def test_advancing_clock_reaches_real_send_and_original_prepared_path(self):
+        with ExitStack() as stack:
+            clock = Clock()
+            path = self.prepared_path(stack, clock)
+            clock.value = 2
+            caller_remaining_timeout = 60 - clock()
+            clock.value = 12
+            result = path.transport.send(path.wire, token="synthetic-token", timeout=caller_remaining_timeout,
+                                         request_end=60)
+        path.factory.assert_called_once_with(path.wire, 55, 60, clock)
+        path.admission.assert_called_once()
+        lease, plan, operation_end, hard_end = path.leases[0]
+        lease.admit.assert_called_once_with(path.wire, b"synthetic-token")
+        self.assertEqual((operation_end, hard_end), (55, 60))
+        self.assertEqual(plan["header"], path.plan["header"])
+        self.assertEqual(plan["argv"][:4], path.plan["argv"][:4])
+        self.assertEqual(path.transport.run_started, 0)
+        self.assertEqual(path.transport.run_end, 600)
+        self.assertEqual(result.receipt["hard_end"], 60)
+        self.assertEqual(result.receipt["interpreter_sha256"], "a" * 64)
+        self.assertEqual(result.receipt["wire_sha256"], c.sha256(path.wire))
+        self.assertEqual(result.payload["answers"]["q"]["choice"], "x")
+
+    def assert_deadline_refused_before_admission(self, now):
+        clock = Clock()
+        factory, lease_factory = Mock(), Mock()
+        transport = t.JevTransport(clock=clock, plan_factory=factory, lease_factory=lease_factory)
+        clock.value = now
+        with self.assertRaisesRegex(t.TransportFailure, "run_deadline") as caught:
+            transport.send(synthetic_wire(), token="synthetic-token", request_end=60)
+        factory.assert_not_called()
+        lease_factory.assert_not_called()
+        self.assertEqual(transport.calls, 0)
+        self.assertEqual(transport.retained, [])
+        receipt = caught.exception.receipt
+        self.assertEqual(receipt["phase"], "admission")
+        self.assertEqual(receipt["request_end"], 60)
+        self.assertEqual(receipt["run_end"], 600)
+        self.assertFalse(receipt["process_admitted"] or receipt["completion_confirmed"])
+
+    def test_expired_original_request_end_refuses_before_plan_lease_process(self):
+        self.assert_deadline_refused_before_admission(61)
+
+    def test_consumed_operation_window_refuses_with_cleanup_reserve_remaining(self):
+        for now in (55, 56):
+            with self.subTest(now=now):
+                self.assert_deadline_refused_before_admission(now)
+
+    def test_earlier_run_or_timeout_clamp_never_extends_or_rewrites_prepared_end(self):
+        for run_end, timeout, effective_end in ((40, 60, 40), (600, 15, 27)):
+            with self.subTest(run_end=run_end, timeout=timeout), ExitStack() as stack:
+                clock = Clock()
+                path = self.prepared_path(stack, clock, run_end=run_end)
+                clock.value = 12
+                with self.assertRaisesRegex(t.TransportFailure, "fixture_original_deadline") as caught:
+                    path.transport.send(path.wire, token="synthetic-token", timeout=timeout, request_end=60)
+                path.factory.assert_called_once_with(path.wire, effective_end - 5, effective_end, clock)
+                path.admission.assert_not_called()
+                self.assertEqual(caught.exception.receipt["hard_end"], effective_end)
+                self.assertEqual(path.plan["header"]["hard_end"], 60)
+                self.assertEqual(path.transport.run_end, run_end)
+                self.assertEqual(path.transport.retained, [])
+
+    def test_invalid_absolute_bounds_refuse_before_any_admission(self):
+        for bound in (True, False, float("nan"), float("inf"), -float("inf"), "60", [], 1 << 4096):
+            with self.subTest(bound_type=type(bound).__name__):
+                factory, lease_factory = Mock(), Mock()
+                transport = t.JevTransport(clock=Clock(), plan_factory=factory, lease_factory=lease_factory)
+                with self.assertRaisesRegex(t.TransportFailure, "request_end_bound") as caught:
+                    transport.send(synthetic_wire(), token="synthetic-token", request_end=bound)
+                factory.assert_not_called()
+                lease_factory.assert_not_called()
+                self.assertFalse(caught.exception.receipt["process_admitted"])
+                self.assertEqual(transport.calls, 0)
+                self.assertNotIn("request_end", caught.exception.receipt)
+
+    def test_sub_microsecond_later_prepared_end_is_refused_exactly(self):
+        for field in ("hard_end", "operation_end"):
+            with self.subTest(field=field), ExitStack() as stack:
+                clock = Clock()
+                path = self.prepared_path(stack, clock)
+                path.plan["header"][field] += 0.0000001
+                clock.value = 12
+                with self.assertRaisesRegex(t.TransportFailure, "fixture_original_deadline"):
+                    path.transport.send(path.wire, token="synthetic-token", request_end=60)
+                path.admission.assert_not_called()
+                self.assertGreater(path.plan["header"][field], 60 if field == "hard_end" else 55)
+
+    def test_absent_absolute_bound_preserves_sixty_six_hundred_policy(self):
+        for now, end in ((0, 60), (570, 600)):
+            with self.subTest(now=now), ExitStack() as stack:
+                clock = Clock()
+                path = self.prepared_path(stack, clock, hard_end=end)
+                clock.value = now
+                result = path.transport.send(path.wire, token="synthetic-token")
+                self.assertEqual((result.receipt["operation_end"], result.receipt["hard_end"]), (end - 5, end))
+                self.assertEqual(path.transport.run_end, 600)
+                path.admission.assert_called_once()
+                path.leases[0][0].admit.assert_called_once_with(path.wire, b"synthetic-token")
+
+    def test_expired_harness_admission_keeps_original_failure_and_fixture_cleanup(self):
+        for now in (56, 61):
+            with self.subTest(now=now), ExitStack() as stack:
+                fixture_factory, fixture_receipt = HarnessRegressionTests.harness_patches(self, stack)
+                clock = Clock()
+                stack.enter_context(patch.object(local.time, "monotonic", clock))
+                stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                    "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+                factory = Mock()
+                stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=factory))
+                stack.enter_context(patch.object(t.shutil, "rmtree"))
+                real_transport = t.JevTransport
+                stack.enter_context(patch.object(t, "JevTransport", side_effect=lambda **kwargs:
+                                                real_transport(clock=clock, **kwargs)))
+                lease_factory = stack.enter_context(patch.object(t, "OwnedLease"))
+                fixture_factory.return_value.start.side_effect = lambda: setattr(clock, "value", now)
+                report = local.run_case("success")
+            factory.assert_not_called()
+            lease_factory.assert_not_called()
+            self.assertEqual(report["error"], "run_deadline")
+            self.assertEqual(report["transport"]["error"], "run_deadline")
+            self.assertEqual(report["transport"]["request_end"], report["hard_end"])
+            self.assertFalse(report["transport"]["process_admitted"])
+            self.assertEqual(report["fixture"], fixture_receipt)
+            self.assertEqual(report["oracle_error"], "fixture_wrong_predicate")
+
+    def test_poisoned_second_call_retains_absolute_end_and_refuses_before_admission(self):
+        with ExitStack() as stack:
+            clock = Clock()
+            path = self.prepared_path(stack, clock, complete=False)
+            clock.value = 12
+            with self.assertRaisesRegex(t.TransportFailure, "cleanup_unconfirmed"):
+                path.transport.send(path.wire, token="synthetic-token", request_end=60)
+            clock.value = 61
+            with self.assertRaisesRegex(t.TransportFailure, "lease_unavailable"):
+                path.transport.send(path.wire, token="synthetic-token", request_end=60)
+            path.factory.assert_called_once()
+            path.admission.assert_called_once()
+        with ExitStack() as stack:
+            HarnessRegressionTests.harness_patches(self, stack)
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "cwd": Path("/synthetic-mechanism"), "header": {"interpreter": "/synthetic-interpreter"}}))
+            stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
+            stack.enter_context(patch.object(t.shutil, "rmtree"))
+            stack.enter_context(patch.object(local, "oracle_error", return_value=None))
+            transport = stack.enter_context(patch.object(t, "JevTransport"))
+            transport.return_value.send.side_effect = [t.TransportFailure("cleanup_unconfirmed"),
+                                                      t.TransportFailure("lease_unavailable")]
+            report = local.run_case("partial_capture_failure")
+        self.assertEqual(transport.return_value.send.call_count, 2)
+        for call in transport.return_value.send.call_args_list:
+            self.assertEqual(call.kwargs["request_end"], report["hard_end"])
+            self.assertEqual(call.kwargs["timeout"], t.REQUEST_SECONDS)
+
 
 if __name__ == "__main__":
     unittest.main()
