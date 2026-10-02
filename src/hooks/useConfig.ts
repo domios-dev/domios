@@ -74,9 +74,8 @@ export function defaultConfig(): AppConfig {
       file_sync_interval_minutes: 60,
     },
     supporter: {
-      adapter: "typesafe-jev",
-      endpoint: null,
-      model: "jev-latest",
+      adapter: null,
+      connections: {},
       deadline_ms: 3000,
       calls_per_hour: null,
       memory_rerank: {
