@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 
 use wait_timeout::ChildExt;
 
+// PowerShell cold start alone can take several seconds on Windows hosts.
+#[cfg(windows)]
+pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
+#[cfg(not(windows))]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
 

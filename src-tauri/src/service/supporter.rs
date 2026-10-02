@@ -18,6 +18,7 @@ pub(crate) mod connections;
 mod feed;
 mod journal;
 mod narrative;
+mod physical;
 mod spend;
 mod storage;
 
@@ -154,6 +155,7 @@ pub(crate) fn budgeted_model_with_activity(
         kind,
         tab,
         criteria_version,
+        physical_limit: matches!(kind, VerdictKind::TabState).then_some(1),
         activity_context,
     })
 }
@@ -165,10 +167,14 @@ struct BudgetedModel {
     kind: VerdictKind,
     tab: Option<String>,
     criteria_version: Option<String>,
+    physical_limit: Option<usize>,
     activity_context: Option<ActivityContext>,
 }
 
 impl DecisionModel for BudgetedModel {
+    fn supports_question_batch(&self) -> bool {
+        self.model.supports_question_batch()
+    }
     fn id(&self) -> &str {
         self.model.id()
     }
@@ -206,13 +212,7 @@ impl DecisionModel for BudgetedModel {
             return Err(DecisionError::Parse("empty_questions".into()));
         }
         self.runtime
-            .reserve_request(
-                self.cap,
-                self.kind,
-                self.tab.as_deref(),
-                request.questions.len(),
-                self.model.id(),
-            )
+            .admit_adapter(self.model.id())
             .inspect_err(|error| {
                 self.runtime.failure_with_activity(
                     self.kind,
@@ -221,6 +221,28 @@ impl DecisionModel for BudgetedModel {
                     self.activity_context.as_ref(),
                 )
             })?;
+        self.runtime
+            .admit_request_budget(self.cap)
+            .inspect_err(|error| {
+                self.runtime.failure_with_activity(
+                    self.kind,
+                    self.tab.as_deref(),
+                    error,
+                    self.activity_context.as_ref(),
+                )
+            })?;
+        let meter = physical::Meter::new(
+            self.runtime.clone(),
+            self.cap,
+            self.kind,
+            self.tab.clone(),
+            self.model.id().into(),
+            request.questions.len(),
+            deadline,
+            self.physical_limit,
+        );
+        let _active = physical::ActiveMeter(meter.clone());
+        let _scope = codeterm_types::decision::physical::RequestScope::enter(meter.clone());
         let price = self.model.pricing();
         let model_id = self.model.model_id();
         let response = self
@@ -233,6 +255,10 @@ impl DecisionModel for BudgetedModel {
                     error
                 }
             });
+        let response = match meter.finish() {
+            Some(error) => Err(error),
+            None => response,
+        };
         self.runtime
             .record_spend(self.model.id(), price.as_ref(), &response);
         let response = response.inspect_err(|error| {
@@ -246,7 +272,9 @@ impl DecisionModel for BudgetedModel {
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
-        request.validate_answers(&response.answers)?;
+        request
+            .validate_answers(&response.answers)
+            .map_err(|_| DecisionError::Parse("invalid_response".into()))?;
         let question_set_hash =
             criteria_hash(&serde_json::to_vec(&request.questions).unwrap_or_default());
         let criteria_version = self
@@ -294,7 +322,9 @@ impl DecisionModel for BudgetedModel {
 }
 
 pub(crate) fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
-    runtime.status(cap)
+    let mut status = runtime.status(cap);
+    status["observation_scheduler"] = super::supporter_tab_state::scheduler::status();
+    status
 }
 
 #[cfg(test)]

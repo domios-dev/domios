@@ -27,6 +27,10 @@ impl JsDecisionModel {
 }
 
 impl DecisionModel for JsDecisionModel {
+    fn supports_question_batch(&self) -> bool {
+        super::vm::has_method(&self.vm, "decideQuestions")
+            && call_json_or_default::<bool>(&self.vm, &self.id, "supportsQuestionBatch")
+    }
     fn id(&self) -> &str {
         &self.id
     }

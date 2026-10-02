@@ -274,3 +274,44 @@ fn parity_decision_metadata_and_model_selection_apply_without_cross_adapter_leak
     );
     assert_eq!(javascript.model_id().as_deref(), Some("two"));
 }
+
+#[test]
+fn parity_decision_model_explicit_batch_capability() {
+    struct NativeBatch(bool);
+    impl DecisionModel for NativeBatch {
+        fn supports_question_batch(&self) -> bool {
+            self.0
+        }
+        fn id(&self) -> &str {
+            "native-batch"
+        }
+        fn token_mode(&self) -> TokenMode {
+            TokenMode::None
+        }
+        fn primitives(&self) -> DecisionPrimitives {
+            Default::default()
+        }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            Err(DecisionError::Unsupported)
+        }
+    }
+    for declared in [false, true] {
+        let source = format!("module.exports.default = {{ supportsQuestionBatch() {{ return {declared}; }}, decideQuestions() {{ return {{ answers: {{}}, usage: null }}; }} }};");
+        let vm = Arc::new(PluginVm::from_source("batch-fixture", source).unwrap());
+        let js = JsDecisionModel::new(vm, "batch-fixture", TokenMode::None);
+        assert_eq!(
+            js.supports_question_batch(),
+            NativeBatch(declared).supports_question_batch()
+        );
+    }
+    for source in [
+        "module.exports.default = { decideQuestions() { return null; } };",
+        "module.exports.default = { supportsQuestionBatch() { return true; } };",
+    ] {
+        let implicit = Arc::new(PluginVm::from_source("implicit", source.into()).unwrap());
+        assert!(
+            !JsDecisionModel::new(implicit, "implicit", TokenMode::None).supports_question_batch()
+        );
+    }
+    assert!(!NativeDecisionModel(TokenMode::None).supports_question_batch());
+}
