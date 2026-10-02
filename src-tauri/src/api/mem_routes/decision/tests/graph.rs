@@ -4,10 +4,10 @@ use crate::mem::Relation;
 
 const ENTITY: &str = "tech_lighthouse";
 /// Graph-only memories share no word with `QUERY`; only the entity link reaches them.
-const GRAPH_TITLES: [&str; 3] = ["harbor ledger", "tide almanac", "mooring roster"];
+pub(super) const GRAPH_TITLES: [&str; 3] = ["harbor ledger", "tide almanac", "mooring roster"];
 
 /// The fixture store plus graph-only items and one recall item linked to `ENTITY`.
-fn graph_seeded() -> SeededBackend {
+pub(super) fn graph_seeded() -> SeededBackend {
     let mut backend = seeded();
     let mut graph_ids = Vec::new();
     for title in GRAPH_TITLES {
@@ -60,7 +60,7 @@ fn graph_seeded() -> SeededBackend {
     backend
 }
 
-fn graph_cfg(graph: usize) -> SupporterConfig {
+pub(super) fn graph_cfg(graph: usize) -> SupporterConfig {
     SupporterConfig {
         memory_rerank: MemoryRerankConfig {
             sources: SupporterSources {
@@ -73,7 +73,7 @@ fn graph_cfg(graph: usize) -> SupporterConfig {
     }
 }
 
-fn applied(limit: usize) -> SearchParams {
+pub(super) fn applied(limit: usize) -> SearchParams {
     SearchParams {
         supporter: Some(true),
         ..params(limit)
@@ -94,6 +94,7 @@ fn is_graph_title(title: &str) -> bool {
 
 #[test]
 fn decision_graph_only_item_can_win() {
+    let _scope = clock::fixture_clock().enter();
     let backend = graph_seeded();
     let pool_titles = titles(&baseline_oracle(&backend, &params(10)));
     assert_eq!(pool_titles.len(), TITLES.len());
@@ -128,6 +129,7 @@ fn decision_graph_only_item_can_win() {
 
 #[test]
 fn decision_graph_counts_and_dedup_respected() {
+    let _scope = clock::fixture_clock().enter();
     let backend = graph_seeded();
     let registry = relevance_registry(&[]);
     for graph in [1, 2, 3, 20] {
@@ -157,6 +159,7 @@ fn decision_graph_counts_and_dedup_respected() {
 
 #[test]
 fn decision_graph_zero_keeps_applied_output_identical() {
+    let _scope = clock::fixture_clock().enter();
     let backend = graph_seeded();
     let cfg = enabled_cfg();
     assert_eq!(cfg.memory_rerank.sources.graph, 0);
@@ -201,27 +204,26 @@ fn decision_graph_zero_keeps_applied_output_identical() {
 
 #[test]
 fn decision_graph_fallback_has_no_graph_additions() {
+    let _scope = clock::fixture_clock().enter();
     let backend = graph_seeded();
     let mut request = params(2);
     request.project = Some("/seeded/project".into());
-    let cases: Vec<(&str, SupporterRegistry)> = vec![
-        (
-            "adapter_error",
-            registry_with(StubMode::Fail(DecisionError::Http(500))),
-        ),
-        (
-            "deadline",
-            registry_with(StubMode::Fail(DecisionError::Deadline)),
-        ),
-        ("no_adapter", SupporterRegistry::new()),
+    let cases = [
+        ("adapter_error", Some(DecisionError::Http(500))),
+        ("deadline", Some(DecisionError::Deadline)),
+        ("no_adapter", None),
         (
             "unavailable",
-            registry_with(StubMode::Fail(DecisionError::Unavailable(
-                "no token".into(),
-            ))),
+            Some(DecisionError::Unavailable("no token".into())),
         ),
     ];
-    for (reason, registry) in cases {
+    for (reason, error) in cases {
+        let (registry, completion) = if let Some(error) = error {
+            let (registry, completion) = registry_with_completion(StubMode::Fail(error));
+            (registry, Some(completion))
+        } else {
+            (SupporterRegistry::new(), None)
+        };
         let baseline = baseline_oracle(&backend, &request);
         let output = resolve_search(
             &backend,
@@ -233,6 +235,9 @@ fn decision_graph_fallback_has_no_graph_additions() {
             },
         )
         .unwrap();
+        if let Some(completion) = completion {
+            finish_registry(registry, completion);
+        }
         assert_eq!(
             output["supporter"],
             json!({ "status": "fallback", "reason": reason })
@@ -266,6 +271,7 @@ fn registry_with_graph_winner() -> SupporterRegistry {
 
 #[test]
 fn decision_graph_access_delta_only_for_returned() {
+    let _scope = clock::fixture_clock().enter();
     let backend = graph_seeded();
     let registry = relevance_registry(&[
         (GRAPH_TITLES[1], 0.9),

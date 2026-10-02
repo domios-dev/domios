@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{physical, DecisionError};
+use codeterm_types::decision::{deadline, physical, DecisionError};
 use parking_lot::Mutex;
 
 use super::{SupporterRuntime, VerdictKind};
@@ -58,7 +58,7 @@ impl physical::RequestObserver for Meter {
 
     fn before_request(&self) -> Result<(), DecisionError> {
         let mut state = self.state.lock();
-        let result = if !self.active.load(Ordering::Acquire) || Instant::now() >= self.deadline {
+        let result = if !self.active.load(Ordering::Acquire) || deadline::now() >= self.deadline {
             Err(DecisionError::Deadline)
         } else if self.limit.is_some_and(|limit| state.0 >= limit) {
             Err(DecisionError::Unsupported)

@@ -125,6 +125,7 @@ clipboard-win = "5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-types = { path = "crates/codeterm-types", features = ["decision-fixture-clock"] }
 mockito = "1"
 filetime = "0.2.29"
 vt100 = "0.16"

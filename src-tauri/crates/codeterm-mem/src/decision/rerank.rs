@@ -1,7 +1,7 @@
 //! Stage-2 re-rank: selectable shared-state requests, all-or-nothing, bounded by a failure deadline.
 
 use std::collections::VecDeque;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,7 @@ use codeterm_types::config::RerankRequestMode;
 mod shared_state;
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
+    deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionQuestion, DecisionRequest,
 };
 
 pub const NOUL_INSTRUCTIONS_TEMPLATE: &str =
@@ -110,7 +110,13 @@ pub fn run_stage(
     candidates: &[RerankCandidate],
     cfg: &StageConfig,
 ) -> StageOutcome {
-    run_stage_until(model, query, candidates, cfg, Instant::now() + cfg.deadline)
+    run_stage_until(
+        model,
+        query,
+        candidates,
+        cfg,
+        deadline::now() + cfg.deadline,
+    )
 }
 
 pub fn run_stage_until(
@@ -128,7 +134,7 @@ pub fn run_stage_until(
             max_relevance: 0.0,
         };
     }
-    if Instant::now() >= deadline {
+    if deadline::now() >= deadline {
         return fallback(FallbackReason::Deadline);
     }
     let primitives = model.primitives();
@@ -151,7 +157,7 @@ pub fn run_stage_until(
         .map(|(i, c)| (i, build_request(primitive, query, c, cfg.max_body_chars)))
         .collect();
     let queue = Arc::new(Mutex::new(jobs));
-    let (tx, rx) = mpsc::channel::<JobResult>();
+    let (tx, rx) = deadline::channel::<JobResult>();
     // A zero cap would spawn no worker and silently turn every call into a fallback.
     for _ in 0..cfg.max_concurrency.clamp(1, n) {
         spawn_worker(model.clone(), queue.clone(), tx.clone(), deadline);
@@ -161,8 +167,7 @@ pub fn run_stage_until(
     let mut relevance = vec![0.0f64; n];
     let mut received = 0usize;
     while received < n {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let reason = match rx.recv_timeout(remaining) {
+        let reason = match rx.recv_until(deadline) {
             Ok((index, Ok(answer))) => match relevance_of(primitive, &answer) {
                 Some(value) => {
                     relevance[index] = value;
@@ -203,20 +208,24 @@ fn fallback(reason: FallbackReason) -> StageOutcome {
 fn spawn_worker(
     model: Arc<dyn DecisionModel>,
     queue: Arc<Mutex<VecDeque<Job>>>,
-    tx: mpsc::Sender<JobResult>,
+    tx: deadline::Sender<JobResult>,
     deadline: Instant,
 ) {
+    let context = deadline::capture();
     let spawned = std::thread::Builder::new()
         .name("mem-supporter-rerank".into())
-        .spawn(move || loop {
-            if Instant::now() >= deadline {
-                break;
-            }
-            let job = queue.lock().pop_front();
-            let Some((index, request)) = job else { break };
-            let result = model.decide(&request, deadline);
-            if tx.send((index, result)).is_err() {
-                break;
+        .spawn(move || {
+            let _scope = context.enter();
+            loop {
+                if deadline::now() >= deadline {
+                    break;
+                }
+                let job = queue.lock().pop_front();
+                let Some((index, request)) = job else { break };
+                let result = model.decide(&request, deadline);
+                if tx.send((index, result)).is_err() {
+                    break;
+                }
             }
         });
     if let Err(error) = spawned {
