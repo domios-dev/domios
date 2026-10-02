@@ -18,6 +18,4 @@ const paths: Record<IconName, string> = {
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
-export function BrandMark() {
-  return <svg className="brand-mark" width="30" height="30" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 7h9c10 0 16 5 16 13s-6 13-16 13h-9V7Zm7 7v12h3c5 0 8-2 8-6s-3-6-8-6h-3Z" fill="currentColor" /><rect x="4" y="17" width="7" height="6" rx="1.5" fill="currentColor" /></svg>;
-}
+export { BrandMark } from './BrandMark';

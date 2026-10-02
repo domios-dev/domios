@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Domios: Patch</title>
+  <desc id="desc">Pull up a corner. Make yourself at home.</desc>
+  <path fill="#58a6ff" fill-rule="evenodd" d="M32 12C12-4-4 12 12 32C-4 52 12 68 32 52C52 68 68 52 52 32C68 12 52-4 32 12ZM24 24V40H40V24Z"/>
+</svg>

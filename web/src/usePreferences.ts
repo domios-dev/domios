@@ -20,7 +20,7 @@ export function useTheme() {
   const theme = choice === 'light' || choice === 'dark' ? choice : systemLight ? 'light' : 'dark';
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0d1117' : '#f6f8fa');
+    document.querySelectorAll('meta[name="theme-color"]').forEach(meta => meta.setAttribute('content', theme === 'dark' ? '#0d1117' : '#f6f8fa'));
   }, [theme]);
   const toggle = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
