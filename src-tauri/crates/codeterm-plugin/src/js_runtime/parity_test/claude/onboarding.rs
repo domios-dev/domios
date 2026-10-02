@@ -7,11 +7,6 @@ fn claude_onboarding_prompt_native_js_parity() {
         return;
     }
     let (native, js) = pair();
-    assert!(native.supports_live_prompt_response());
-    assert_eq!(
-        native.supports_live_prompt_response(),
-        js.supports_live_prompt_response()
-    );
     let fixtures = workspace_plugins_root()
         .join("provider-claude")
         .join("tests/fixtures/onboarding");

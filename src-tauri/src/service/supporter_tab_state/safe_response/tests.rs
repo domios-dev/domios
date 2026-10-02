@@ -151,18 +151,26 @@ fn supporter_first_opinion_safe_response_update_skip_order_focus_and_opaque_valu
     update.options[0].label = "Update".into();
     update.options[1].label = "Skip".into();
     let provider = crate::agent::test_provider::MockProvider::new("opaque-provider")
-        .with_parsed_prompt(update)
+        .with_parsed_prompt(update.clone())
         .with_classified_prompt_auto_response(
             codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
         );
-    let target = provider_target(&provider, "opaque-screen").unwrap();
-    assert_eq!(target.choice, "skip-token");
-    assert_eq!(target.step, b"\x1b[B");
     use codeterm_plugin::provider::AgentProvider;
-    assert!(!provider.supports_live_prompt_response());
-    let mut unsupported = evidence();
-    unsupported.eligible = false;
-    assert!(!authorized(&target, &unsupported));
+    assert_eq!(
+        provider.update_prompt_safe_choice(&update),
+        Some("skip-token".into())
+    );
+    assert_eq!(provider.live_prompt_response(1, "opaque-question\n"), None);
+    assert!(provider_target(&provider, "opaque-question\n").is_none());
+}
+
+#[test]
+fn supporter_first_opinion_safe_response_historical_focus_cannot_supply_update_enter() {
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let screen = "Previous selection\n 1. Update\n❯ 2. Skip\nCompleted previous choice\n\n\nFixture selection\n❯ 1. Update\n 2. Skip\nEnter to confirm\n";
+    let target = provider_target(&provider, screen).unwrap();
+    assert_eq!(target.choice, "2");
+    assert_eq!(target.step, b"j");
 }
 
 #[test]
@@ -222,6 +230,46 @@ fn supporter_first_opinion_safe_response_qualification_is_question_set_specific(
         &criteria_version(),
         &"a".repeat(64)
     ));
+}
+
+#[test]
+fn supporter_first_opinion_safe_response_adapter_replacement_resets_agreement() {
+    struct Model;
+    impl DecisionModel for Model {
+        fn id(&self) -> &str {
+            "fixture"
+        }
+        fn token_mode(&self) -> codeterm_types::decision::TokenMode {
+            codeterm_types::decision::TokenMode::Required
+        }
+        fn primitives(&self) -> codeterm_types::decision::DecisionPrimitives {
+            codeterm_types::decision::DecisionPrimitives {
+                choice: true,
+                noul: true,
+                score: false,
+            }
+        }
+        fn decide(
+            &self,
+            _: &codeterm_types::decision::DecisionRequest,
+            _: Instant,
+        ) -> Result<DecisionAnswer, codeterm_types::decision::DecisionError> {
+            Err(codeterm_types::decision::DecisionError::Unsupported)
+        }
+    }
+    let first: Arc<dyn DecisionModel> = Arc::new(Model);
+    let second: Arc<dyn DecisionModel> = Arc::new(Model);
+    let mut book = Agreement::default();
+    book.bind_adapter(&first);
+    assert_eq!(book.observe("launch", 1, 1, 1, "choice", 0.95), (1, 0.95));
+    book.bind_adapter(&first);
+    assert_eq!(book.observe("launch", 1, 2, 2, "choice", 0.95), (2, 0.95));
+    book.bind_adapter(&second);
+    assert_eq!(book.observe("launch", 1, 3, 3, "choice", 0.95), (1, 0.95));
+    assert_eq!(
+        book.observe("launch", 1, 4, 4, "changed-policy:choice", 0.95),
+        (1, 0.95)
+    );
 }
 
 #[test]
