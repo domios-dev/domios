@@ -291,6 +291,67 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
     );
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&id, "safe-choice-batch-pty".into());
+    mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture-provider".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut update = prompt();
+    update.options[1].label = "Skip".into();
+    update.options[1].value = "opaque-skip-value".into();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("fixture-provider")
+            .with_parsed_prompt(update)
+            .with_classified_prompt_auto_response(
+                codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+            ),
+    ));
+    let (mut host, calls, seen) = StubHost::new(
+        "Fixture selection\n❯ 1. Opaque alpha\n2. Skip\nEnter to confirm\ntoken=private-value",
+        StubModel::answering(Ok(choice(OTHER, 0.99))),
+    );
+    host.metadata_service = Some(fixture.service.clone());
+    let config = SupporterConfig {
+        adapter: Some("fixture".into()),
+        ..Default::default()
+    };
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let request = seen.lock().clone().unwrap();
+    assert_eq!(
+        request
+            .questions
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["input_area", "label", "prompt_visible", "safe_choice"]
+    );
+    let codeterm_types::decision::DecisionQuestion::Choice { options } =
+        &request.questions["safe_choice"].question
+    else {
+        panic!("choice");
+    };
+    assert!(options.contains_key("opaque-skip-value"));
+    assert!(options.contains_key(OTHER));
+    assert!(!serde_json::to_string(&request)
+        .unwrap()
+        .contains("private-value"));
+    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .pending_prompt
+        .is_none());
+}
+
 struct CandidateModel {
     response: Result<DecisionResponse, DecisionError>,
     hook: Option<Box<dyn Fn() + Send + Sync>>,
