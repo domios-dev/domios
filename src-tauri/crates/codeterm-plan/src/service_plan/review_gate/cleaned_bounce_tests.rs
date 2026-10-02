@@ -663,29 +663,74 @@ fn review_bounce_cleaned_refuses_competitive_history() {
 }
 
 fn incomplete_terminal_history(case: &str) -> (tempfile::TempDir, PlanStore, String, String) {
-    let (dir, store, plan_id, task_id) = setup();
     if case == "missing_retirement" {
-        add_reported_generation(&dir, &store, &plan_id, &task_id, "worker-one", 1);
-        set_status(&store, &plan_id, &task_id, "done", 13);
-        let plan = store.get(&plan_id).unwrap();
-        assert!(matches!(
-            crate::service_plan::lane_cleanup::try_cleanup_task_lane(
-                &store,
-                &plan,
-                &task_id,
-                |_| false,
-                14,
-            ),
-            crate::service_plan::lane_cleanup::LaneCleanupOutcome::Cleaned
-        ));
+        let (dir, store, plan_id, task_id, attempt_id) = one_reported_cleaned_generation();
+        let before = store.show_task(&task_id).unwrap().task;
+        let terminal = before.execution_attempts.last().unwrap();
+        assert_eq!(before.status, TaskStatus::InReview);
+        assert_eq!(before.status_label.as_deref(), Some("review"));
+        assert_eq!(before.assigned_tab_id, None);
+        assert_eq!(before.taken_by_role, None);
+        assert_eq!(before.peer, None);
+        assert_eq!(before.lane.tab_id, None);
+        assert_eq!(before.lane.worktree_path, None);
+        assert_eq!(before.lane.branch, None);
+        assert_eq!(before.lane.workspace_id, None);
+        assert_eq!(before.lane.workspace_name, None);
+        assert_eq!(before.lane.cleanup_status.as_deref(), Some("done"));
+        assert_eq!(before.interruption.owner_tab_id, None);
+        assert_eq!(before.interruption.owner_session_id, None);
+        assert!(!before.interruption.handoff_required);
+        assert_eq!(before.execution_attempts.len(), 1);
+        assert_eq!(terminal.id, attempt_id);
+        assert!(terminal
+            .session_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()));
+        assert!(terminal
+            .session_binding_nonce
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()));
+        assert!(terminal.acknowledged_at.is_some());
+        assert!(terminal.reported_at.is_some());
+        assert_eq!(
+            terminal.report.as_ref().unwrap().status.as_deref(),
+            Some("in_review")
+        );
+        assert!(terminal
+            .report
+            .as_ref()
+            .unwrap()
+            .reporter_tab_id
+            .is_none());
+        assert!(terminal.closed_at.is_some());
+        assert!(terminal.retired_at.is_some());
+
+        // Negative fixture corruption isolates missing persisted retirement.
+        // Never use this mutation to repair a live task.
         store
-            .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Done), |_| false, 15)
+            .with_plan(&plan_id, 16, |plan| {
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
+                let terminal = task.execution_attempts.last_mut().unwrap();
+                assert_eq!(terminal.id, attempt_id);
+                assert!(terminal.closed_at.is_some());
+                assert!(terminal.retired_at.is_some());
+                terminal.retired_at = None;
+                Ok(())
+            })
             .unwrap();
-        set_status(&store, &plan_id, &task_id, "in_review", 16);
-        set_status_label(&store, &plan_id, &task_id, "review", 17);
+        let after = store.show_task(&task_id).unwrap().task;
+        let mut expected = before.execution_attempts[0].clone();
+        expected.retired_at = None;
+        assert_eq!(after.execution_attempts[0], expected);
         return (dir, store, plan_id, task_id);
     }
 
+    let (dir, store, plan_id, task_id) = setup();
     let with_runtime_binding = case != "missing_session";
     let attempt_id = add_unreported_generation(
         &dir,
