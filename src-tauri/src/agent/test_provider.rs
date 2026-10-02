@@ -627,6 +627,15 @@ impl AgentProvider for MockProvider {
     ) -> Option<codeterm_plugin::tab_state::TabStateClassification> {
         self.tab_state_classification.clone()
     }
+    fn update_prompt_safe_choice(
+        &self,
+        prompt: &codeterm_types::pty::PendingPrompt,
+    ) -> Option<String> {
+        (self.classified_prompt_auto_response
+            == Some(codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip))
+        .then(|| codeterm_plugin::update_prompt::safe_choice(prompt))
+        .flatten()
+    }
     fn supports_classified_prompt_auto_response(&self) -> bool {
         self.classified_prompt_auto_response.is_some()
     }

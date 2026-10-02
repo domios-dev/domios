@@ -596,6 +596,26 @@ impl NotificationStore {
         true
     }
 
+    pub(crate) fn update_summary(
+        &mut self,
+        id: &str,
+        title: String,
+        body: String,
+    ) -> Option<serde_json::Value> {
+        let record = self
+            .notifications
+            .iter_mut()
+            .find(|record| record.id == id)?;
+        if record.title == title && record.body.as_deref() == Some(body.as_str()) {
+            return None;
+        }
+        record.title = title;
+        record.body = Some(body);
+        let payload = serde_json::to_value(&*record).ok()?;
+        self.sync_persisted();
+        Some(payload)
+    }
+
     pub fn notification(&self, id: &str) -> Option<&Notification> {
         self.notifications
             .iter()

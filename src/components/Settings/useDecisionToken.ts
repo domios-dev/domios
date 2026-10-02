@@ -97,9 +97,10 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     if (tokenRef.current) tokenRef.current.value = "";
   };
 
-  const write = async (url: string, init: RequestInit, verb: string, secret?: string) => {
+  const write = async (url: string, init: RequestInit, verb: string, secret?: string): Promise<boolean> => {
     setBusy(true);
     setError(null);
+    let ok = false;
     try {
       const response = await fetch(url, {
         ...init,
@@ -111,6 +112,8 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
         } | null;
         const message = body?.error?.message?.replace(secret ?? "\u0000", "[redacted]");
         setError(message || `Could not ${verb} (HTTP ${response.status}).`);
+      } else {
+        ok = true;
       }
     } catch {
       setError(`Could not reach the daemon to ${verb}.`);
@@ -119,13 +122,14 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     }
     await refreshStatus();
     setBusy(false);
+    return ok;
   };
 
-  const saveToken = async (event: FormEvent<HTMLFormElement>) => {
+  const saveToken = async (event: FormEvent<HTMLFormElement>): Promise<boolean> => {
     event.preventDefault();
     const token = (tokenRef.current?.value ?? "").trim();
-    if (!token || busy) return;
-    await write(
+    if (!token || busy) return false;
+    return write(
       `${apiBase}/api/supporter/token`,
       {
         method: "POST",

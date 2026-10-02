@@ -339,6 +339,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
+    listen<{ id: string; title: string; body: string }>("notification-updated", (event) => {
+      dispatch({ type: "UPDATE_NOTIFICATION_SUMMARY", ...event.payload });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
     listen<{ id: string; answered: string; delivered?: boolean }>(
       "notification-answered",
       (event) => {

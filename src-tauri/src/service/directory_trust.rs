@@ -612,6 +612,11 @@ impl ServiceContext {
                 confidence: 1.0,
                 action: super::supporter::Action::Recovery,
                 reason: "deterministic_directory_trust",
+                asked: Some(vec![super::supporter::QuestionAnswer::new(
+                    "directory_trust",
+                    "Should this folder be trusted?",
+                    "Provider-declared folder trust response authorized",
+                )]),
             })
             .is_err()
         {

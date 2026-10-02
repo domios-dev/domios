@@ -1084,5 +1084,17 @@ test("SET_STATE does not thrash agent_type on an unrelated snapshot", () => {
   );
 });
 
+test("provider update summary changes one existing row and preserves read state", () => {
+  const item: Notification = { id: "update", tab_id: null, workspace_id: null, title: "v1 -> v2", body: "pending", severity: "Info", level: "verbose", timestamp: 5, read: true };
+  const state = { ...base(), notifications: [item], toasts: [] };
+  const next = reducer(state, { type: "UPDATE_NOTIFICATION_SUMMARY", id: "update", title: "updated", body: "complete" });
+  assert(next.notifications.length === 1, "one summary row");
+  assert(next.notifications[0].body === "complete", "new counts reach the panel");
+  assert(next.notifications[0].read && next.notifications[0].timestamp === 5, "existing read state and timestamp retained");
+  assert(next.toasts.length === 0, "a completed summary does not recreate a dismissed toast");
+  const missing = reducer(next, { type: "UPDATE_NOTIFICATION_SUMMARY", id: "missing", title: "absent", body: "absent" });
+  assert(missing.notifications.length === 1, "missing ids never create a notice");
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

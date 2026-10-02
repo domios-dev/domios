@@ -125,11 +125,29 @@ pub(crate) fn journal(
     source: DecisionSource,
     label: &str,
     confidence: Option<f64>,
+    title: &str,
 ) -> Value {
+    let title = super::privacy::text(title);
+    let asked = match source {
+        DecisionSource::Adapter
+        | DecisionSource::Heuristic
+        | DecisionSource::Other
+        | DecisionSource::LowConfidence => super::super::supporter::tab_questions(&title, label),
+        _ => super::super::supporter::ActivityContext::TabState {
+            title: title.into(),
+            declared_safe_choice: None,
+        }
+        .failure(match source {
+            DecisionSource::Timeout => "deadline",
+            DecisionSource::Budget => "budget",
+            _ => "unavailable",
+        }),
+    };
+    let asked = super::privacy::value(&serde_json::to_value(asked).unwrap_or_default());
     json!({ "time": chrono::Utc::now().timestamp(), "kind": "tab_state",
         "tab": tab, "action": "classification", "decided_by": source.as_str(),
         "observation_id": observation, "label": label, "confidence": confidence,
-        "reason": "model_answer" })
+        "reason": "model_answer", "asked": asked })
 }
 
 impl super::super::ServiceContext {

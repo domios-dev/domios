@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Sparkles } from "lucide-react";
+import { ExternalLink, RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
+import { UI_INPUT } from "../shared/design";
 import { AboutLink, InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
-import { SupporterSpendPanel } from "./SupporterSpendPanel";
+import { SupporterBalanceForm, SupporterSpendLine, supporterTokenTotals } from "./SupporterSpendPanel";
+import { SupporterTokenField } from "./SupporterTokenField";
 import { type SupporterAdapter, useDecisionToken } from "./useDecisionToken";
 
 const DOCS_URL = "https://docs.typesafe.ai";
@@ -94,99 +96,43 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
   const tokenMode = status?.token_mode ?? selected?.token_mode ?? "required";
   const tokenNeeded = tokenMode !== "none";
 
+  const tokenState =
+    tokenMode === "none" ? "No token needed" : hasToken ? "Token set" : status ? "No token" : "Token status unknown";
+  const when = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString();
+
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
       title="Supporter Agent"
-      headerRight={<SettingsPill tone={stateTone(status?.state)}>{statusText}</SettingsPill>}
-      description="The Supporter Agent helps CodeTerm find useful memory and read an agent tab's state."
+      headerRight={
+        <SettingsPill tone={stateTone(status?.state)}>
+          <span className="inline-flex items-center gap-1.5">
+            {status?.state === "active" && (
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ct-green)]" />
+            )}
+            <span data-testid="supporter-agent-overall-status">{statusText}</span>
+          </span>
+        </SettingsPill>
+      }
+      description="Helps CodeTerm pick useful memory and read what an agent tab is doing."
     >
-      <div
-        className="flex flex-col gap-2"
-        data-testid="supporter-agent-status"
-        role="status"
-        aria-label="Supporter Agent status"
-      >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--ct-muted-fg)]">
-          <span data-testid="supporter-agent-overall-status">{statusText}</span>
-          <span data-testid="supporter-agent-token-state">
-            {tokenMode === "none"
-              ? "No token needed"
-              : hasToken
-                ? "Token set"
-                : status
-                  ? "No token"
-                  : "Token status unknown"}
-          </span>
-          <span data-testid="supporter-agent-selection">
-            {selectedAdapter || "No adapter"}
-            {selectedModel ? ` · ${selectedModel}` : ""}
-          </span>
-          {status && <span>Deadline {status.deadline_ms} ms</span>}
-        </div>
+      <div data-testid="supporter-agent-status" role="status" aria-label="Supporter Agent status" className="contents">
         {token.statusFailed && (
-          <p data-testid="supporter-agent-status-failed">Supporter Agent status is unavailable.</p>
+          <p data-testid="supporter-agent-status-failed" className="text-xs text-[var(--ct-red)]">Supporter Agent status is unavailable.</p>
         )}
         {token.modeWarning && (
-          <p data-testid="supporter-agent-mode-warning">The token file permissions are not owner-only.</p>
+          <p data-testid="supporter-agent-mode-warning" className="text-xs text-[var(--ct-yellow,#d97706)]">The token file permissions are not owner-only.</p>
         )}
         {token.adapterMissing && (
-          <p data-testid="supporter-agent-adapter-missing">The selected adapter is not registered in this build.</p>
+          <p data-testid="supporter-agent-adapter-missing" className="text-xs text-[var(--ct-yellow,#d97706)]">The selected adapter is not registered in this build.</p>
         )}
-        {catalogFailed && <p data-testid="supporter-agent-models-failed">Available models could not be loaded.</p>}
+        {catalogFailed && <p data-testid="supporter-agent-models-failed" className="text-xs text-[var(--ct-yellow,#d97706)]">Available models could not be loaded.</p>}
         {token.error && (
-          <p role="alert" data-testid="supporter-agent-error">
+          <p role="alert" data-testid="supporter-agent-error" className="text-xs text-[var(--ct-red)]">
             {token.error}
           </p>
         )}
       </div>
-
-      {status && (
-        <div
-          className="flex flex-col gap-1 text-xs text-[var(--ct-muted-fg)]"
-          data-testid="supporter-agent-activity"
-          role="status"
-          aria-label="Supporter activity"
-          data-cap={status.budget.calls_per_hour || "none"}
-        >
-          {status.budget.storage_ready === false && <span role="alert">Supporter budget storage needs attention.</span>}
-          <span>
-            Calls: {status.calls_last_hour} in the last hour · {status.calls_last_day} in the last day
-          </span>
-          <span>
-            Last activity:{" "}
-            {status.last_activity === null ? "None yet" : new Date(status.last_activity * 1000).toLocaleString()}
-          </span>
-          <span>
-            Request budget: {status.budget.calls_per_hour ? `${status.calls_last_hour} / ${status.budget.calls_per_hour} per hour` : "no cap"}
-          </span>
-          {status.budget.free_at !== null && (
-            <span>Available again: {new Date(status.budget.free_at * 1000).toLocaleString()}</span>
-          )}
-          {(["rerank", "tab_state"] as const).map((kind) => {
-            const verdict = status.last_verdict[kind];
-            return verdict ? (
-              <span key={kind}>
-                Last {kind === "rerank" ? "re-rank" : "tab-state"}: {verdict.label ?? "relevance scored"}
-                {verdict.confidence === null ? "" : ` · ${Math.round(verdict.confidence * 100)}%`} ·{" "}
-                {new Date(verdict.time * 1000).toLocaleString()}
-              </span>
-            ) : null;
-          })}
-          <Button type="button" variant="ghost" size="sm" onClick={() => void token.refreshStatus()}>
-            Refresh activity
-          </Button>
-        </div>
-      )}
-
-      {status?.spend && (
-        <SupporterSpendPanel
-          adapter={selectedAdapter}
-          spend={status.spend}
-          busy={token.busy}
-          setBalance={token.setBalance}
-        />
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="supporter-agent-model-selection">
         <FormRow label="Adapter" htmlFor="supporter-agent-adapter">
@@ -196,7 +142,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             value={selectedAdapter}
             disabled={!adapters.length || token.busy}
             onChange={(event) => void token.select(event.target.value)}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+            className={UI_INPUT.fullCompact}
             data-testid="supporter-agent-adapter-picker"
           >
             <option value="" disabled>
@@ -216,7 +162,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             value={selectedModel}
             disabled={!modelOptions.length || token.busy}
             onChange={(event) => void token.select(selectedAdapter, event.target.value)}
-            className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+            className={UI_INPUT.fullCompact}
             data-testid="supporter-agent-model-picker"
           >
             {modelOptions.map((model) => (
@@ -228,67 +174,79 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         </FormRow>
       </div>
 
-      {tokenNeeded && (
-        <form onSubmit={token.saveToken} className="flex flex-col gap-2" data-testid="supporter-agent-token-form">
-          <FormRow
-            label={
-              tokenMode === "optional"
-                ? hasToken
-                  ? "Replace token (optional)"
-                  : "API token (optional)"
-                : hasToken
-                  ? "Replace token"
-                  : "API token"
-            }
-            htmlFor="supporter-agent-token-input"
-            hint={
-              tokenMode === "optional"
-                ? "Optional. Write-only; the token is sent to the local daemon and never shown again."
-                : "Write-only. The token is sent to the local daemon and never shown again."
-            }
-          >
-            <input
-              id="supporter-agent-token-input"
-              ref={token.tokenRef}
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              defaultValue=""
-              aria-label={
-                tokenMode === "optional"
-                  ? hasToken
-                    ? "Replace token (optional)"
-                    : "API token (optional)"
-                  : hasToken
-                    ? "Replace token"
-                    : "API token"
-              }
-              className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-              data-testid="supporter-agent-token-input"
-            />
-          </FormRow>
-          <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              variant="accent"
-              size="sm"
-              disabled={token.busy}
-              data-testid="supporter-agent-token-save"
-            >
-              {hasToken ? "Replace token" : "Save token"}
-            </Button>
+      {tokenNeeded ? (
+        <SupporterTokenField
+          mode={tokenMode === "optional" ? "optional" : "required"}
+          hasToken={hasToken}
+          busy={token.busy}
+          tokenRef={token.tokenRef}
+          saveToken={token.saveToken}
+          clearToken={token.clearToken}
+        />
+      ) : null}
+      <span className="sr-only" data-testid="supporter-agent-token-state">{tokenState}</span>
+
+      {status && (
+        <div
+          className="flex flex-col gap-1 rounded-md border border-[var(--ct-border)] px-3 py-2 text-xs text-[var(--ct-muted-fg)]"
+          data-testid="supporter-agent-activity"
+          role="status"
+          aria-label="Supporter activity"
+          data-cap={status.budget.calls_per_hour || "none"}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span>
+                <span className="text-[var(--ct-fg)]">{status.calls_last_hour.toLocaleString()}</span> requests in the last hour ·{" "}
+                <span className="text-[var(--ct-fg)]">{status.calls_last_day.toLocaleString()}</span> in the last day
+                {status.budget.calls_per_hour ? ` · cap ${status.budget.calls_per_hour} per hour` : ""}
+              </span>
+              {status.spend && <SupporterSpendLine spend={status.spend} />}
+              {status.budget.storage_ready === false && <span role="alert">Supporter budget storage needs attention.</span>}
+              {status.budget.free_at !== null && (
+                <span className="text-[var(--ct-yellow,#d97706)]">Available again: {when(status.budget.free_at)}</span>
+              )}
+            </div>
             <Button
               type="button"
-              variant="ghost"
+              variant="icon"
               size="sm"
-              disabled={!hasToken || token.busy}
-              onClick={() => void token.clearToken()}
-              data-testid="supporter-agent-token-clear"
+              aria-label="Refresh activity"
+              title="Refresh activity"
+              onClick={() => void token.refreshStatus()}
             >
-              Clear token
+              <RefreshCw size={12} aria-hidden="true" />
             </Button>
           </div>
-        </form>
+          <details className="group">
+            <summary className="cursor-pointer select-none text-[11px] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]">
+              Details
+            </summary>
+            <div className="mt-1 flex flex-col gap-0.5">
+              <span>Last activity: {status.last_activity === null ? "none yet" : when(status.last_activity)}</span>
+              {(["rerank", "tab_state"] as const).map((kind) => {
+                const verdict = status.last_verdict[kind];
+                return verdict ? (
+                  <span key={kind}>
+                    Last {kind === "rerank" ? "memory re-rank" : "tab state"}: {verdict.label ?? "relevance scored"}
+                    {verdict.confidence === null ? "" : ` (${Math.round(verdict.confidence * 100)}%)`} at {when(verdict.time)}
+                  </span>
+                ) : null;
+              })}
+              {status.spend && <span>{supporterTokenTotals("Today", status.spend.today)}</span>}
+              {status.spend && <span>{supporterTokenTotals("This month", status.spend.month)}</span>}
+              <span>Answer deadline: {status.deadline_ms} ms</span>
+              {status.spend && (
+                <SupporterBalanceForm
+                  adapter={selectedAdapter}
+                  spend={status.spend}
+                  busy={token.busy}
+                  setBalance={token.setBalance}
+                />
+              )}
+            </div>
+          </details>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-4" data-testid="supporter-agent-help">

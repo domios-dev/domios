@@ -16,12 +16,19 @@ use crate::mem::decision::token_store::TokenStore;
 mod activity;
 mod feed;
 mod journal;
+mod narrative;
 mod physical;
 mod spend;
 mod storage;
 
 pub(crate) use activity::SupporterRuntime;
 pub(crate) use journal::{Action, ActionRecord, VerdictKind};
+pub(crate) use narrative::sentinel as sentinel_questions;
+pub(crate) use narrative::{
+    provider_update as update_questions, recovery as recovery_questions,
+    rerank as rerank_questions, tab_state as tab_questions,
+};
+pub(crate) use narrative::{ActivityContext, QuestionAnswer};
 
 #[derive(Default)]
 pub(crate) struct TokenSnapshot {
@@ -101,13 +108,14 @@ pub(crate) fn criteria_hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(crate) fn budgeted_model(
+pub(crate) fn budgeted_model_with_activity(
     model: Arc<dyn DecisionModel>,
     runtime: Arc<SupporterRuntime>,
     cap: usize,
     kind: VerdictKind,
     tab: Option<String>,
     criteria_version: Option<String>,
+    activity_context: Option<ActivityContext>,
 ) -> Arc<dyn DecisionModel> {
     Arc::new(BudgetedModel {
         model,
@@ -116,25 +124,8 @@ pub(crate) fn budgeted_model(
         kind,
         tab,
         criteria_version,
-        physical_limit: None,
-    })
-}
-
-pub(crate) fn observation_model(
-    model: Arc<dyn DecisionModel>,
-    runtime: Arc<SupporterRuntime>,
-    cap: usize,
-    tab: String,
-    criteria_version: String,
-) -> Arc<dyn DecisionModel> {
-    Arc::new(BudgetedModel {
-        model,
-        runtime,
-        cap,
-        tab: Some(tab),
-        criteria_version: Some(criteria_version),
-        kind: VerdictKind::TabState,
-        physical_limit: Some(1),
+        physical_limit: matches!(kind, VerdictKind::TabState).then_some(1),
+        activity_context,
     })
 }
 
@@ -146,6 +137,7 @@ struct BudgetedModel {
     tab: Option<String>,
     criteria_version: Option<String>,
     physical_limit: Option<usize>,
+    activity_context: Option<ActivityContext>,
 }
 
 impl DecisionModel for BudgetedModel {
@@ -187,10 +179,24 @@ impl DecisionModel for BudgetedModel {
         }
         self.runtime
             .admit_adapter(self.model.id())
-            .inspect_err(|error| self.runtime.failure(self.kind, self.tab.as_deref(), error))?;
+            .inspect_err(|error| {
+                self.runtime.failure_with_activity(
+                    self.kind,
+                    self.tab.as_deref(),
+                    error,
+                    self.activity_context.as_ref(),
+                )
+            })?;
         self.runtime
             .admit_request_budget(self.cap)
-            .inspect_err(|error| self.runtime.failure(self.kind, self.tab.as_deref(), error))?;
+            .inspect_err(|error| {
+                self.runtime.failure_with_activity(
+                    self.kind,
+                    self.tab.as_deref(),
+                    error,
+                    self.activity_context.as_ref(),
+                )
+            })?;
         let meter = physical::Meter::new(
             self.runtime.clone(),
             self.cap,
@@ -221,8 +227,14 @@ impl DecisionModel for BudgetedModel {
         };
         self.runtime
             .record_spend(self.model.id(), price.as_ref(), &response);
-        let response = response
-            .inspect_err(|error| self.runtime.failure(self.kind, self.tab.as_deref(), error))?;
+        let response = response.inspect_err(|error| {
+            self.runtime.failure_with_activity(
+                self.kind,
+                self.tab.as_deref(),
+                error,
+                self.activity_context.as_ref(),
+            )
+        })?;
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
@@ -244,6 +256,10 @@ impl DecisionModel for BudgetedModel {
                 criteria_version,
                 state_hash: &criteria_hash(&serde_json::to_vec(&request.state).unwrap_or_default()),
                 question_set_hash: &question_set_hash,
+                asked: self
+                    .activity_context
+                    .as_ref()
+                    .map(|context| context.answers(&response.answers)),
             },
         );
         Ok(response)
