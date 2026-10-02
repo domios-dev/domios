@@ -1,7 +1,7 @@
 /*
-!api/
-!src/
-!public/
+!api
+!src
+!public
 !index.html
 !package.json
 !package-lock.json
