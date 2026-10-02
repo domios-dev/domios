@@ -221,6 +221,7 @@ fn provider_update_fixture_entry() {
         std::process::exit(0);
     }
     let mut child = Command::new(std::env::current_exe().unwrap());
+    codeterm_util::process_util::no_window_std(&mut child);
     child
         .args([ENTRY, "--exact", "--nocapture"])
         .env_clear()

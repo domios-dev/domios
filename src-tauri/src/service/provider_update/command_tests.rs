@@ -42,8 +42,7 @@ fn provider_update_command_parent_zero_with_closed_stream_live_child_is_unconfir
         .result
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap()
-        .err()
-        .expect("parent exit zero is insufficient");
+        .expect_err("parent exit zero is insufficient");
     assert!(failure.reason.contains("CaptureDeadline") || failure.reason.contains("Boundary"));
     #[cfg(unix)]
     assert!(!failure.child_stopped);
@@ -59,8 +58,7 @@ fn provider_update_command_parent_zero_with_inherited_stream_live_child_is_uncon
         .result
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap()
-        .err()
-        .expect("remaining child was killed to manufacture success");
+        .expect_err("remaining child was killed to manufacture success");
     assert!(failure.reason.contains("CaptureDeadline") || failure.reason.contains("Boundary"));
     #[cfg(unix)]
     assert!(!failure.child_stopped);
@@ -175,9 +173,7 @@ fn provider_update_command_capture_and_setup_faults_invalidate_real_parent_succe
         invocation.controls.capture_setup_error = kind == 0;
         invocation.controls.capture_read_error = kind == 1;
         invocation.controls.capture_disconnect = kind == 2;
-        let failure = run_invocation(invocation)
-            .err()
-            .expect("capture failure returned success");
+        let failure = run_invocation(invocation).expect_err("capture failure returned success");
         assert!(failure.reason.contains(match kind {
             0 => "CaptureSetup",
             1 => "CaptureRead",

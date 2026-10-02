@@ -69,6 +69,7 @@ struct ExecutorControls {
 impl Invocation {
     fn command(&self) -> Command {
         let mut command = Command::new(&self.executable);
+        codeterm_util::process_util::no_window_std(&mut command);
         command.args(&self.args);
         if let Some(cwd) = &self.cwd {
             command.current_dir(cwd);
@@ -189,7 +190,6 @@ fn run_invocation(invocation: Invocation) -> Result<(), UpdateCommandFailure> {
     use wait_timeout::ChildExt;
     let execution_deadline = Instant::now() + invocation.execution;
     let mut command = invocation.command();
-    codeterm_util::process_util::no_window_std(&mut command);
     let mut tree = process::ProcessTree::prepare(&mut command)
         .map_err(|error| UpdateCommandFailure::before_spawn(FailureStage::Prepare, error))?;
     let mut child = command
