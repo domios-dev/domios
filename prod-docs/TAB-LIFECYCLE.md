@@ -140,4 +140,4 @@ Closed attempts cannot become ready or be reactivated; recover through the Plan 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 32 -->
+<!-- revision: 33 -->
