@@ -15,13 +15,13 @@
 .mesh-center { position: absolute; left: 44%; top: 49%; display: flex; flex-direction: column; gap: 5px; color: var(--ct-muted-fg); font-size: 11px; letter-spacing: -.15px; }
 .mesh-center > span:first-child { color: var(--ct-heading); font-size: 16px; letter-spacing: -.5px; }
 .machine-home { position: absolute; width: 25%; z-index: 1; }
-.machine-body { position: relative; z-index: 1; overflow: hidden; padding: 0 15px 13px; border: 1px solid color-mix(in srgb, var(--ct-accent) 15%, var(--ct-border)); border-radius: 14px; background: linear-gradient(145deg, color-mix(in srgb, var(--ct-surface) 70%, var(--ct-bg)), var(--ct-bg)); box-shadow: 0 3px 0 -1px var(--ct-bg), 0 4px 0 -1px var(--ct-border), 0 16px 32px -22px #0005; }
+.machine-body { position: relative; z-index: 1; overflow: hidden; padding: 0 15px 13px; border: 1px solid color-mix(in srgb, var(--ct-accent) 20%, var(--ct-border)); border-radius: 14px; background: linear-gradient(145deg, color-mix(in srgb, var(--ct-surface) 90%, var(--ct-bg)), color-mix(in srgb, var(--ct-surface) 66%, var(--ct-bg))); box-shadow: 0 3px 0 -1px var(--ct-bg), 0 4px 0 -1px var(--ct-border), 0 16px 32px -22px #0005; }
 .machine-sheen { position: absolute; inset: 0; opacity: 0; pointer-events: none; border-radius: inherit; border: 1px solid var(--ct-accent); background: radial-gradient(ellipse at 80% 5%, color-mix(in srgb, var(--ct-accent) 18%, transparent), transparent 80%); }
 .machine-laptop { left: 2%; top: 60px; }
 .machine-workstation { left: 45%; top: 36px; }
 .machine-server { right: 2%; top: 324px; }
 .machine-cloud { left: 14%; top: 348px; }
-.machine-hardware { position: absolute; pointer-events: none; color: color-mix(in srgb, var(--ct-muted-fg) 52%, var(--ct-border)); }
+.machine-hardware { position: absolute; pointer-events: none; color: color-mix(in srgb, var(--ct-muted-fg) 68%, var(--ct-border)); }
 .machine-hardware > span, .cloud-symbol { position: absolute; }
 .device-frame, .laptop-deck, .monitor-stand, .workstation-tower, .cloud-layer { border: 1px solid currentColor; background: var(--ct-surface); }
 .hardware-laptop { inset: -12px -12px -34px; }
@@ -50,7 +50,7 @@
 .cloud-layer { inset: 34px 6px 0; border-radius: 17px; }
 .cloud-symbol { top: 0; right: 14px; width: 64px; height: 36px; stroke: var(--ct-accent); stroke-width: 1.25; stroke-linecap: round; }
 .cloud-symbol path:first-child { fill: var(--ct-bg); }
-.machine-heading { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; height: 33px; margin-inline: -15px; padding-inline: 12px; border-bottom: 1px solid var(--ct-border); background: color-mix(in srgb, var(--ct-surface) 65%, transparent); font-size: 10px; letter-spacing: -.3px; }
+.machine-heading { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; height: 33px; margin-inline: -15px; padding-inline: 12px; border-bottom: 1px solid var(--ct-border); background: var(--ct-surface); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ct-heading) 12%, transparent); font-size: 10px; letter-spacing: -.3px; }
 .machine-controls { display: flex; gap: 4px; }
 .machine-controls i { width: 6px; height: 6px; border-radius: 50%; background: #eb6b62; box-shadow: inset 0 0 0 1px #00000010; }
 .machine-controls i:nth-child(2) { background: #dfb452; }
