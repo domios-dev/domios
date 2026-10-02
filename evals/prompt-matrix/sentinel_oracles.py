@@ -4,8 +4,12 @@ ORACLE: Every expected transition has one decision, claim, action and receipt.
 """
 
 import hashlib
+import json
+from pathlib import Path
 
 from oracles import PATHS, require
+from sentinel_raw import validate_raw
+from transport import Pending
 
 
 def bucket_label(bucket):
@@ -45,6 +49,7 @@ def judge_sentinel_outcome(evidence):
                             row.get("state_hash") == claim.get("state_hash") and row.get("label") == label)
             require(rows.index(decision) < rows.index(claim) < rows.index(action),
                     "Route did not follow classification and claim")
+    validate_raw(rows, evidence.get("raw_scope", {}))
     if evidence.get("regex_mode"):
         require(evidence.get("model_calls") == 0, "Regex mode called a model")
     elif evidence.get("jev") == "on":
@@ -59,6 +64,9 @@ def judge_sentinel_outcome(evidence):
 def judge_sentinel(evidence):
     judge_sentinel_outcome(evidence)
     require(evidence.get("path") in PATHS, "Sentinel deciding path has no journal evidence")
+    contract = json.loads((Path(__file__).parent / "contracts.json").read_text())["sentinel"]
+    if contract.get("attribution_status") != "bound":
+        raise Pending("Sentinel same-event paired criteria remain pending owner disposition")
     require(evidence.get("heuristic_arm"), "Sentinel heuristic arm has no recorded verdict")
     if evidence.get("jev") == "on":
         require(evidence.get("jev_arm"), "Sentinel Jev arm has no verdict or explicit fallback")
@@ -76,6 +84,10 @@ def judge_sentinel_feed(evidence):
         require(all(key in row for key in ("time", "team_id", "kind", "label", "confidence_band",
                                            "action", "reason", "budget_reached", "fallback")),
                 "Activity feed lacks a bound projection field")
+        if row.get("kind") == "sentinel":
+            require(not any(key in row for key in ("evaluation_id", "observation_id", "workspace_id",
+                                                    "classification_source", "recipient_receipt")),
+                    "Activity feed cannot substitute raw Sentinel UUID/provenance")
         require(not any(key in row for key in ("tab", "sentinel_id", "state_hash", "probe_output")),
                 "Activity feed leaked raw Sentinel identity or probe data")
     return "PASS"

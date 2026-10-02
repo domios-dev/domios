@@ -82,6 +82,7 @@ class SentinelScenario:
         self.fixture, self.options, self.data_dir = fixture, options, data_dir
         self.tab = None
         self.watches = []
+        self.scopes = {}
         self.restore = {}
         self.signals = None
         self.start_row = len(load_journal(data_dir))
@@ -138,6 +139,13 @@ class SentinelScenario:
         self.watches.append(watch)
         require(any(item.get("id") == watch for item in objects(self.command("list"))),
                 "Created Sentinel missing from caller-scoped list")
+        job = self.command("show", watch)
+        require(all(key in job for key in ("id", "creator_tab_id", "team_id", "workspace_id")),
+                "Sentinel show lacks captured raw scope")
+        require(job["id"] == watch and job["creator_tab_id"] == self.tab and
+                job["workspace_id"] == self.workspace, "Sentinel show has foreign scope")
+        self.scopes[watch] = {"sentinel_id": job["id"], "tab": job["creator_tab_id"],
+                              "team_id": job["team_id"], "workspace_id": job["workspace_id"]}
         return watch
 
     def rows(self, watch):
@@ -288,7 +296,7 @@ class SentinelScenario:
                  row.get("kind") == "model_call" and row.get("verdict_kind") == "sentinel"]
         evidence = {"case": "sentinel", "variant": self.options.variant, "jev": self.options.jev,
                     "instance_proven": True, "sentinel_id": watch, "creator": self.tab,
-                    "journal": self.rows(watch), "expected_buckets": expected,
+                    "journal": self.rows(watch), "raw_scope": self.scopes[watch], "expected_buckets": expected,
                     "route_action": "notify" if self.options.variant == "git" else "send",
                     "receipts": self.receipts(watch, expected or ["running", "success", "failure"], baseline),
                     "probe_barrier": True,

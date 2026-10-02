@@ -2,18 +2,130 @@
   "decision": {
     "status": "pending",
     "owner": "Auditor",
-    "required_fields": ["decided_by", "observation_id"],
-    "decided_by": ["adapter", "heuristic", "fallback(timeout)", "fallback(other)", "fallback(low_confidence)", "fallback(error)", "fallback(budget)"],
+    "required_fields": [
+      "tab",
+      "launch",
+      "session",
+      "occurrence",
+      "point",
+      "observation_id",
+      "completed",
+      "decided_by",
+      "heuristic_verdict",
+      "adapter_result",
+      "selected_verdict"
+    ],
+    "decided_by": [
+      "adapter",
+      "heuristic",
+      "fallback(no_adapter)",
+      "fallback(timeout)",
+      "fallback(other)",
+      "fallback(low_confidence)",
+      "fallback(error)",
+      "fallback(budget)"
+    ],
     "covered_points": [],
     "point_field": null,
     "case_points": {},
-    "reason": "Bind the final per-decision journal shape and point list after Auditor merges; never infer a path from connected status."
+    "reason": "Retained strict criteria remain pending owner disposition. Disconnected observer/candidate branches do no new work and emit no observation IDs; do not request new reads/journals on that baseline. Connected output does not contain the full paired verdict/occurrence/point/completion schema. Null mappings describe unmet criteria, not approved producer additions.",
+    "fields": {
+      "tab": "tab",
+      "launch": null,
+      "session": null,
+      "occurrence": null,
+      "point": null,
+      "observation_id": "observation_id",
+      "completed": null,
+      "decided_by": "decided_by",
+      "heuristic_verdict": null,
+      "adapter_result": null,
+      "selected_verdict": null
+    },
+    "covered_points_status": "pending",
+    "producer": "src-tauri/src/service/supporter_tab_state/identity.rs::journal; observer.rs::record; candidates.rs::Pending::record",
+    "tab_identity_fields": {
+      "tab": "id",
+      "launch": "session_binding_nonce",
+      "session": "agent_session_id",
+      "occurrence": null
+    },
+    "required_disagreements": [
+      {
+        "id": "scrape_candidate",
+        "provider": "claude",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "codex",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "opencode",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      },
+      {
+        "id": "scrape_candidate",
+        "provider": "cursor",
+        "case": "permission",
+        "status": "pending",
+        "source": "src-tauri/src/service/supporter_tab_state/candidates.rs::spawn (prepare_observation scrape_candidate)",
+        "reason": "Internal selection point exists; emitted point field, paired arms and genuine real-prompt disagreement provoker remain unbound."
+      }
+    ],
+    "owner_disposition": {
+      "status": "pending",
+      "notification": "1a74efb3-6446-46a0-b654-23e9091521d9",
+      "requested": "Actual deterministic outcome/receipt with unavailable IDs on disconnected cells; same-event comparison only where actual same-question opinions exist; separate Sentinel cross-run comparison. No adjustment approved."
+    }
   },
   "coordinator": {
     "status": "pending",
     "owner": "Courier",
-    "variants": ["default", "busy", "fail"],
-    "reason": "Bind consent, one-run journal, per-tab version evidence, busy transition and no-restart failure after Courier merges."
+    "variants": [
+      "default",
+      "busy",
+      "fail"
+    ],
+    "reason": "Independent outcome validators are authored; real provokers remain pending isolated updater scope, exact session version receipts, safe occurrence receipts and busy event barriers. Persisted claims never prove resumption.",
+    "outcome_status": "source_traced",
+    "configuration": "updater.allow_provider_updates_in_non_prod",
+    "consent": "automatic provider-declared capability; no consent click in current source",
+    "journal_fields": [
+      "kind",
+      "tab",
+      "provider",
+      "target_version",
+      "label",
+      "confidence",
+      "action",
+      "reason",
+      "asked",
+      "time"
+    ],
+    "labels": [
+      "update_started",
+      "update_succeeded",
+      "update_failed",
+      "safe_choice_answered",
+      "restart_requested",
+      "resumed",
+      "fresh_launch",
+      "restart_failed"
+    ],
+    "state_path": "daemon-home/.codeterm/provider-update-state.json",
+    "state_key": "provider:target"
   },
   "sentinel": {
     "status": "pending",
@@ -22,21 +134,119 @@
     "outcome_status": "bound",
     "source_commit": "49be4862d3bc76ff256cf4e056bc9661cebb39a5",
     "visibility_commit": "b1c93918ea3d12191b138840451cabd7c51e0b13",
-    "commands": ["create", "list", "show", "stop"],
-    "routes": ["notify", "send:<tab>", "cron:<name>", "stop"],
-    "journal_fields": ["sentinel_id", "tab", "state_hash", "label", "confidence", "action", "reason", "route"],
-    "actions": ["decision", "route_claim", "notify", "send", "cron", "stop", "skip"],
-    "variants": ["git", "fake-ci", "regex-no-jev", "budget-exhausted"],
-    "not_applicable": [{"variant": "budget-exhausted", "jev": "off", "authority": "Brahms b8a1e869, 2026-10-02", "reason": "Owner accepted N/A: regex mode never spends model budget; the Jev-on explicit cap plus regex companion covers exhaustion."}],
-    "reason": "Final CLI/outcome provokers are bound; Auditor decision-path and both-arm fields remain pending."
+    "commands": [
+      "create",
+      "list",
+      "show",
+      "stop"
+    ],
+    "routes": [
+      "notify",
+      "send:<tab>",
+      "cron:<name>",
+      "stop"
+    ],
+    "journal_fields": [
+      "time",
+      "kind",
+      "sentinel_id",
+      "tab",
+      "team_id",
+      "workspace_id",
+      "state_hash",
+      "evaluation_id",
+      "observation_id",
+      "classification_source",
+      "classification_reason",
+      "label",
+      "confidence",
+      "stage",
+      "route_status",
+      "action",
+      "reason",
+      "route",
+      "route_target",
+      "recipient_receipt",
+      "asked",
+      "budget"
+    ],
+    "actions": [
+      "decision",
+      "route_claim",
+      "notify",
+      "send",
+      "cron",
+      "stop",
+      "skip"
+    ],
+    "variants": [
+      "git",
+      "fake-ci",
+      "regex-no-jev",
+      "budget-exhausted"
+    ],
+    "not_applicable": [
+      {
+        "variant": "budget-exhausted",
+        "jev": "off",
+        "authority": "Brahms b8a1e869, 2026-10-02",
+        "reason": "Owner accepted N/A: regex mode never spends model budget; the Jev-on explicit cap plus regex companion covers exhaustion."
+      }
+    ],
+    "reason": "Reviewed raw UUID attempt/stage contract is source-bound only; merge, executable qualification, both-arm criteria and recipient receipts remain pending. No same-event paired-oracle adjustment approved.",
+    "raw_source_commit": "ecb3973cdc7cb291058cc555bddbe4b336d0ea9a",
+    "raw_source_status": "ancestry_merged_canonical_0c93eebb",
+    "raw_schema_status": "source_bound",
+    "executable_status": "pending",
+    "attribution_status": "pending_owner_disposition",
+    "classification_source": [
+      "adapter",
+      "regex",
+      "disconnected",
+      "not_attempted"
+    ],
+    "stage_status": {
+      "decision": "not_attempted",
+      "route_claim": "claimed",
+      "route_completed": "api_completed",
+      "route_failed": "failed",
+      "skip": "not_attempted"
+    },
+    "observation_semantics": "UUID equals evaluation_id only for selected adapter/regex attempt, including refusal/error; not a completed response or physical model-call count. Different from numeric tab_state observation_id.",
+    "receipt_semantics": "recipient_receipt is always null; route_target is configured intended target, api_completed is API return only. Independent own-session receipt mandatory.",
+    "hash_semantics": "state_hash identifies probe bytes and exit; request JSON hash is a different domain and cannot correlate by equality.",
+    "canonical_merge": "0c93eebb94802918193d9339d541f7c6e6f6faaf",
+    "mechanism_receipt": "Fermi reports sentinel_ 28/28; read independent check-tests rc0 summary /tmp/codeterm-qa/sentinel-check-tests-20261002-172516-71202/summary.txt. No live qualification."
   },
   "visibility": {
     "status": "bound",
     "uncapped_budget": null,
     "status_budget_field": "budget.calls_per_hour",
-    "feed_fields": ["time", "team_id", "kind", "label", "confidence_band", "action", "reason", "budget_reached", "fallback"],
+    "feed_fields": [
+      "time",
+      "team_id",
+      "kind",
+      "label",
+      "confidence_band",
+      "action",
+      "reason",
+      "budget_reached",
+      "fallback"
+    ],
     "feed_variant": "activity-feed",
-    "sentinel_feed_status": "expected_red",
-    "reason": "Owner confirmed Sentinel feed exclusion is a defect; activity-feed cell and focused Rust regression must fail until the scheduled repair lands. No execution is claimed."
+    "sentinel_feed_status": "source_repaired_not_run",
+    "reason": "feed.rs::entry accepts Sentinel rows at ddc23c2ff; original 6029471427 source-expected-red checkpoint is retained in README. Focused regression and live cell remain NOT RUN.",
+    "repair_commit": "a97badc2d"
+  },
+  "isolation": {
+    "status": "pending",
+    "required": "Every case has isolated provider HOME, CODEX_HOME, CLAUDE_CONFIG_DIR and XDG roots",
+    "observed": "provider_exec.py::main restores owner auth roots for non-login cases under prior Brahms instruction",
+    "owner": "Fermi",
+    "reason": "Acceptance and prior instruction conflict. No credential copy/global auth rewrite. Launch preflight remains pending owner disposition."
+  },
+  "update_fixture": {
+    "status": "pending",
+    "reason": "Pin metadata is verified, but Claude/OpenCode ignore-scripts leaves native bin placeholders; Codex startup update check is disabled in provider launch args. Isolated capability updater scope and real prompt provocation remain unproven."
   }
 }

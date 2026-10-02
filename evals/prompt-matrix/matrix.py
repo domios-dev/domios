@@ -21,6 +21,7 @@ from scenarios import CASES, Scenario, identifier, install_older, pending_specia
 from sentinel_oracles import judge_sentinel
 from sentinel_scenarios import SentinelScenario
 from transport import Dev, Events, Finding, InstanceLock, Pending, Transcript, read_secret, run_group
+from attribution import binding_ready
 
 
 def arguments():
@@ -116,9 +117,7 @@ def evidence_for(dev, scenario, before_ids, journal_start, data_dir, baseline_la
     answered_notices = [item for item in notices if item.get("answered")]
     require(not (case == "permission" and (answers or answered_notices)),
             "Permission answer recorded while default policy forbids it")
-    expected = "answer" if trust and case in ("trust-hidden", "trust-visible") else "notify"
-    if case == "update" and any(row.get("reason") == "provider_declared_safe_choice" for row in rows):
-        expected = "answer"
+    expected = "answer" if case in ("trust-hidden", "trust-cron", "trust-visible", "update") else "notify"
     launches = scenario.launches()
     own_launches = [row for row in launches if row["tab_id"] == scenario.tab]
     route_proven = bool(notices) and all(
@@ -201,7 +200,10 @@ def live(options, root):
     fixture = None
     try:
         data_dir = identity(dev, options, root)
+        contracts = json.loads((HERE / "contracts.json").read_text())
         if options.create_owner:
+            if contracts["isolation"]["status"] != "bound":
+                raise Pending(contracts["isolation"]["reason"])
             create_owner(dev, root, options.provider)
             result.update(status="SMOKE", reason="Matrix owner reached AgentReady with its own bound session")
             return 0
@@ -234,7 +236,6 @@ def live(options, root):
             result.update(status="SMOKE", reason="Real named-instance CLI read/help calls completed")
             return 0
         require(options.case, "--case is required for a live cell")
-        contracts = json.loads((HERE / "contracts.json").read_text())
         if options.case == "sentinel":
             accepted = next((cell for cell in contracts["sentinel"]["not_applicable"]
                              if cell["variant"] == options.variant and cell["jev"] == options.jev), None)
@@ -247,6 +248,8 @@ def live(options, root):
                 "Connected Jev precondition differs from requested arm")
         if options.jev == "on":
             require(status.get("adapter") == "typesafe-jev", "Requested arm is not connected Jev")
+        if contracts["isolation"]["status"] != "bound":
+            raise Pending(contracts["isolation"]["reason"])
         pending_special(options)
         if options.case == "sentinel" and options.variant == "activity-feed":
             require(options.jev == "on", "Feed regression has one connected-Jev cell")
@@ -258,7 +261,7 @@ def live(options, root):
                               reason="Persisted Sentinel verdict appeared in the owner activity API")
             return 0
         decision_contract = contracts["decision"]
-        if decision_contract["status"] != "bound":
+        if not binding_ready(decision_contract):
             raise Pending(decision_contract["reason"])
         point_field = decision_contract.get("point_field")
         point = decision_contract.get("case_points", {}).get(options.case)
