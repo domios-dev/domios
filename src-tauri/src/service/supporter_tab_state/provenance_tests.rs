@@ -133,3 +133,43 @@ fn supporter_first_opinion_passive_disconnected_producers_add_no_receipt_or_jour
         0
     );
 }
+
+#[test]
+fn supporter_first_opinion_passive_candidate_fallback_keeps_only_the_model_answer_that_ran() {
+    let (host, calls, _) = StubHost::new(
+        "fixture-frame",
+        StubModel::answering(Ok(choice(TRUST_OR_PERMISSION_PROMPT, 0.99))),
+    );
+    candidates::spawn(&host, &enabled(), &tab(), None, |verdict, source, _| {
+        assert!(verdict.is_none());
+        assert_eq!(source, identity::DecisionSource::Other);
+    })
+    .unwrap()
+    .join()
+    .unwrap();
+    let journal = std::fs::read_to_string(host._journal_dir.path().join("journal.jsonl")).unwrap();
+    let event = journal
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|event| event["action"] == "classification")
+        .unwrap();
+    assert_eq!(event["decided_by"], "fallback(other)");
+    assert_eq!(event["label"], OTHER);
+    assert_eq!(
+        event["model_verdict"],
+        json!({"status":"observed", "label":TRUST_OR_PERMISSION_PROMPT,"confidence":0.99})
+    );
+    assert_eq!(event["alternate_verdict"], json!({"status":"unavailable"}));
+    assert_eq!(event["decision_point"], "prompt_candidate");
+    assert_eq!(event["observation_status"], "completed");
+    let feed = host.runtime.feed(100, None).unwrap();
+    let projected = feed
+        .iter()
+        .find(|entry| entry["observation_id"] == event["observation_id"])
+        .unwrap();
+    assert_eq!(projected["correlation"], event["correlation"]);
+    assert_eq!(projected["model_verdict"], event["model_verdict"]);
+    assert_eq!(host.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+}
