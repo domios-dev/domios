@@ -50,10 +50,15 @@ def remaining(end, clock):
     return value
 
 
-def request_deadlines(start, run_end, timeout):
+def request_deadlines(start, run_end, timeout, *, request_end=None):
     require(type(timeout) in (int, float) and math.isfinite(timeout) and CLEANUP_SECONDS < timeout <= REQUEST_SECONDS,
             "request_budget")
-    hard_end = min(start + timeout, run_end)
+    try:
+        valid_end = request_end is None or type(request_end) in (int, float) and math.isfinite(request_end)
+    except OverflowError:
+        valid_end = False
+    require(valid_end, "request_end_bound")
+    hard_end = min(start + timeout, run_end) if request_end is None else min(start + timeout, run_end, request_end)
     require(hard_end - start > CLEANUP_SECONDS, "run_deadline")
     return hard_end - CLEANUP_SECONDS, hard_end
 
@@ -415,12 +420,25 @@ class JevTransport:
         if lease is not None:
             lease.cancel()
 
-    def send(self, wire, *, token, timeout=REQUEST_SECONDS, endpoint=contract.ENDPOINT):
+    def send(self, wire, *, token, timeout=REQUEST_SECONDS, endpoint=contract.ENDPOINT, request_end=None):
         started = self.clock()
         with self.lock:
             require(not self.poisoned and self.active is None, "lease_unavailable")
             require(self.calls < MAX_CALLS, "request_count")
-            operation_end, hard_end = request_deadlines(started, self.run_end, timeout)
+            try:
+                operation_end, hard_end = request_deadlines(started, self.run_end, timeout, request_end=request_end)
+            except TransportFailure as error:
+                receipt = {"error": error.code, "phase": "admission", "process_admitted": False,
+                           "completion_confirmed": False, "request_started": started,
+                           "run_started": self.run_started, "run_end": self.run_end,
+                           "request_end_supplied": request_end is not None, "calls_used": self.calls}
+                try:
+                    if type(request_end) in (int, float) and math.isfinite(request_end):
+                        receipt["request_end"] = request_end
+                except OverflowError:
+                    pass
+                self.last_receipt = receipt
+                raise TransportFailure(error.code, receipt) from error
             require(endpoint == contract.ENDPOINT, "endpoint_policy")
             contract.validate_wire(wire)
             credential = token_bytes(token)
