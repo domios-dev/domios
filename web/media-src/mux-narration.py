@@ -5,12 +5,16 @@ import json
 import math
 import shutil
 import subprocess
+from array import array
 from pathlib import Path
 
 from media_contract import prepare_output, probe, read_timing, require, run, write_captions, write_json, write_manifest
 from narration_proof import sha256, verify_words, verify_character_alignment
 from soundtrack_proof import audio_record, measure_balance, enforce_balance
 from music_review import PRIVATE_MARKERS, validate_music, credit_payload, protect_private_path, prepared_music
+from opening_audio import RATE, assemble_music, choose_gain, decode_excerpt, decode_samples
+from opening_audio import (dbfs, rms, shape_excerpt, sum_samples, verify_preservation, write_float_wav,
+                           write_pcm16_wav)
 
 
 def measure_loudness(source):
@@ -53,8 +57,197 @@ def master_stems(soundtrack, voice_stem, music_stem, final, proof_dir):
     return stems, mastering
 
 
+def verified_samples(record, count, label):
+    path = Path(record['path'])
+    require(sha256(path).lower() == record['sha256'].lower(), f'Prior audio proof changed: {label}')
+    return decode_samples(path, count)
+
+
+def mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music,
+                music_metadata, opening_source, baseline_audio_proof, opening_source_start, opening_end,
+                private_review=False):
+    timing = read_timing(timing_path)
+    verify_words(timing)
+    verify_character_alignment(timing, alignment)
+    require(sha256(audio) == timing['narration']['audioSha256'], 'Input is not the intact approved voice recording')
+    prior_path = Path(baseline_audio_proof)
+    prior_hash = sha256(prior_path)
+    prior = json.loads(prior_path.read_text(encoding='utf-8-sig'))
+    require(prior.get('timingSha256') == sha256(timing_path), 'Prior audio proof uses different timing')
+    require(prior.get('sourceAudio', {}).get('sha256') == sha256(audio), 'Prior proof does not use the supplied full voice take')
+    require(prior.get('sourceAlignment', {}).get('sha256') == sha256(alignment), 'Prior proof does not use the supplied alignment')
+    require(prior.get('narration') == timing['narration'], 'Prior proof has different word mapping')
+    credit = json.loads(music_metadata.read_text(encoding='utf-8-sig'))
+    credit = validate_music(credit, private_review)
+    require(sha256(music).lower() == credit['sha256'].lower(), 'Arranged music hash differs from provenance')
+    require(prior.get('music') == credit, 'Prior proof music provenance differs from supplied metadata')
+    require(prior.get('sourceMusic', {}).get('sha256', '').lower() == credit['sha256'].lower(),
+            'Prior proof does not reference the approved arranged music')
+    require(sha256(Path(prior['sourceMusic']['path'])).lower() == prior['sourceMusic']['sha256'].lower(),
+            'Prior arranged music source changed')
+    extracted_hash = credit.get('extractedAudioSha256')
+    require(isinstance(extracted_hash, str) and len(extracted_hash) == 64
+            and sha256(opening_source).lower() == extracted_hash.lower(),
+            'Opening source hash differs from credit.extractedAudioSha256')
+    require(0 <= opening_source_start and .762 < opening_end <= 4,
+            'Opening source selection must remain within the first four output seconds')
+
+    manifest = json.loads((video_dir / 'manifest.json').read_text(encoding='utf-8-sig'))
+    require(manifest['duration'] == timing['duration'] and manifest['chapters'] == timing['chapters'],
+            'Picture differs from timing')
+    require(manifest['timingSha256'] == sha256(timing_path), 'Picture uses different timing authority')
+    if captions_path:
+        captions = json.loads(captions_path.read_text(encoding='utf-8-sig'))
+    else:
+        captions = [{key: cue[key] for key in ('id', 'start', 'end', 'text')} for cue in timing['cues']]
+
+    count = round(timing['duration'] * RATE)
+    stems = prior.get('mixStems')
+    require(isinstance(stems, dict) and set(stems) == {'voicePostDuck', 'musicPostDuck', 'voiceMastered',
+                                                       'musicMastered', 'unmasteredMix'},
+            'Prior proof lacks actual mastered and post-duck stems')
+    for key in ('sourceAudio', 'sourceAlignment', 'alignedVoice'):
+        record = prior[key]
+        require(sha256(Path(record['path'])).lower() == record['sha256'].lower(),
+                f'Prior audio proof changed: {key}')
+    old_balance = measure_balance(timing, stems, prior['finalAudio'], prior['mastering'])
+    require(old_balance == prior.get('phraseBalance'), 'Prior proof balance differs from its actual stem samples')
+    enforce_balance(old_balance)
+    prior_voice = verified_samples(stems['voiceMastered'], count, 'voiceMastered')
+    prior_music = verified_samples(stems['musicMastered'], count, 'musicMastered')
+    prior_voice_post_duck = verified_samples(stems['voicePostDuck'], count, 'voicePostDuck')
+    excerpt_samples = round(opening_end * RATE)
+    ramp_samples = round(.012 * RATE)
+    crossfade_samples = round(.75 * RATE)
+    crossfade_start = excerpt_samples - crossfade_samples
+    excerpt = decode_excerpt(opening_source, opening_source_start, opening_end, excerpt_samples)
+    excerpt_term = shape_excerpt(excerpt, crossfade_start, ramp_samples)
+    gain, gain_report = choose_gain(prior_music, excerpt_term, prior_voice, timing, opening_end, count)
+    new_music, _ = assemble_music(prior_music, excerpt, gain, excerpt_samples, crossfade_start, ramp_samples)
+    require(dbfs(rms(new_music, 0, round(.1 * RATE))) > -50, 'First 100ms music RMS must exceed -50dBFS')
+    require(dbfs(rms(new_music, 0, round(.65 * RATE))) > -40, 'First 650ms music RMS must exceed -40dBFS')
+    mastering = prior['mastering']
+    linear_gain = mastering['linearGain']
+    require(math.isfinite(linear_gain) and linear_gain > 0, 'Prior shared mastering gain is invalid')
+    new_music_post_duck = array('f', (value / linear_gain for value in new_music))
+    unmastered = sum_samples(prior_voice_post_duck, new_music_post_duck)
+    final_sum = sum_samples(prior_voice, new_music)
+    prior_records = [Path(record['path']) for record in stems.values()]
+    prior_records += [Path(prior['finalAudio']['path']), Path(prior['alignedVoice']['path'])]
+    inputs = [video_dir, audio, timing_path, alignment, captions_path, music, music_metadata,
+              opening_source, prior_path, *prior_records]
+    protect_private_path(output_dir, inputs + [proof_dir])
+    protect_private_path(proof_dir, inputs + [output_dir])
+    for directory in (output_dir, proof_dir):
+        require(not directory.exists() or not any(directory.iterdir()), 'Output/proof directory must be empty')
+    prepare_output(output_dir, [path for path in inputs if path is not None])
+    prepare_output(proof_dir, [output_dir] + [path for path in inputs if path is not None])
+
+    voice_post_duck = proof_dir / 'voice-post-duck.wav'
+    music_post_duck = proof_dir / 'music-post-duck.wav'
+    voice_mastered = proof_dir / 'voice-final-stem.wav'
+    music_mastered = proof_dir / 'music-final-stem.wav'
+    unmastered_path = proof_dir / 'soundtrack-unmastered.wav'
+    final = proof_dir / 'soundtrack.wav'
+    shutil.copyfile(stems['voicePostDuck']['path'], voice_post_duck)
+    write_float_wav(music_post_duck, new_music_post_duck)
+    shutil.copyfile(stems['voiceMastered']['path'], voice_mastered)
+    write_float_wav(music_mastered, new_music)
+    copied_voice = decode_samples(voice_mastered, count)
+    copied_music = decode_samples(music_mastered, count)
+    verify_preservation(prior_voice, copied_voice, prior_music, copied_music, excerpt_samples)
+    write_float_wav(unmastered_path, unmastered)
+    write_pcm16_wav(final, final_sum)
+    new_stems = dict(voicePostDuck=audio_record(voice_post_duck), musicPostDuck=audio_record(music_post_duck),
+                     voiceMastered=audio_record(voice_mastered), musicMastered=audio_record(music_mastered),
+                     unmasteredMix=audio_record(unmastered_path))
+    final_record = audio_record(final)
+    balance = measure_balance(timing, new_stems, final_record, mastering)
+    enforce_balance(balance)
+    audio_edit = dict(method='bounded opening excerpt overlay with cosine entry ramp and cosine join to the approved arrangement',
+                      baselineAudioProof=dict(path=str(prior_path.resolve()), sha256=prior_hash),
+                      baselineFinalAudio=prior['finalAudio'], baselineMasteredMusic=stems['musicMastered'],
+                      baselineMasteredVoice=stems['voiceMastered'],
+                      openingSource=dict(path=str(Path(opening_source).resolve()), sha256=sha256(opening_source),
+                                         validatedAgainst='credit.extractedAudioSha256'),
+                      arrangedMusic=dict(path=str(Path(music).resolve()), sha256=sha256(music),
+                                         validatedAgainst='credit.sha256'),
+                      sourceExcerpt=dict(startSeconds=opening_source_start, endSeconds=opening_source_start + opening_end,
+                                         startSample=round(opening_source_start * RATE), sampleCount=excerpt_samples),
+                      outputRange=dict(startSample=0, endSample=excerpt_samples,
+                                       startSeconds=0, endSeconds=opening_end),
+                      crossfade=dict(startSample=crossfade_start, endSample=excerpt_samples,
+                                     startSeconds=crossfade_start / RATE, endSeconds=opening_end,
+                                     durationSeconds=crossfade_samples / RATE),
+                      antiClickRamp=dict(startSample=0, endSample=ramp_samples,
+                                         durationSeconds=ramp_samples / RATE),
+                      gain=gain_report, changedSampleRange=[0, excerpt_samples],
+                      unchangedMusicSampleRange=[excerpt_samples, count],
+                      voicePcmPreserved=True, postOpeningMusicPcmPreserved=True,
+                      globalNormalization=False, reusedPriorMastering=True)
+    exported_credit = credit_payload(credit, private_review) if credit else None
+    markers = PRIVATE_MARKERS if private_review else {}
+    write_json(proof_dir / 'soundtrack-balance.json', dict(
+        mixGraph='baseline mastered voice + bounded source excerpt over baseline mastered music; no shared gain change',
+        stems=new_stems, mastering=mastering, phraseBalance=balance, openingEdit=audio_edit, **markers))
+
+    for kind, codec, bitrate in [('mp4', 'aac', '64k'), ('webm', 'libopus', '48k')]:
+        video = video_dir / f'trailer.{kind}'
+        require(abs(float(probe(video)['format']['duration']) - timing['duration']) <= .06,
+                'Reviewed picture duration mismatch')
+        command = ['ffmpeg', '-v', 'error', '-y', '-i', video, '-i', final, '-map', '0:v:0', '-map', '1:a:0',
+                   '-c:v', 'copy', '-c:a', codec, '-b:a', bitrate, '-ar', str(RATE), '-ac', '1',
+                   '-map_metadata', '-1', '-metadata', 'title=Domios — a home for your agents']
+        if exported_credit:
+            command += ['-metadata', f'comment={exported_credit["credit"]}',
+                        '-metadata', f'copyright={exported_credit["credit"]}']
+        if kind == 'mp4':
+            command += ['-movflags', '+faststart']
+        run(command + [output_dir / video.name])
+    for path in video_dir.glob('*-poster.webp'):
+        shutil.copyfile(path, output_dir / path.name)
+    write_captions(output_dir, captions, timing)
+    manifest.update(hasNarration=True, subtitles=dict(src='/media/captions.vtt',
+                                                      bytes=(output_dir / 'captions.vtt').stat().st_size))
+    manifest.update(markers)
+    for kind in ('mp4', 'webm'):
+        manifest[kind]['bytes'] = (output_dir / f'trailer.{kind}').stat().st_size
+    if exported_credit:
+        manifest['music'] = exported_credit
+        manifest['musicEditLineage'] = dict(
+            openingSourceSha256=audio_edit['openingSource']['sha256'],
+            arrangedMusicSha256=audio_edit['arrangedMusic']['sha256'],
+            sourceExcerpt=audio_edit['sourceExcerpt'], outputRange=audio_edit['outputRange'],
+            crossfade=audio_edit['crossfade'], antiClickRamp=audio_edit['antiClickRamp'],
+            gain=audio_edit['gain'], changedSampleRange=audio_edit['changedSampleRange'])
+        write_json(output_dir / 'credits.json', manifest['music'])
+        (output_dir / 'credits.txt').write_text(exported_credit['credit'] + '\n', encoding='utf-8', newline='\n')
+    proof = dict(timingSha256=sha256(timing_path), sourceAudio=prior['sourceAudio'],
+                 sourceAlignment=prior['sourceAlignment'], alignedVoice=prior['alignedVoice'],
+                 finalAudio=final_record, sourceMusic=prior['sourceMusic'], narration=timing['narration'],
+                 music=credit, loudnessFirstPass=prior['loudnessFirstPass'],
+                 mixGraph='baseline mastered voice + bounded source excerpt over baseline mastered music',
+                 mixStems=new_stems, mastering=mastering, phraseBalance=balance,
+                 musicInput=prior.get('musicInput'), openingEditLineage=audio_edit,
+                 pictureReference=dict(directory=str(video_dir.resolve()), videos={
+                     kind: dict(path=str((video_dir / f'trailer.{kind}').resolve()),
+                                sha256=sha256(video_dir / f'trailer.{kind}')) for kind in ('mp4', 'webm')}),
+                 baselineAudioProof=dict(path=str(prior_path.resolve()), sha256=prior_hash),
+                 listening='Pending root full A/V audition and cue-boundary review', **markers)
+    write_json(proof_dir / 'narration-alignment.json', proof)
+    write_manifest(output_dir, manifest)
+    return audio_edit
+
+
 def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music=None, music_metadata=None,
-        music_prepared=False, private_review=False):
+        music_prepared=False, private_review=False, opening_source=None, baseline_audio_proof=None,
+        opening_source_start=2.6, opening_end=4):
+    if opening_source is not None or baseline_audio_proof is not None:
+        require(opening_source is not None and baseline_audio_proof is not None and music is not None and music_metadata is not None,
+                'Opening mode requires --music, --music-metadata, --opening-source, and --baseline-audio-proof')
+        return mux_opening(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music,
+                           music_metadata, opening_source, baseline_audio_proof, opening_source_start, opening_end,
+                           private_review)
     timing = read_timing(timing_path)
     verify_words(timing)
     verify_character_alignment(timing, alignment)
@@ -161,6 +354,11 @@ if __name__ == '__main__':
         parser.add_argument(f'--{name}', type=Path)
     parser.add_argument('--music-prepared', action='store_true')
     parser.add_argument('--private-review', action='store_true')
+    parser.add_argument('--opening-source', type=Path)
+    parser.add_argument('--baseline-audio-proof', type=Path)
+    parser.add_argument('--opening-source-start', type=float, default=2.6)
+    parser.add_argument('--opening-end', type=float, default=4)
     args = parser.parse_args()
     mux(args.video_dir, args.audio, args.timing, args.alignment, args.captions, args.output_dir,
-        args.proof_dir, args.music, args.music_metadata, args.music_prepared, args.private_review)
+        args.proof_dir, args.music, args.music_metadata, args.music_prepared, args.private_review,
+        args.opening_source, args.baseline_audio_proof, args.opening_source_start, args.opening_end)

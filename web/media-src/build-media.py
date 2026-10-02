@@ -12,7 +12,8 @@ from media_contract import SOURCES, bounded_process, prepare_output, read_timing
 from media_contract import probe, require, run, write_captions, write_json, write_manifest
 from timeline_audit import timeline_audit
 from narration_proof import sha256
-from trailer_scenes import FPS, SIZE, render, source_frames, timed_shots
+from trailer_scenes import (ENDING_END_FRAME, ENDING_START_FRAME, FPS, OPENING_FRAMES, SIZE,
+                            load_brand_frames, render_timeline_frame, source_frames, timed_shots)
 
 
 def still(video, time, target, width):
@@ -36,18 +37,22 @@ def validate_sources(paths, shots):
                 f'Source range beyond duration: {key}')
 
 
-def build(source_dir, output_dir, font, preview_dir, review_range=None, timing_path=None):
+def build(source_dir, output_dir, font, preview_dir, brand_directory, review_range=None, timing_path=None):
     timing = read_timing(timing_path)
     shots = timed_shots(timing)
+    brand_frames = load_brand_frames(brand_directory)
     if review_range:
         require(review_range[1] <= timing['duration'], 'Review range beyond chosen duration')
-    prepare_output(output_dir, [source_dir])
+    prepare_output(output_dir, [source_dir, brand_directory])
     if preview_dir:
-        prepare_output(preview_dir, [source_dir, output_dir])
+        prepare_output(preview_dir, [source_dir, output_dir, brand_directory])
     source_paths = {key: source_dir / name for key, name in SOURCES.items()}
     validate_sources(source_paths, shots)
     audit = timeline_audit('222f60c46', review_range, timing)
     audit['timingSha256'] = sha256(timing_path) if timing_path else None
+    audit['framing'] = dict(brandSourceSha256=brand_frames['sourceSha256'],
+                            brandManifestSha256=sha256(brand_directory / 'brand-frames.json'),
+                            changedFrameRanges=[[0, OPENING_FRAMES], [ENDING_START_FRAME, ENDING_END_FRAME]])
     start, end = review_range or (0, timing['duration'])
     with tempfile.TemporaryDirectory(prefix='domios-trailer-') as temporary:
         master = Path(temporary) / 'master.mp4'
@@ -63,7 +68,7 @@ def build(source_dir, output_dir, font, preview_dir, review_range=None, timing_p
                     print(f'Render {edit["at"]:04.1f}s: {edit["name"]}', flush=True)
                     for index, frame in enumerate(source_frames(source_paths, edit)):
                         if start <= edit['at'] + index / FPS < end:
-                            encoder.stdin.write(render(edit, index / FPS, frame, font).tobytes())
+                            encoder.stdin.write(render_timeline_frame(edit, index / FPS, frame, font, brand_frames).tobytes())
                 encoder.stdin.close()
                 require(encoder.wait(timeout=1800) == 0, 'Trailer render failed')
             finally:
@@ -84,7 +89,8 @@ def build(source_dir, output_dir, font, preview_dir, review_range=None, timing_p
         still(mp4, chapter['posterTime'], output_dir / f'{chapter["id"]}-poster.webp', 480)
     captions = [{key: cue[key] for key in ('id', 'start', 'end', 'text')} for cue in timing['cues']]
     write_captions(output_dir, captions, timing)
-    manifest = dict(schemaVersion=2, duration=timing['duration'], fps=FPS, width=SIZE[0], height=SIZE[1], chapters=timing['chapters'])
+    manifest = dict(schemaVersion=2, duration=timing['duration'], fps=FPS, width=SIZE[0], height=SIZE[1],
+                    chapters=timing['chapters'], framing=audit['framing'])
     manifest['timingSha256'] = audit['timingSha256']
     for kind, path in [('mp4', mp4), ('webm', webm), ('poster', output_dir / 'trailer-poster.webp')]:
         manifest[kind] = dict(src=f'/media/{path.name}', bytes=path.stat().st_size)
@@ -119,9 +125,11 @@ if __name__ == '__main__':
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--font', type=Path, default=default_font())
     parser.add_argument('--preview-dir', type=Path)
+    parser.add_argument('--brand-frames', type=Path, required=True)
     parser.add_argument('--review-range', type=review_range)
     parser.add_argument('--timing', type=Path)
     args = parser.parse_args()
     if args.font is None or not args.font.is_file():
         parser.error('Provide an installed TrueType font with --font')
-    build(args.source_dir, args.output_dir, args.font, args.preview_dir, args.review_range, args.timing)
+    build(args.source_dir, args.output_dir, args.font, args.preview_dir, args.brand_frames,
+          args.review_range, args.timing)
