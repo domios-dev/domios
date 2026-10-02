@@ -1,8 +1,8 @@
 export const chapters = [
-  { id: 'board', label: 'Plans & boards', title: 'From intent to a team in motion.', description: 'Give the work a plan. An Orchestrator coordinates, a Planner shapes the tasks, and Workers bring them to life.', tag: '01 / ORCHESTRATE' },
-  { id: 'mesh', label: 'Mesh', title: 'Your machines. One connected workspace.', description: 'Pair your machines into a trusted mesh. Reach another workspace, send a command, and bring the result back.', tag: '02 / CONNECT' },
-  { id: 'plugins', label: 'Plugins & providers', title: 'Your tools belong here.', description: 'Choose your agents. Add providers, secret backends, and integrations through a host that keeps their permissions explicit.', tag: '03 / EXTEND' },
-  { id: 'mesh-talk', label: 'Across machines', title: 'A conversation without machine boundaries.', description: 'Agents can reach their peers across your mesh. Delegate work where it belongs and keep the conversation moving.', tag: '04 / COLLABORATE' },
+  { id: 'mesh', label: 'The mesh', title: 'Your machines. Within reach.', description: 'Pair your machines into a trusted mesh. Reach another workspace, send a command, and bring the result back.', tag: '01 / CONNECT' },
+  { id: 'board', label: 'Plans & teams', title: 'Give the work a team of its own.', description: 'An Orchestrator coordinates and verifies. A Planner designs the tasks and gives each named Worker a personality fitted to the work.', tag: '02 / ORCHESTRATE' },
+  { id: 'mesh-talk', label: 'Across machines', title: 'Some colleagues live in the other computer.', description: 'Agents reach their peers across your mesh. Send work to a machine you choose and receive the report where you started.', tag: '03 / COLLABORATE' },
+  { id: 'plugins', label: 'Plugins & providers', title: 'Make room for your tools.', description: 'Choose your agents. Add providers, secret backends, and integrations through a host that keeps their permissions explicit.', tag: '04 / EXTEND' },
 ] as const;
 
 export type ClipId = typeof chapters[number]['id'];
