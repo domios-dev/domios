@@ -79,7 +79,6 @@ pub(crate) fn select<T>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DecisionSource {
     Adapter,
-    Heuristic,
     NoAdapter,
     Timeout,
     Error,
@@ -92,7 +91,6 @@ impl DecisionSource {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Adapter => "adapter",
-            Self::Heuristic => "heuristic",
             Self::NoAdapter => "fallback(no_adapter)",
             Self::Timeout => "fallback(timeout)",
             Self::Error => "fallback(error)",
@@ -129,10 +127,9 @@ pub(crate) fn journal(
 ) -> Value {
     let title = super::privacy::text(title);
     let asked = match source {
-        DecisionSource::Adapter
-        | DecisionSource::Heuristic
-        | DecisionSource::Other
-        | DecisionSource::LowConfidence => super::super::supporter::tab_questions(&title, label),
+        DecisionSource::Adapter | DecisionSource::Other | DecisionSource::LowConfidence => {
+            super::super::supporter::tab_questions(&title, label)
+        }
         _ => super::super::supporter::ActivityContext::TabState {
             title: title.into(),
             declared_safe_choice: None,

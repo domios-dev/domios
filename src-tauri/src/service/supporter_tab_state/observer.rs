@@ -540,7 +540,7 @@ fn observe<H: ShadowHost>(
                     label: &verdict.label,
                     confidence: verdict.confidence,
                     action: if verdict.action == SignalAction::StrongAction {
-                        Action::StrongAction
+                        Action::Strong
                     } else {
                         Action::WeakHint
                     },
@@ -665,7 +665,7 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
     Ok((request, metadata))
 }
 
-pub(crate) fn choice_model(
+pub(super) fn choice_model(
     models: &SupporterRegistry,
     adapter_id: &str,
 ) -> Option<Arc<dyn DecisionModel>> {

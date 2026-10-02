@@ -2,8 +2,7 @@ use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
 use codeterm_plan::service_plan::state::{
-    orchestrator_actionable_task_ids, plan_needs_orchestrator_action, task_projection,
-    DependencyWait, TaskPresentation,
+    orchestrator_actionable_task_ids, task_projection, DependencyWait, TaskPresentation,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -54,7 +53,7 @@ fn send_due_plan_time_reminders_with(
         &str,
         &PlanReminderTarget,
         crate::service::plan::reminders::NudgeKind,
-    ) -> Result<(), String>,
+    ) -> Result<bool, String>,
 ) {
     let targets = timed_plan_reminder_targets(plans);
     let eligible_tabs: HashSet<String> =
@@ -65,13 +64,14 @@ fn send_due_plan_time_reminders_with(
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
         let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
-        if !is_due {
+        if !is_due && matches!(timed.target, PlanReminderTarget::Worker) {
             continue;
         }
         due += 1;
         counter.record_time_due(&timed.tab_id, now);
         match deliver(&timed.tab_id, &timed.target, timed.target.time_nudge_kind()) {
-            Ok(()) => {
+            Ok(false) => {}
+            Ok(true) => {
                 log::info!(
                     "[plan-reminder] delivered {:?} nudge to Tab {}",
                     timed.target.time_nudge_kind(),
@@ -102,8 +102,28 @@ impl ServiceContext {
             return;
         }
         let now = current_epoch_secs();
+        let plans = self.plan_store.list_full_reminder_candidates();
+        for plan in &plans {
+            let Some(owner) = non_empty(plan.owner.tab_id.as_deref()) else {
+                continue;
+            };
+            let key = format!("{}:{owner}", plan.id);
+            let mode = format!("{:?}:{:?}", plan.mode, plan.status);
+            if plan.mode != PlanMode::Execution && self.heartbeat_gate.mode_changed(&key, &mode) {
+                let target = PlanReminderTarget::Owner {
+                    plan_id: plan.id.clone(),
+                };
+                if let Err(error) = self.deliver_plan_reminder_target(
+                    owner,
+                    &target,
+                    crate::service::plan::reminders::NudgeKind::Orchestrator,
+                ) {
+                    log::warn!("[heartbeat-gate] mode transition unavailable: {error}");
+                }
+            }
+        }
         send_due_plan_time_reminders_with(
-            &self.plan_store.list_full_reminder_candidates(),
+            &plans,
             &self.plan_turn_counter,
             now,
             cfg.nudge_interval_secs,
@@ -163,7 +183,7 @@ impl ServiceContext {
         tab_id: &str,
         target: &PlanReminderTarget,
         kind: crate::service::plan::reminders::NudgeKind,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         self.ensure_plan_reminder_routable(tab_id)?;
         let state_key = match target {
             PlanReminderTarget::Owner { plan_id } => self
@@ -174,13 +194,40 @@ impl ServiceContext {
             PlanReminderTarget::Worker => format!("worker:{tab_id}:{kind:?}"),
         };
         let now = current_epoch_secs();
-        if kind != crate::service::plan::reminders::NudgeKind::StalledTeam
-            && !self
-                .plan_turn_counter
-                .reminder_content_due(tab_id, &state_key, now)
+        let content_due = self
+            .plan_turn_counter
+            .reminder_content_due(tab_id, &state_key, now);
+        if !content_due
+            && matches!(target, PlanReminderTarget::Worker)
+            && kind != crate::service::plan::reminders::NudgeKind::StalledTeam
         {
-            return Ok(());
+            return Ok(false);
         }
+        let gate_key = match target {
+            PlanReminderTarget::Owner { plan_id } => Some(format!("{plan_id}:{tab_id}")),
+            PlanReminderTarget::Worker => None,
+        };
+        let _claim = match gate_key.as_deref() {
+            Some(key) => match self.heartbeat_gate.claim(key) {
+                Some(claim) => Some(claim),
+                None => return Ok(false),
+            },
+            None => None,
+        };
+        let gate = match target {
+            PlanReminderTarget::Owner { plan_id } => {
+                let plan = self
+                    .plan_store
+                    .get(plan_id)
+                    .ok_or_else(|| format!("plan {plan_id} not found"))?;
+                let gate = super::heartbeat_gate::decide(self, &plan, tab_id, now)?;
+                if !gate.1.wake {
+                    return Ok(false);
+                }
+                Some(gate)
+            }
+            PlanReminderTarget::Worker => None,
+        };
         let mut text = match target {
             PlanReminderTarget::Owner { plan_id } => self
                 .plan_store
@@ -196,34 +243,61 @@ impl ServiceContext {
                 .ok_or_else(|| format!("plan {plan_id} not found; retry on next scheduler tick"))?,
             PlanReminderTarget::Worker => crate::service::plan::reminders::worker_nudge_text(),
         };
+        let mode_transition = gate.as_ref().is_some_and(|(snapshot, _)| {
+            snapshot
+                .hard
+                .contains(&super::heartbeat_gate::HardWake::ModeChange)
+        });
+        let plain = gate.as_ref().is_some_and(|(_, decision)| decision.safety)
+            || (mode_transition
+                && matches!(target, PlanReminderTarget::Owner { plan_id } if self.plan_store.get(plan_id).is_some_and(|plan| plan.mode != PlanMode::Execution)));
+        if let Some((_, decision)) = &gate {
+            if plain {
+                text.clear();
+            }
+            text.push_str("\n\n");
+            text.push_str(&decision.next_step_text());
+        }
         let delivered = match target {
             PlanReminderTarget::Owner { plan_id } => {
-                if let Some(named) = self.aged_task_callout(plan_id) {
-                    text.push_str("\n\n");
-                    text.push_str(&named);
-                }
-                let resolution = self
-                    .plan_store
-                    .resolve_planner_tab(plan_id, |pid| self.tab_probe(pid));
-                if let Some(prefix) =
-                    crate::service::plan::peer_mandate::planner_pairing_nudge_prefix(&resolution)
-                {
-                    text = format!("{prefix}\n\n{text}");
-                }
-                // Planner by name (state + binding derived, not tab-guessed).
-                if let Some(planning_state) = self.plan_store.get(plan_id).map(|p| p.planning_state)
-                {
-                    if let Some(defer) =
-                        crate::service::plan::peer_mandate::planning_structure_nudge(
-                            planning_state,
+                if !plain {
+                    if let Some(named) = self.aged_task_callout(plan_id) {
+                        text.push_str("\n\n");
+                        text.push_str(&named);
+                    }
+                    let resolution = self
+                        .plan_store
+                        .resolve_planner_tab(plan_id, |pid| self.tab_probe(pid));
+                    if let Some(prefix) =
+                        crate::service::plan::peer_mandate::planner_pairing_nudge_prefix(
                             &resolution,
                         )
                     {
-                        text = format!("{defer}\n\n{text}");
+                        text = format!("{prefix}\n\n{text}");
+                    }
+                    // Planner by name (state + binding derived, not tab-guessed).
+                    if let Some(planning_state) =
+                        self.plan_store.get(plan_id).map(|p| p.planning_state)
+                    {
+                        if let Some(defer) =
+                            crate::service::plan::peer_mandate::planning_structure_nudge(
+                                planning_state,
+                                &resolution,
+                            )
+                        {
+                            text = format!("{defer}\n\n{text}");
+                        }
                     }
                 }
-                crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-                    self, plan_id, tab_id, "system", &text,
+                crate::service::orchestrator_digests::deliver_gated_heartbeat_exact(
+                    self,
+                    plan_id,
+                    tab_id,
+                    &text,
+                    gate.as_ref()
+                        .and_then(|(_, decision)| decision.learning_ids.as_deref()),
+                    plain,
+                    mode_transition,
                 )
                 .map(|_| {
                     self.record_kpi_event(
@@ -243,6 +317,12 @@ impl ServiceContext {
         delivered.map(|()| {
             self.plan_turn_counter
                 .mark_reminder_content_delivered(tab_id, state_key, now);
+            if let Some((snapshot, decision)) = &gate {
+                if let Some(key) = &gate_key {
+                    self.heartbeat_gate.delivered(key, snapshot, decision, now);
+                }
+            }
+            true
         })
     }
 
@@ -337,16 +417,19 @@ fn current_epoch_secs() -> u64 {
 }
 
 pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
-    let mut targets = BTreeMap::<String, PlanReminderTarget>::new();
+    let mut targets = BTreeMap::<(String, String), PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| {
         plan.status == PlanStatus::Active
             && plan.mode == PlanMode::Execution
             && !is_plan_complete(plan)
-            && plan_needs_orchestrator_action(plan)
+            && plan
+                .tasks
+                .iter()
+                .any(|task| task.status.counts_as_open_work() && task.status != TaskStatus::Paused)
     }) {
         if let Some(tab_id) = non_empty(plan.owner.tab_id.as_deref()) {
             targets.insert(
-                tab_id.to_string(),
+                (tab_id.to_string(), plan.id.clone()),
                 PlanReminderTarget::Owner {
                     plan_id: plan.id.clone(),
                 },
@@ -367,14 +450,16 @@ pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanRemind
             let Some(tab_id) = non_empty(task.assigned_tab_id.as_deref()) else {
                 continue;
             };
-            targets
-                .entry(tab_id.to_string())
-                .or_insert(PlanReminderTarget::Worker);
+            if !targets.keys().any(|(owner, _)| owner == tab_id) {
+                targets
+                    .entry((tab_id.to_string(), String::new()))
+                    .or_insert(PlanReminderTarget::Worker);
+            }
         }
     }
     targets
         .into_iter()
-        .map(|(tab_id, target)| TimedPlanReminderTarget { tab_id, target })
+        .map(|((tab_id, _), target)| TimedPlanReminderTarget { tab_id, target })
         .collect()
 }
 

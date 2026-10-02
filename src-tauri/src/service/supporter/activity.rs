@@ -244,6 +244,10 @@ impl SupporterRuntime {
         let _ = self.append(value);
     }
 
+    pub(crate) fn heartbeat_event(&self, event: Value) -> std::io::Result<()> {
+        self.append(event)
+    }
+
     pub(crate) fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
         self.append(event)
     }

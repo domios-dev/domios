@@ -61,8 +61,10 @@ admission are unchanged.
 
 ## Slice boundary
 
-This installs the shadow observation and shared ownership seam. Prompt-candidate
-and anomaly events and Q4/Q5/Q6 templates are present. Routing provider/trust/
+This installs the shadow observation and shared ownership seam. Q4/Q5/Q6
+question templates include prompt-candidate and anomaly contexts, covered through
+metadata fixtures. The unused production trigger variants and heuristic-source
+arm are deferred until slice 2 supplies their real callers. Routing provider/trust/
 update scrape candidates through model-first arbitration is slice 2; safe Skip
 and delegated onboarding are slice 3; unresolved auth/model/quota routes are
 slice 4. Watcher/readiness authority is unchanged; slice 5 remains diagnostic
@@ -103,11 +105,13 @@ Standalone rustfmt was explicitly authorized and used only to edit owned source.
    `./build.sh test-one app ga_screen_only_evidence_never_restarts_live_pty`, and
    `./build.sh test-one app ga_unqualified_heldout_degrades_automatic_rows_to_notify_only`
    — deterministic evidence and qualification still control automatic actions.
-10. `./build.sh test-one plugin parity_heuristic`, then
+10. `./build.sh test-one plugin js_runtime::parity_test`, then
     `bash scripts/plugin-tests.sh provider-claude`,
     `bash scripts/plugin-tests.sh provider-codex`, and
     `bash scripts/plugin-tests.sh provider-opencode` — unchanged provider
-    detection and responder contracts remain green.
+    detection and responder contracts remain green. The source-verified module
+    filter includes shared decision fixtures, Claude folder-trust fixtures, Codex
+    update/trust separation and the bundled provider capability cases.
 11. `bash -c 'python3 -m unittest discover -s evals/tab-state-jev -p "test_*.py"'`
     — criteria and evaluation mechanism remain green; no wording assertions.
 12. `./build.sh test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`
@@ -124,6 +128,24 @@ Standalone rustfmt was explicitly authorized and used only to edit owned source.
     `./build.sh test-one app supporter_journal` — Narrator's grouped question/answer
     contract and the observation identity survive together through persistence
     and feed projection; private fields are scrubbed and narrative bounds hold.
+
+17. `bash scripts/clippy-gate.sh` — production and test targets compile with
+    warnings denied, including the observer and test-only completion handles.
+18. `./build.sh test-one app heartbeat_gate` — Usher's gate and shared budget/feed
+    cases pass. Its fixture declares its simulated physical transport, while
+    the local-only and one-request observer contracts remain green under gate 2.
+
+## Canonical bounce repairs
+
+The first canonical run at `/tmp/codeterm-qa/auditor-20261002-145525-45496`
+rejected slice 1. The missing-token fixture now checks that no observer starts,
+instead of joining an absent handle. Async fetch coverage reads the direct
+completion JSON and checks its body as well as HTTP status. Heartbeat's fixture
+marks its simulated transport boundary; no request is charged at the model
+wrapper boundary. This preserves zero-call local decisions and the observer's
+single-request ceiling. `Action::Strong` retains its `strong_action` serialization.
+The nonexistent `parity_heuristic` gate is replaced by the source-verified parity
+module filter. These repairs remain source-authored until canonical verification.
 
 Probe's live matrix is required after the classification routes land, with both
 arms bound to `decided_by` and `observation_id`. This slice does not claim a live

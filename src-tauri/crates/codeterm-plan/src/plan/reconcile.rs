@@ -33,12 +33,22 @@ pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
     }
 }
 
-// Open tasks that have idled past their status threshold, newest drift first.
+pub fn active_review_hold_note(task: &Task) -> Option<&str> {
+    if task.status != TaskStatus::InReview {
+        return None;
+    }
+    let latest = task.review_evidence.last()?;
+    (latest.verdict == crate::plan::ReviewVerdict::Hold
+        && latest.at >= task.status_changed_at
+        && !latest.note.trim().is_empty())
+    .then_some(latest.note.as_str())
+}
+
 pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
     let mut aged: Vec<AgedOpenTask> = plan
         .tasks
         .iter()
-        .filter(|task| task.status.counts_as_open_work())
+        .filter(|task| task.status.counts_as_open_work() && active_review_hold_note(task).is_none())
         .filter_map(|task| {
             let projection = task_projection(plan, task);
             if projection.presentation == TaskPresentation::WaitingOnDependencies {
@@ -186,6 +196,7 @@ where
         }
 
         if task.status == TaskStatus::InReview
+            && active_review_hold_note(task).is_none()
             && task.status_changed_at > 0
             && config.now_ms.saturating_sub(task.status_changed_at) > config.stale_review_ms
         {
@@ -481,6 +492,35 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.kind == DriftKind::InProgressTabGone));
+    }
+
+    #[test]
+    fn review_hold_cleared_by_state_change_or_later_verdict() {
+        let mut held = task("held", TaskStatus::InReview);
+        held.status_changed_at = 10;
+        held.review_evidence.push(crate::plan::ReviewEvidence {
+            id: "hold".into(),
+            from: crate::plan::AgentRef::default(),
+            verdict: crate::plan::ReviewVerdict::Hold,
+            note: "fixture-note".into(),
+            at: 20,
+            changed_executable_surfaces: false,
+            distinct_oracle: false,
+        });
+        assert_eq!(active_review_hold_note(&held), Some("fixture-note"));
+        held.status = TaskStatus::InProgress;
+        assert_eq!(active_review_hold_note(&held), None);
+        held.status = TaskStatus::InReview;
+        held.status_changed_at = 30;
+        assert_eq!(active_review_hold_note(&held), None);
+        held.status_changed_at = 10;
+        let mut later = held.review_evidence[0].clone();
+        later.at = 25;
+        later.verdict = crate::plan::ReviewVerdict::Accept;
+        held.review_evidence.push(later);
+        assert_eq!(active_review_hold_note(&held), None);
+        held.review_evidence.last_mut().unwrap().verdict = crate::plan::ReviewVerdict::Bounce;
+        assert_eq!(active_review_hold_note(&held), None);
     }
 
     #[test]

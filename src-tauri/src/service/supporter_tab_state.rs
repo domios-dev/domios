@@ -22,9 +22,9 @@ mod observer;
 mod privacy;
 pub(super) mod scheduler;
 
-pub(crate) use observer::{choice_model, prepare_observation, spawn_observer};
 #[cfg(test)]
-use observer::{observation_answers, observe_guarded};
+use observer::{choice_model, observation_answers, observe_guarded};
+pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) use privacy::value as redact_decision_diagnostic;
 mod questions;
 pub(crate) mod safe_choice;
@@ -74,8 +74,6 @@ pub(crate) enum ObservationTrigger {
     WorkerIdle,
     BusyNoOutput,
     TabExit,
-    PromptCandidate,
-    Anomaly,
 }
 
 impl ObservationTrigger {
@@ -87,8 +85,6 @@ impl ObservationTrigger {
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
-            Self::PromptCandidate => ObservationEvent::PromptCandidate,
-            Self::Anomaly => ObservationEvent::Anomaly,
         }
     }
 
@@ -100,8 +96,6 @@ impl ObservationTrigger {
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
-            Self::PromptCandidate => "prompt_candidate",
-            Self::Anomaly => "anomaly",
         }
     }
 

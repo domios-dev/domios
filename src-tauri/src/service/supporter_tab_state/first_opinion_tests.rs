@@ -9,7 +9,7 @@ fn supporter_first_opinion_secrets_redacted_before_model_state() {
     let code = "918273";
     let screen = format!("token={secret}\nAuthorization: Bearer {secret}\nhttps://example.test/login?code={code}&token={secret}\nverification code: {code}");
     let (host, _, seen) = StubHost::new(&screen, StubModel::answering(Ok(choice(OTHER, 0.95))));
-    run(&host, &tab(), ObservationTrigger::PromptCandidate).unwrap();
+    run(&host, &tab(), ObservationTrigger::StartupEscalation).unwrap();
     let serialized = serde_json::to_string(&seen.lock().clone().unwrap()).unwrap();
     assert!(!serialized.contains(secret));
     assert!(!serialized.contains(code));
@@ -53,7 +53,6 @@ fn supporter_first_opinion_journal_decided_by_per_arm() {
             .contains("Fixture worker"));
         assert!(!text.contains("private detail"));
     }
-    assert_eq!(identity::DecisionSource::Heuristic.as_str(), "heuristic");
     assert_eq!(
         identity::DecisionSource::NoAdapter.as_str(),
         "fallback(no_adapter)"
@@ -296,7 +295,7 @@ fn supporter_first_opinion_stale_cancellation_preserves_newer_observation() {
 fn supporter_first_opinion_all_named_questions_fit_one_bounded_envelope() {
     let (host, _, _) = StubHost::new("opaque", StubModel::answering(Ok(choice(OTHER, 0.99))));
     let (_, mut metadata) =
-        prepare_observation(&host, &tab(), ObservationTrigger::Anomaly, "opaque").unwrap();
+        prepare_observation(&host, &tab(), ObservationTrigger::WorkerIdle, "opaque").unwrap();
     metadata.context["pending_prompt_kind"] = serde_json::json!("manual_update");
     metadata.declared_safe_choice = Some("b".into());
     metadata.prompt_options = vec![
@@ -311,6 +310,7 @@ fn supporter_first_opinion_all_named_questions_fit_one_bounded_envelope() {
             value: "b".into(),
         },
     ];
+    metadata.context["observation_event"] = serde_json::json!("anomaly");
     let questions =
         questions::observation_questions(&metadata, safe_choice::safe_choice_question(&metadata));
     assert_eq!(questions.len(), scheduler::MAX_QUESTIONS);

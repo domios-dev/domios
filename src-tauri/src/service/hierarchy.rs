@@ -1,6 +1,7 @@
 //! Agent hierarchy: roles, reports, status queries.
 
 mod gate_delivery;
+pub(crate) mod heartbeat_gate;
 pub(crate) mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;

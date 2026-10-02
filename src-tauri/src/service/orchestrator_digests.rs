@@ -9,6 +9,13 @@ use crate::service::ServiceContext;
 const CLEANUP_SOFT_LIMIT: usize = 5;
 const CLEANUP_CRITICAL_LIMIT: usize = 10;
 
+#[derive(Default)]
+struct HeartbeatSelection<'a> {
+    learning_ids: Option<&'a [String]>,
+    plain: bool,
+    mode_transition: bool,
+}
+
 pub fn deliver_orchestrator_notice_exact(
     svc: &ServiceContext,
     plan_id: &str,
@@ -16,8 +23,51 @@ pub fn deliver_orchestrator_notice_exact(
     context: &str,
     text: &str,
 ) -> Result<crate::service::messenger::Delivery, String> {
+    deliver_notice_with_learning_selection(
+        svc,
+        plan_id,
+        requested_target,
+        context,
+        text,
+        HeartbeatSelection::default(),
+    )
+}
+
+pub(crate) fn deliver_gated_heartbeat_exact(
+    svc: &ServiceContext,
+    plan_id: &str,
+    target: &str,
+    text: &str,
+    learning_ids: Option<&[String]>,
+    plain: bool,
+    mode_transition: bool,
+) -> Result<crate::service::messenger::Delivery, String> {
+    deliver_notice_with_learning_selection(
+        svc,
+        plan_id,
+        target,
+        "system",
+        text,
+        HeartbeatSelection {
+            learning_ids,
+            plain,
+            mode_transition,
+        },
+    )
+}
+
+fn deliver_notice_with_learning_selection(
+    svc: &ServiceContext,
+    plan_id: &str,
+    requested_target: &str,
+    context: &str,
+    text: &str,
+    selection: HeartbeatSelection<'_>,
+) -> Result<crate::service::messenger::Delivery, String> {
     let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
-    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan) {
+    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan)
+        && !selection.mode_transition
+    {
         return Err("plan_paused: plan notices are suppressed while the plan is paused".into());
     }
     let owner = plan
@@ -26,13 +76,18 @@ pub fn deliver_orchestrator_notice_exact(
         .as_deref()
         .ok_or("plan owner has no local delivery target")?;
     deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
-        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
-            text.to_string()
-        } else {
-            let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
-            svc.plan_store
-                .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
-        };
+        let injected =
+            if selection.plain || crate::service::plan::heartbeat::is_plan_complete(&plan) {
+                text.to_string()
+            } else {
+                let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
+                svc.plan_store.prepend_heartbeat_with_selected_learnings(
+                    plan_id,
+                    text,
+                    &digest_lines,
+                    selection.learning_ids,
+                )
+            };
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
         let result = svc.gateway_deliver(
             target,

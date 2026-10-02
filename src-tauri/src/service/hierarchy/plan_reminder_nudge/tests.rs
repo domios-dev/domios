@@ -431,7 +431,7 @@ fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
     send_due_plan_time_reminders_with(&plans, &counter, 100, 10, |id, _, _| {
         if crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()) {
             writes.borrow_mut().push(id.to_string());
-            Ok(())
+            Ok(true)
         } else {
             Err("agent_unavailable: plan reminder target has no verified live agent session".into())
         }
@@ -449,7 +449,7 @@ fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
 }
 
 #[test]
-fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
+fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
     let (mut mux, tab_id) = reminder_test_tab();
     let counter = crate::service::plan::reminders::TurnCounter::new();
     let plans = vec![owner_plan(&tab_id)];
@@ -470,6 +470,7 @@ fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
         tab.boot_stage = Some(BootStage::AgentReady);
     }
     let writes = RefCell::new(Vec::new());
+    let gate = crate::service::hierarchy::heartbeat_gate::Gate::default();
     assert!(!counter.time_nudge_due(&tab_id, 0, interval));
 
     for (now, expected_deliveries) in [(interval - 1, 0), (interval, 1), (interval, 1)] {
@@ -477,8 +478,20 @@ fn scheduler_delivers_at_1800_seconds_once_and_marks_nudged() {
             assert!(crate::service::plan_reconcile::tab_has_live_agent(
                 mux.get_tab(id).unwrap()
             ));
-            writes.borrow_mut().push(id.to_string());
-            Ok(())
+            let mut snapshot = crate::service::hierarchy::heartbeat_gate::Snapshot::default();
+            if now >= interval {
+                snapshot
+                    .delta
+                    .insert("stride:fixture".into(), "opaque evidence".into());
+            }
+            let decision = gate
+                .decide(id, &snapshot, now, None, std::time::Instant::now())
+                .unwrap();
+            if decision.wake {
+                writes.borrow_mut().push(id.to_string());
+                gate.delivered(id, &snapshot, &decision, now);
+            }
+            Ok(decision.wake)
         });
         assert_eq!(writes.borrow().len(), expected_deliveries);
     }
@@ -750,14 +763,14 @@ fn held_dependency_plan() -> Plan {
 }
 
 #[test]
-fn plan_reminder_dependency_wait_alone_creates_no_actionable_nudge() {
+fn plan_reminder_dependency_wait_alone_still_scans_owner_health() {
     let plan = held_dependency_plan();
     assert!(!is_plan_complete(&plan));
     assert!(plan
         .tasks
         .iter()
         .any(|task| task.status.counts_as_open_work()));
-    assert!(timed_plan_reminder_targets(&[plan]).is_empty());
+    assert_eq!(timed_plan_reminder_targets(&[plan]).len(), 1);
 }
 
 #[test]
@@ -812,4 +825,67 @@ fn plan_reminder_dependency_wait_becomes_actionable_when_the_dependency_lands() 
     let text = crate::service::plan::reminders::orchestrator_nudge_text(&plan);
     assert!(text.contains("pending_waiting"));
     assert!(!text.contains("dep_held"));
+}
+
+#[test]
+fn plan_reminder_suppression_does_not_acknowledge_delivery() {
+    let counter = crate::service::plan::reminders::TurnCounter::new();
+    let plans = vec![owner_plan("orch")];
+    assert!(!counter.time_nudge_due("orch", 10, 10));
+    send_due_plan_time_reminders_with(&plans, &counter, 20, 10, |_, _, _| Ok(false));
+    assert_eq!(counter.time_reminder_telemetry("orch").last_delivery, None);
+    assert!(counter.time_nudge_due("orch", 21, 10));
+}
+
+#[test]
+fn review_hold_note_skips_aged_callout_and_stale_review() {
+    let mut held = task("held", TaskStatus::InReview, None);
+    held.status_changed_at = 1;
+    held.review_evidence.push(crate::plan::ReviewEvidence {
+        id: "hold".into(),
+        from: crate::plan::AgentRef::default(),
+        verdict: crate::plan::ReviewVerdict::Hold,
+        note: "fixture hold note".into(),
+        at: 2,
+        changed_executable_surfaces: false,
+        distinct_oracle: false,
+    });
+    let plan = plan("review-held", "orch", PlanMode::Execution, vec![held]);
+    assert!(aged_task_callout_text(&plan, AGED_NOW_MS).is_none());
+    let drift = crate::plan::reconcile::detect_plan_drift(
+        &plan,
+        &crate::plan::reconcile::ReconcileConfig::new(AGED_NOW_MS),
+        |_| Default::default(),
+    );
+    assert!(!drift
+        .iter()
+        .any(|d| d.kind == crate::plan::reconcile::DriftKind::StaleInReview));
+    assert!(orchestrator_actionable_task_ids(&plan).is_empty());
+}
+
+#[test]
+fn plan_reminder_owner_with_two_plans_considers_both_gates() {
+    let plans = [
+        plan(
+            "plan-a",
+            "owner",
+            PlanMode::Execution,
+            vec![task("task-a", TaskStatus::InReview, None)],
+        ),
+        plan(
+            "plan-b",
+            "owner",
+            PlanMode::Execution,
+            vec![task("task-b", TaskStatus::InReview, None)],
+        ),
+    ];
+    let counter = crate::service::plan::reminders::TurnCounter::new();
+    let considered = RefCell::new(Vec::new());
+    send_due_plan_time_reminders_with(&plans, &counter, 1, 1800, |_, target, _| {
+        if let PlanReminderTarget::Owner { plan_id } = target {
+            considered.borrow_mut().push(plan_id.clone());
+        }
+        Ok(false)
+    });
+    assert_eq!(*considered.borrow(), vec!["plan-a", "plan-b"]);
 }
