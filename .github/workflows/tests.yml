@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory]
         default: full
         required: true
       expected_source_sha:
@@ -469,6 +469,430 @@ jobs:
           echo "case=partial_capture_failure exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
           exit "$jev_qa_exit"
 
+  jev-windows-inventory:
+    name: Jev Windows registered interpreter inventory
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows-inventory' }}
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+      JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      JEV_EVENT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate reviewed inventory source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:JEV_EXPECTED_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'expected_source_sha must be 40 hex characters' }
+          $checkedOutSha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'HEAD inspection failed' }
+          if ($env:JEV_EXPECTED_SHA -ine $env:JEV_WORKFLOW_SHA -or $env:JEV_EXPECTED_SHA -ine $env:JEV_EVENT_SHA -or $env:JEV_EXPECTED_SHA -ine $checkedOutSha) { throw 'workflow/event/checkout SHA mismatch' }
+      - name: Read bounded registered interpreter candidates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $jevInventoryTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          $jevInventoryErrors = [System.Collections.Generic.List[object]]::new()
+          $jevInventoryRoots = [System.Collections.Generic.List[object]]::new()
+          $jevInventoryResources = [System.Collections.Generic.List[object]]::new()
+          $jevInventoryCandidates = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          $jevInventoryReceipt = [ordered]@{
+            source_sha = $env:JEV_EXPECTED_SHA
+            workflow_sha = $env:JEV_WORKFLOW_SHA
+            event_sha = $env:JEV_EVENT_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            job = $env:GITHUB_JOB
+            runner_name = $env:RUNNER_NAME
+            machine = $env:COMPUTERNAME
+            architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            runner_token_sid = $null
+            discovery_status = 'incomplete'
+            executable_trust = 'unproven'
+            metadata_is_snapshot = $true
+            cleanup_semantics = 'dotnet_dispose_and_safehandle_state'
+            powershell_version = $PSVersionTable.PSVersion.ToString()
+            dotnet_version = [System.Environment]::Version.ToString()
+            compiler = 'unconfirmed'
+            no_external_compiler = $false
+            output_assembly = $false
+            opened_object_trust = $false
+            runtime_launched = $false
+            bounds = @{ tags_per_root = 32; value_chars = 4096; candidates = 16; receipt_bytes = 65536 }
+          }
+
+          function Add-InventoryError([string] $code, [string] $source, $failure = $null) {
+            $exception = if ($null -eq $failure) { $null } else { $failure.Exception }
+            $reason = $null
+            $nativeStatus = $null
+            for ($depth = 0; $null -ne $exception -and $depth -lt 8; $depth++) {
+              if ($exception.Data.Contains('inventory_code')) { $reason = $exception.Data['inventory_code'] }
+              if ($exception.Data.Contains('native_status')) { $nativeStatus = $exception.Data['native_status'] }
+              if ($null -eq $exception.InnerException) { break }
+              $exception = $exception.InnerException
+            }
+            $type = if ($null -eq $exception) { $null } else { $exception.GetType().FullName }
+            $jevInventoryErrors.Add(@{ code = $code; reason_code = $reason; native_status = $nativeStatus; source = $source; exception_type = $type })
+          }
+
+          function Stop-InventoryBound([string] $code) {
+            $failure = [System.IO.InvalidDataException]::new($code)
+            $failure.Data['inventory_code'] = $code
+            throw $failure
+          }
+
+          function Own-InventoryResource($owner, [string] $label, [string] $kind) {
+            $record = @{ owner = $owner; safe_handle = $null; label = $label; kind = $kind;
+                         native_handle_owned = ($kind -ne 'registry_base_wrapper');
+                         disposal_attempted = $false; disposed = $false; safe_handle_closed = $null }
+            $jevInventoryResources.Add($record)
+            return $record
+          }
+
+          function Close-InventoryResource($record) {
+            if ($null -eq $record -or $record.disposal_attempted) { return }
+            $record.disposal_attempted = $true
+            try {
+              $record.owner.Dispose()
+              $record.disposed = $true
+              if (-not $record.native_handle_owned) { return }
+              if ($null -ne $record.safe_handle) {
+                $record.safe_handle_closed = $record.safe_handle.IsClosed
+                if (-not $record.safe_handle_closed) { Add-InventoryError 'resource_unclosed' $record.label }
+              } else {
+                Add-InventoryError 'resource_handle_unconfirmed' $record.label
+              }
+            } catch {
+              Add-InventoryError 'resource_disposal_failed' $record.label $_
+            }
+          }
+
+          function Inspect-InventoryCandidate($candidate) {
+            $path = $candidate.path
+            if ($path -notmatch '^[A-Za-z]:[\\/]' -or $path.Length -gt 4096 -or $path.Substring(2) -match '[:*?"<>|%\x00-\x1f]') {
+              $candidate.metadata_status = 'unsupported_local_path'
+              return
+            }
+            $path = $path.Replace('/', '\')
+            [string[]] $parts = $path.Substring(3).Split('\')
+            if ($parts.Count -gt 256) { Stop-InventoryBound 'path_component_bound' }
+            for ($partIndex = 0; $partIndex -lt $parts.Count; $partIndex++) {
+              $part = $parts[$partIndex]
+              if ([string]::IsNullOrEmpty($part) -or $part -in @('.', '..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
+                  $part -match '^(?i:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\..*)?$') {
+                $candidate.metadata_status = 'unsupported_local_path'
+                return
+              }
+            }
+            $canonical = [System.IO.Path]::GetFullPath($path)
+            if ($canonical -ine $path) { $candidate.metadata_status = 'unsupported_local_path'; return }
+            $drive = [System.IO.DriveInfo]::new($canonical.Substring(0, 3))
+            if ($drive.DriveType -ne [System.IO.DriveType]::Fixed) {
+              $candidate.metadata_status = 'unsupported_drive'
+              return
+            }
+            $candidate.canonical_local_path = $canonical
+            $walk = $canonical.Substring(0, 3)
+            for ($index = -1; $index -lt $parts.Count; $index++) {
+              if ($index -ge 0) { $walk = [System.IO.Path]::Combine($walk, $parts[$index]) }
+              try {
+                $attributes = [System.IO.File]::GetAttributes($walk)
+              } catch {
+                $underlying = $_.Exception
+                for ($exceptionDepth = 0; $exceptionDepth -lt 8 -and $null -ne $underlying.InnerException; $exceptionDepth++) {
+                  $underlying = $underlying.InnerException
+                }
+                if ($underlying -is [System.IO.FileNotFoundException] -or $underlying -is [System.IO.DirectoryNotFoundException]) {
+                  $candidate.exists = $false
+                  $candidate.metadata_status = 'missing_in_examined_path'
+                  return
+                }
+                throw
+              }
+              if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                $candidate.metadata_status = 'reparse_traversal_refused'
+                return
+              }
+              $directory = ($attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+              if ($index -lt $parts.Count - 1 -and -not $directory) {
+                $candidate.metadata_status = 'unsupported_parent_type'
+                return
+              }
+            }
+            $candidate.exists = $true
+            $candidate.attributes = $attributes.ToString()
+            if ($directory -or ($attributes -band [System.IO.FileAttributes]::Device) -ne 0) {
+              $candidate.metadata_status = 'not_regular_file'
+              return
+            }
+            $info = [System.IO.FileInfo]::new($canonical)
+            $candidate.size_bytes = $info.Length
+            $candidate.file_version_metadata = $null
+            $candidate.version_resource_status = 'not_inspected_without_bounded_reader'
+            $candidate.metadata_status = 'examined_file_metadata'
+          }
+
+          function Add-InventoryCandidate([string] $path, $source, [bool] $derived) {
+            if ([string]::IsNullOrEmpty($path)) { return }
+            $directoryRefused = $derived -and $path -notmatch '^[A-Za-z]:[\\/]'
+            if ($derived -and -not $directoryRefused) {
+              $path = $path.TrimEnd([char[]] @('\', '/')) + '\python.exe'
+            }
+            if ($path.Length -gt 4096) { Stop-InventoryBound 'candidate_value_bound' }
+            $dedup = $path.Replace('/', '\')
+            if (-not $jevInventoryCandidates.ContainsKey($dedup)) {
+              if ($jevInventoryCandidates.Count -ge 16) { Stop-InventoryBound 'candidate_count_bound' }
+              $candidate = @{ path = $path; sources = [System.Collections.Generic.List[object]]::new();
+                              metadata_status = 'not_examined'; exists = $null }
+              $jevInventoryCandidates.Add($dedup, $candidate)
+            }
+            $jevInventoryCandidates[$dedup].sources.Add(@{ registry_source = $source; derived_from_registered_directory = ($derived -and -not $directoryRefused); registered_directory_refused = $directoryRefused })
+          }
+
+          $identityFields = @('run_id', 'run_attempt', 'job', 'runner_name', 'machine', 'architecture', 'platform', 'powershell_version', 'dotnet_version')
+          for ($fieldIndex = 0; $fieldIndex -lt $identityFields.Count; $fieldIndex++) {
+            $field = $identityFields[$fieldIndex]
+            $value = $jevInventoryReceipt[$field]
+            if ($value -isnot [string] -or [System.Text.Encoding]::UTF8.GetByteCount($value) -gt 256) {
+              $jevInventoryReceipt[$field] = $null
+              Add-InventoryError 'receipt_identity_bound' $field
+            }
+          }
+
+          try {
+            if (-not [System.OperatingSystem]::IsWindows() -or $PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -ne 7 -or
+                $PSVersionTable.PSVersion.Minor -ne 5 -or [System.Environment]::Version.Major -ne 9) {
+              Stop-InventoryBound 'inventory_runtime_unsupported'
+            }
+            $addType = Get-Command 'Microsoft.PowerShell.Utility\Add-Type' -CommandType Cmdlet
+            $cmdletAssembly = $addType.ImplementingType.Assembly.GetName()
+            if ($addType.ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.AddTypeCommand' -or
+                $cmdletAssembly.Name -ne 'Microsoft.PowerShell.Commands.Utility' -or
+                $cmdletAssembly.Version.Major -ne 7 -or $cmdletAssembly.Version.Minor -ne 5) {
+              Stop-InventoryBound 'inventory_compiler_unsupported'
+            }
+            $jevInventoryReceipt.compiler = 'standard_builtin_powershell_7_5_roslyn'
+            $jevInventoryReceipt.no_external_compiler = $true
+            & $addType -TypeDefinition @'
+            using System;
+            using System.ComponentModel;
+            using System.IO;
+            using System.Runtime.InteropServices;
+            using System.Text;
+            using Microsoft.Win32;
+            using Microsoft.Win32.SafeHandles;
+            [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+            public static class JevRegisteredInventory
+            {
+                [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+                private static extern int RegEnumKeyExW(SafeRegistryHandle key, uint index, StringBuilder name,
+                    ref uint length, IntPtr reserved, IntPtr keyClass, IntPtr classLength, IntPtr written);
+                [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+                private static extern int RegQueryValueExW(SafeRegistryHandle key, string name, IntPtr reserved,
+                    out uint kind, [Out] byte[] data, ref uint length);
+                private static Exception Refusal(string code)
+                {
+                    var error = new InvalidDataException(code);
+                    error.Data["inventory_code"] = code;
+                    return error;
+                }
+                private static Exception NativeFailure(int status)
+                {
+                    var error = new Win32Exception(status);
+                    error.Data["native_status"] = status;
+                    return error;
+                }
+                public static string TagAt(RegistryKey key, uint index)
+                {
+                    if (index >= 32) throw Refusal("registry_tag_bound");
+                    uint length = 256;
+                    var name = new StringBuilder(256);
+                    int status = RegEnumKeyExW(key.Handle, index, name, ref length, IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    if (status == 259) return null;
+                    if (status == 234) throw Refusal("registry_tag_bound");
+                    if (status != 0) throw NativeFailure(status);
+                    if (length == 0 || length > 255) throw Refusal("registry_tag_shape");
+                    string tag = name.ToString();
+                    if (tag.Length != length) throw Refusal("registry_tag_shape");
+                    return tag;
+                }
+                public static void CheckOverflow(RegistryKey key)
+                {
+                    uint length = 1;
+                    var name = new StringBuilder(1);
+                    int status = RegEnumKeyExW(key.Handle, 32, name, ref length, IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    if (status == 259) return;
+                    if (status == 0 || status == 234) throw Refusal("registry_tag_bound");
+                    throw NativeFailure(status);
+                }
+                public static string Value(RegistryKey key, string name)
+                {
+                    if (name != "" && name != "ExecutablePath") throw Refusal("registry_value_name");
+                    var data = new byte[8194];
+                    uint length = (uint)data.Length;
+                    uint kind;
+                    int status = RegQueryValueExW(key.Handle, name, IntPtr.Zero, out kind, data, ref length);
+                    if (status == 2) return null;
+                    if (status == 234) throw Refusal("registry_value_bound");
+                    if (status != 0) throw NativeFailure(status);
+                    if (kind != 1 && kind != 2) throw Refusal("registry_value_type");
+                    if (length > data.Length || length % 2 != 0) throw Refusal("registry_value_shape");
+                    string value = new UnicodeEncoding(false, false, true).GetString(data, 0, (int)length);
+                    if (value.EndsWith("\0", StringComparison.Ordinal)) value = value.Substring(0, value.Length - 1);
+                    if (value.Length > 4096) throw Refusal("registry_value_bound");
+                    if (value.IndexOf('\0') >= 0) throw Refusal("registry_value_shape");
+                    return value;
+                }
+            }
+          '@
+            $identityRecord = $null
+            try {
+              $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+              $identityRecord = Own-InventoryResource $identity 'current_runner_token' 'identity'
+              $identityRecord.safe_handle = $identity.AccessToken
+              $jevInventoryReceipt.runner_token_sid = $identity.User.Value
+              if ($jevInventoryReceipt.runner_token_sid.Length -gt 184) {
+                $jevInventoryReceipt.runner_token_sid = $null
+                Stop-InventoryBound 'token_sid_bound'
+              }
+            } catch {
+              Add-InventoryError 'runner_identity_incomplete' 'current_runner_token' $_
+            } finally {
+              Close-InventoryResource $identityRecord
+            }
+            $hives = @([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryHive]::CurrentUser)
+            $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
+            for ($hiveIndex = 0; $hiveIndex -lt $hives.Count; $hiveIndex++) {
+              $hive = $hives[$hiveIndex]
+              for ($viewIndex = 0; $viewIndex -lt $views.Count; $viewIndex++) {
+                $view = $views[$viewIndex]
+                $label = "$hive/$view/Software/Python/PythonCore"
+                $rootFact = @{ source = $label; status = 'incomplete'; tags = 0; enumeration_complete = $false; overflow_probe_completed = $false; install_paths_examined = 0; values_examined = 0 }
+                $jevInventoryRoots.Add($rootFact)
+                $baseRecord = $rootRecord = $null
+                try {
+                  $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+                  $baseRecord = Own-InventoryResource $baseKey "$hive/$view" 'registry_base_wrapper'
+                  $rootKey = $baseKey.OpenSubKey('Software\Python\PythonCore', $false)
+                  if ($null -eq $rootKey) { $rootFact.status = 'missing_root'; continue }
+                  $rootRecord = Own-InventoryResource $rootKey $label 'registry'
+                  $rootRecord.safe_handle = $rootKey.Handle
+                  for ($tagIndex = 0; $tagIndex -lt 32; $tagIndex++) {
+                    $tag = [JevRegisteredInventory]::TagAt($rootKey, $tagIndex)
+                    if ($null -eq $tag) { break }
+                    $rootFact.tags++
+                    if ($tag.Contains('\')) { Stop-InventoryBound 'registry_tag_shape' }
+                    $installRecord = $null
+                    try {
+                      $installKey = $rootKey.OpenSubKey("$tag\InstallPath", $false)
+                      $rootFact.install_paths_examined++
+                      if ($null -eq $installKey) { continue }
+                      $installRecord = Own-InventoryResource $installKey "$label/$tag/InstallPath" 'registry'
+                      $installRecord.safe_handle = $installKey.Handle
+                      $valueNames = @('', 'ExecutablePath')
+                      for ($valueIndex = 0; $valueIndex -lt $valueNames.Count; $valueIndex++) {
+                        $valueName = $valueNames[$valueIndex]
+                        $rootFact.values_examined++
+                        $value = [JevRegisteredInventory]::Value($installKey, $valueName)
+                        $source = @{ hive = $hive.ToString(); view = $view.ToString(); tag = $tag;
+                                     value_name = if ($valueName -eq '') { '(Default)' } else { $valueName } }
+                        Add-InventoryCandidate $value $source ($valueName -eq '')
+                      }
+                    } finally {
+                      Close-InventoryResource $installRecord
+                    }
+                  }
+                  [JevRegisteredInventory]::CheckOverflow($rootKey)
+                  $rootFact.overflow_probe_completed = $true
+                  $rootFact.enumeration_complete = $true
+                  $rootFact.status = 'examined'
+                } catch {
+                  Add-InventoryError 'registry_inventory_incomplete' $label $_
+                } finally {
+                  Close-InventoryResource $rootRecord
+                  Close-InventoryResource $baseRecord
+                }
+              }
+            }
+            $candidateArray = [object[]]::new($jevInventoryCandidates.Count)
+            $jevInventoryCandidates.Values.CopyTo($candidateArray, 0)
+            for ($candidateIndex = 0; $candidateIndex -lt $candidateArray.Count; $candidateIndex++) {
+              $candidate = $candidateArray[$candidateIndex]
+              try {
+                Inspect-InventoryCandidate $candidate
+              } catch {
+                $candidate.metadata_status = 'incomplete'
+                Add-InventoryError 'candidate_metadata_incomplete' 'registered_candidate' $_
+              }
+            }
+          } catch {
+            Add-InventoryError 'inventory_incomplete' 'inventory' $_
+          } finally {
+            for ($resourceIndex = $jevInventoryResources.Count - 1; $resourceIndex -ge 0; $resourceIndex--) {
+              Close-InventoryResource $jevInventoryResources[$resourceIndex]
+            }
+            $jevInventoryTimer.Stop()
+          }
+          $jevInventoryReceipt.roots = @($jevInventoryRoots.ToArray())
+          $candidateArray = [object[]]::new($jevInventoryCandidates.Count)
+          $jevInventoryCandidates.Values.CopyTo($candidateArray, 0)
+          $jevInventoryReceipt.candidates = $candidateArray
+          $jevInventoryReceipt.errors = @($jevInventoryErrors.ToArray())
+          $resourceFacts = [System.Collections.Generic.List[object]]::new()
+          $unclosedFacts = [System.Collections.Generic.List[object]]::new()
+          for ($resourceIndex = 0; $resourceIndex -lt $jevInventoryResources.Count; $resourceIndex++) {
+            $record = $jevInventoryResources[$resourceIndex]
+            $resourceFacts.Add(@{ label = $record.label; kind = $record.kind; native_handle_owned = $record.native_handle_owned; disposal_attempted = $record.disposal_attempted;
+                                 disposed = $record.disposed; safe_handle_closed = $record.safe_handle_closed })
+            if (-not $record.disposed -or ($record.native_handle_owned -and -not $record.safe_handle_closed)) {
+              $labelHash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($record.label)))
+              $unclosedFacts.Add(@{ kind = $record.kind; label_sha256 = $labelHash; native_handle_owned = $record.native_handle_owned; disposal_attempted = $record.disposal_attempted;
+                                   disposed = $record.disposed; safe_handle_closed = $record.safe_handle_closed })
+            }
+          }
+          $jevInventoryReceipt.resources = $resourceFacts.ToArray()
+          $jevInventoryReceipt.wrapper_seconds = $jevInventoryTimer.Elapsed.TotalSeconds
+          if ($jevInventoryErrors.Count -eq 0 -and $unclosedFacts.Count -eq 0 -and $jevInventoryRoots.Count -eq 4) {
+            $jevInventoryReceipt.discovery_status = if ($jevInventoryCandidates.Count -eq 0) { 'none_in_examined_sources' } else { 'candidates' }
+          }
+          $json = ConvertTo-Json -InputObject $jevInventoryReceipt -Depth 10 -Compress
+          $receiptBytes = [System.Text.Encoding]::UTF8.GetByteCount($json) + 2
+          if ($receiptBytes -gt 65536) {
+            $jevInventoryReceipt = [ordered]@{
+              source_sha = $env:JEV_EXPECTED_SHA; workflow_sha = $env:JEV_WORKFLOW_SHA; event_sha = $env:JEV_EVENT_SHA
+              run_id = $jevInventoryReceipt.run_id; run_attempt = $jevInventoryReceipt.run_attempt; job = $jevInventoryReceipt.job
+              runner_name = $jevInventoryReceipt.runner_name; machine = $jevInventoryReceipt.machine
+              architecture = $jevInventoryReceipt.architecture; platform = $jevInventoryReceipt.platform; runner_token_sid = $jevInventoryReceipt.runner_token_sid
+              cleanup_semantics = 'dotnet_dispose_and_safehandle_state'
+              executable_trust = 'unproven'; runtime_launched = $false; opened_object_trust = $false
+              powershell_version = $jevInventoryReceipt.powershell_version; dotnet_version = $jevInventoryReceipt.dotnet_version
+              compiler = $jevInventoryReceipt.compiler; no_external_compiler = $jevInventoryReceipt.no_external_compiler; output_assembly = $false
+              discovery_status = 'incomplete'; error = 'receipt_bound'; receipt_bytes = $receiptBytes; receipt_limit = 65536
+              wrapper_seconds = $jevInventoryTimer.Elapsed.TotalSeconds
+              roots_count = $jevInventoryRoots.Count; candidates_count = $jevInventoryCandidates.Count
+              resources_count = $jevInventoryResources.Count
+              unclosed_resources = $unclosedFacts.ToArray()
+            }
+            $json = ConvertTo-Json -InputObject $jevInventoryReceipt -Depth 5 -Compress
+          }
+          Write-Output $json
+          if ($jevInventoryReceipt.discovery_status -eq 'incomplete') { exit 1 }
+          exit 0
+
   jev-windows:
     name: Jev local evaluator (windows)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows' }}
@@ -501,6 +925,61 @@ jobs:
           & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case preflight
           $jevQaExit = $LASTEXITCODE
           if ($jevQaExit -ne 0) { exit $jevQaExit }
+      - name: Native trust trusted_directory
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case trusted_directory
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "trust_case=trusted_directory exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Native trust foreign_write
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case foreign_write
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "trust_case=foreign_write exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Native trust null_dacl
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case null_dacl
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "trust_case=null_dacl exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Native trust inherited_write
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case inherited_write
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "trust_case=inherited_write exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Native trust reparse_refused
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case reparse_refused
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "trust_case=reparse_refused exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
       - name: Consolidated evaluator pure controls
         timeout-minutes: 10
         shell: pwsh
