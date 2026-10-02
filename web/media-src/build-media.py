@@ -54,6 +54,7 @@ def build(source_dir, output_dir, font, preview_dir, brand_directory, review_ran
                             brandManifestSha256=sha256(brand_directory / 'brand-frames.json'),
                             changedFrameRanges=[[0, OPENING_FRAMES], [ENDING_START_FRAME, ENDING_END_FRAME]])
     start, end = review_range or (0, timing['duration'])
+    start_frame, end_frame = round(start * FPS), round(end * FPS)
     with tempfile.TemporaryDirectory(prefix='domios-trailer-') as temporary:
         master = Path(temporary) / 'master.mp4'
         with bounded_process([
@@ -67,7 +68,7 @@ def build(source_dir, output_dir, font, preview_dir, brand_directory, review_ran
                         continue
                     print(f'Render {edit["at"]:04.1f}s: {edit["name"]}', flush=True)
                     for index, frame in enumerate(source_frames(source_paths, edit)):
-                        if start <= edit['at'] + index / FPS < end:
+                        if start_frame <= round((edit['at'] + index / FPS) * FPS) < end_frame:
                             encoder.stdin.write(render_timeline_frame(edit, index / FPS, frame, font, brand_frames).tobytes())
                 encoder.stdin.close()
                 require(encoder.wait(timeout=1800) == 0, 'Trailer render failed')
