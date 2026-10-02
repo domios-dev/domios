@@ -94,16 +94,18 @@ class OpeningMixTests(unittest.TestCase):
             candidate = root / 'candidate.wav'
             changed = root / 'changed.wav'
             prior_samples = array('f', [.1, .2, .3, .4, .5])
-            candidate_samples = array('f', [.5, .6, .3, .4, .5])
+            candidate_samples = array('f', [.5, .6, .31, .41, .51])
             write_pcm16_wav(prior, prior_samples)
             write_pcm16_wav_preserving_tail(candidate, candidate_samples, prior, 2)
             verify_pcm16_tail_preserved(prior, candidate, 2, len(prior_samples))
 
-            one_lsb_change = array('f', candidate_samples)
-            one_lsb_change[3] += 1 / 32768
-            write_pcm16_wav(changed, one_lsb_change)
-            with self.assertRaisesRegex(ValueError, 'Final PCM16 tail after the opening boundary changed'):
-                verify_pcm16_tail_preserved(prior, changed, 2, len(prior_samples))
+            for index in (2, 3, 4):
+                with self.subTest(changed_sample=index):
+                    one_lsb_change = array('f', prior_samples)
+                    one_lsb_change[index] += 1 / 32768
+                    write_pcm16_wav(changed, one_lsb_change)
+                    with self.assertRaisesRegex(ValueError, 'Final PCM16 tail after the opening boundary changed'):
+                        verify_pcm16_tail_preserved(prior, changed, 2, len(prior_samples))
 
 
 class FramingBoundaryTests(unittest.TestCase):

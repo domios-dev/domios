@@ -89,6 +89,8 @@ If size or legibility fails, report the result for a reviewed encoding/copy choi
 
 ## Player proof still required
 
+<!-- revision: 1 -->
+
 One video element owns picture, speech and music. Fresh automatic playback is muted. Sound opt-in is explicit and keyboard accessible; opted-in video stops at the end, while muted playback can loop. Offscreen/hidden transitions pause immediately and remute, so automatic return stays silent. Explicit replay restarts after the end. Rejected play promises leave honest Play state. Reduced motion makes no video/track requests before an explicit Play/chapter/sound gesture. VTT tracks stay hidden, avoiding duplicate captions/announcements; visible caption chips and transcript use the actual final words.
 
 Alvar runs `node node_modules/typescript/bin/tsc --noEmit`, then the existing canonical build/preview/CDP/Lighthouse contract. Verify both themes at 1440×1100 and 360×900, normal/reduced motion, pointer/Enter/Space sound toggles, seek/chapter/focus behavior, captions at actual audio timestamps, muted reload/automatic resume, narrated end/replay, visibility/offscreen pause, rejected play promises, no toolbar collision/overflow, visible attribution and silent manifests with no sound toggle. No Playwright. Preserve all six existing website proofs and the desktop100/mobile≥99 bar.
