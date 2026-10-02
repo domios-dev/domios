@@ -35,15 +35,15 @@ const PLANNER_CONTRACT_MAX_BYTES: usize = 17_750;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
 const WORKER_SUFFIX_MAX_BYTES: usize = 4_700;
-// Primer and worker launch re-measured at 2_475 and 8_458 for the owner-requested
-// Sentinel pointer and the `@ct-guide` rendering sentence.
-const PRIMER_MAX_BYTES: usize = 2_500;
+// Primer and worker launch re-measured for the owner-requested Sentinel command line
+// (bench case 9 needs the concrete flags) and the `@ct-guide` rendering sentence.
+const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
 const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_200;
-// Planner launch re-measured at 21_109 with the primer Sentinel pointer.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 21_150;
-const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_500;
+// Planner launch re-measured with the primer Sentinel command line.
+const PLANNER_LAUNCH_MAX_BYTES: usize = 21_250;
+const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
 
 fn lf_len(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
