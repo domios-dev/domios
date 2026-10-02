@@ -339,18 +339,53 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
         }))
         .unwrap();
     assert_eq!(lines(&dir).len(), 2);
-    let feed = runtime.feed(10, Some("team_aabbccdd")).unwrap();
+    let restored = SupporterRuntime::new(dir.path().into());
+    let feed = restored.feed(10, Some("team_aabbccdd")).unwrap();
     assert_eq!(
         feed.len(),
         2,
         "Persisted Sentinel verdicts disappeared from the owner feed"
     );
+    assert_eq!(feed[0]["action"], "decision");
+    assert_eq!(feed[0]["reason"], "transition");
+    assert_eq!(feed[1]["action"], "notify_only");
+    assert_eq!(feed[1]["reason"], "model_answer");
+    assert!(restored.feed(10, Some("team_11223344")).unwrap().is_empty());
     for entry in feed {
         assert_eq!(entry["kind"], "sentinel");
         assert_eq!(entry["team_id"], "team_aabbccdd");
         assert!(entry["time"].is_i64());
+        assert_eq!(entry["label"], "redacted");
+        assert_eq!(entry["confidence_band"], "strong");
+        assert_eq!(entry["fallback"], false);
         assert!(entry.get("tab").is_none());
         assert!(entry.get("sentinel_id").is_none());
         assert!(entry.get("state_hash").is_none());
     }
+}
+
+#[test]
+fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime.attach_visibility(Arc::new(|_| Some("team_aabbccdd".into())), Arc::new(|_| {}));
+    runtime
+        .reserve_at(1, VerdictKind::Sentinel, Some("private-creator"), 1, 100000)
+        .unwrap();
+    runtime.sentinel_event(json!({
+        "time": 100, "kind": "sentinel", "tab": "private-creator", "sentinel_id": "private-watch",
+        "action": "decision", "reason": "budget_exhausted", "label": "private-bucket",
+        "screen": "private-output", "token": "private-token", "state_hash": "private-state"
+    })).unwrap();
+    let restored = SupporterRuntime::new(dir.path().into());
+    assert_eq!(restored.feed(10, Some("team_11223344")).unwrap().len(), 0);
+    let feed = restored.feed(10, Some("team_aabbccdd")).unwrap();
+    assert_eq!(
+        feed,
+        vec![json!({
+            "time": 100, "team_id": "team_aabbccdd", "kind": "sentinel", "label": "redacted",
+            "confidence_band": "unknown", "action": "decision", "reason": "budget_exhausted",
+            "budget_reached": true, "fallback": true
+        })]
+    );
 }
