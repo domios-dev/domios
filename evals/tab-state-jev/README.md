@@ -158,20 +158,81 @@ python3 -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
 
 Each isolated command must select1/pass1/skip0. The response oracle uses the real
 worker bound-owning reader through injection, with a valid small-response positive
-and an oversized negative. Pure discovery currently authors79 cases, including
-four untouched held-out metric tests; expected pass79/fail0/skip0, pending
-canonical execution. These mechanism inputs do not qualify live data.
+and an oversized negative. Canonical
+`9eea8cef890c9582a834d3fa3ba05c5155d58395` passed both independent one-case greens and all 79 pure cases with no skips. The grouped harness repair
+adds ten pure controls (two tests-first regressions and eight boundary controls),
+so discovery now authors89 cases, including four untouched held-out metric tests.
+Expected pass89/fail0/skip0 remains deferred for this descendant. These mechanism
+inputs do not qualify live data.
 
-Run each local case independently before aggregation, under Fermi's separately
-reviewed platform/gate disposition:
+The first macOS native success attempt at that canonical SHA failed before
+helper admission with `trusted_file_permissions`: the default framework
+interpreter was root-owned mode0775. Its outer `fixture_wrong_predicate` error
+lost fixture cleanup facts and listener teardown consumed approximately55s.
+Retain `/tmp/codeterm-qa/fresnel-local-success-20261002-213741-27499/full.log`;
+that failure establishes no helper/TLS/wire success. Do not retry unchanged.
+
+The harness now runs production preparation, including interpreter/helper/contract
+identity and private-directory admission, before creating certificate files or a
+fixture listener. The prepared exact interpreter/header/deadlines are retained;
+all three identity hashes are revalidated at helper preparation. The original
+request and run starts precede preparation and are not reset. Failed JSON keeps
+`error`/`outcome` as the primary typed failure, `oracle_error` as the independent
+oracle mismatch, and full `transport`, `fixture`, `preparation`, `cancel_thread`
+and `cleanup_errors` facts. A failed teardown cannot replace the primary refusal
+or turn incomplete cleanup into success.
+
+An owned socketpair wakes the selector waiting for the listener without opening
+an HTTP connection. The server acknowledges pre-accept cancellation and retires
+its listener, selector and wake reader; the controller observes retirement,
+joins the exact thread and closes the wake writer. For accepted connections the
+TLS socket is published before the blocking handshake, so cancellation shuts
+down that exact handle. Held responses use the release event. Header-cancellation
+waits also observe retirement, avoiding a lost-header wait after setup failure.
+Shutdown is a cancellation request; only observed retirement/join/close facts
+establish completion. OS noninterruptibility can still exceed the failure bound.
+
+The two independent harness regressions were added in tests-first ancestor
+`baedb6671b6d2d1dd81d56b381830503aea83693`. Fermi confirmed both intended pure
+reds after real merge into `4b4de896484a726b5050728f84d79fc9152e31e1`: selected1,
+exit1 each, listener construction despite preparation refusal and replacement of
+the primary typed refusal. No import/setup/native failure; no repeat reds needed.
+After the repair merge, the changed focused proof is:
 
 ```bash
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case success
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case response_oversize
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case redirect_refused
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case held_response_deadline
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case cancel_after_headers
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 evals/tab-state-jev/local_jev_transport_io.py --case partial_capture_failure
+bash -c 'cd evals/tab-state-jev && python3 -m unittest test_jev_transport.HarnessRegressionTests.test_preflight_refusal_never_opens_listener'
+bash -c 'cd evals/tab-state-jev && python3 -m unittest test_jev_transport.HarnessRegressionTests.test_failed_receipt_keeps_primary_and_fixture_cleanup'
+bash -c 'cd evals/tab-state-jev && python3 -m unittest test_jev_transport.HarnessBoundaryTests'
+```
+
+Expected selected/pass counts are1,1,8, with zero failures/skips. The controls
+inject selector readiness, sockets, TLS streams, threads, clocks and file
+operations; they execute no native IO. They cover pre-accept wake acknowledgement,
+handshake and header cancellation, successful exact request/complete response,
+pinned interpreter/original deadlines, changed identity refusal, failed receipt
+cleanup propagation and certificate setup failure before listener admission.
+
+Interpreter selection is the interpreter that starts the harness; there is no
+new CLI/env override. On this macOS host the existing canonical candidate resolves
+to `/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14`,
+current-user-owned mode0755. Read-only metadata supports selection, not executable
+qualification. Use that exact path for future macOS commands so helper preparation
+pins the same binary. No chmod, interpreter install/copy or trust weakening is
+part of this repair. Linux needs its own separately reviewed trusted interpreter
+selection and native receipts; Windows private-directory admission stays unsupported.
+
+The exact proposed macOS commands below are deferred, not authorization. Fermi
+must review focused greens and separately authorize one actual success case first;
+stop on first failure and review the full JSON/timing before any of the remaining
+five cases. No retry is implied. Run each separately:
+
+```bash
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case success
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case response_oversize
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case redirect_refused
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case held_response_deadline
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case cancel_after_headers
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec /opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/bin/python3.14 evals/tab-state-jev/local_jev_transport_io.py --case partial_capture_failure
 ```
 
 Each case expects one exact wire request and one response header, with an actual
