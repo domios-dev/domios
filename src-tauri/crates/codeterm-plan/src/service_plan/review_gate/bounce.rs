@@ -142,7 +142,7 @@ fn cleaned_terminal_review_attempt(task: &Task) -> Option<usize> {
     let mut previous_closure = None;
     for attempt in &task.execution_attempts {
         let attempt_id = nonempty(Some(attempt.id.as_str()))?;
-        let executor_tab_id = nonempty(Some(attempt.executor_tab_id.as_str()))?;
+        nonempty(Some(attempt.executor_tab_id.as_str()))?;
         let assigned_at = attempt.assigned_at?;
         let closed_at = attempt.closed_at?;
         if !attempt_ids.insert(attempt_id)
@@ -196,8 +196,8 @@ fn cleaned_terminal_review_attempt(task: &Task) -> Option<usize> {
     let reported_at = terminal.reported_at?;
     let closed_at = terminal.closed_at?;
     let retired_at = terminal.retired_at?;
-    let session_id = nonempty(terminal.session_id.as_deref())?;
-    let binding_nonce = nonempty(terminal.session_binding_nonce.as_deref())?;
+    nonempty(terminal.session_id.as_deref())?;
+    nonempty(terminal.session_binding_nonce.as_deref())?;
     let report = terminal.report.as_ref()?;
     if assigned_at >= acknowledged_at
         || acknowledged_at >= reported_at
