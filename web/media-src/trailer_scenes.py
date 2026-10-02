@@ -1,0 +1,236 @@
+import math
+import subprocess
+from functools import lru_cache
+
+from PIL import Image, ImageDraw, ImageFont
+
+
+FPS = 24
+SIZE = (1280, 720)
+SOURCE_SIZE = (2048, 1396)
+BLUE = '#58a6ff'
+INK = '#0d1117'
+WHITE = '#f0f6fc'
+
+
+def shot(name, at, duration, source, start, end, camera, target, title='', scene='footage'):
+    return dict(name=name, at=at, duration=duration, source=source, start=start, end=end,
+                camera=camera, target=target, title=title, scene=scene)
+
+
+SHOTS = [
+    shot('Your desktop', 0, 4, 'mesh-talk', 16, 16.1, (0, 0, 1), (0, 0, 1), 'A home for agents', 'desktop'),
+    shot('Agents in tabs', 4, 4, 'mesh-talk', 16, 23, (5, 50, 2040), (5, 100, 1750), 'Meet your agents'),
+    shot('A team takes the work', 8, 3, 'board', .2, 3.2, (350, 300, 1680), (350, 310, 1160), 'Give work a team'),
+    shot('Across the board', 11, 4, 'board', 3.2, 7.2, (350, 310, 1160), (850, 310, 1160)),
+    shot('Your machines', 15, 4, 'mesh', 0, .1, (0, 0, 1), (0, 0, 1), 'Every machine. Connected.', 'network'),
+    shot('Open a peer', 19, 4, 'mesh', 0, 4.8, (350, 140, 1680), (620, 400, 1160), 'Reach across the mesh'),
+    shot('Send work', 23, 4, 'mesh-talk', 32, 64, (460, 185, 1470), (500, 340, 1330), 'Start a conversation'),
+    shot('Reports arrive', 27, 3, 'mesh-talk', 94, 98, (460, 380, 1470), (490, 740, 1390), 'Bring the answer home'),
+    shot('Choose providers', 30, 3, 'plugins', 1.5, 5.6, (350, 80, 1680), (365, 200, 1320), 'Your choice of intelligence'),
+    shot('Choose tools', 33, 2.5, 'plugins', 7.3, 8.7, (910, 100, 1100), (930, 190, 1070), 'Make room for your tools'),
+    shot('Add capabilities', 35.5, 2.5, 'plugins', 11, 14.9, (900, 120, 1110), (920, 220, 1090)),
+    shot('Fleet summary', 38, 3, 'mesh-talk', 139, 146, (460, 850, 1450), (490, 900, 1350), 'One fleet. Within reach.'),
+    shot('Threshold', 41, 4, 'mesh', 0, .1, (0, 0, 1), (0, 0, 1), scene='end'),
+]
+
+
+def ease(value):
+    value = min(1, max(0, value))
+    return value * value * value * (value * (value * 6 - 15) + 10)
+
+
+def mix(a, b, t):
+    return a + (b - a) * t
+
+
+def source_frames(paths, edit):
+    count = round(edit['duration'] * FPS)
+    span = edit['end'] - edit['start']
+    if edit['scene'] != 'footage':
+        command = ['ffmpeg', '-v', 'error', '-ss', str(edit['start']), '-i', str(paths[edit['source']]),
+                   '-vf', 'crop=2048:1396:0:0', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
+        data = subprocess.check_output(command)
+        frame = Image.frombytes('RGB', SOURCE_SIZE, data)
+        for _ in range(count):
+            yield frame
+        return
+    progress = f'((PTS-STARTPTS)*TB/{span})'
+    ramp = f"{edit['duration']}/TB*({progress}-0.10*sin(PI*{progress}))"
+    process = subprocess.Popen([
+        'ffmpeg', '-v', 'error', '-ss', str(edit['start']), '-t', str(span), '-i', str(paths[edit['source']]),
+        '-vf', f"crop=2048:1396:0:0,setpts='{ramp}',fps={FPS},tpad=stop_mode=clone:stop_duration=1",
+        '-frames:v', str(count), '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'
+    ], stdout=subprocess.PIPE)
+    try:
+        for _ in range(count):
+            data = process.stdout.read(SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3)
+            if len(data) != SOURCE_SIZE[0] * SOURCE_SIZE[1] * 3:
+                raise RuntimeError(f"Incomplete source frame in {edit['name']}")
+            yield Image.frombytes('RGB', SOURCE_SIZE, data)
+        if process.wait() != 0:
+            raise RuntimeError(f"Source decode failed: {edit['name']}")
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.terminate()
+            process.wait()
+
+
+@lru_cache(maxsize=1)
+def wallpaper():
+    image = Image.new('RGB', SIZE)
+    pixels = image.load()
+    for y in range(SIZE[1]):
+        for x in range(SIZE[0]):
+            blue = math.exp(-(((x - 300) / 650) ** 2 + ((y - 560) / 440) ** 2))
+            violet = math.exp(-(((x - 1110) / 400) ** 2 + ((y - 100) / 520) ** 2))
+            pixels[x, y] = (int(13 + 10 * blue + 19 * violet), int(17 + 23 * blue + 7 * violet), int(23 + 40 * blue + 34 * violet))
+    return image
+
+
+@lru_cache(maxsize=20)
+def face(path, size):
+    return ImageFont.truetype(str(path), size)
+
+
+def text(image, value, xy, font, size=32, color=WHITE, anchor='mm'):
+    ImageDraw.Draw(image).text(xy, value, font=face(font, size), fill=color, anchor=anchor)
+
+
+def window(frame, width, height, font):
+    image = Image.new('RGB', (width, height), '#141b24')
+    content = frame.crop((5, 50, 2045, 1380))
+    content.thumbnail((width - 4, height - 35), Image.Resampling.LANCZOS)
+    image.paste(content, ((width - content.width) // 2, 33))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, width-1, height-1), 11, outline='#424e62', width=2)
+    for i, color in enumerate(['#ff6058', '#ffbd2e', '#28c840']):
+        draw.ellipse((13 + i * 17, 11, 21 + i * 17, 19), fill=color)
+    text(image, 'Domios', (width / 2, 16), font, 12, '#aebacf')
+    return image
+
+
+def desktop(frame, time, font):
+    image = wallpaper().copy()
+    opening = ease((time - .35) / 1.2)
+    push = ease((time - 1.5) / 2.5)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, 1280, 25), fill='#121827')
+    text(image, 'Domios', (26, 12), font, 12, anchor='lm')
+    text(image, 'Your desktop', (1252, 12), font, 12, '#aebacf', 'rm')
+    dock_y = round(mix(675, 750, push))
+    draw.rounded_rectangle((516, dock_y-23, 764, dock_y+23), 17, fill='#263248', outline='#46536b')
+    for i, color in enumerate([BLUE, '#bc8cff', '#7ee787', '#ecb969', '#8fa5c8']):
+        x = 541+i*49
+        draw.rounded_rectangle((x-15, dock_y-15, x+15, dock_y+15), 8, fill=color)
+    width = round(mix(670, 1260, push) * mix(.8, 1, opening))
+    height = round(width * .66)
+    app = window(frame, width, height, font)
+    x, y = (1280-width)//2, round(mix(116, 45, push) + (1-opening)*70)
+    if opening > 0:
+        image.paste(app, (x,y))
+    if time < 2.8:
+        title(image, 'A home for agents', time, 2.8, font)
+    return image
+
+
+def curve(a, b, c, d, t):
+    return tuple((1-t)**3*a[i] + 3*(1-t)**2*t*b[i] + 3*(1-t)*t*t*c[i] + t**3*d[i] for i in range(2))
+
+
+def network(frame, time, font):
+    image = wallpaper().copy()
+    progress = ease(time / 2.8)
+    centers = [(mix(640, 283, progress), mix(345, 325, progress)),
+               (mix(640, 980, progress), mix(345, 226, progress)),
+               (mix(640, 931, progress), mix(345, 542, progress))]
+    draw = ImageDraw.Draw(image)
+    for index in [1, 2]:
+        a = (centers[0][0]+170, centers[0][1])
+        d = (centers[index][0]-155, centers[index][1])
+        b, c = (a[0]+140, a[1]), (d[0]-140, d[1])
+        points = [curve(a,b,c,d,i/100) for i in range(101)]
+        draw.line(points, fill='#355c80', width=2)
+        for offset in [0, .42]:
+            t = (time * .55 + offset + index*.2) % 1
+            x,y = curve(a,b,c,d,t)
+            draw.ellipse((x-7,y-4,x+7,y+4),fill=BLUE)
+            x2,y2 = curve(a,b,c,d,max(0,t-.035))
+            draw.ellipse((x2-3,y2-3,x2+3,y2+3),fill='#94c7ff')
+    sizes = [(round(mix(1120, 440, progress)), round(mix(660, 310, progress))), (342,238), (342,238)]
+    for i in [2,1,0]:
+        w,h = sizes[i]
+        x,y = round(centers[i][0]-w/2), round(centers[i][1]-h/2)
+        app = window(frame,w,h,font)
+        image.paste(app,(x,y))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((x-5,y-5,x+w+5,y+h+5),12,outline='#667891',width=3)
+        if i==0:
+            draw.polygon([(x-30,y+h+8),(x+w+30,y+h+8),(x+w+12,y+h+21),(x-12,y+h+21)],fill='#6c7b92')
+        else:
+            draw.rectangle((x+w//2-13,y+h+6,x+w//2+13,y+h+18),fill='#667891')
+            draw.rounded_rectangle((x+w//2-55,y+h+17,x+w//2+55,y+h+23),3,fill='#667891')
+        if progress > .8:
+            text(image,['YOUR LAPTOP','YOUR DESKTOP','YOUR SERVER'][i],(x+w/2,y+h+43),font,12,'#aebacf')
+    title(image,'Every machine. Connected.',time,4,font)
+    return image
+
+
+def title(image, value, time, duration, font):
+    opacity = ease(time/.4) * (1-ease((time-duration+.45)/.45))
+    if opacity <= 0:
+        return
+    layer = Image.new('RGBA', SIZE)
+    draw = ImageDraw.Draw(layer)
+    y = round(55 + 12 * (1-ease(time/.5)))
+    box = draw.textbbox((0,0),value,font=face(font,30))
+    width = box[2]-box[0]+52
+    draw.rounded_rectangle((640-width/2,y-28,640+width/2,y+29),16,fill=(13,17,23,238))
+    draw.text((640,y-1),value,font=face(font,30),fill=WHITE,anchor='mm')
+    layer.putalpha(layer.getchannel('A').point(lambda v: round(v*opacity)))
+    image.paste(layer,(0,0),layer)
+
+
+def threshold(size):
+    image = Image.new('RGBA',(size,size))
+    points=[(8,8),(32,8)]
+    points += [curve((32,8),(46,8),(56,18),(56,32),i/60) for i in range(61)]
+    points += [curve((56,32),(56,46),(46,56),(32,56),i/60) for i in range(61)]
+    points += [(24,56),(40,40),(40,24),(24,24),(24,40),(8,56)]
+    ImageDraw.Draw(image).polygon([(x*size/64,y*size/64) for x,y in points],fill=BLUE)
+    return image
+
+
+def endcard(time, frame, font):
+    image = wallpaper().copy()
+    image = Image.blend(image, desktop(frame, 0, font), ease((time - 3.1) / .85))
+    alpha = ease(time/.55) * (1-ease((time-3.1)/.9))
+    if alpha <= 0:
+        return image
+    layer = Image.new('RGBA',SIZE)
+    settle = 1 + .10 * math.exp(-time*3) * math.sin(time*11)
+    logo = threshold(256).resize((round(184*settle),round(184/settle)),Image.Resampling.LANCZOS)
+    layer.paste(logo,(640-logo.width//2,240-logo.height//2),logo)
+    text(layer,'domios',(640,395),font,68)
+    text(layer,'domios.dev',(640,474),font,26,BLUE)
+    layer.putalpha(layer.getchannel('A').point(lambda v: round(v*alpha)))
+    image.paste(layer,(0,0),layer)
+    return image
+
+
+def render(edit, time, frame, font):
+    if edit['scene']=='desktop':
+        return desktop(frame,time,font)
+    if edit['scene']=='network':
+        return network(frame,time,font)
+    if edit['scene']=='end':
+        return endcard(time,frame,font)
+    progress = ease(time/max(1/FPS,edit['duration']-1/FPS))
+    x,y,width = [mix(a,b,progress) for a,b in zip(edit['camera'],edit['target'])]
+    height = width*9/16
+    y = min(y,SOURCE_SIZE[1]-height)
+    image = frame.resize(SIZE, Image.Resampling.LANCZOS, box=(x,y,x+width,y+height))
+    if edit['title']:
+        title(image,edit['title'],time,min(2.6,edit['duration']),font)
+    return image

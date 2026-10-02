@@ -1,24 +1,19 @@
-export const chapters = [
-  { id: 'mesh', label: 'The mesh', title: 'Your machines. Within reach.', description: 'Pair your machines into a trusted mesh. Reach another workspace, send a command, and bring the result back.', tag: '01 / CONNECT' },
-  { id: 'board', label: 'Plans & teams', title: 'Give the work a team of its own.', description: 'An Orchestrator coordinates and verifies. A Planner designs the tasks and gives each named Worker a personality fitted to the work.', tag: '02 / ORCHESTRATE' },
-  { id: 'mesh-talk', label: 'Across machines', title: 'Some colleagues live in the other computer.', description: 'Agents reach their peers across your mesh. Send work to a machine you choose and receive the report where you started.', tag: '03 / COLLABORATE' },
-  { id: 'plugins', label: 'Plugins & providers', title: 'Make room for your tools.', description: 'Choose your agents. Add providers, secret backends, and integrations through a host that keeps their permissions explicit.', tag: '04 / EXTEND' },
-] as const;
+export type Chapter = { id: string; label: string; title: string; description: string; start: number; end: number };
 
-export type ClipId = typeof chapters[number]['id'];
+export const chapters: Chapter[] = [
+  { id: 'agents', label: 'Meet your agents', title: 'A desktop app. A place for your agents.', description: 'Named agents live in tabs, with a conversation and a workspace to return to.', start: 0, end: 8 },
+  { id: 'board', label: 'Give work a team', title: 'Give the work a team of its own.', description: 'An Orchestrator coordinates. A Planner shapes the tasks. Named Workers move the work forward.', start: 8, end: 15 },
+  { id: 'mesh', label: 'Connect your machines', title: 'Your machines. Within reach.', description: 'Pair your computers, reach their agents, and bring the reports back to your conversation.', start: 15, end: 30 },
+  { id: 'plugins', label: 'Choose your tools', title: 'Your agents. Your tools.', description: 'Choose your intelligence and add capabilities through plugins. One environment for your team.', start: 30, end: 45 },
+];
+
 export type Caption = { start: number; end: number; text: string };
 export type MediaAsset = { src: string; bytes?: number };
-export type Clip = { id: ClipId; mp4: MediaAsset; webm: MediaAsset; poster: MediaAsset; captions: Caption[] };
-export type MediaLibrary = Record<ClipId, Clip>;
+export type Trailer = { mp4: MediaAsset; webm: MediaAsset; poster: MediaAsset; duration: number; chapters: Chapter[]; captions: Caption[] };
 
-function defaultClip(id: ClipId): Clip {
-  return { id, mp4: { src: `/media/${id}.mp4` }, webm: { src: `/media/${id}.webm` },
-    poster: { src: `/media/${id}-poster.webp` }, captions: [] };
-}
-
-export const defaultMedia: MediaLibrary = {
-  board: defaultClip('board'), mesh: defaultClip('mesh'),
-  plugins: defaultClip('plugins'), 'mesh-talk': defaultClip('mesh-talk'),
+export const defaultMedia: Trailer = {
+  mp4: { src: '/media/trailer.mp4' }, webm: { src: '/media/trailer.webm' },
+  poster: { src: '/media/trailer-poster.webp' }, duration: 45, chapters, captions: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,19 +30,32 @@ export function parseCaptions(value: unknown): Caption[] {
     && typeof caption.end === 'number' && caption.start >= 0 && caption.end > caption.start) : [];
 }
 
-export function parseMedia(manifest: unknown, captions: unknown): MediaLibrary {
-  const library = { ...defaultMedia };
-  const clips = isRecord(manifest) && Array.isArray(manifest.clips) ? manifest.clips : [];
-  for (const { id } of chapters) {
-    const clip = clips.find((item: unknown) => isRecord(item) && item.id === id);
-    const overrides = isRecord(clip) ? clip : {};
-    library[id] = {
-      id,
-      mp4: isAsset(overrides.mp4) ? overrides.mp4 : defaultMedia[id].mp4,
-      webm: isAsset(overrides.webm) ? overrides.webm : defaultMedia[id].webm,
-      poster: isAsset(overrides.poster) ? overrides.poster : defaultMedia[id].poster,
-      captions: parseCaptions(isRecord(captions) ? captions[id] ?? overrides.captions : overrides.captions),
-    };
-  }
-  return library;
+export function parseMedia(manifest: unknown, captions: unknown): Trailer {
+  const value = isRecord(manifest) ? manifest : {};
+  const timings = Array.isArray(value.chapters) ? value.chapters : [];
+  const duration = typeof value.duration === 'number' && value.duration > 0 ? value.duration : defaultMedia.duration;
+  const timeline = chapters.map((chapter) => {
+    const timing: unknown = timings.find((item: unknown) => isRecord(item) && item.id === chapter.id);
+    return isRecord(timing) && typeof timing.start === 'number' && typeof timing.end === 'number'
+      && timing.start >= 0 && timing.end > timing.start && timing.end <= duration
+      ? { ...chapter, start: timing.start, end: timing.end } : chapter;
+  });
+  const contiguous = timeline.every((chapter, index) => chapter.start === (index ? timeline[index - 1].end : 0));
+  return {
+    mp4: isAsset(value.mp4) ? value.mp4 : defaultMedia.mp4,
+    webm: isAsset(value.webm) ? value.webm : defaultMedia.webm,
+    poster: isAsset(value.poster) ? value.poster : defaultMedia.poster,
+    duration,
+    chapters: contiguous && timeline[timeline.length - 1].end === duration ? timeline : chapters,
+    captions: parseCaptions(captions),
+  };
+}
+
+export function chapterAt(time: number, timeline: Chapter[] = chapters) {
+  const index = timeline.findIndex((chapter) => time >= chapter.start && time < chapter.end);
+  return index < 0 ? 0 : index;
+}
+
+export function timestamp(time: number) {
+  return `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}`;
 }
