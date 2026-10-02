@@ -4,6 +4,7 @@ import { chapters } from './media';
 import type { Clip } from './media';
 import { useMediaLibrary, useVideo } from './useShowcase';
 import { Icon } from './Icon';
+import { CaptionChips } from './CaptionChips';
 import { useMediaQuery } from './usePreferences';
 import './showcase.css';
 
@@ -15,10 +16,10 @@ function VideoPlayer({ clip, reducedMotion, label }: { clip: Clip; reducedMotion
       <div className="video-placeholder"><Icon name="terminal" size={40} /><span>{label}</span><small>See your agents at work.</small></div>
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt={`${label} in Domios`} loading="lazy" onError={() => setPosterFailed(true)} />}
       {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label={`${label} product demonstration`}
-        onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate}>
+        onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
         {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" onError={player.onError} /></>}
       </video>}
-      <div className="caption-region" aria-hidden="true">{clip.captions.map((caption) => <span key={`${caption.start}-${caption.text}`} className="caption-chip" data-active={player.caption === caption}>{caption.text}</span>)}</div>
+      <CaptionChips caption={player.caption} />
     </div>
     <div className="video-toolbar"><span><i className="status-dot" />{player.failed ? 'Preview coming soon' : 'A look inside Domios'}</span>
       {!player.failed && <button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} ${label} video`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button>}
@@ -52,7 +53,7 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
       '--sx-from': `${compact ? previous % 2 * 100 : 0}%`, '--sx-to': `${compact ? active % 2 * 100 : 0}%`,
       '--sy-from': `${(compact ? Math.floor(previous / 2) : previous) * 100}%`, '--sy-to': `${(compact ? Math.floor(active / 2) : active) * 100}%`,
     } as CSSProperties}>
-      <span key={`${active}-${compact}`} className={`shelf-thumb ${previous !== active ? 'travel' : ''}`} />
+      <span aria-hidden="true" key={`${active}-${compact}`} className={`shelf-thumb ${previous !== active ? 'travel' : ''}`} />
       {chapters.map((item, index) => <button key={item.id} id={`tab-${item.id}`} role="tab" aria-selected={active === index} aria-controls={`panel-${item.id}`} tabIndex={active === index ? 0 : -1} onClick={() => select(index)} onKeyDown={(event) => onKeyDown(event, index)}>
         <span className="clip-still"><img src={media[item.id].poster.src} alt="" loading="lazy" /><span className="clip-play"><Icon name="play" size={15} /></span></span>
         <span className="clip-label"><span className="clip-number">0{index + 1}</span>{item.label}<Icon name="arrow" size={14} /></span>
