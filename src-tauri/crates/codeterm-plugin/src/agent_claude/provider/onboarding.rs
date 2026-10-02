@@ -6,6 +6,7 @@ pub(super) struct Prompt {
     pub options: Vec<(String, String)>,
     pub frame_key: String,
     pub step: Vec<u8>,
+    pub safe_choice: String,
 }
 
 #[derive(Debug)]
@@ -85,6 +86,7 @@ pub(super) fn parse(screen: &str) -> Option<Prompt> {
         b"k".to_vec()
     };
     Some(Prompt {
+        safe_choice: options[target].number.clone(),
         question,
         options: options
             .iter()
@@ -101,6 +103,10 @@ pub(super) fn response(screen: &str) -> Option<ProviderPromptKeyStep> {
         frame_key: prompt.frame_key,
         step: prompt.step,
     })
+}
+
+pub(super) fn safe_choice(screen: &str) -> Option<String> {
+    Some(parse(screen)?.safe_choice)
 }
 
 fn strip_csi(value: &str) -> String {

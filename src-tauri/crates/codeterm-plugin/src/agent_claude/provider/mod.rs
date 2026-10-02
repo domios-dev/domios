@@ -332,6 +332,10 @@ impl AgentProvider for ClaudeProvider {
         steps
     }
 
+    fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
+        Some(self.build_prompt_response(option_index, screen))
+    }
+
     fn directory_trust_prompt_response(
         &self,
         screen: &str,
@@ -356,6 +360,10 @@ impl AgentProvider for ClaudeProvider {
         screen: &str,
     ) -> Option<crate::provider::ProviderPromptKeyStep> {
         onboarding::response(screen)
+    }
+
+    fn launch_onboarding_safe_choice(&self, screen: &str) -> Option<String> {
+        onboarding::safe_choice(screen)
     }
 
     fn permission_prompt_response(

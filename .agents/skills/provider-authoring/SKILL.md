@@ -5,6 +5,17 @@ description: "Author and validate JavaScript agent provider plugins for CodeTerm
 
 # Authoring an Agent Provider Plugin
 
+`launchOnboardingSafeChoice(screen)` declares the exact option value associated
+with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
+host requires a unique provider-parsed option, a delegated Worker/Planner role,
+and current launch/prompt evidence before consuming the bound next key. It never
+derives that value from the response's opaque frame key.
+
+For model-bound update responses, a JS `buildPromptResponse` implementation
+declares live-focus navigation; native providers declare it through
+`live_prompt_response`. The generic arrow-down default is unsupported
+for this automatic path. The host consumes one returned step, then re-observes.
+
 How to build a JS drop-in agent provider for CodeTerm — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
 General plugin anatomy (build pipeline, QuickJS sandbox, `host.*` API, the
@@ -242,6 +253,7 @@ instead.
 | `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core writes one key per observed frame only when `isDirectoryTrusted(cwd)` confirms the exact current folder. | `null` — directory-trust dialogs stay with the user. |
 | `isDirectoryTrusted(cwd)` | current tab working directory | bool — true only when the provider's shared configuration explicitly trusts this exact folder; core fails closed on false or errors. | `false` — automatic trust responses stay disabled. |
 | `launchOnboardingResponse(screen)` | live clean screen text | `{frameKey, step}` for the next declared safe key (`step` is base64), or `null` | `null` — owner-facing prompts stay with the owner. Core checks delegated Worker/Planner screen changes off the PTY output path, deduplicates each focus frame, and re-observes after each key. |
+| `launchOnboardingSafeChoice(screen)` | the same live screen | exact provider-parsed safe option value, or `null` | `null` — model-bound onboarding is unsupported without a declared option. |
 | `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
 
 ### Session discovery

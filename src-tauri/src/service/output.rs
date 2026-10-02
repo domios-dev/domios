@@ -32,10 +32,11 @@ pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
 mod prompt_rendering;
 #[cfg(test)]
-pub(super) use manual_update::{claim_manual_update_occurrence, parse_manual_update_prompt};
+pub(super) use manual_update::parse_manual_update_prompt;
 pub(super) use manual_update::{
-    clear_manual_update_occurrence, manual_update_prompt_candidate,
-    parse_manual_update_prompt_with_response, resolve_classified_manual_update_prompt,
+    claim_manual_update_occurrence, clear_manual_update_occurrence, manual_update_prompt_candidate,
+    parse_manual_update_prompt_with_response, release_model_update_step,
+    resolve_classified_manual_update_prompt,
 };
 
 #[cfg(test)]
@@ -233,7 +234,8 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
-        if matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
+        let model_owned = tab_id.is_some() && agent_type.is_some() && self.scrape_model_connected();
+        if !model_owned && matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
             if let (Some(tab_id), Some(agent_type), Some(_)) = (
                 tab_id.as_deref(),
                 agent_type.as_deref(),
@@ -243,7 +245,6 @@ impl ServiceContext {
             }
         }
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
-            let model_owned = self.scrape_model_connected();
             let trust_candidate = if model_owned {
                 self.maybe_detect_agent_session(pid, at);
                 false

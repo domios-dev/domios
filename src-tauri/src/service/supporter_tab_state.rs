@@ -403,7 +403,7 @@ impl ShadowHost for ServiceContext {
             .as_deref()
             .and_then(|pty| self.provider_tree_key_for_tab(&tab.id, pty));
         let tab_snapshot = Some(tab.clone());
-        Ok(TabStateMetadata {
+        let mut metadata = TabStateMetadata {
             envelope: None,
             declared_safe_choice,
             tab_snapshot,
@@ -417,7 +417,11 @@ impl ShadowHost for ServiceContext {
             task_id: task_binding.and_then(|binding| binding.task_id.clone()),
             attempt_id: task_binding.and_then(|binding| binding.attempt_id.clone()),
             prompt_options,
-        })
+        };
+        if matches!(trigger, ObservationTrigger::PromptCandidate) {
+            self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+        }
+        Ok(metadata)
     }
 
     fn deliver(

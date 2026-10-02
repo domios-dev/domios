@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "live_oracle_verified": false,
+  "adapter": "",
+  "model": null,
+  "criteria_hash": "",
+  "heldout_hash": "",
+  "threshold": 0.90,
+  "predicted": 0,
+  "correct": 0,
+  "human_labelled_support": {}
+}

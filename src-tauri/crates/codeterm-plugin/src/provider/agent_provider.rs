@@ -371,6 +371,11 @@ pub trait AgentProvider: Send + Sync {
         steps
     }
 
+    /// Explicit response steps relative to live focus; unsupported or failed hooks abstain.
+    fn live_prompt_response(&self, _option_index: usize, _screen: &str) -> Option<Vec<Vec<u8>>> {
+        None
+    }
+
     /// Recognize this provider's directory-trust dialog on the live screen.
     /// Core sends a key only when `is_directory_trusted` authorizes the exact cwd.
     fn directory_trust_prompt_response(
@@ -395,6 +400,11 @@ pub trait AgentProvider: Send + Sync {
     /// One next key for a provider-declared, safe launch onboarding choice.
     /// The host re-observes the screen before requesting another key.
     fn launch_onboarding_response(&self, _screen: &str) -> Option<ProviderPromptKeyStep> {
+        None
+    }
+
+    /// Exact safe option value for the same narrow onboarding response.
+    fn launch_onboarding_safe_choice(&self, _screen: &str) -> Option<String> {
         None
     }
 

@@ -1,5 +1,5 @@
 mod execute;
-mod qualification;
+pub(crate) mod qualification;
 
 pub(crate) use execute::recover;
 
