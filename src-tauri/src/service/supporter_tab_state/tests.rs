@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::service::pty_io::SendBatchItem;
@@ -12,6 +13,44 @@ fn tab() -> String {
     format!("tab-shadow-{}", NEXT_TAB.fetch_add(1, Ordering::Relaxed))
 }
 
+#[derive(Debug)]
+struct EpisodeStep {
+    name: String,
+    state: state::EpisodeSnapshot,
+}
+
+fn push_episode_step(steps: &Mutex<Vec<EpisodeStep>>, name: impl Into<String>, tab_id: &str) {
+    let state = state::snapshot_episode(tab_id);
+    steps.lock().push(EpisodeStep {
+        name: name.into(),
+        state,
+    });
+}
+
+fn episode_steps_table(steps: &Mutex<Vec<EpisodeStep>>) -> String {
+    let mut table = String::from(
+        "step | session_key | episode | output_sequence | signaled | spawn_observed\n",
+    );
+    for step in steps.lock().iter() {
+        table.push_str(&format!(
+            "{} | {} | {} | {} | {} | {}\n",
+            step.name,
+            step.state.session_key,
+            step.state.episode,
+            step.state.output_sequence,
+            step.state.signaled,
+            step.state.spawn_observed,
+        ));
+    }
+    table
+}
+
+fn screen_hash(screen: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    screen.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[derive(Clone)]
 struct StubHost {
     screen: String,
@@ -20,6 +59,8 @@ struct StubHost {
     models: Arc<SupporterRegistry>,
     token: bool,
     metadata_service: Option<ServiceContext>,
+    session_key: Option<String>,
+    episode_steps: Option<Arc<Mutex<Vec<EpisodeStep>>>>,
     deliveries: Arc<Mutex<Vec<(ObservationTrigger, String, SignalAction)>>>,
     records: Arc<Mutex<Vec<String>>>,
 }
@@ -41,6 +82,8 @@ impl StubHost {
                 models: Arc::new(registry),
                 token: true,
                 metadata_service: None,
+                session_key: None,
+                episode_steps: None,
                 deliveries: Arc::default(),
                 records: Arc::default(),
             },
@@ -79,6 +122,21 @@ impl ShadowHost for StubHost {
                 screen,
             );
         }
+        let session_key = self
+            .session_key
+            .clone()
+            .unwrap_or_else(|| "stub-session".into());
+        if let Some(steps) = &self.episode_steps {
+            let changed = state::screen_changed(tab_id, &session_key, screen_hash(screen));
+            push_episode_step(
+                steps,
+                format!(
+                    "{} metadata screen_changed changed={changed}",
+                    trigger.label()
+                ),
+                tab_id,
+            );
+        }
         Ok(TabStateMetadata {
             context: serde_json::json!({
                 "provider_capability": {"transport": "chat_backend", "display_name": "Fixture"},
@@ -95,7 +153,7 @@ impl ShadowHost for StubHost {
                 "screen_changed": !screen.is_empty(),
                 "observation_event": trigger.label(),
             }),
-            session_key: "stub-session".into(),
+            session_key,
             title: "Fixture worker".into(),
             spawning_tab_id: Some("creator".into()),
             parent_tab_id: Some("parent".into()),
@@ -356,6 +414,207 @@ fn tab_state_healthy_spawn_is_spawn_ok_without_action() {
         )]
     );
     assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn tab_state_hook_binding_sequence_keeps_spawn_observation() {
+    let tab_id = tab();
+    let pty_id = "claude-pty-b57c3888".to_owned();
+    let launch_key = state::launch_episode_key(&tab_id, Some(&pty_id), Some(Instant::now()));
+    let steps = Arc::new(Mutex::new(Vec::new()));
+    push_episode_step(
+        &steps,
+        "set_tab_agent_type origin=Spawn; agent-launch",
+        &tab_id,
+    );
+    let (mut mux, identity_tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&identity_tab_id, pty_id.clone());
+    let identity = {
+        let tab = mux
+            .get_tab_mut(&identity_tab_id)
+            .expect("identity fixture tab");
+        tab.agent_type = Some("claude".into());
+        tab.agent_set_at = Some(Instant::now());
+        Arc::new(Mutex::new(tab.clone()))
+    };
+
+    let model_steps = steps.clone();
+    let model_tab = tab_id.clone();
+    let model_key = launch_key.clone();
+    let model_identity = identity.clone();
+    let model = StubModel::answering_with_hook(Ok(choice(READY_IDLE, 0.95)), move || {
+        push_episode_step(
+            &model_steps,
+            "launch-readiness observed; SpawnReady claim",
+            &model_tab,
+        );
+        push_episode_step(&model_steps, "hook_session_start received", &model_tab);
+
+        let changed = state::screen_changed(
+            &model_tab,
+            &model_key,
+            screen_hash("Claude session-start screen"),
+        );
+        push_episode_step(
+            &model_steps,
+            format!("session-binding event; metadata screen_changed={changed}"),
+            &model_tab,
+        );
+
+        let hook_key = {
+            let mut identity = model_identity.lock();
+            let write = crate::agent::provider_identity::apply_provider_identity(
+                &mut identity,
+                "claude".into(),
+                true,
+                crate::session::lifecycle::AgentTypeWriteOrigin::Hook,
+            );
+            assert!(matches!(
+                write,
+                crate::agent::provider_identity::ProviderIdentityWrite::Applied { .. }
+            ));
+            state::launch_episode_key(
+                &model_tab,
+                identity.pty_id.as_deref(),
+                identity.agent_set_at,
+            )
+        };
+        assert_eq!(hook_key, model_key);
+        push_episode_step(
+            &model_steps,
+            format!("set_tab_agent_type origin=Hook prev=claude new=claude; key={hook_key}"),
+            &model_tab,
+        );
+
+        let escalation =
+            state::claim_observation(&model_tab, &hook_key, ObservationEvent::StartupEscalation)
+                .expect("the existing escalation event can claim this episode");
+        push_episode_step(&model_steps, "StartupEscalation trigger claim", &model_tab);
+        let action = state::apply_observed_verdict(
+            &model_tab,
+            &hook_key,
+            &escalation,
+            READY_IDLE,
+            0.95,
+            true,
+            true,
+        )
+        .expect("the escalation verdict belongs to its claimed episode");
+        assert_eq!(action, SignalAction::WeakHint);
+        push_episode_step(
+            &model_steps,
+            "StartupEscalation verdict applied as one informational hint",
+            &model_tab,
+        );
+
+        let acknowledgement =
+            state::claim_observation(&model_tab, &hook_key, ObservationEvent::SpawnReady);
+        assert_eq!(
+            acknowledgement,
+            Err(state::PermitError::SpawnAlreadyObserved)
+        );
+        push_episode_step(
+            &model_steps,
+            "launch-readiness acknowledged on the same PTY",
+            &model_tab,
+        );
+        push_episode_step(
+            &model_steps,
+            "session-model None -> sonnet; agent ready after 909 ms",
+            &model_tab,
+        );
+        push_episode_step(
+            &model_steps,
+            "hook_session_start session - -> 943d714a",
+            &model_tab,
+        );
+
+        state::note_output(&model_tab);
+        push_episode_step(
+            &model_steps,
+            "output_feed::on_output -> note_output",
+            &model_tab,
+        );
+        let changed = state::screen_changed(
+            &model_tab,
+            &hook_key,
+            screen_hash("Claude session-start screen with redraw"),
+        );
+        push_episode_step(
+            &model_steps,
+            format!("ServiceContext::metadata -> screen_changed={changed}"),
+            &model_tab,
+        );
+    });
+    let (mut host, calls, _) = StubHost::new("Claude initial launch screen", model);
+    host.session_key = Some(launch_key);
+    host.episode_steps = Some(steps.clone());
+
+    let verdict = observe_guarded(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab_id,
+        ObservationTrigger::SpawnReady,
+        "healthy_launch",
+    );
+    push_episode_step(&steps, "verdict returned; stale check completed", &tab_id);
+
+    let spawn_ok_count = host
+        .deliveries
+        .lock()
+        .iter()
+        .filter(|(_, _, action)| *action == SignalAction::SpawnOk)
+        .count();
+    let stale_discarded = host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("stale observation discarded"));
+    assert!(
+        verdict.as_ref().is_some_and(|verdict| verdict.label == READY_IDLE)
+            && spawn_ok_count == 1,
+        "Claude hook-binding launch should yield one spawn-ok; verdict={verdict:?}, spawn_ok_count={spawn_ok_count}, stale_discarded={stale_discarded}\n{}",
+        episode_steps_table(&steps),
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn tab_state_opencode_sequence_control() {
+    let tab_id = tab();
+    let pty_id = "opencode-pty-control";
+    let launch_key = state::launch_episode_key(&tab_id, Some(pty_id), Some(Instant::now()));
+    let model = StubModel::answering(Ok(choice(READY_IDLE, 0.95)));
+    let (mut host, calls, _) = StubHost::new("OpenCode ready screen", model);
+    host.session_key = Some(launch_key);
+
+    let verdict = observe_guarded(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab_id,
+        ObservationTrigger::SpawnReady,
+        "healthy_launch",
+    );
+
+    assert_eq!(verdict.expect("OpenCode spawn verdict").label, READY_IDLE);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.deliveries
+            .lock()
+            .iter()
+            .filter(|(_, _, action)| *action == SignalAction::SpawnOk)
+            .count(),
+        1
+    );
+    assert!(!host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("stale observation discarded")));
 }
 
 #[test]
