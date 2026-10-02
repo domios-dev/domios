@@ -60,8 +60,11 @@ The tools use headless Edge through the native DevTools protocol, not Playwright
 
 ```powershell
 node motion-lab/tools/inspect.mjs C:/path/to/agent-pad/previews
+node motion-lab/tools/record.mjs C:/path/to/agent-pad/recordings
 ```
 
-Inspection covers every study at desktop/mobile widths in both themes, no horizontal overflow, image decoding, keyboard tab activation/focus, and all four reduced-motion fallbacks. It saves screenshots and `browser-checks.json`. The `motion-seek` DOM event on the hero SVG is a deterministic recording seam; it freezes and seeks the illustrative timeline. It is not a product protocol.
+Inspection covers every study at desktop/mobile widths in both themes, no horizontal overflow, image decoding, keyboard tab activation/focus, paused interactions, the hero's frame cadence and pause, and all four reduced-motion fallbacks. It saves screenshots and `browser-checks.json`. The `motion-seek` DOM event on the hero SVG is a deterministic recording seam; it freezes and seeks the illustrative timeline. It is not a product protocol.
+
+Recording requires `ffmpeg` on PATH and writes four H.264 MP4s plus `recordings.json`. It deterministically seeks actual browser animations at 30fps, driving pointer and selection events for interactions. Each clip includes light and dark themes; the script refuses a result of 3MB or more. These are browser-rendered previews, not evidence of real-time frame rate; the separate frame sample supplies that observation.
 
 Recordings and visual evidence belong in the AgentPad and the integration report, never committed assets.
