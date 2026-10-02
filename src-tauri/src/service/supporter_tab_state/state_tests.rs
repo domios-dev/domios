@@ -135,6 +135,29 @@ fn tab_state_launch_key_is_stable_across_binding() {
 }
 
 #[test]
+fn tab_state_launch_current_ignores_output() {
+    let tab_id = tab();
+    let permit = claim_observation(&tab_id, "launch-1", ObservationEvent::SpawnReady).unwrap();
+    for _ in 0..3 {
+        note_output(&tab_id);
+    }
+
+    assert!(permit_is_current_for_launch(&tab_id, "launch-1", &permit));
+    assert!(!permit_is_current(&tab_id, "launch-1", &permit));
+    assert!(!permit_is_current_for_launch(
+        &tab_id,
+        "next-launch",
+        &permit
+    ));
+
+    let bumped = tab();
+    let permit = claim_observation(&bumped, "launch-1", ObservationEvent::SpawnReady).unwrap();
+    apply_verdict(&bumped, "launch-1", "error_loop", 0.9, true, true);
+    note_output(&bumped);
+    assert!(!permit_is_current_for_launch(&bumped, "launch-1", &permit));
+}
+
+#[test]
 fn tab_state_busy_event_is_once_until_new_output() {
     let tab = tab();
     assert!(claim_observation(&tab, "launch-1", ObservationEvent::BusyNoOutput).is_ok());

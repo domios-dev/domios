@@ -244,6 +244,7 @@ pub(crate) fn apply_observed_verdict(
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn permit_is_current(
     tab_id: &str,
     session_key: &str,
@@ -255,6 +256,17 @@ pub(crate) fn permit_is_current(
             && state.episode == permit.episode
             && state.output_sequence == permit.output_sequence
     })
+}
+
+/// Spawn-ok asserts launch health, so only launch identity and episode invalidate it.
+pub(crate) fn permit_is_current_for_launch(
+    tab_id: &str,
+    session_key: &str,
+    permit: &ObservationPermit,
+) -> bool {
+    let all = episodes().lock();
+    all.get(tab_id)
+        .is_some_and(|state| state.session_key == session_key && state.episode == permit.episode)
 }
 
 fn apply_verdict_to_state(
