@@ -444,6 +444,7 @@ pub fn mux_create_tab(
     eager: Option<bool>,
 ) -> Result<TabInfo, String> {
     let tab_id = svc.create_tab(&workspace_id)?;
+    crate::service::supporter_notify::record_ui_origin(&tab_id);
     if eager.unwrap_or(false) {
         svc.ensure_tab_pty_for_send(&tab_id)?;
     }
@@ -709,7 +710,7 @@ pub async fn mux_spawn_tab(
     params: crate::service::transport::AtomicSpawnParams,
 ) -> Result<crate::service::transport::AtomicSpawn, String> {
     let svc = svc.inner().clone();
-    tokio::task::spawn_blocking(move || svc.spawn_tab_atomic(params))
+    tokio::task::spawn_blocking(move || svc.spawn_tab_atomic_from_ui(params))
         .await
         .map_err(|error| format!("atomic spawn task failed: {error}"))?
 }

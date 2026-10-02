@@ -99,6 +99,25 @@ impl Journal {
         result
     }
 
+    pub(super) fn claim_notification(&self, key: &str) -> io::Result<bool> {
+        let path = self.path.with_file_name("notification-keys.json");
+        let mut keys: std::collections::BTreeSet<String> = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Default::default(),
+            Err(error) => return Err(error),
+        };
+        if keys.contains(key) {
+            return Ok(false);
+        }
+        if keys.len() >= 4096 {
+            return Err(io::Error::other("notification journal index is full"));
+        }
+        keys.insert(key.into());
+        self.append(&serde_json::json!({ "time": chrono::Utc::now().timestamp(), "kind": "notification_claim", "key": key }))?;
+        codeterm_util::atomic_write::write_atomic(&path, serde_json::to_vec(&keys)?)?;
+        Ok(true)
+    }
+
     pub(super) fn append(&self, value: &Value) -> io::Result<()> {
         let mut bytes = serde_json::to_vec(value)?;
         bytes.push(b'\n');
@@ -134,7 +153,8 @@ impl Journal {
         }
         let mut file = options.open(&self.path)?;
         file.write_all(&bytes)?;
-        file.flush()
+        file.flush()?;
+        file.sync_all()
     }
 }
 

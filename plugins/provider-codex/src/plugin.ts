@@ -1,3 +1,4 @@
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import type {
   LaunchParams,
   LaunchSessionDetection,
@@ -239,6 +240,8 @@ const plugin: PluginModule = {
     }
     return events;
   },
+
+  updatePromptSafeChoice,
 
   parsePrompt(text: string): ParsedPrompt | null {
     return parseCodexPrompt(String(text || ""));

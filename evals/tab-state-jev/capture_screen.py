@@ -218,14 +218,19 @@ def label(args: argparse.Namespace) -> int:
         context=context,
     )
     record["source"] = f"{CAPTURE_SOURCE}; human-labelled by {args.by.strip()}"
-    write_jsonl(LIVE_INPUT, read_jsonl(LIVE_INPUT) + [record])
+    output = HERE / "heldout.jsonl" if getattr(args, "set", "tuning") == "heldout" else LIVE_INPUT
+    if output.name == "heldout.jsonl":
+        from heldout import assert_separate
+        from run import read_dataset
+        assert_separate(read_jsonl(output) + [record], read_dataset(HERE / "screens.jsonl", require_coverage=False))
+    write_jsonl(output, read_jsonl(output) + [record])
     write_jsonl(PENDING, [row for row in rows if row["id"] != args.id])
     state = read_json(CAPTURE_STATE, {})
     if not isinstance(state, dict):
         state = {}
     state[tab_id] = screen_hash
     CAPTURE_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"{args.id} labelled in {LIVE_INPUT.name}")
+    print(f"{args.id} labelled in {output.name}")
     return 0
 
 
@@ -253,6 +258,7 @@ def parse_args() -> argparse.Namespace:
     assign.add_argument("--id", required=True)
     assign.add_argument("--label", required=True)
     assign.add_argument("--by", required=True)
+    assign.add_argument("--set", choices=("tuning", "heldout"), default="tuning")
     assign.set_defaults(run=label)
     reject = commands.add_parser("drop", help="discard an unlabelled capture")
     reject.add_argument("--id", required=True)

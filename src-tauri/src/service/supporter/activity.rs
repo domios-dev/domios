@@ -183,6 +183,18 @@ impl SupporterRuntime {
         let _ = self.append(value);
     }
 
+    pub(crate) fn try_action(&self, record: ActionRecord<'_>) -> std::io::Result<()> {
+        let mut value = serde_json::to_value(record)?;
+        let now = chrono::Utc::now().timestamp_millis();
+        value["time"] = json!(now / 1000);
+        self.activity.lock().last_activity = Some(now);
+        self.append(value)
+    }
+
+    pub(crate) fn claim_notification(&self, key: &str) -> std::io::Result<bool> {
+        self.journal.lock().claim_notification(key)
+    }
+
     pub(crate) fn status(&self, cap: usize) -> Value {
         self.status_at(cap, chrono::Utc::now().timestamp_millis())
     }

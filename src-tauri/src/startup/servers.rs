@@ -311,12 +311,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
-            let w_svc = svc.clone();
-            let w_mux = mux.clone();
-            let w_pty = pty.clone();
-            let w_screen = screen_state.clone();
-            let w_config = config_state.clone();
-            let w_app = app_h.clone();
             let frontend_ready_deadline =
                 std::time::Instant::now() + std::time::Duration::from_secs(30);
 
@@ -338,11 +332,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                     &app_h,
                 );
             });
-
-            // Start watchdog on separate thread (waits 30s before first check)
-            service::general_agent::start_watchdog(
-                &w_svc, &w_mux, &w_pty, &w_screen, &w_config, &w_app,
-            );
         }
     }
     start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);

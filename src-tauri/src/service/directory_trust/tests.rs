@@ -465,7 +465,7 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn provenance_never_answers_trust_for_a_repository_the_provider_reports_untrusted() {
+fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
     let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/untrusted"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -481,12 +481,19 @@ fn provenance_never_answers_trust_for_a_repository_the_provider_reports_untruste
     let decision = fixture
         .service
         .respond_to_directory_trust(&tab_id, Some("recognized trust prompt"));
-    assert_eq!(decision, TrustDecision::NotApplicable);
+    assert_eq!(
+        decision,
+        TrustDecision::Answer {
+            step: b"\r".to_vec()
+        }
+    );
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-untrusted-repo"),
-        0,
-        "the owner answers an untrusted repository's trust dialog"
+        1
     );
+    assert!(fixture.service.notif.lock().list(false).iter().all(
+        |notice| notice.level != Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
+    ));
 }
 
 #[test]

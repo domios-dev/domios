@@ -99,7 +99,7 @@ cors = false
 enabled = true
 agent_provider = "claude"       # Agent command to use
 auto_restart = true             # Auto-restart on crash
-max_restart_attempts = 3
+max_restart_attempts = 2
 restart_delay_s = 60
 
 [integrations]
@@ -218,13 +218,33 @@ The General Agent is an always-on Claude Code instance that lives in the "Genera
 enabled = true                  # Enable the General Agent
 agent_provider = "claude"       # Agent command (default: claude)
 auto_restart = true             # Auto-restart if agent crashes
-max_restart_attempts = 3        # Max restart attempts before giving up
-restart_delay_s = 60            # Seconds between restart attempts
+max_restart_attempts = 2        # Effective maximum is two per recovery episode
+restart_delay_s = 60            # Retained setting; event recovery does not wait
 ```
 
 When enabled, CodeTerm starts with a single "General" workspace instead of the default "Main" workspace. The General Agent tab is marked as protected (cannot be closed via UI).
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
+
+Recovery observes launch settlement, startup deadlines, PTY death, provider exit to a surviving shell, idle and busy without output. The watchdog uses those events and checks shutdown, launch grace, PTY liveness and restart bounds when each event occurs. A live PTY never authorizes a restart from screen evidence. Confirmed dead-PTY recovery retains the watchdog predicates independently of model availability.
+
+The connected observer ignores confidence below 0.60. Model-only owner notifications require two agreeing observations at or above 0.80; model-authorized automatic actions require both observations at or above 0.90 and deterministic evidence:
+
+| State | Recovery authority |
+|---|---|
+| Update prompt | Manual-update prompt, provider-declared safe option and matching model choice at 0.90; otherwise notify. Answers use the prompt option API. |
+| Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
+| Starting past deadline | One restart, with provider absence or a dead PTY. |
+| Error loop | One restart, then notify; provider absence or a dead PTY is required. |
+| Login or unavailable model/quota | Owner notification with choices. |
+| Folder trust | Existing trust responder checks provenance, shared trust cache or a live same-provider tab with a verified session in the exact canonical directory. |
+| Command/tool permission | The tab's own permission policy; the observer does not approve it. |
+| Other | No recovery. |
+
+Automatic model recovery remains disabled until a separate human-labelled held-out set reaches 0.95 precision in the 0.90 automatic band and the live recovery oracle is recorded. Each automatic dispatch first writes the Supporter journal and emits a verbose notification. At most two automatic restarts are reserved durably per General Agent episode, even if configured higher. Exhaustion emits one failure notification and stops recovery until an owner restart resets the episode.
+
+UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
+
 
 ## Worker lane provisioning
 
@@ -234,4 +254,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

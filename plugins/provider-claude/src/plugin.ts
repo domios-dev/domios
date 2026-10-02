@@ -1,3 +1,4 @@
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type {
   LaunchParams,
@@ -263,6 +264,8 @@ const plugin: PluginModule = {
     }
     return events;
   },
+
+  updatePromptSafeChoice,
 
   parsePrompt(text: string): ParsedPrompt | null {
     const onboarding = claudeOnboardingPrompt(text);

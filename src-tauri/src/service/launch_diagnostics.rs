@@ -264,6 +264,12 @@ pub(crate) fn log_launch_with_parameters(
     model: Option<&str>,
     reasoning_effort: Option<&str>,
 ) {
+    if origin != AgentLaunchOrigin::GeneralAgent {
+        crate::service::supporter_notify::record_launch(
+            tab_id,
+            origin == AgentLaunchOrigin::RestoredSnapshot,
+        );
+    }
     let prompt_bytes = prompt.map(str::len).unwrap_or(0);
     log::info!(
         "[agent-launch] origin={} tab={} provider={} role={} role_profile={} model={} effort={} prompt_delivery={} prompt_present={} prompt_bytes={} prompt_sha256={} command_bytes={} command_sha256={} child_exit=unavailable(pty) stderr=pty",

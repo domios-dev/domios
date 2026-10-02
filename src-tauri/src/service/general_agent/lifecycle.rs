@@ -327,6 +327,14 @@ pub fn start_general_agent(
             }
         }
     };
+    let restored = mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.restored_from_snapshot);
+    crate::service::supporter_notify::record_launch(&tab_id, restored);
+    let _restore_observation =
+        crate::service::supporter_notify::begin_restore_observation(svc, &tab_id);
+    svc.clear_tab_restored_flag(&tab_id);
     let _automatic_launch_claim = match AutomaticLaunchClaim::acquire(mux, &tab_id) {
         Ok(claim) => claim,
         Err(error) => {
@@ -715,6 +723,15 @@ pub fn start_general_agent(
         tab.agent_booting = false;
     }
     svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
+    svc.observe_tab_state(
+        &tab_id,
+        crate::service::supporter_tab_state::ObservationTrigger::SpawnReady,
+        "general_agent_launch_ready",
+    );
+    let settled_tab = { mux.read().get_tab(&tab_id).cloned() };
+    if let Some(tab) = settled_tab {
+        svc.general_agent_watchdog_event(&tab, super::WatchdogEvent::LaunchSettlement);
+    }
     svc.emit_state_changed();
     log::info!(
         "[general-agent] Started successfully (tab={}, pty={})",
@@ -734,7 +751,35 @@ pub fn restart_general_agent(
     app: &tauri::AppHandle,
 ) {
     log::info!("[general-agent] Manual restart requested");
+    if let Err(error) = super::recovery_episode::store().reset_by_owner() {
+        log::error!("[general-agent] Cannot reset recovery episode: {error}");
+        return;
+    }
 
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+}
+
+pub(crate) fn restart_general_agent_fresh_after_exit(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    state::require_fresh_session()?;
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+    Ok(())
+}
+
+fn restart_general_agent_inner(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) {
     let mut stale_pty_id = None;
     let mut general_tab_id = None;
     {

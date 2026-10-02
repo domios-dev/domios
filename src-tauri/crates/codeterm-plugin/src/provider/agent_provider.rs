@@ -507,6 +507,13 @@ pub trait AgentProvider: Send + Sync {
         events
     }
 
+    fn update_prompt_safe_choice(
+        &self,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+    ) -> Option<String> {
+        None
+    }
+
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         crate::detector::parse_permission_prompt(text)
             .map(|(question, options)| crate::prompt::build_prompt(question, options))

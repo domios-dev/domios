@@ -1,3 +1,5 @@
+mod live_peer;
+
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
@@ -372,15 +374,6 @@ impl ServiceContext {
         });
     }
 
-    fn provider_reports_folder_untrusted(&self, agent_type: &str, cwd: &str) -> bool {
-        self.agent_registry
-            .with_provider(agent_type, |provider| {
-                provider.directory_trust_state(&codeterm_paths::strip_verbatim_prefix(cwd), false)
-            })
-            .flatten()
-            == Some(codeterm_plugin::provider::DirectoryTrustState::Untrusted)
-    }
-
     fn schedule_cached_shared_responder(&self, tab_id: &str, cwd: &str) {
         let service = self.clone();
         let tab = tab_id.to_string();
@@ -498,6 +491,23 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn deterministic_directory_trust_covers(&self, tab_id: &str) -> bool {
+        let tab = { self.mux.read().get_tab(tab_id).cloned() };
+        let Some(tab) = tab else {
+            return false;
+        };
+        let Some((provider, cwd)) = tab.agent_type.as_deref().zip(tab.cwd.as_deref()) else {
+            return false;
+        };
+        directory_trust_provenance(&tab).is_ok()
+            || SHARED_TRUST
+                .lock()
+                .trusted
+                .get(&(provider.into(), cwd.into()))
+                == Some(&true)
+            || self.directory_trusted_by_live_peer(tab_id, provider, cwd)
+    }
+
     pub(crate) fn respond_to_directory_trust(
         &self,
         tab_id: &str,
@@ -529,21 +539,16 @@ impl ServiceContext {
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
-        if provisioned && self.provider_reports_folder_untrusted(&agent_type, &cwd) {
-            // Provenance never grants a repository the owner has not trusted; the owner answers it.
-            self.note_directory_trust(tab_id, "repository is not owner-trusted", Some(&screen));
-            return TrustDecision::NotApplicable;
-        }
-        if !provisioned {
+        let trusted = provisioned
+            || self.directory_trusted_by_live_peer(tab_id, &agent_type, &cwd)
+            || SHARED_TRUST
+                .lock()
+                .trusted
+                .get(&(agent_type.clone(), cwd.clone()))
+                == Some(&true);
+        if !trusted {
             self.schedule_shared_trust_lookup(tab_id, &agent_type, &cwd);
-            let cache = SHARED_TRUST.lock();
-            let key = (agent_type, cwd.clone());
-            // An in-flight lookup still publishes the prompt, so the owner can answer it meanwhile.
-            return if cache.trusted.get(&key) == Some(&true) {
-                TrustDecision::Waiting
-            } else {
-                TrustDecision::NotApplicable
-            };
+            return TrustDecision::NotApplicable;
         }
         let decision = decide(true, tab_id, &screen, &LEDGER, |screen| {
             self.provider_directory_trust_response(&agent_type, screen)
@@ -589,6 +594,20 @@ impl ServiceContext {
         let DirectoryTrustPromptResponse::Answer { step } = response else {
             return;
         };
+        if super::supporter::runtime()
+            .try_action(super::supporter::ActionRecord {
+                kind: super::supporter::VerdictKind::TabState,
+                tab: Some(tab_id),
+                label: "trust_or_permission_prompt",
+                confidence: 1.0,
+                action: super::supporter::Action::Recovery,
+                reason: "deterministic_directory_trust",
+            })
+            .is_err()
+        {
+            return;
+        }
+        super::supporter_notify::verbose(self, tab_id, "Folder trust response authorized", "The existing trust responder authorized this directory and its provider-declared trust option.");
         self.prompt_detector.lock().mark_responded(tab_id);
         let svc = self.clone();
         let tab = tab_id.to_string();
@@ -802,6 +821,7 @@ impl ServiceContext {
                 .get_tab(tab_id)
                 .is_some_and(directory_trust_check_applies);
             let eligible = provisioned
+                || self.directory_trusted_by_live_peer(tab_id, agent_type, &cwd)
                 || SHARED_TRUST
                     .lock()
                     .trusted

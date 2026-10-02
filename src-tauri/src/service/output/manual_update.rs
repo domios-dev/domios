@@ -110,6 +110,18 @@ pub(crate) fn resolve_classified_manual_update_prompt(
     prompt: crate::multiplexer::types::PendingPrompt,
     skip_value: Option<String>,
 ) -> Option<crate::service::tab::RespondPromptOutcome> {
+    let model_owned = service.general_agent_model_recovery_connected(&snapshot.tab_id);
+    resolve_manual_update_with_model_gate(service, snapshot, prompt, skip_value, model_owned)
+}
+
+pub(super) fn resolve_manual_update_with_model_gate(
+    service: &ServiceContext,
+    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+    prompt: crate::multiplexer::types::PendingPrompt,
+    skip_value: Option<String>,
+    model_owned: bool,
+) -> Option<crate::service::tab::RespondPromptOutcome> {
+    let skip_value = if model_owned { None } else { skip_value };
     let decision = service.prompt_detector.lock().evaluate_pty_output_parsed(
         &snapshot.tab_id,
         true,
@@ -137,7 +149,7 @@ pub(crate) fn resolve_classified_manual_update_prompt(
         Some(&snapshot.screen_text),
         codeterm_types::pty::PromptKind::ManualUpdate,
         true,
-        !auto_response_declared,
+        !auto_response_declared && !model_owned,
     );
     if let Some(value) = skip_value {
         let identity = codeterm_types::pty::PromptIdentity::new(

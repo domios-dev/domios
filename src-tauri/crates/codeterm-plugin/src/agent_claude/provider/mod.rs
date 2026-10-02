@@ -296,6 +296,13 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_claude_events(text)
     }
 
+    fn update_prompt_safe_choice(
+        &self,
+        prompt: &codeterm_types::pty::PendingPrompt,
+    ) -> Option<String> {
+        crate::update_prompt::safe_choice(prompt)
+    }
+
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         onboarding::parse(text)
             .map(|prompt| (prompt.question, prompt.options))
