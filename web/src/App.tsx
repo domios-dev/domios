@@ -11,6 +11,7 @@ import { useMediaQuery, useTheme } from './usePreferences';
 import { DownloadControl } from './download/DownloadControl';
 import { useDownload } from './download/useDownload';
 import { DownloadFeedback } from './download/DownloadFeedback';
+import { useBrandEntrance } from './brand/useBrandEntrance';
 
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
@@ -26,10 +27,11 @@ export function App() {
   const download = useDownload();
   const { theme, toggle } = useTheme();
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  return <div className="site" data-motion={reducedMotion ? 'paused' : 'playing'}>
+  const entrance = useBrandEntrance(reducedMotion);
+  return <div className="site" data-motion={reducedMotion ? 'paused' : 'playing'} data-entrance={entrance.state}>
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="site-header section-wrap">
-      <a className="brand" href="#" aria-label="Domios home"><BrandMark motion="load" />domios</a>
+      <a className="brand" href="#" aria-label="Domios home"><BrandMark motion="load" onRest={entrance.onRest} />domios</a>
       <nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="#foundation">Why Domios</a><a href={github} className="nav-github">GitHub <span aria-hidden="true">↗</span></a></nav>
       <div className="header-actions"><button className="theme-control" role="switch" aria-checked={theme === 'dark'} aria-label="Dark theme" onClick={toggle}><Icon name="sun" size={15} /><span className="liquid-toggle"><span className="toggle-knob" /></span><Icon name="moon" size={15} /></button><a className="button button-small" href={download.href} data-download-trigger="header" onClick={event => download.onClick(event)} aria-label={download.label}>Download<Icon name="download" size={15} /></a></div>
     </header>
@@ -38,7 +40,7 @@ export function App() {
         <a className="hero-badge" href="#explore"><BrandMark />THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
         <p className="hero-copy">Domios runs on every machine you own, joined in one trusted mesh. Agents on your laptop, desktop, and servers reach each other and work as one team.</p>
-        <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} />Find us on GitHub<Icon name="arrow" size={16} /></a></div>
+        <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} /><span>Find us on GitHub</span><Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
         <AgentNetwork />
       </section>
