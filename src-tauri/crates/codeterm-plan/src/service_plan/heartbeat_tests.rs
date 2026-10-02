@@ -789,3 +789,43 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
         .unwrap();
     assert_outstanding(&store, &plan_id, 1);
 }
+
+#[test]
+fn heartbeat_gate_selected_learnings_render_at_most_three_and_fallback_preserves_baseline() {
+    let (_dir, store, plan_id) = store_with_plan("owner");
+    let fragments: Vec<_> = (0..5)
+        .map(|index| format!("opaque learning token {index}"))
+        .collect();
+    let ids: Vec<_> = fragments
+        .iter()
+        .enumerate()
+        .map(|(index, fragment)| {
+            store
+                .add_heartbeat_learning(
+                    Some(&plan_id),
+                    None,
+                    None,
+                    fragment,
+                    None,
+                    20 + index as u64,
+                )
+                .unwrap()
+                .learning
+                .id
+        })
+        .collect();
+    let payload = "opaque delivered payload";
+    let digests = vec!["opaque digest".into()];
+    let selected =
+        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, Some(&ids));
+    for (index, fragment) in fragments.iter().enumerate() {
+        assert_eq!(selected.contains(fragment), index < 3);
+    }
+    assert!(selected.contains(payload));
+    let baseline = store.prepend_heartbeat_for_plan_with_digests(&plan_id, payload, &digests);
+    assert_eq!(
+        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, None),
+        baseline
+    );
+    assert_eq!(store.get(&plan_id).unwrap().heartbeat.learnings.len(), 5);
+}

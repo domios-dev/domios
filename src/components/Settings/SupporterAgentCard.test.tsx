@@ -152,7 +152,9 @@ function installFetch() {
       };
     }
     const isWrite = method !== "GET";
-    const responseBody = url.endsWith("/api/supporter/models")
+    const responseBody = url.includes("/api/supporter/activity")
+      ? { entries: [] }
+      : url.endsWith("/api/supporter/models")
       ? MODELS
       : method === "POST" && url.endsWith("/api/supporter/token")
         ? { adapter: ADAPTER, present: true, path: "/x/y.json", mode_ok: true }
@@ -171,7 +173,7 @@ function installFetch() {
 
 async function render(onOpenGuide: (section: HelpSectionId) => void = () => {}) {
   await act(async () => {
-    root.render(<SupporterAgentCard apiBase={API} apiHeaders={AUTH} onOpenGuide={onOpenGuide} />);
+    root.render(<SupporterAgentCard api={{ enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: false }} apiBase={API} apiHeaders={AUTH} onOpenGuide={onOpenGuide} />);
   });
   await act(async () => {});
 }
