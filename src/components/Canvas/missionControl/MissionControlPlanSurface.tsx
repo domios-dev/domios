@@ -260,6 +260,8 @@ export function MissionControlPlanSurface({
         />
         {showsData && !selectedPlan && team && (
           <MissionControlTeamBoard
+            teamId={boardTeamId}
+            api={api}
             team={team}
             teamSpend={teamSpend}
             deepLinks={deepLinks}
@@ -278,6 +280,7 @@ export function MissionControlPlanSurface({
         )}
         {showsData && selectedPlan && (
           <MissionControlBoard
+            api={api}
             plan={selectedPlan}
             state={boardState.state}
             loading={boardState.loading}

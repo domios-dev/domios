@@ -753,6 +753,10 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(mem_routes::decision::supporter_token_clear),
         )
         .route(
+            "/api/supporter/activity",
+            get(mem_routes::decision::supporter_feed),
+        )
+        .route(
             "/api/supporter/status",
             get(mem_routes::decision::supporter_status),
         )

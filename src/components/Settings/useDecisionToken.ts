@@ -56,10 +56,11 @@ export interface SupporterStatus {
   >;
   budget: {
     reached: boolean;
-    calls_per_hour: number;
+    calls_per_hour: number | null;
     free_at: number | null;
     storage_ready: boolean;
   };
+  pricing?: { display_name: string; input_usd_per_million: number; output_usd_per_million: number } | null;
   spend: SupporterSpend;
   token: SupporterTokenStatus;
   adapter_registered: boolean;

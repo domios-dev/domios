@@ -12,7 +12,7 @@ fn config_bounds_table_enforced() {
                 .unwrap_or_else(|error| panic!("default config violates {}: {error}", bound.path));
         }
         match bound.kind {
-            ValueKind::Integer | ValueKind::Number => {
+            ValueKind::Integer | ValueKind::OptionalInteger | ValueKind::Number => {
                 assert!(bound.min.is_some());
                 assert!(bound.max.is_some());
             }
@@ -156,16 +156,39 @@ fn supporter_bounds_reject_out_of_range() {
 
 #[test]
 fn supporter_calls_per_hour_bounds() {
-    for cap in [0, 100001] {
+    for cap in [100001] {
         let mut config = AppConfig::default();
-        config.supporter.calls_per_hour = cap;
+        config.supporter.calls_per_hour = Some(cap);
         assert!(validate_app_config(&config)
             .unwrap_err()
             .contains("supporter.calls_per_hour"));
     }
-    for cap in [1, 600, 100000] {
+    for cap in [0, 1, 600, 100000] {
         let mut config = AppConfig::default();
-        config.supporter.calls_per_hour = cap;
+        config.supporter.calls_per_hour = Some(cap);
         validate_app_config(&config).unwrap();
+    }
+}
+
+#[test]
+fn supporter_optional_cap_accepts_absent_null_and_zero() {
+    validate_app_config(&AppConfig::default()).unwrap();
+    for value in [
+        serde_json::Value::Null,
+        serde_json::json!(0),
+        serde_json::json!(100000),
+    ] {
+        validate_config_value(&serde_json::json!({ "supporter": { "calls_per_hour": value } }))
+            .unwrap();
+    }
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(100001),
+    ] {
+        assert!(validate_config_value(
+            &serde_json::json!({ "supporter": { "calls_per_hour": value } })
+        )
+        .is_err());
     }
 }

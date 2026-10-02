@@ -171,3 +171,18 @@ fn supporter_status_renders_usage_balance_and_credit_exhaustion() {
     assert!(text.contains("remaining USD: 4.958 (estimate)"));
     assert!(text.contains("next request probe after 1700003600"));
 }
+
+#[test]
+fn supporter_status_optional_request_cap_is_positive_only() {
+    use crate::cmd::supporter_render::request_cap;
+    for cap in [serde_json::Value::Null, json!(0)] {
+        assert_eq!(
+            request_cap(&json!({ "budget": { "calls_per_hour": cap } })),
+            None
+        );
+    }
+    assert_eq!(
+        request_cap(&json!({ "budget": { "calls_per_hour": 120 } })),
+        Some(120)
+    );
+}

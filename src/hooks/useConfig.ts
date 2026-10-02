@@ -78,7 +78,7 @@ export function defaultConfig(): AppConfig {
       endpoint: null,
       model: "jev-latest",
       deadline_ms: 3000,
-      calls_per_hour: 600,
+      calls_per_hour: null,
       memory_rerank: {
         docs_hybrid: false,
         sources: { recall: 30, graph: 3, docs: 3, sessions: 0 },
