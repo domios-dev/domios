@@ -229,18 +229,36 @@ fn supporter_low_balance_owner_notification_is_journaled_once() {
 fn supporter_first_opinion_physical_requests_counted_per_real_request() {
     struct Local;
     impl DecisionModel for Local {
-        fn id(&self) -> &str { "local" }
-        fn token_mode(&self) -> TokenMode { TokenMode::None }
-        fn primitives(&self) -> DecisionPrimitives { DecisionPrimitives { noul: true, ..Default::default() } }
+        fn id(&self) -> &str {
+            "local"
+        }
+        fn token_mode(&self) -> TokenMode {
+            TokenMode::None
+        }
+        fn primitives(&self) -> DecisionPrimitives {
+            DecisionPrimitives {
+                noul: true,
+                ..Default::default()
+            }
+        }
         fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
             Ok(DecisionAnswer::Noul { p: 0.8 })
         }
     }
     struct Sequential;
     impl DecisionModel for Sequential {
-        fn id(&self) -> &str { "sequential" }
-        fn token_mode(&self) -> TokenMode { TokenMode::None }
-        fn primitives(&self) -> DecisionPrimitives { DecisionPrimitives { noul: true, ..Default::default() } }
+        fn id(&self) -> &str {
+            "sequential"
+        }
+        fn token_mode(&self) -> TokenMode {
+            TokenMode::None
+        }
+        fn primitives(&self) -> DecisionPrimitives {
+            DecisionPrimitives {
+                noul: true,
+                ..Default::default()
+            }
+        }
         fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
             codeterm_types::decision::physical::before_request()?;
             Ok(DecisionAnswer::Noul { p: 0.8 })
@@ -248,10 +266,84 @@ fn supporter_first_opinion_physical_requests_counted_per_real_request() {
     }
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
-    let local = budgeted_model(Arc::new(Local), runtime.clone(), 2, VerdictKind::Rerank, None, None);
-    local.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)).unwrap();
+    let local = budgeted_model(
+        Arc::new(Local),
+        runtime.clone(),
+        2,
+        VerdictKind::Rerank,
+        None,
+        None,
+    );
+    local
+        .decide_questions(&request(3), Instant::now() + Duration::from_secs(2))
+        .unwrap();
     assert_eq!(runtime.status(2)["calls_last_hour"], 0);
-    let wire = budgeted_model(Arc::new(Sequential), runtime.clone(), 2, VerdictKind::Rerank, None, None);
-    assert_eq!(wire.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)), Err(DecisionError::Budget));
+    let wire = budgeted_model(
+        Arc::new(Sequential),
+        runtime.clone(),
+        2,
+        VerdictKind::Rerank,
+        None,
+        None,
+    );
+    assert_eq!(
+        wire.decide_questions(&request(3), Instant::now() + Duration::from_secs(2)),
+        Err(DecisionError::Budget)
+    );
     assert_eq!(runtime.status(2)["calls_last_hour"], 2);
+}
+
+#[test]
+fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request() {
+    struct DishonestBatch;
+    impl DecisionModel for DishonestBatch {
+        fn id(&self) -> &str {
+            "fixture"
+        }
+        fn token_mode(&self) -> TokenMode {
+            TokenMode::None
+        }
+        fn supports_question_batch(&self) -> bool {
+            true
+        }
+        fn primitives(&self) -> DecisionPrimitives {
+            DecisionPrimitives {
+                noul: true,
+                ..Default::default()
+            }
+        }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            Err(DecisionError::Unsupported)
+        }
+        fn decide_questions(
+            &self,
+            request: &DecisionQuestionsRequest,
+            _: Instant,
+        ) -> Result<DecisionResponse, DecisionError> {
+            codeterm_types::decision::physical::before_request()?;
+            let _ = codeterm_types::decision::physical::before_request();
+            Ok(DecisionResponse {
+                answers: request
+                    .questions
+                    .keys()
+                    .map(|key| (key.clone(), DecisionAnswer::Noul { p: 0.8 }))
+                    .collect(),
+                usage: None,
+            })
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let model = observation_model(
+        Arc::new(DishonestBatch),
+        runtime.clone(),
+        0,
+        "tab".into(),
+        "criteria".into(),
+    );
+    assert_eq!(
+        model.decide_questions(&request(2), Instant::now() + Duration::from_secs(2)),
+        Err(DecisionError::Unsupported)
+    );
+    assert_eq!(runtime.status(0)["calls_last_hour"], 1);
 }

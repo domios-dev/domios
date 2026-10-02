@@ -26,6 +26,13 @@ const ANSWERED_MEMORY: usize = 64;
 static LEDGER: LazyLock<parking_lot::Mutex<Ledger>> =
     LazyLock::new(|| parking_lot::Mutex::new(Ledger::default()));
 
+pub(crate) fn observation_revision(tab_id: &str) -> u64 {
+    let ledger = LEDGER.lock();
+    ledger.tabs.get(tab_id).map_or(0, |tab| {
+        super::supporter_tab_state::frame_hash(&format!("{:?}:{:?}", tab.answered, tab.settling))
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refusal {
     Disabled,

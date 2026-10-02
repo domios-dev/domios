@@ -62,6 +62,7 @@ mod tests {
             declared_safe_choice: Some("b".into()),
             tab_snapshot: None,
             process_tree_key: None,
+            envelope: None,
         }
     }
 

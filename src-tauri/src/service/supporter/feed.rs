@@ -79,14 +79,32 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         Some(_) => "low",
         None => "unknown",
     };
-    Some(json!({
+    let mut entry = json!({
         "time": value["time"].as_i64()?, "team_id": identifier(&value["team_id"]),
         "kind": kind, "label": label, "confidence_band": band,
         "action": if action == "verdict" || action == "weak_hint" { "notify_only" } else { action },
         "reason": reason,
         "budget_reached": value["budget"]["reached"].as_bool(),
         "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"),
-    }))
+    });
+    if value["observation_id"].as_u64().is_some() {
+        entry["decided_by"] = json!(allowed(
+            &value["decided_by"],
+            &[
+                "adapter",
+                "heuristic",
+                "fallback(no_adapter)",
+                "fallback(timeout)",
+                "fallback(error)",
+                "fallback(budget)",
+                "fallback(other)",
+                "fallback(low_confidence)",
+            ],
+            "redacted"
+        ));
+        entry["observation_id"] = value["observation_id"].clone();
+    }
+    Some(entry)
 }
 
 fn identifier(value: &Value) -> Option<&str> {

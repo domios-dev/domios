@@ -57,7 +57,7 @@ Minimal model state M: redacted current rendered tail, bounded to 40 lines and 8
 | 24 | deterministic authority (D) | `A/run_watcher.rs:surface_idle_provider_prompt` plus `A/run_watcher/blocking_prompt.rs:{should_end_on_blocking_prompt,end_on_blocking_prompt}` surface idle parsed prompt and end MemWorker on blocking provider/structured or unprovenance trust; manual update is excluded. | A false scraped prompt can finalize a memory run as TimedOut; shared trusted directory differs from the provenance-only check here. Structured unresolved handle is stronger than scrape. | Slice 5 diagnostic only: model decides Q1/Q2 diagnostic classification; heuristic falls back. F/N. No changed watcher finalization authority, blocker suppression or completion. Any authority proposal needs direct owner approval first. |
 | 25 | deterministic authority (D) | `A/run_watcher.rs:{can_complete_on_semantic_idle,agent_screen_busy,screen_shows_working}` uses armed + work-seen + post-session-progress + idle + bound session, or explicit result/stop routes, for run completion. | Silence/idle is not task success; unrelated chrome can prolong busy. `complete_via_stop_report`, `complete_via_stop_hook`, and `ResultEventScanner` provide event sources, each requiring its existing run binding. | Slice 5 diagnostic only: model decides Q5 diagnostic classification; heuristic falls back. F/N. Never model-complete a run or override bound result/stop/report evidence. |
 | 26 | deterministic authority (D) | `A/run_watcher.rs:{agent_dropped_to_shell,screen_is_bare_shell,watchdog_loop,resume_hidden_run}` has screen-based hidden-run restart, max two, with grace/settle timers; `S/output.rs:{screen_ends_in_shell_prompt,decide_agent_output_lifecycle}` only logs/preserves identity. | Watcher still uses literal Claude UI markers and shell shape. Source-only diagnosis: that is weaker than the newer process tree path, and remains despite output path correctly preserving identity. | Slice 5 diagnostic only: model decides Q2/Q5 audit classification; heuristic falls back. F/N. Screen-derived restart authority remains source debt. Replacing it requires a proposal naming exact symbols, causal evidence and rollback boundary, approved directly by the owner. |
-| 27 | event-level | `S/supporter_tab_state.rs:{observe,observation_answers}`, `S/supporter_tab_state/state.rs:{claim_observation,apply_observed_verdict}`; `S/general_agent/recovery/execute.rs:recover` already decide hints/recovery. | Four-call cap, two-observation requirement and one spawn observation can leave a stationary prompt with only a hint. `launch_episode_key` prefers PTY identity, so reused PTY relaunch requires an explicit launch generation in any extension. Output-driven episode reset can reward error loops with more requests. | Model decides Q1/Q2/Q3/Q5 as applicable; heuristic falls back. F/N/A and exact qualification plus local recovery evidence. Shared envelope, generation/occurrence identity, distinct observation IDs and one action ticket coordinate consumers. Confirmed exit remains D/audit-only. |
+| 27 | event-level | `S/supporter_tab_state/observer.rs:{observe,observation_answers}`, `S/supporter_tab_state/state.rs:{claim_observation,apply_observed_verdict}`; `S/general_agent/recovery/execute.rs:recover` already decide hints/recovery. | Four-call cap, two-observation requirement and one spawn observation can leave a stationary prompt with only a hint. `launch_episode_key` prefers PTY identity, so reused PTY relaunch requires an explicit launch generation in any extension. Output-driven episode reset can reward error loops with more requests. | Model decides Q1/Q2/Q3/Q5 as applicable; heuristic falls back. F/N/A and exact qualification plus local recovery evidence. Shared envelope, generation/occurrence identity, distinct observation IDs and one action ticket coordinate consumers. Confirmed exit remains D/audit-only. |
 
 ## Verified source deltas and debt
 
@@ -70,6 +70,20 @@ Minimal model state M: redacted current rendered tail, bounded to 40 lines and 8
 - `evals/tab-state-jev/qualification.json` has disabled/unverified qualification and zero support, and `heldout.jsonl` is empty. A >=0.90 score alone is not qualification.
 - Source debt remains unchanged: `A/state_reactor.rs:start` sleeps; `A/run_watcher.rs:watchdog_loop` has its 1-second interval and screen-derived restart authority; `A/prompt.rs:PromptDetector` has elapsed cooldown. Do not copy these mechanisms into the observer.
 - Lane-base sizes: `S/output.rs` 1166, `S/launch_readiness.rs` 1191, `S/directory_trust.rs` 888, `S/supporter_tab_state.rs` 908, `A/run_watcher.rs` 966, `plugins/provider-codex/src/plugin.ts` 1065 lines. Split before crossing 1200. Plan near-limit references are now mem `search.rs` 1185, types `config/schema.rs` 1172, app `lib.rs` 1183, `api/routes.rs` 1116 and CLI `args/mem.rs` 962.
+
+## Slice 1 source deltas
+
+The inventory was originally verified at the base above. Slice 1 moves row 27's
+observer and answer parser into `S/supporter_tab_state/observer.rs`; the table's
+symbol references follow that move. Its four-call episode cap is removed.
+`DecisionModel::supports_question_batch` now explicitly distinguishes batching;
+TypeSafe opts in, and JS requires both its declaration and batch method.
+Transport accounting now runs at HTTP execute, including inherited JS fetch
+scopes. The bounded scheduler, immutable local identities, response receipts and
+shared action ticket are authored. Their exact deferred gates and remaining
+routing boundary are in [SLICE-1.md](SLICE-1.md). These are inspected source facts,
+not executed results. The other baseline failure classes and the five-slice
+order remain the implementation contract.
 
 ## Implementation order and verification boundary
 

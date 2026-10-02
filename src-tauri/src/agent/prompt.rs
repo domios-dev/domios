@@ -348,6 +348,13 @@ impl PromptDetector {
         }
     }
 
+    pub(crate) fn active_prompt_occurrence(&self, tab_id: &str) -> Option<Instant> {
+        match self.states.get(tab_id) {
+            Some(TabPromptState::Active { detected_at, .. }) => Some(*detected_at),
+            _ => None,
+        }
+    }
+
     /// The provenance the active prompt is reported with: `true` only when it
     /// came from a structured source, never from a screen scrape.
     #[allow(dead_code)]

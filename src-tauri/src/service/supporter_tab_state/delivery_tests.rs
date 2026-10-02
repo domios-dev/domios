@@ -18,6 +18,7 @@ fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
         declared_safe_choice: None,
         tab_snapshot: None,
         process_tree_key: None,
+        envelope: None,
         context: Value::Null,
         session_key: "session".into(),
         title: "worker".into(),
