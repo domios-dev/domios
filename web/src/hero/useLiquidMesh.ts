@@ -15,7 +15,8 @@ export function useLiquidMesh() {
     let previous = 0;
     let disposed = false;
 
-    const canAnimate = () => !disposed && visible && !document.hidden && !preference.matches && motionOwner?.getAttribute('data-motion') !== 'paused';
+    const staticMotion = () => preference.matches || motionOwner?.getAttribute('data-motion') === 'paused';
+    const canAnimate = () => !disposed && visible && !document.hidden && !staticMotion();
 
     function tick(timestamp: number) {
       frame = 0;
@@ -36,7 +37,7 @@ export function useLiquidMesh() {
         cancelAnimationFrame(frame);
         frame = 0;
         previous = 0;
-        if (preference.matches) scene.still();
+        if (staticMotion()) scene.still();
       }
     }
 
@@ -46,7 +47,7 @@ export function useLiquidMesh() {
     });
     const resize = new ResizeObserver(() => {
       scene.resize();
-      if (preference.matches) scene.still();
+      if (staticMotion()) scene.still();
       else scene.render(0);
     });
     const motion = new MutationObserver(sync);
