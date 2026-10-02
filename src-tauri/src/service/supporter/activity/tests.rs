@@ -309,10 +309,7 @@ fn supporter_explicit_cap_can_be_removed_after_reaching_limit() {
 fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
-    runtime.attach_visibility(
-        Arc::new(|_| Some("team_aabbccdd".into())),
-        Arc::new(|_| {}),
-    );
+    runtime.attach_visibility(Arc::new(|_| Some("team_aabbccdd".into())), Arc::new(|_| {}));
     runtime.response(
         VerdictKind::Sentinel,
         Some("private-creator"),
