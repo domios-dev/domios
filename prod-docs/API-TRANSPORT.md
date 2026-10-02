@@ -235,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->
