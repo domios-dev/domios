@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+import json
 import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
@@ -11,6 +12,7 @@ PAPER = "#f6f8fa"
 BLUE = "#58a6ff"
 DEEP_BLUE = "#0969da"
 MUTED = "#828a92"
+ROUND = 1
 CONCEPTS = [
     {
         "slug": "01-hearth",
@@ -72,8 +74,8 @@ def svg(concept, color, background=None):
 
 
 def render_atlas(browser):
-    work = ROOT.parent / ".render"
-    work.mkdir(exist_ok=True)
+    work = Path(__file__).resolve().parent / ".render" / f"round-{ROUND}"
+    work.mkdir(parents=True, exist_ok=True)
     blocks = []
     for concept in CONCEPTS:
         for color in [BLUE, DEEP_BLUE, "#000000", "#ffffff"]:
@@ -138,9 +140,13 @@ def sheet(concept, marks):
     canvas = Image.new("RGBA", (1600, 1420), PAPER)
     draw = ImageDraw.Draw(canvas)
     draw.rectangle((0, 0, 1599, 167), fill=INK)
-    text(draw, (64, 29), "DOMIOS / IDENTITY EXPLORATIONS", 18, BLUE, "mono")
+    heading = "DOMIOS / IDENTITY EXPLORATIONS" + (" / ROUND 2" if ROUND == 2 else "")
+    text(draw, (64, 29), heading, 18, BLUE, "mono")
     text(draw, (64, 68), f'{concept["slug"][:2]}   {concept["name"]}', 50, PAPER, "bold")
-    text(draw, (1000, 99), "THE OS FOR AI AGENTS", 18, MUTED, "mono")
+    if ROUND == 2:
+        text(draw, (970, 99), "THE DISTRIBUTED OS FOR AI AGENTS", 18, MUTED, "mono")
+    else:
+        text(draw, (1000, 99), "THE OS FOR AI AGENTS", 18, MUTED, "mono")
     text(draw, (64, 194), concept["idea"], 30, INK, "bold")
     for line, value in enumerate(concept["rationale"]):
         text(draw, (64, 244 + line * 28), value, 20, "#57606a")
@@ -178,12 +184,14 @@ def overview(all_marks):
     canvas = Image.new("RGBA", (1600, 1200), INK)
     draw = ImageDraw.Draw(canvas)
     text(draw, (64, 36), "domios", 48, PAPER, "bold")
-    text(draw, (64, 100), "Four places for agents to call home.", 24, MUTED)
-    text(draw, (1230, 72), "IDENTITY / 01–04", 18, BLUE, "mono")
+    subtitle = "Four places for agents to call home." if ROUND == 1 else "Many machines. One home for your agents."
+    text(draw, (64, 100), subtitle, 24, MUTED)
+    label = "IDENTITY / 01–04" if ROUND == 1 else "IDENTITY / ROUND 2"
+    text(draw, (1230, 72), label, 18, BLUE, "mono")
     for i, (concept, marks) in enumerate(zip(CONCEPTS, all_marks)):
         x, y = 64 + (i % 2) * 752, 180 + (i // 2) * 490
         draw.rounded_rectangle((x, y, x + 720, y + 458), 18, fill="#141b24")
-        text(draw, (x + 32, y + 22), f'{i + 1:02} / {concept["name"]}', 23, PAPER, "bold")
+        text(draw, (x + 32, y + 22), f'{concept["slug"][:2]} / {concept["name"]}', 23, PAPER, "bold")
         place(canvas, marks["dark"], (x + 220, y + 70), 256)
         text(draw, (x + 32, y + 339), concept["idea"], 21, PAPER)
         text(draw, (x + 32, y + 404), "64", 15, MUTED, "mono")
@@ -228,6 +236,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Render Domios SVG concepts and presentation sheets.")
     parser.add_argument("--font-dir", type=Path, default=Path("C:/Windows/Fonts"))
     parser.add_argument("--browser", type=Path, default=Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"))
+    parser.add_argument("--round", type=int, choices=[1, 2], default=1)
     arguments = parser.parse_args()
+    ROUND = arguments.round
+    if ROUND == 2:
+        ROOT = ROOT / "round-2"
+        CONCEPTS = json.loads((ROOT / "concepts.json").read_text(encoding="utf-8"))
     FONT_DIR = arguments.font_dir
     main(arguments.browser)
