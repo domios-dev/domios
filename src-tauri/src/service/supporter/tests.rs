@@ -28,6 +28,7 @@ impl DecisionModel for Model {
         }
     }
     fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(DecisionAnswer::Noul { p: 0.8 })
     }

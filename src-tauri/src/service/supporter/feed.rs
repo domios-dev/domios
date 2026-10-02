@@ -117,7 +117,29 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     });
-    if let Some(asked) = super::narrative::project(&value["asked"]) {
+    if value["observation_id"].as_u64().is_some() {
+        entry["decided_by"] = json!(allowed(
+            &value["decided_by"],
+            &[
+                "adapter",
+                "heuristic",
+                "fallback(no_adapter)",
+                "fallback(timeout)",
+                "fallback(error)",
+                "fallback(budget)",
+                "fallback(other)",
+                "fallback(low_confidence)",
+            ],
+            "redacted"
+        ));
+        entry["observation_id"] = value["observation_id"].clone();
+    }
+    let asked = if value["kind"] == "tab_state" {
+        crate::service::supporter_tab_state::redact_decision_diagnostic(&value["asked"])
+    } else {
+        value["asked"].clone()
+    };
+    if let Some(asked) = super::narrative::project(&asked) {
         entry["asked"] = json!(asked);
     }
     Some(entry)

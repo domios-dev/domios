@@ -8,6 +8,16 @@ use crate::agent::prompt::PromptDecision;
 static RESPONDED_OCCURRENCES: LazyLock<StdMutex<HashMap<String, String>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
+pub(crate) fn observation_revision(tab_id: &str) -> u64 {
+    RESPONDED_OCCURRENCES
+        .lock()
+        .unwrap()
+        .get(tab_id)
+        .map_or(0, |occurrence| {
+            super::super::supporter_tab_state::frame_hash(occurrence)
+        })
+}
+
 pub(crate) fn claim_manual_update_occurrence(tab_id: &str, occurrence: &str) -> bool {
     let mut answered = RESPONDED_OCCURRENCES.lock().unwrap();
     if answered.get(tab_id).is_some_and(|seen| seen == occurrence) {

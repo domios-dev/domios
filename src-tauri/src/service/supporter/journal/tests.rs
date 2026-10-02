@@ -96,3 +96,36 @@ fn supporter_journal_scrubs_question_answer_before_persistence() {
     assert!(pairs[0].question.chars().count() <= super::super::narrative::MAX_QUESTION_CHARS);
     assert!(pairs[0].answer.chars().count() <= super::super::narrative::MAX_ANSWER_CHARS);
 }
+
+#[test]
+fn supporter_journal_keeps_observation_identity_and_scrubbed_narrative_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = Journal::new(dir.path().into());
+    let secret = "supplied-query-secret";
+    let code = "918273";
+    let question = format!(
+        "supplied-question https://example.test/auth?token={secret} {code} {}",
+        "界".repeat(500)
+    );
+    let answer = "supplied-answer";
+    journal
+        .append(&json!({
+            "time": 1, "kind": "tab_state", "label": "other", "action": "classification",
+            "reason": "model_answer", "observation_id": 42, "decided_by": "adapter",
+            "asked": [{"name": "supplied-name", "question": question, "answer": answer}],
+        }))
+        .unwrap();
+    let text = fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    assert!(!text.contains(secret));
+    assert!(!text.contains(code));
+    let stored: Value = serde_json::from_str(text.trim()).unwrap();
+    let feed = Journal::new(dir.path().into()).feed(10, None).unwrap();
+    for value in [&stored, &feed[0]] {
+        assert_eq!(value["observation_id"], 42);
+        assert_eq!(value["decided_by"], "adapter");
+        assert_eq!(value["asked"][0]["answer"], answer);
+        let question = value["asked"][0]["question"].as_str().unwrap();
+        assert!(question.contains("supplied-question"));
+        assert!(question.chars().count() <= super::super::narrative::MAX_QUESTION_CHARS);
+    }
+}
