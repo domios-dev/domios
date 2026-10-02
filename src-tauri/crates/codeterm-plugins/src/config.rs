@@ -584,7 +584,7 @@ spawn_agents: [
             data_root: root.clone(),
             version: None,
         });
-        let id = PluginId::parse("local-model".into()).unwrap();
+        let id = PluginId::parse("local-model").unwrap();
         let dir = plugin_dir(&id);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("grants.yaml"), "spawn_agents: true\n").unwrap();
