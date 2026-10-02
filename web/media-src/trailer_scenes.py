@@ -1,6 +1,9 @@
 import math
+import hashlib
+import json
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from media_contract import bounded_process, require
@@ -12,6 +15,10 @@ SOURCE_SIZE = (2048, 1396)
 BLUE = '#58a6ff'
 INK = '#0d1117'
 WHITE = '#f0f6fc'
+OPENING_FRAMES = 48
+ENDING_START_FRAME = round(37.0666666667 * FPS)
+ENDING_END_FRAME = 45 * FPS
+BRAND_DURATION = 1.6
 
 
 def shot(name, at, duration, source, start, end, camera, target, title='', scene='footage'):
@@ -160,6 +167,39 @@ def source_frames(paths, edit):
             process.stdout.close()
 
 
+def load_brand_frames(directory, source_path=None):
+    directory = Path(directory)
+    source_path = Path(source_path or Path(__file__).resolve().parents[1] / 'src/brand/motion.ts')
+    manifest_path = directory / 'brand-frames.json'
+    require(manifest_path.is_file(), f'Missing authoritative brand frame manifest: {manifest_path}')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
+    digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    require(manifest.get('schemaVersion') == 1 and manifest.get('fps') == FPS and manifest.get('duration') == BRAND_DURATION,
+            'Brand frame timing differs from the approved 30fps/1.6s motion')
+    require(manifest.get('source', {}).get('sha256') == digest, 'Brand pose source hash is stale')
+    poses = manifest.get('poses')
+    require(isinstance(poses, list) and len(poses) == OPENING_FRAMES + 1, 'Expected 49 authoritative brand poses')
+    require(manifest.get('restFrame') == OPENING_FRAMES and manifest.get('width') == 256 and manifest.get('height') == 256,
+            'Brand frame dimensions/rest boundary changed')
+    images = []
+    for frame, pose in enumerate(poses):
+        require(pose.get('frame') == frame and pose.get('time') == frame / FPS, 'Brand pose sequence is incomplete')
+        image_path = directory / pose.get('png', '')
+        require(image_path.parent == directory.resolve() if image_path.is_absolute() else image_path.parent == directory,
+                'Brand frame escaped its export directory')
+        require(hashlib.sha256(image_path.read_bytes()).hexdigest() == pose.get('pngSha256'),
+                f'Brand frame hash changed: {image_path}')
+        with Image.open(image_path) as image:
+            require(image.size == (manifest['width'], manifest['height']), 'Unexpected brand SVG raster size')
+            converted = image.convert('RGBA')
+            require(converted.getpixel((0, 0))[3] == 0, 'Brand frame background must remain transparent')
+            images.append(converted.copy())
+    rest = poses[-1]
+    require(rest['path'] and rest['scaleX'] == rest['scaleY'] == 1 and rest['y'] == 0,
+            'Frame 48 is not the authoritative resting mark')
+    return dict(images=images, sourceSha256=digest, manifest=manifest)
+
+
 @lru_cache(maxsize=1)
 def wallpaper():
     image = Image.new('RGB', SIZE)
@@ -303,6 +343,30 @@ def endcard(time, frame, font, duration=4):
     return image
 
 
+def agent_ending(global_frame, frame, font, brand_rest):
+    image = wallpaper().copy()
+    screen = window(frame, 790, 522, font)
+    image.paste(screen, (64, 112))
+    draw = ImageDraw.Draw(image)
+    draw.text((64, 62), 'DOMIOS  /  AGENT WORKSPACE', font=face(font, 15), fill=BLUE, anchor='lm')
+    mark = brand_rest.resize((92, 92), Image.Resampling.LANCZOS)
+    image.paste(mark, (930, 104), mark)
+    if global_frame < 1140:
+        heading = 'Capabilities for\nyour workspace.'
+        detail = 'Extend your agents\nthrough plugins.'
+    elif global_frame < 1230:
+        heading = 'Agents across\nyour machines.'
+        detail = 'One view of the fleet,\nincluding who is offline.'
+    else:
+        heading = 'Your next idea.\nA whole team\nbehind you.'
+        detail = 'Agents, teams and\nmachines in one place.'
+    draw.multiline_text((930, 244), heading, font=face(font, 43 if global_frame >= 1230 else 40),
+                        fill=WHITE, spacing=5, align='left')
+    draw.multiline_text((932, 453), detail, font=face(font, 18), fill='#aebacf', spacing=7, align='left')
+    draw.text((932, 626), 'domios.dev', font=face(font, 22), fill=BLUE, anchor='lm')
+    return image
+
+
 def render(edit, time, frame, font):
     if edit['scene']=='desktop':
         return desktop(frame,time,font,edit['duration'])
@@ -314,3 +378,15 @@ def render(edit, time, frame, font):
     if edit['title']:
         title(image,edit['title'],time,min(2.6,edit['duration']),font)
     return image
+
+
+def render_timeline_frame(edit, time, frame, font, brand_frames):
+    frame_number = round((edit['at'] + time) * FPS)
+    if 0 <= frame_number < OPENING_FRAMES:
+        image = render(edit, time, frame, font)
+        mark = brand_frames['images'][frame_number].resize((164, 164), Image.Resampling.LANCZOS)
+        image.paste(mark, (92, 276), mark)
+        return image
+    if ENDING_START_FRAME <= frame_number < ENDING_END_FRAME:
+        return agent_ending(frame_number, frame, font, brand_frames['images'][-1])
+    return render(edit, time, frame, font)
