@@ -204,8 +204,8 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           ordered: true,
           items: [
-            "Choose an adapter and model in Settings > Agents > Supporter Agent, or use codeterm supporter models and codeterm supporter use <adapter> [--model <id>].",
-            "For Jev, get a token at https://console.typesafe.ai/keys, paste it in those settings and press Save token. A local adapter that needs no token connects without one.",
+            "Open Connect another adapter in Settings > Agents > Supporter Agent and choose an adapter and model. Saved connections keep their own models and tokens when you switch.",
+            "Supply an API token if required, leave it empty if optional, or use no token field for a token-free adapter. Press Connect & make active.",
             "Check its status and activity there, or run codeterm supporter status. A connected adapter starts working automatically.",
           ],
         },
@@ -230,7 +230,7 @@ export const enHelpContent: HelpLocaleContent = {
           blocks: [
             {
               type: "paragraph",
-              text: "Connected means a selected, registered adapter whose token requirement is satisfied. Optional and token-free adapters connect without a token; required adapters need a usable stored token. All Supporter features follow this state.",
+              text: "A saved connection means configured, not proven reachable. Only the active adapter runs Supporter requests. Removing the active connection stops the Supporter without selecting another. A stale status keeps the last rows and disables changes until refresh.",
             },
             {
               type: "paragraph",
@@ -270,8 +270,8 @@ export const enHelpContent: HelpLocaleContent = {
             {
               type: "list",
               items: [
-                "In Settings > Agents > Supporter Agent, select the adapter and model. Paste a required token and press Save token; there is no extra enable step.",
-                "From a terminal, select Jev with codeterm supporter use typesafe-jev, then pipe its token from the clipboard: pbpaste | codeterm supporter token set. On other platforms pipe the token from a local secret source; never put it in argv. Run codeterm supporter status to check it.",
+                "Use Connect another adapter, choose the adapter and model, supply a required token, and press Connect & make active. Switch saved connections with Make active; change an inactive model without activating it.",
+                "From a terminal, first pipe the token from the clipboard: pbpaste | codeterm supporter token set --adapter typesafe-jev, then activate it with codeterm supporter use typesafe-jev. On other platforms pipe the token from a local secret source; never put it in argv. Run codeterm supporter status to check it.",
               ],
             },
             {

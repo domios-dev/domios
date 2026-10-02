@@ -186,3 +186,19 @@ fn supporter_status_optional_request_cap_is_positive_only() {
         Some(120)
     );
 }
+
+#[test]
+fn supporter_disconnect_contract_parses_adapter_and_use_remains_connect_or_activate() {
+    let disconnect = Cli::try_parse_from(["codeterm", "supporter", "disconnect", "fixture"]);
+    assert!(disconnect.is_ok());
+    let activate =
+        Cli::try_parse_from(["codeterm", "supporter", "use", "fixture", "--model", "one"]);
+    assert!(activate.is_ok());
+}
+
+#[test]
+fn supporter_unknown_token_status_is_never_no_token() {
+    let text = render_token_status(&json!({ "adapter": "fixture" }));
+    assert!(text.contains("Token status unavailable"));
+    assert!(!text.contains("No token"));
+}

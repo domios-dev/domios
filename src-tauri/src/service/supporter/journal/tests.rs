@@ -98,6 +98,14 @@ fn supporter_journal_scrubs_question_answer_before_persistence() {
 }
 
 #[test]
+fn supporter_journal_strong_action_preserves_wire_name() {
+    assert_eq!(
+        serde_json::to_value(Action::Strong).unwrap(),
+        json!("strong_action")
+    );
+}
+
+#[test]
 fn supporter_journal_keeps_observation_identity_and_scrubbed_narrative_together() {
     let dir = tempfile::tempdir().unwrap();
     let journal = Journal::new(dir.path().into());

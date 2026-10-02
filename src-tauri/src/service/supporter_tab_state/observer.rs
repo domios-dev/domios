@@ -150,10 +150,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
 }
 
 fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
-    if config.adapter.is_empty()
-        || config.adapter != adapter
-        || host.supporter_models().get(adapter).is_none()
-    {
+    if config.active_id() != Some(adapter) {
         return false;
     }
     supporter::supporter_connected(

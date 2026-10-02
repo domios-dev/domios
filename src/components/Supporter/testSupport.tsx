@@ -12,7 +12,7 @@ export const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, to
 export function statusFixture(): SupporterStatus {
   return {
     state: "active", adapter: "fixture", connected: true, token_mode: "none", model: null, deadline_ms: 3000,
-    token: { adapter: "fixture", token_mode: "none", present: false }, adapter_registered: true, adapters: [],
+    token: { adapter: "fixture", token_mode: "none", present: false }, adapter_registered: true, adapters: [], connections: [],
     last_activity: 1700000000, calls_last_hour: 4, calls_last_day: 12, last_verdict: {},
     budget: { reached: false, calls_per_hour: null, free_at: null, storage_ready: true },
     pricing: { display_name: "Jev", input_usd_per_million: 0.5, output_usd_per_million: 0.5 },

@@ -43,6 +43,21 @@ impl DecisionModel for JsDecisionModel {
         call_json_or_default(&self.vm, &self.id, "pricing")
     }
 
+    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+        call_json(&self.vm, "metadata", &[]).unwrap_or_default()
+    }
+
+    fn select_model(&self, id: &str) -> bool {
+        if !self.models().iter().any(|model| model.id == id) {
+            return false;
+        }
+        match call_json::<bool>(&self.vm, "selectModel", &[json!(id)]) {
+            Ok(selected) => selected,
+            Err(VmError::MissingFunction(_)) => self.model_id().as_deref() == Some(id),
+            Err(_) => false,
+        }
+    }
+
     fn token_mode(&self) -> TokenMode {
         self.token_mode
     }
@@ -218,7 +233,8 @@ mod tests {
     fn js_decision_model_models() {
         let model = JsDecisionModel::new(
             vm(r#"module.exports.default = {
-                    models() { return [{ id: "loaded", display_name: "Loaded model" }]; }
+                    models() { return [{ id: "loaded", display_name: "Loaded model" }]; },
+                    selectModel(id) { return id === "loaded"; }
                 };"#),
             "decision-models",
             TokenMode::Optional,

@@ -5,6 +5,6 @@ pub mod supporter;
 pub use dream_hygiene::DreamHygieneConfig;
 pub use schema::MemoryConfig;
 pub use supporter::{
-    MemoryRerankConfig, RerankRequestMode, SupporterConfig, SupporterSources,
+    MemoryRerankConfig, RerankRequestMode, SupporterConfig, SupporterConnection, SupporterSources,
     DEFAULT_SUPPORTER_CALLS_PER_HOUR,
 };
