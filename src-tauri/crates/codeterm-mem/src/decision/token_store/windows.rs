@@ -12,6 +12,7 @@ use windows_sys::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, ACCESS_MODE, EXPLICIT_ACCESS_W,
     GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER, TRUSTEE_W,
 };
+use windows_sys::Win32::Security::SUB_CONTAINERS_AND_OBJECTS_INHERIT;
 use windows_sys::Win32::Security::{
     EqualSid, GetAce, GetSecurityDescriptorControl, GetTokenInformation, TokenUser,
     ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
@@ -24,6 +25,15 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 pub(super) fn restrict(path: &Path) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let entry = access_entry(&user, GRANT_ACCESS);
+    write_acl(path, &entry, null())
+}
+
+// The directory also holds the journal and spend ledger; without an inheritable
+// owner ACE every later file gets an empty DACL and becomes unreadable.
+pub(super) fn restrict_dir(path: &Path) -> io::Result<()> {
+    let user = CurrentUser::open()?;
+    let mut entry = access_entry(&user, GRANT_ACCESS);
+    entry.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
     write_acl(path, &entry, null())
 }
 
