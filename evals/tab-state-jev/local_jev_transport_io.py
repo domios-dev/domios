@@ -319,8 +319,8 @@ class PartialCapture:
 def fixture_plan_factory(ca_path, fixture, prepared_plan):
     def build(wire, operation_end, hard_end, clock):
         plan = prepared_plan
-        t.require(abs(plan["header"]["hard_end"] - hard_end) <= 0.000001 and
-                  abs(plan["header"]["operation_end"] - operation_end) <= 0.000001 and
+        t.require(plan["header"]["hard_end"] == hard_end and
+                  plan["header"]["operation_end"] == operation_end and
                   plan["header"]["wire_sha256"] == c.sha256(wire), "fixture_original_deadline")
         for path, field in ((plan["argv"][0], "interpreter_sha256"),
                             (Path(__file__).with_name("jev_request_worker.py"), "worker_sha256"),
@@ -442,7 +442,7 @@ def run_case(case):
             cancel_thread = threading.Thread(target=cancel_on_headers, name="jev-fixture-cancel", daemon=False)
             cancel_thread.start()
         phase = "transport"
-        result = transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
+        result = transport.send(wire, token=SYNTHETIC_TOKEN, timeout=t.REQUEST_SECONDS, request_end=hard_end)
         receipt, outcome = result.receipt, "completed"
         if case != "success" or result.payload["answers"]["q"]["choice"] != "opaque":
             outcome = "fixture_unexpected_success"
@@ -495,7 +495,7 @@ def run_case(case):
         predicate = "fixture_oracle_schema"
     if case == "partial_capture_failure" and predicate is None:
         try:
-            transport.send(wire, token=SYNTHETIC_TOKEN, timeout=hard_end - time.monotonic())
+            transport.send(wire, token=SYNTHETIC_TOKEN, timeout=t.REQUEST_SECONDS, request_end=hard_end)
         except BaseException as error:
             if getattr(error, "code", None) != "lease_unavailable":
                 predicate = "fixture_unknown_completion_admitted_request"

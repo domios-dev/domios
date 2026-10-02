@@ -160,9 +160,10 @@ Each isolated command must select1/pass1/skip0. The response oracle uses the rea
 worker bound-owning reader through injection, with a valid small-response positive
 and an oversized negative. Canonical
 `9eea8cef890c9582a834d3fa3ba05c5155d58395` passed both independent one-case greens and all 79 pure cases with no skips. The grouped harness repair
-adds ten pure controls (two tests-first regressions and eight boundary controls),
-so discovery now authors89 cases, including four untouched held-out metric tests.
-Expected pass89/fail0/skip0 remains deferred for this descendant. These mechanism
+adds ten pure controls (two tests-first regressions and eight boundary controls).
+The absolute-deadline correction adds ten more pure controls, bringing discovery
+to99 authored cases, including four untouched held-out metric tests.
+Expected pass99/fail0/skip0 remains deferred for this descendant. These mechanism
 inputs do not qualify live data.
 
 The first macOS native success attempt at that canonical SHA failed before
@@ -220,6 +221,47 @@ qualification. Use that exact path for future macOS commands so helper preparati
 pins the same binary. No chmod, interpreter install/copy or trust weakening is
 part of this repair. Linux needs its own separately reviewed trusted interpreter
 selection and native receipts; Windows private-directory admission stays unsupported.
+
+A relative remaining-time timeout sampled by the caller can be converted using
+a later admission clock and advance the original case end. `JevTransport.send`
+now accepts optional `request_end`, an absolute monotonic failure bound in the
+same clock domain as its injected clock. Effective hard end is exactly
+`min(admission_start + timeout, original_run_end, request_end)` when supplied;
+without it the existing60s/request600s/run policy is unchanged. Bounds reject
+bool/nonfinite/invalid inputs and expired or consumed operation windows before
+plan/lease/process admission. Typed admission failure receipts retain the original
+finite absolute bound without admitting a helper. Cleanup remains5s inside the
+effective bound; an earlier run/timeout limit may shorten it, never extend it.
+
+Both harness send call sites pass captured `hard_end` directly as `request_end`
+with the existing60s maximum timeout. The prepared helper header, case run end,
+listener/connection, lease, capture and teardown keep the original exact ends.
+The plan factory requires exact operation/hard-end equality; even a sub-microsecond
+later header is refused. There is no positive tolerance or deadline regeneration.
+
+Tests-first ancestor `220aa53739f8a1370a4e90b0699cd86b49a30500` added an independently
+runnable existing-run_case plumbing control. Fermi confirmed its intended
+`None !=60` assertion red on recorded send kwargs at canonical
+`339fd582b86696d826d7efacc5eee655c7b359e8`, preserving `e308e714` ancestry. No new
+API/import/native failure served as the red. At that same canonical SHA the
+previous preparation/receipt regressions passed1 each and boundary class passed8;
+those ten pure controls establish no native resource proof. No repeat reds needed.
+
+After merging the absolute-end repair, the changed focused proof is:
+
+```bash
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_jev_transport.AbsoluteDeadlineHandoffTests'
+```
+
+Expected selected10/pass10/fail0/skip0. The class preserves the one confirmed
+handoff regression and adds a deterministic2s-to12s caller/admission clock advance
+through real send, exact prepared-plan/identity checks and an injected lease,
+including a valid answer. Other controls prove expired bound/consumed reserve
+zero-admission refusal, earlier run/timeout clamps without header rewriting,
+invalid bounds, exact sub-microsecond mismatch refusal, unchanged default policy,
+full expired-harness failure/fixture receipts and poisoned second-call refusal
+with the same absolute end. Mocks and synthesized TLS/lease receipts exercise
+mechanisms only; they are not native cleanup or TLS qualification.
 
 The exact proposed macOS commands below are deferred, not authorization. Fermi
 must review focused greens and separately authorize one actual success case first;
