@@ -827,18 +827,15 @@ fn prepare_fetch(sandbox: &PluginSandbox, opts_json: &str) -> Result<String, Str
         return Err("fetch denied".to_string());
     }
     let prepared = super::host_credentials::inject(sandbox.credentials(), opts_json)?;
-    let token = if sandbox.token_mode == TokenMode::None || !sandbox.supporter_token_allowed(&host) {
+    let token = if sandbox.token_mode == TokenMode::None || !sandbox.supporter_token_allowed(&host)
+    {
         None
     } else {
         sandbox
             .service()
             .and_then(|service| service.supporter_token(sandbox.plugin_id()))
     };
-    super::host_credentials::inject_supporter_token(
-        sandbox.token_mode,
-        token.as_deref(),
-        &prepared,
-    )
+    super::host_credentials::inject_supporter_token(sandbox.token_mode, token.as_deref(), &prepared)
 }
 
 /// Wall-clock duration since UNIX epoch. Clock-set-before-1970 returns

@@ -110,7 +110,8 @@ fn parity_decision_model_matches_shared_fixtures() {
         let caps: crate::js_runtime::manifest::Capabilities =
             serde_json::from_value(json!({ "decisionModel": form })).expect("manifest cap");
         let native = NativeDecisionModel(expected);
-        let javascript = JsDecisionModel::new(vm.clone(), "js-fixture", caps.decision_model.token_mode);
+        let javascript =
+            JsDecisionModel::new(vm.clone(), "js-fixture", caps.decision_model.token_mode);
         assert_eq!(native.token_mode(), expected);
         assert_eq!(native.token_mode(), javascript.token_mode());
         assert_eq!(native.primitives(), javascript.primitives());

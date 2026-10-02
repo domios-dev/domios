@@ -14,8 +14,7 @@ use serde_json::{json, Value};
 use super::sessions_source::SessionCandidate;
 use super::{
     candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
-    token_gate_refuses,
-    token_store, DecisionBackend, SupporterRegistry, Untouched,
+    token_gate_refuses, token_store, DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
@@ -347,11 +346,26 @@ fn supporter_status_distinguishes_missing_token_token_only_and_active() {
         mode_ok: Some(false),
     };
 
-    assert_eq!(supporter_state(false, &missing, true, TokenMode::Required), "no_token");
-    assert_eq!(supporter_state(false, &set, true, TokenMode::Required), "token_only");
-    assert_eq!(supporter_state(true, &set, true, TokenMode::Required), "active");
-    assert_eq!(supporter_state(false, &unusable, true, TokenMode::Required), "token_unusable");
-    assert_eq!(supporter_state(false, &set, false, TokenMode::Required), "adapter_unavailable");
+    assert_eq!(
+        supporter_state(false, &missing, true, TokenMode::Required),
+        "no_token"
+    );
+    assert_eq!(
+        supporter_state(false, &set, true, TokenMode::Required),
+        "token_only"
+    );
+    assert_eq!(
+        supporter_state(true, &set, true, TokenMode::Required),
+        "active"
+    );
+    assert_eq!(
+        supporter_state(false, &unusable, true, TokenMode::Required),
+        "token_unusable"
+    );
+    assert_eq!(
+        supporter_state(false, &set, false, TokenMode::Required),
+        "adapter_unavailable"
+    );
 }
 
 #[test]
@@ -364,7 +378,10 @@ fn supporter_state_optional_and_none_ignore_missing_tokens() {
     for mode in [TokenMode::Optional, TokenMode::None] {
         assert_eq!(supporter_state(false, &missing, true, mode), "ready");
         assert_eq!(supporter_state(true, &missing, true, mode), "active");
-        assert_eq!(supporter_state(true, &missing, false, mode), "adapter_unavailable");
+        assert_eq!(
+            supporter_state(true, &missing, false, mode),
+            "adapter_unavailable"
+        );
     }
 }
 
@@ -382,11 +399,14 @@ fn supporter_features_token_mode_gate_keeps_required_and_allows_optional_or_none
     };
     assert!(token_gate_refuses(TokenMode::Required, &missing));
     assert!(token_gate_refuses(TokenMode::Required, &unusable));
-    assert!(!token_gate_refuses(TokenMode::Required, &TokenStatus {
-        present: true,
-        path: "token.json".into(),
-        mode_ok: Some(true),
-    }));
+    assert!(!token_gate_refuses(
+        TokenMode::Required,
+        &TokenStatus {
+            present: true,
+            path: "token.json".into(),
+            mode_ok: Some(true),
+        }
+    ));
     for mode in [TokenMode::Optional, TokenMode::None] {
         assert!(!token_gate_refuses(mode, &missing));
         assert!(!token_gate_refuses(mode, &unusable));

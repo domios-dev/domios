@@ -231,10 +231,7 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
         }
         SupporterAction::Token { action } => match action {
             SupporterTokenAction::Set { adapter } => {
-                let token_status = send(
-                    http.get(token_url(base, adapter.as_deref())),
-                    base,
-                );
+                let token_status = send(http.get(token_url(base, adapter.as_deref())), base);
                 let current = ok_body_or_exit(token_status, None);
                 if current.get("token_mode").and_then(Value::as_str) == Some("none") {
                     emit(json_mode, &current, render_token_set);

@@ -415,7 +415,11 @@ fn stored_supporter_token(plugin_id: &str, token_dir: &std::path::Path) -> Optio
     if store.status(plugin_id).ok()?.mode_ok == Some(false) {
         return None;
     }
-    store.load(plugin_id).ok().flatten().map(|token| token.expose().to_string())
+    store
+        .load(plugin_id)
+        .ok()
+        .flatten()
+        .map(|token| token.expose().to_string())
 }
 
 #[cfg(test)]

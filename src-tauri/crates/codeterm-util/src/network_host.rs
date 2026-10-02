@@ -12,8 +12,9 @@ pub fn network_host_allowed(request: &str, allowed: &[String]) -> bool {
         return false;
     };
     allowed.iter().any(|entry| {
-        normalized_parts(entry)
-            .is_ok_and(|(host, port)| host == request_host && port.is_none_or(|p| Some(p) == request_port))
+        normalized_parts(entry).is_ok_and(|(host, port)| {
+            host == request_host && port.is_none_or(|p| Some(p) == request_port)
+        })
     })
 }
 
@@ -26,7 +27,14 @@ fn parse_authority(value: &str) -> Result<(&str, Option<u16>), String> {
     if value.is_empty() || value.trim() != value || value.chars().any(char::is_whitespace) {
         return Err("host must be an exact hostname or IP with an optional port".into());
     }
-    if value.contains("*") || value.contains("/") || value.contains("?") || value.contains('#') || value.contains('@') || value.contains('%') || value.contains("://") {
+    if value.contains("*")
+        || value.contains("/")
+        || value.contains("?")
+        || value.contains('#')
+        || value.contains('@')
+        || value.contains('%')
+        || value.contains("://")
+    {
         return Err("host must not include a scheme, path, wildcard, or credentials".into());
     }
     if let Some(after_open) = value.strip_prefix('[') {
@@ -76,8 +84,14 @@ fn normalize_host(host: &str) -> Result<String, String> {
         && host.split('.').all(|label| {
             !label.is_empty()
                 && label.len() <= 63
-                && label.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
-                && label.as_bytes().last().is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
                 && label
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -107,8 +121,14 @@ mod tests {
 
     #[test]
     fn network_host_grants_normalize_exact_authorities() {
-        assert_eq!(normalize_network_host("Example.test").unwrap(), "example.test");
-        assert_eq!(normalize_network_host("EXAMPLE.test:443").unwrap(), "example.test:443");
+        assert_eq!(
+            normalize_network_host("Example.test").unwrap(),
+            "example.test"
+        );
+        assert_eq!(
+            normalize_network_host("EXAMPLE.test:443").unwrap(),
+            "example.test:443"
+        );
         assert_eq!(normalize_network_host("[::1]:7686").unwrap(), "[::1]:7686");
         assert!(normalize_network_host("https://example.test").is_err());
         assert!(normalize_network_host("*.example.test").is_err());

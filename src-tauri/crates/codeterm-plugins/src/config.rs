@@ -598,7 +598,10 @@ spawn_agents: [
         assert!(settings_command("local-model", &["https://example.test".into()], &[]).is_err());
         assert!(settings_command("local-model", &["*.example.test".into()], &[]).is_err());
         let after_refusals = fs::read_to_string(dir.join("grants.yaml")).unwrap();
-        assert_eq!(parse_grants(&after_refusals).unwrap().network_allow, ["api.example.test:8443"]);
+        assert_eq!(
+            parse_grants(&after_refusals).unwrap().network_allow,
+            ["api.example.test:8443"]
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

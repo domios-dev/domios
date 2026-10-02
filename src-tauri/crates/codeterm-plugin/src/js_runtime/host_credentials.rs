@@ -138,7 +138,8 @@ pub(super) fn inject_supporter_token(
     let Some(token) = token.filter(|_| token_mode != TokenMode::None) else {
         return Ok(opts_json.to_string());
     };
-    let mut opts: Value = serde_json::from_str(opts_json).map_err(|_| "bad fetch opts".to_string())?;
+    let mut opts: Value =
+        serde_json::from_str(opts_json).map_err(|_| "bad fetch opts".to_string())?;
     let object = opts
         .as_object_mut()
         .ok_or_else(|| "fetch opts is not an object".to_string())?;
@@ -148,7 +149,10 @@ pub(super) fn inject_supporter_token(
     let headers = headers
         .as_object_mut()
         .ok_or_else(|| "fetch headers is not an object".to_string())?;
-    if !headers.keys().any(|name| name.eq_ignore_ascii_case("authorization")) {
+    if !headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case("authorization"))
+    {
         headers.insert(
             "Authorization".to_string(),
             Value::String(format!("Bearer {token}")),
