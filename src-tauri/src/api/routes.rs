@@ -765,8 +765,8 @@ pub fn create_router(state: AppState) -> Router {
             post(mem_routes::decision::supporter_use),
         )
         .route(
-            "/api/supporter/features",
-            post(mem_routes::decision::supporter_features),
+            "/api/supporter/balance",
+            post(mem_routes::decision::supporter_balance),
         )
         .route("/api/mem/items", post(mem_routes::mem_save))
         .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))

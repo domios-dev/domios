@@ -1,7 +1,7 @@
 use super::{error_message, read_token, Reply};
 use crate::args::supporter::{SupporterAction, SupporterTokenAction};
 use crate::cmd::supporter_render::{render_models, render_status, render_token_status};
-use crate::{Cli, Commands, MemAction, SupporterMode};
+use crate::{Cli, Commands, MemAction};
 use clap::Parser;
 use serde_json::json;
 
@@ -21,19 +21,10 @@ fn parse_mem(argv: &[&str]) -> Result<MemAction, clap::Error> {
 }
 
 #[test]
-fn supporter_parse_enable_disable_status_use_features() {
-    assert!(matches!(
-        parse(&["supporter", "enable"]).unwrap(),
-        Commands::Supporter {
-            action: SupporterAction::Enable
-        }
-    ));
-    assert!(matches!(
-        parse(&["supporter", "disable"]).unwrap(),
-        Commands::Supporter {
-            action: SupporterAction::Disable
-        }
-    ));
+fn supporter_enable_disable_features_rejected() {
+    for removed in ["enable", "disable", "features"] {
+        assert!(parse(&["supporter", removed]).is_err());
+    }
     assert!(matches!(
         parse(&["supporter", "status"]).unwrap(),
         Commands::Supporter {
@@ -50,23 +41,6 @@ fn supporter_parse_enable_disable_status_use_features() {
         parse(&["supporter", "use", "fixture", "--model", "listed"]).unwrap(),
         Commands::Supporter { action: SupporterAction::Use { adapter, model } }
             if adapter == "fixture" && model.as_deref() == Some("listed")
-    ));
-    assert!(matches!(
-        parse(&[
-            "supporter",
-            "features",
-            "--memory-rerank",
-            "on",
-            "--tab-state",
-            "off"
-        ])
-        .unwrap(),
-        Commands::Supporter {
-            action: SupporterAction::Features {
-                memory_rerank: Some(SupporterMode::On),
-                tab_state: Some(SupporterMode::Off)
-            }
-        }
     ));
 }
 
@@ -143,7 +117,7 @@ fn old_decision_rerank_flag_is_rejected() {
 fn supporter_models_and_status_render_discovered_state() {
     let status = json!({
         "state": "active", "adapter": "fixture", "model": "model-a", "adapter_registered": true,
-        "deadline_ms": 3000, "features": {"memory_rerank": true, "tab_state": false},
+        "deadline_ms": 3000, "calls_last_hour": 12, "calls_last_day": 45, "last_activity": 123, "budget": {"reached": true, "calls_per_hour": 600, "free_at": 3600},
         "token": {"adapter": "fixture", "present": true, "mode_ok": true},
         "adapters": [{
             "id": "fixture",
@@ -156,8 +130,8 @@ fn supporter_models_and_status_render_discovered_state() {
     assert!(text.contains("Active"));
     assert!(text.contains("Adapter: fixture"));
     assert!(text.contains("Model: model-a"));
-    assert!(text.contains("Memory re-rank: on"));
-    assert!(text.contains("Tab-state: off"));
+    assert!(text.contains("Calls: 12 in the last hour / 45 in the last day"));
+    assert!(text.contains("Budget: reached (cap 600 / hour, free at 3600)"));
     assert!(!text.contains("secret"));
     let models = render_models(&json!({"adapters":[{
         "id":"fixture",
@@ -173,14 +147,27 @@ fn supporter_models_and_status_render_discovered_state() {
 #[test]
 fn supporter_ready_status_renders_optional_token_mode_without_a_token() {
     let status = json!({
-        "state": "ready", "token_mode": "optional", "adapter": "fixture", "model": "local-model",
+        "state": "active", "token_mode": "optional", "adapter": "fixture", "model": "local-model",
         "adapter_registered": true, "deadline_ms": 3000,
-        "features": {"memory_rerank": false, "tab_state": false},
         "token": {"adapter": "fixture", "token_mode": "optional", "present": false, "mode_ok": null},
         "adapters": []
     });
     let text = render_status(&status);
-    assert!(text.contains("Ready"));
+    assert!(text.contains("Active"));
     assert!(text.contains("Token mode: optional"));
     assert!(text.contains("No token"));
+}
+
+#[test]
+fn supporter_status_renders_usage_balance_and_credit_exhaustion() {
+    let text = render_status(&json!({ "state": "credit_exhausted", "spend": {
+        "today": { "input_tokens": 123, "output_tokens": 45, "estimated_usd": 0.042 },
+        "month": { "input_tokens": 246, "output_tokens": 90, "estimated_usd": 0.084 },
+        "balance_usd": 5, "remaining_usd": 4.958, "exhausted": true, "next_probe_at": 1700003600
+    }}));
+    assert!(text.contains("Balance exhausted"));
+    assert!(text.contains("123 input / 45 output tokens"));
+    assert!(text.contains("estimated USD 0.042"));
+    assert!(text.contains("remaining USD: 4.958 (estimate)"));
+    assert!(text.contains("next request probe after 1700003600"));
 }

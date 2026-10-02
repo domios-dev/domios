@@ -25,6 +25,7 @@ LABELS = {
     "crashed_to_shell",
     "error_loop",
     "still_starting",
+    "other",
 }
 CONTEXT_FIELDS = {
     "provider_capability",

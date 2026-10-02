@@ -45,7 +45,13 @@ export interface NodeStyle {
 
 export type ViewNode =
   | { kind: "text"; text: string; style?: NodeStyle }
-  | { kind: "stat"; label: string; value: string; unit?: string; style?: NodeStyle }
+  | {
+      kind: "stat";
+      label: string;
+      value: string;
+      unit?: string;
+      style?: NodeStyle;
+    }
   | { kind: "keyVal"; key: string; value: string; style?: NodeStyle }
   | { kind: "badge"; label: string; tone?: Tone }
   | { kind: "row"; children: ViewNode[]; style?: NodeStyle }
@@ -258,7 +264,10 @@ export interface AgentProvider {
   enumerateSessions?(): unknown[];
   /** The one record owning exactly this id, or null; never scans session history. */
   findSession?(sessionId: string): unknown | null;
-  describeSession?(filePath: string, head?: string): {
+  describeSession?(
+    filePath: string,
+    head?: string,
+  ): {
     projectPath?: string;
     title?: string;
     summary?: string;
@@ -279,10 +288,7 @@ export interface AgentProvider {
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
-  installIntegration?(
-    apiPort: number,
-    options: { consent: boolean; precompact_memory_export?: boolean },
-  ): unknown;
+  installIntegration?(apiPort: number, options: { consent: boolean; precompact_memory_export?: boolean }): unknown;
   uninstallIntegration?(): unknown;
   restoreIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;
@@ -312,7 +318,11 @@ export interface SecretCreds {
 }
 
 // core SecretStore trait: `{ ok }` / `{ ok: <payload> }` / `{ error: <kind> }`.
-export type SecretError = { kind: string; message?: string; candidates?: string[] };
+export type SecretError = {
+  kind: string;
+  message?: string;
+  candidates?: string[];
+};
 export type SecretEnvelope<T = unknown> = { ok: T } | { error: SecretError };
 
 // secretStatus is the one method that returns a bare StoreStatus, not an envelope.
@@ -382,6 +392,34 @@ export interface DecisionRequest {
   question: DecisionQuestion;
 }
 
+export interface NamedDecisionQuestion {
+  instructions: string;
+  question: DecisionQuestion;
+}
+
+export interface DecisionQuestionsRequest {
+  state: unknown;
+  questions: Record<string, NamedDecisionQuestion>;
+}
+
+export type DecisionAnswers = Record<string, DecisionAnswer>;
+
+export interface DecisionUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface DecisionPricing {
+  display_name: string;
+  input_usd_per_million: number;
+  output_usd_per_million: number;
+}
+
+export interface DecisionResponse {
+  answers: DecisionAnswers;
+  usage: DecisionUsage | null;
+}
+
 export interface DecisionPrimitives {
   choice: boolean;
   noul: boolean;
@@ -409,16 +447,18 @@ export type DecisionAnswer =
     };
 
 export interface DecisionModelCapability {
+  modelId?(): string | null;
+  pricing?(): DecisionPricing | null;
   decide(request: DecisionRequest): DecisionAnswer;
+  /** One shared-state request; omitted methods use sequential decide calls inside the adapter. */
+  decideQuestions?(request: DecisionQuestionsRequest): DecisionResponse;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
 }
 
 /** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
 export type DecisionModelTokenMode = "required" | "optional" | "none";
-export type DecisionModelManifestCapability =
-  | boolean
-  | { tokenMode: DecisionModelTokenMode };
+export type DecisionModelManifestCapability = boolean | { tokenMode: DecisionModelTokenMode };
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
@@ -537,8 +577,7 @@ export interface ReasoningEffortInfo {
   description?: string;
 }
 
-export interface Model extends ModelInfo {
-}
+export interface Model extends ModelInfo {}
 
 /** Provider-owned grouping of its models, e.g. the upstream company a routed
  *  model belongs to. `id` matches a model-id prefix; `label` is rendered. */
@@ -645,7 +684,11 @@ export interface ChatBackend {
   poll(
     sessionId: string,
     cursor?: string | null,
-  ): { messages: NormalizedChatMessage[]; cursor: string | null; done?: boolean };
+  ): {
+    messages: NormalizedChatMessage[];
+    cursor: string | null;
+    done?: boolean;
+  };
   closeSession(sessionId: string): void;
   listModels?(): Model[];
   listPresets?(): PresetInfo[];

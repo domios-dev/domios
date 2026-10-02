@@ -61,41 +61,33 @@ fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
                     "score": primitives.score,
                 },
                 "models": model.models(),
+                "pricing": model.pricing(),
             }))
         })
         .collect()
 }
 
 fn supporter_state(
-    features_on: bool,
+    selected: bool,
     token: &TokenStatus,
     adapter_registered: bool,
     token_mode: TokenMode,
 ) -> &'static str {
-    if token_mode != TokenMode::Required {
-        if !adapter_registered {
-            return "adapter_unavailable";
-        }
-        return if features_on { "active" } else { "ready" };
-    }
-    if !token.present {
-        return if features_on {
-            "feature_without_token"
-        } else {
-            "no_token"
-        };
-    }
-    if token.mode_ok == Some(false) {
-        return "token_unusable";
+    if !selected {
+        return "not_connected";
     }
     if !adapter_registered {
         return "adapter_unavailable";
     }
-    if features_on {
-        "active"
-    } else {
-        "token_only"
+    if token_mode == TokenMode::Required {
+        if !token.present {
+            return "no_token";
+        }
+        if token.mode_ok == Some(false) {
+            return "token_unusable";
+        }
     }
+    "active"
 }
 
 fn token_mode_name(mode: TokenMode) -> &'static str {
@@ -104,10 +96,6 @@ fn token_mode_name(mode: TokenMode) -> &'static str {
         TokenMode::Optional => "optional",
         TokenMode::None => "none",
     }
-}
-
-fn token_gate_refuses(mode: TokenMode, status: &TokenStatus) -> bool {
-    mode == TokenMode::Required && (!status.present || status.mode_ok == Some(false))
 }
 
 fn select_model_id(
@@ -140,7 +128,7 @@ fn select_model_id(
     }
 }
 
-fn token_store() -> TokenStore {
+pub(crate) fn token_store() -> TokenStore {
     TokenStore::new(supporter_token_dir())
 }
 
@@ -156,6 +144,9 @@ pub(crate) fn default_registry() -> Arc<SupporterRegistry> {
 
 /// Recall for the decision path: pool reads record no access; only returned mem hits do, once.
 pub(crate) trait DecisionBackend: RecallBackend {
+    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+        crate::service::supporter::runtime()
+    }
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -184,6 +175,9 @@ pub(crate) trait DecisionBackend: RecallBackend {
 }
 
 impl DecisionBackend for ServiceContext {
+    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+        crate::service::supporter::runtime_with_notifications(self)
+    }
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -360,6 +354,14 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(session.hit);
         candidates.push(session.candidate);
     }
+    let model = crate::service::supporter::budgeted_model(
+        model,
+        backend.supporter_runtime(),
+        supporter.calls_per_hour,
+        crate::service::supporter::VerdictKind::Rerank,
+        p.caller_tab_id.clone(),
+        None,
+    );
     let outcome = match stage_deadline {
         Some(deadline) => run_stage_until(model, &p.q, &candidates, &stage_config, deadline),
         None => run_stage(model, &p.q, &candidates, &stage_config),
@@ -421,6 +423,16 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                 envelope["sources"] = json!({ "recall": recall_count, "graph": graph_count });
             }
             insert_envelope(&mut output, envelope);
+            backend
+                .supporter_runtime()
+                .action(crate::service::supporter::ActionRecord {
+                    kind: crate::service::supporter::VerdictKind::Rerank,
+                    tab: p.caller_tab_id.as_deref(),
+                    label: "ranked",
+                    confidence: max_relevance,
+                    action: crate::service::supporter::Action::Rerank,
+                    reason: "all_candidates_scored",
+                });
             Ok(output)
         }
         StageOutcome::Fallback { reason } => fallback(backend, p, reason),
@@ -475,6 +487,7 @@ fn fallback<B: DecisionBackend + ?Sized>(
 
 fn stage_config(cfg: &MemoryRerankConfig, deadline_ms: u64) -> StageConfig {
     StageConfig {
+        request_mode: cfg.request_mode,
         max_concurrency: cfg.max_concurrency,
         deadline: Duration::from_millis(deadline_ms),
         low_confidence_threshold: cfg.low_confidence_threshold,
@@ -522,346 +535,8 @@ fn doc_candidate(doc: &crate::mem::docs_source::DocCandidate) -> RerankCandidate
     }
 }
 
-#[derive(Deserialize)]
-pub struct TokenSetBody {
-    adapter: Option<String>,
-    token: String,
-}
-
-#[derive(Deserialize)]
-pub struct AdapterQuery {
-    adapter: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct SupporterUseBody {
-    adapter: String,
-    model: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct SupporterFeaturesBody {
-    memory_rerank: Option<bool>,
-    tab_state: Option<bool>,
-}
-
-type RouteResult = Result<Json<Value>, (StatusCode, String)>;
-
-pub async fn supporter_token_set(
-    AxumState(state): AxumState<AppState>,
-    Json(body): Json<TokenSetBody>,
-) -> RouteResult {
-    let adapter = body
-        .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    let Some(model) = state.svc.supporter_models.get(&adapter) else {
-        return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
-    };
-    if model.token_mode() == TokenMode::None {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let token = body.token;
-    let status = token_io(move || {
-        let store = token_store();
-        store.set(&adapter, &token)?;
-        store.status(&adapter).map(|status| (adapter, status))
-    })
-    .await?;
-    Ok(Json(token_status_json(
-        &status.0,
-        &status.1,
-        model.token_mode(),
-    )))
-}
-
-pub async fn supporter_token_clear(
-    AxumState(state): AxumState<AppState>,
-    Query(query): Query<AdapterQuery>,
-) -> RouteResult {
-    let adapter = query
-        .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    if state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .is_some_and(|model| model.token_mode() == TokenMode::None)
-    {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let (adapter, removed) = token_io(move || {
-        let removed = token_store().clear(&adapter)?;
-        Ok((adapter, removed))
-    })
-    .await?;
-    let token_mode = state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .map(|model| model.token_mode())
-        .unwrap_or(TokenMode::Required);
-    Ok(Json(json!({
-        "adapter": adapter,
-        "removed": removed,
-        "token_mode": token_mode_name(token_mode),
-    })))
-}
-
-pub async fn supporter_token_status(
-    AxumState(state): AxumState<AppState>,
-    Query(query): Query<AdapterQuery>,
-) -> RouteResult {
-    let adapter = query
-        .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    if state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .is_some_and(|model| model.token_mode() == TokenMode::None)
-    {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let (adapter, status) = token_io(move || {
-        let status = token_store().status(&adapter)?;
-        Ok((adapter, status))
-    })
-    .await?;
-    let token_mode = state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .map(|model| model.token_mode())
-        .unwrap_or(TokenMode::Required);
-    Ok(Json(token_status_json(&adapter, &status, token_mode)))
-}
-
-pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
-    let models = state.svc.supporter_models.clone();
-    let cfg = state.config.lock().supporter.clone();
-    token_io(move || {
-        let store = token_store();
-        let mut adapters = registered_adapters(&models);
-        for adapter in &mut adapters {
-            if let Some(id) = adapter.get("id").and_then(Value::as_str) {
-                let status = store.status(id)?;
-                let mode = models
-                    .get(id)
-                    .map(|model| model.token_mode())
-                    .unwrap_or(TokenMode::Required);
-                adapter["token"] = token_status_json(id, &status, mode);
-            }
-        }
-        let selected_token = store.status(&cfg.adapter)?;
-        let features_on = cfg.memory_rerank.enabled || cfg.tab_state.enabled;
-        let selected_model = models.get(&cfg.adapter);
-        let adapter_registered = selected_model.is_some();
-        let token_mode = selected_model.map_or(TokenMode::Required, |model| model.token_mode());
-        let state = supporter_state(features_on, &selected_token, adapter_registered, token_mode);
-        let model = cfg.model.clone().or_else(|| {
-            models
-                .get(&cfg.adapter)
-                .and_then(|model| model.models().first().map(|entry| entry.id.clone()))
-        });
-        Ok(json!({
-            "state": state,
-            "token_mode": token_mode_name(token_mode),
-            "adapter": cfg.adapter,
-            "model": model,
-            "deadline_ms": cfg.deadline_ms,
-            "features": {
-                "memory_rerank": cfg.memory_rerank.enabled,
-                "tab_state": cfg.tab_state.enabled,
-            },
-            "token": token_status_json(&cfg.adapter, &selected_token, token_mode),
-            "adapter_registered": adapter_registered,
-            "adapters": adapters,
-        }))
-    })
-    .await
-    .map(Json)
-}
-
-pub async fn supporter_models(AxumState(state): AxumState<AppState>) -> RouteResult {
-    let cfg = state.config.lock().supporter.clone();
-    let models = state.svc.supporter_models.clone();
-    let adapters = registered_adapters(&models);
-    Ok(Json(json!({
-        "adapter": cfg.adapter,
-        "model": cfg.model,
-        "adapters": adapters,
-    })))
-}
-
-pub async fn supporter_use(
-    AxumState(state): AxumState<AppState>,
-    Json(body): Json<SupporterUseBody>,
-) -> RouteResult {
-    let Some(adapter) = state.svc.supporter_models.get(&body.adapter) else {
-        return Err(unknown_adapter(&state.svc.supporter_models, &body.adapter));
-    };
-    let available = adapter.models();
-    let current = state.config.lock().supporter.clone();
-    let selected_model = select_model_id(
-        &body.adapter,
-        &available,
-        body.model,
-        current.adapter == body.adapter,
-        current.model,
-    )
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    if let Some(model_id) = selected_model.as_deref() {
-        if !adapter.select_model(model_id) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("adapter {} cannot select model {model_id}", body.adapter),
-            ));
-        }
-    }
-    let adapter_id = body.adapter;
-    let cfg = update_supporter_config(state, move |cfg| {
-        cfg.adapter = adapter_id;
-        cfg.model = selected_model;
-    })
-    .await?;
-    Ok(Json(json!({ "adapter": cfg.adapter, "model": cfg.model })))
-}
-
-pub async fn supporter_features(
-    AxumState(state): AxumState<AppState>,
-    Json(body): Json<SupporterFeaturesBody>,
-) -> RouteResult {
-    if body.memory_rerank.is_none() && body.tab_state.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "set memory_rerank or tab_state".into(),
-        ));
-    }
-    if body.memory_rerank == Some(true) || body.tab_state == Some(true) {
-        let adapter = state.config.lock().supporter.adapter.clone();
-        let mode = state
-            .svc
-            .supporter_models
-            .get(&adapter)
-            .map(|model| model.token_mode())
-            .unwrap_or(TokenMode::Required);
-        let token_adapter = adapter.clone();
-        let status = token_io(move || token_store().status(&token_adapter)).await?;
-        if token_gate_refuses(mode, &status) {
-            return Err((
-                StatusCode::CONFLICT,
-                format!("no usable supporter token is stored for adapter {adapter}"),
-            ));
-        }
-    }
-    let cfg = update_supporter_config(state, move |cfg| {
-        if let Some(enabled) = body.memory_rerank {
-            cfg.memory_rerank.enabled = enabled;
-        }
-        if let Some(enabled) = body.tab_state {
-            cfg.tab_state.enabled = enabled;
-        }
-    })
-    .await?;
-    Ok(Json(json!({
-        "memory_rerank": cfg.memory_rerank.enabled,
-        "tab_state": cfg.tab_state.enabled,
-    })))
-}
-
-fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> Value {
-    json!({
-        "adapter": adapter,
-        "token_mode": token_mode_name(mode),
-        "present": status.present,
-        "path": status.path,
-        "mode_ok": status.mode_ok,
-    })
-}
-
-fn no_token_needed_json(adapter: &str) -> Value {
-    json!({
-        "adapter": adapter,
-        "token_mode": "none",
-        "message": "this adapter needs no token",
-        "present": false,
-    })
-}
-
-fn unknown_adapter(models: &SupporterRegistry, adapter: &str) -> (StatusCode, String) {
-    let mut registered = models.ids();
-    registered.sort();
-    (
-        StatusCode::NOT_FOUND,
-        format!(
-            "supporter adapter is not registered: {adapter}; registered adapters: {}",
-            if registered.is_empty() {
-                "none".to_owned()
-            } else {
-                registered.join(", ")
-            }
-        ),
-    )
-}
-
-async fn update_supporter_config<F>(
-    state: AppState,
-    update: F,
-) -> Result<crate::config::schema::SupporterConfig, (StatusCode, String)>
-where
-    F: FnOnce(&mut crate::config::schema::SupporterConfig) + Send + 'static,
-{
-    let config_state = state.config.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut config = config_state.lock().clone();
-        update(&mut config.supporter);
-        crate::config::bounds::validate_app_config(&config)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let supporter = config.supporter.clone();
-        crate::config::save_config_and_apply(&config_state, config)
-            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-        Ok::<_, io::Error>(supporter)
-    })
-    .await
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("supporter config task failed: {error}"),
-        )
-    })?
-    .map_err(|error| {
-        let status = if error.kind() == io::ErrorKind::InvalidInput {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        };
-        (status, format!("supporter config update failed: {error}"))
-    })
-}
-
-/// Token file IO stays off the async runtime; io errors never carry the token value.
-async fn token_io<T, F>(work: F) -> Result<T, (StatusCode, String)>
-where
-    T: Send + 'static,
-    F: FnOnce() -> io::Result<T> + Send + 'static,
-{
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("supporter token task failed: {error}"),
-            )
-        })?
-        .map_err(|error| {
-            let status = if error.kind() == io::ErrorKind::InvalidInput {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (status, format!("supporter token store: {error}"))
-        })
-}
+mod supporter_routes;
+pub use supporter_routes::*;
 
 #[cfg(test)]
 mod tests;

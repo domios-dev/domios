@@ -4,9 +4,10 @@ use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use codeterm_types::config::SupporterTabStateConfig;
+use super::supporter::{self, Action, ActionRecord, SupporterRuntime, TokenSnapshot, VerdictKind};
+use codeterm_types::config::SupporterConfig;
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest, TokenMode,
+    DecisionAnswer, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
 };
 use serde_json::Value;
 
@@ -16,6 +17,7 @@ use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
 mod delivery;
+mod questions;
 mod state;
 
 pub(crate) use state::{
@@ -37,13 +39,14 @@ pub(crate) const LOGIN_OR_AUTH_REQUIRED: &str = "login_or_auth_required";
 pub(crate) const MODEL_UNAVAILABLE_OR_QUOTA: &str = "model_unavailable_or_quota";
 pub(crate) const CRASHED_TO_SHELL: &str = "crashed_to_shell";
 pub(crate) const ERROR_LOOP: &str = "error_loop";
+pub(crate) const OTHER: &str = "other";
 pub(crate) const STILL_STARTING: &str = "still_starting";
 
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
 const WEAK_HINT_PREFIX: &str = "Tab-state hint";
 
-fn criteria() -> &'static BTreeMap<String, String> {
+pub(crate) fn criteria() -> &'static BTreeMap<String, String> {
     static CRITERIA: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     CRITERIA.get_or_init(|| {
         serde_json::from_str(CRITERIA_JSON).expect("embedded tab-state criteria are valid")
@@ -116,6 +119,8 @@ pub(crate) struct TabStateMetadata {
 pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
+    pub(crate) prompt_visible: f64,
+    pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
 }
@@ -124,6 +129,9 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String>;
     fn supporter_models(&self) -> Arc<SupporterRegistry>;
     fn token_available(&self, adapter_id: &str) -> bool;
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        supporter::runtime()
+    }
     fn metadata(
         &self,
         tab_id: &str,
@@ -145,6 +153,9 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
 }
 
 impl ShadowHost for ServiceContext {
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        supporter::runtime_with_notifications(self)
+    }
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         self.tab_transport(tab_id)
     }
@@ -154,23 +165,7 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
-        if self
-            .supporter_models
-            .get(adapter_id)
-            .is_some_and(|model| model.token_mode() != TokenMode::Required)
-        {
-            return true;
-        }
-        let store = crate::mem::decision::token_store::TokenStore::new(
-            crate::api::mem_routes::decision::supporter_token_dir(),
-        );
-        match store.status(adapter_id) {
-            Ok(status) => status.present && status.mode_ok != Some(false),
-            Err(error) => {
-                log::debug!("[tab-state] token status unavailable: {error}");
-                false
-            }
-        }
+        TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter_id).usable
     }
 
     fn metadata(
@@ -337,7 +332,7 @@ impl ServiceContext {
         let settings = crate::config::load_config().supporter;
         drop(spawn_observer(
             self,
-            &settings.tab_state,
+            &settings,
             &settings.adapter,
             settings.deadline_ms,
             tab_id,
@@ -398,14 +393,14 @@ impl ServiceContext {
 
 pub(crate) fn spawn_observer<H: ShadowHost>(
     host: &H,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     configured_deadline_ms: u64,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<JoinHandle<Option<ShadowVerdict>>> {
-    if !config.enabled {
+    if config.adapter.is_empty() || host.supporter_models().get(&config.adapter).is_none() {
         return None;
     }
     let host = host.clone();
@@ -435,15 +430,17 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
 
 fn observe_guarded<H: ShadowHost>(
     host: &H,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     configured_deadline_ms: u64,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] no usable token; tab={tab_id} observation skipped");
+    let snapshot = TokenSnapshot {
+        usable: host.token_available(adapter_id),
+    };
+    if !supporter::supporter_connected(config, &host.supporter_models(), &snapshot) {
         return None;
     }
     let models = host.supporter_models();
@@ -453,14 +450,13 @@ fn observe_guarded<H: ShadowHost>(
     };
     let deadline =
         Instant::now() + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
-    let (request, metadata) =
-        match prepare_observation(host, adapter_id, tab_id, trigger, structural_verdict) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
-                return None;
-            }
-        };
+    let (request, metadata) = match prepare_observation(host, tab_id, trigger, structural_verdict) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            host.record(&format!("[tab-state] tab={tab_id} no verdict: {error}"));
+            return None;
+        }
+    };
     let permit = match claim_observation(tab_id, &metadata.session_key, trigger.event()) {
         Ok(permit) => permit,
         Err(reason) => {
@@ -468,6 +464,14 @@ fn observe_guarded<H: ShadowHost>(
             return None;
         }
     };
+    let model = supporter::budgeted_model(
+        model,
+        host.supporter_runtime(),
+        config.calls_per_hour,
+        VerdictKind::TabState,
+        Some(tab_id.to_owned()),
+        Some(supporter::criteria_hash(CRITERIA_JSON.as_bytes())),
+    );
     observe(
         host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
     )
@@ -476,17 +480,19 @@ fn observe_guarded<H: ShadowHost>(
 fn observe<H: ShadowHost>(
     host: &H,
     model: &Arc<dyn DecisionModel>,
-    config: &SupporterTabStateConfig,
+    config: &SupporterConfig,
     adapter_id: &str,
     tab_id: &str,
     trigger: ObservationTrigger,
     deadline: Instant,
-    request: DecisionRequest,
+    request: DecisionQuestionsRequest,
     metadata: TabStateMetadata,
     permit: state::ObservationPermit,
 ) -> Option<ShadowVerdict> {
-    if !host.token_available(adapter_id) {
-        log::debug!("[tab-state] token expired before choice; observation skipped");
+    let snapshot = TokenSnapshot {
+        usable: host.token_available(adapter_id),
+    };
+    if !supporter::supporter_connected(config, &host.supporter_models(), &snapshot) {
         return None;
     }
     let classified_frame_hash = request
@@ -496,17 +502,12 @@ fn observe<H: ShadowHost>(
         .map(frame_hash)
         .unwrap_or_default();
     match model
-        .decide(&request, deadline)
+        .decide_questions(&request, deadline)
         .map_err(|error| error.to_string())
-        .and_then(chosen_label)
+        .and_then(observation_answers)
     {
-        Ok((label, confidence)) => {
-            let mut verdict = ShadowVerdict {
-                label,
-                confidence,
-                action: SignalAction::None,
-                classified_frame_hash,
-            };
+        Ok(mut verdict) => {
+            verdict.classified_frame_hash = classified_frame_hash;
             let spawn_healthy = trigger.is_spawn()
                 && confidence_band(verdict.confidence) == ConfidenceBand::Strong
                 && matches!(verdict.label.as_str(), READY_IDLE | WORKING_NORMALLY);
@@ -534,8 +535,6 @@ fn observe<H: ShadowHost>(
                     &permit,
                     &verdict.label,
                     verdict.confidence,
-                    config.strong_actions,
-                    config.weak_hints,
                 ) else {
                     host.record(&format!(
                         "[tab-state] stale observation discarded tab={tab_id} episode={} frame_hash={:016x}",
@@ -546,7 +545,18 @@ fn observe<H: ShadowHost>(
                 };
                 action
             };
+            if verdict.label == OTHER {
+                return Some(verdict);
+            }
             if spawn_healthy {
+                host.supporter_runtime().action(ActionRecord {
+                    kind: VerdictKind::TabState,
+                    tab: Some(tab_id),
+                    label: &verdict.label,
+                    confidence: verdict.confidence,
+                    action: Action::SpawnOk,
+                    reason: trigger.label(),
+                });
                 host.deliver(
                     tab_id,
                     &metadata,
@@ -558,6 +568,18 @@ fn observe<H: ShadowHost>(
                 );
             }
             if verdict.action != SignalAction::None && !spawn_healthy {
+                host.supporter_runtime().action(ActionRecord {
+                    kind: VerdictKind::TabState,
+                    tab: Some(tab_id),
+                    label: &verdict.label,
+                    confidence: verdict.confidence,
+                    action: if verdict.action == SignalAction::StrongAction {
+                        Action::StrongAction
+                    } else {
+                        Action::WeakHint
+                    },
+                    reason: trigger.label(),
+                });
                 host.deliver(
                     tab_id,
                     &metadata,
@@ -588,11 +610,10 @@ fn observe<H: ShadowHost>(
 
 fn prepare_observation<H: ShadowHost>(
     host: &H,
-    adapter_id: &str,
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
-) -> Result<(DecisionRequest, TabStateMetadata), String> {
+) -> Result<(DecisionQuestionsRequest, TabStateMetadata), String> {
     let screen = {
         let transport = host.transport(tab_id)?;
         transport.read_screen(false)?
@@ -602,18 +623,12 @@ fn prepare_observation<H: ShadowHost>(
         .and_then(Value::as_str)
         .ok_or("screen read returned no text")?;
     let metadata = host.metadata(tab_id, trigger, structural_verdict, text)?;
-    if !host.token_available(adapter_id) {
-        return Err("decision token is no longer available".into());
-    }
-    let request = DecisionRequest {
+    let request = DecisionQuestionsRequest {
         state: serde_json::json!({
             "screen": screen_tail(text),
             "context": metadata.context,
         }),
-        instructions: INSTRUCTIONS.to_owned(),
-        question: DecisionQuestion::Choice {
-            options: criteria().clone(),
-        },
+        questions: questions::observation_questions(&metadata, None),
     };
     Ok((request, metadata))
 }
@@ -622,9 +637,10 @@ pub(crate) fn choice_model(
     models: &SupporterRegistry,
     adapter_id: &str,
 ) -> Option<Arc<dyn DecisionModel>> {
-    models
-        .get(adapter_id)
-        .filter(|model| model.primitives().choice)
+    models.get(adapter_id).filter(|model| {
+        let p = model.primitives();
+        p.choice && p.noul
+    })
 }
 
 pub(crate) fn screen_tail(text: &str) -> String {
@@ -636,6 +652,41 @@ fn frame_hash(frame: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     frame.hash(&mut hasher);
     hasher.finish()
+}
+
+fn observation_answers(response: DecisionResponse) -> Result<ShadowVerdict, String> {
+    let mut answers = response.answers;
+    let label = answers
+        .remove("label")
+        .ok_or("decision model omitted label")?;
+    let (label, confidence) = chosen_label(label)?;
+    let Some(DecisionAnswer::Noul { p: prompt_visible }) = answers.remove("prompt_visible") else {
+        return Err("decision model omitted prompt_visible".into());
+    };
+    if !prompt_visible.is_finite() || !(0.0..=1.0).contains(&prompt_visible) {
+        return Err("decision model gave invalid prompt_visible".into());
+    }
+    let safe_choice = answers.remove("safe_choice").and_then(|answer| {
+        let DecisionAnswer::Choice {
+            choice,
+            probabilities,
+            confidence,
+        } = answer
+        else {
+            return None;
+        };
+        let confidence = confidence.or_else(|| probabilities.get(&choice).copied())?;
+        (confidence.is_finite() && (0.0..=1.0).contains(&confidence))
+            .then_some((choice, confidence))
+    });
+    Ok(ShadowVerdict {
+        label,
+        confidence,
+        prompt_visible,
+        safe_choice,
+        action: SignalAction::None,
+        classified_frame_hash: 0,
+    })
 }
 
 fn chosen_label(answer: DecisionAnswer) -> Result<(String, f64), String> {

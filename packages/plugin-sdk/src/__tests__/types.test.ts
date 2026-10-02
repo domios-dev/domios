@@ -5,6 +5,8 @@ import type {
   ChatBackend,
   ChatPreprocessor,
   DecisionAnswer,
+  DecisionQuestionsRequest,
+  DecisionResponse,
   DecisionModelCapability,
   DecisionModelInfo,
   AgentProvider,
@@ -28,9 +30,7 @@ const backend: ChatBackend = {
   poll: (_sessionId, _cursor) => ({ messages: [], cursor: null }),
   closeSession: (_sessionId) => {},
   listModels: () => [{ id: "m", displayName: "M" }],
-  listPresets: () => [
-    { id: "codeterm", name: "CodeTerm", description: "default shell" },
-  ],
+  listPresets: () => [{ id: "codeterm", name: "CodeTerm", description: "default shell" }],
 };
 void backend;
 
@@ -61,7 +61,11 @@ const brokenBackend: ChatBackend = {
 };
 void brokenBackend;
 
-const msg: NormalizedChatMessage = { id: "1", type: "assistant", content: "hi" };
+const msg: NormalizedChatMessage = {
+  id: "1",
+  type: "assistant",
+  content: "hi",
+};
 void msg;
 const pluginInbound: NormalizedChatMessage = {
   id: "plugin-1",
@@ -77,8 +81,7 @@ void polled;
 
 const pre: ChatPreprocessor = {
   match: "text",
-  chatPreprocess: (ctx) =>
-    ctx.text.length > 0 ? { text: ctx.text.toUpperCase() } : null,
+  chatPreprocess: (ctx) => (ctx.text.length > 0 ? { text: ctx.text.toUpperCase() } : null),
 };
 void pre;
 
@@ -98,8 +101,14 @@ const audioContext: WebhookReceiveContext = {
   receivedAt: "2026-09-11T07:00:00Z",
   audio: { mediaType: "audio/mp4", size: 3 },
 };
-const audioDelivery: WebhookDelivery = { text: "client: ring", transcript: "hello" };
-const audioCapability: WebhookReceiverCapability = { kind: "pebble", audio: true };
+const audioDelivery: WebhookDelivery = {
+  text: "client: ring",
+  transcript: "hello",
+};
+const audioCapability: WebhookReceiverCapability = {
+  kind: "pebble",
+  audio: true,
+};
 void audioContext;
 void audioDelivery;
 void audioCapability;
@@ -138,9 +147,7 @@ void wrongSlot;
 
 const cmd: AgentCommandHandler = {
   onAgentCommand: (ctx: AgentCommandCtx) =>
-    ctx.verb === "ping"
-      ? { result: ctx.args.join(",") }
-      : { error: "unknown verb" },
+    ctx.verb === "ping" ? { result: ctx.args.join(",") } : { error: "unknown verb" },
 };
 void cmd;
 
@@ -157,7 +164,9 @@ void provider;
 const providerModel: ModelInfo = provider.discoverModels!()![0];
 void providerModel;
 // @ts-expect-error discoverModels returns the shared camelCase ModelInfo shape
-const brokenProvider: AgentProvider = { discoverModels: () => [{ id: "x", display_name: "X" }] };
+const brokenProvider: AgentProvider = {
+  discoverModels: () => [{ id: "x", display_name: "X" }],
+};
 void brokenProvider;
 
 declare const host: Host;
@@ -183,6 +192,31 @@ const decisionModel: DecisionModelCapability = {
     };
   },
 };
+const sharedDecisionModel: DecisionModelCapability = {
+  ...decisionModel,
+  pricing: () => ({
+    display_name: "local fixture",
+    input_usd_per_million: 0,
+    output_usd_per_million: 0,
+  }),
+  decideQuestions(request: DecisionQuestionsRequest): DecisionResponse {
+    return {
+      answers: Object.fromEntries(
+        Object.entries(request.questions).map(([name, spec]) => [
+          name,
+          decisionModel.decide({
+            state: request.state,
+            instructions: spec.instructions,
+            question: spec.question,
+          }),
+        ]),
+      ),
+      usage: { input_tokens: 12, output_tokens: 4 },
+    };
+  },
+};
+void sharedDecisionModel;
+
 const decisionModelInfo: DecisionModelInfo = {
   id: "loaded",
   display_name: "Loaded model",
@@ -233,9 +267,7 @@ async function exercise() {
   const reply = await host.agent.poll(ticket);
   if (reply.done) void reply.reply;
   void reply.error;
-  const usage: UsageSnapshot | null = host.agent.usage
-    ? await host.agent.usage(sessionId)
-    : null;
+  const usage: UsageSnapshot | null = host.agent.usage ? await host.agent.usage(sessionId) : null;
   void usage;
   await host.agent.reap(sessionId);
 
@@ -291,5 +323,9 @@ const receiverMenu: TabMenuContribution = {
 };
 void receiverMenu;
 // @ts-expect-error tab menu actions are a closed host-owned set
-const unknownAction: TabMenuContribution = { id: "close", label: "Close", action: "closeTab" };
+const unknownAction: TabMenuContribution = {
+  id: "close",
+  label: "Close",
+  action: "closeTab",
+};
 void unknownAction;

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_SUPPORTER_CALLS_PER_HOUR: usize = 600;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SupporterConfig {
@@ -8,7 +10,7 @@ pub struct SupporterConfig {
     pub model: Option<String>,
     pub deadline_ms: u64,
     pub memory_rerank: MemoryRerankConfig,
-    pub tab_state: SupporterTabStateConfig,
+    pub calls_per_hour: usize,
 }
 
 impl Default for SupporterConfig {
@@ -19,7 +21,7 @@ impl Default for SupporterConfig {
             model: Some("jev-latest".into()),
             deadline_ms: 3000,
             memory_rerank: MemoryRerankConfig::default(),
-            tab_state: SupporterTabStateConfig::default(),
+            calls_per_hour: DEFAULT_SUPPORTER_CALLS_PER_HOUR,
         }
     }
 }
@@ -27,11 +29,11 @@ impl Default for SupporterConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryRerankConfig {
-    pub enabled: bool,
     pub docs_hybrid: bool,
     pub sources: SupporterSources,
     pub candidates: usize,
     pub max_concurrency: usize,
+    pub request_mode: RerankRequestMode,
     pub low_confidence_threshold: f64,
     pub max_body_chars: usize,
 }
@@ -39,15 +41,23 @@ pub struct MemoryRerankConfig {
 impl Default for MemoryRerankConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             docs_hybrid: false,
             sources: SupporterSources::default(),
             candidates: 50,
             max_concurrency: 16,
+            request_mode: RerankRequestMode::default(),
             low_confidence_threshold: 0.15,
             max_body_chars: 2000,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RerankRequestMode {
+    #[default]
+    PerCandidate,
+    SharedState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,25 +76,6 @@ impl Default for SupporterSources {
             graph: 3,
             docs: 3,
             sessions: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SupporterTabStateConfig {
-    pub enabled: bool,
-    pub strong_actions: bool,
-    pub weak_hints: bool,
-}
-
-impl Default for SupporterTabStateConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            // The 1.12.3 e2e oracle failed (no spawn-ok, single-observation actions): ship observe-only.
-            strong_actions: false,
-            weak_hints: false,
         }
     }
 }

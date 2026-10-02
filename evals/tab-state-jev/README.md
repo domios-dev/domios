@@ -40,7 +40,7 @@ The Orchestrator reads each screen and supplies its label. drop --id CAPTURE_ID
 discards a frame that does not clearly show the target state. The label set is
 ready_idle, working_normally, provider_update_prompt,
 trust_or_permission_prompt, login_or_auth_required,
-model_unavailable_or_quota, crashed_to_shell, error_loop, and still_starting.
+model_unavailable_or_quota, crashed_to_shell, error_loop, still_starting, and other.
 
 Collect at least four frames per label pooled across providers and include both
 `pty` and `chat_backend` transports. Reproduce a closed-port proxy, folder
@@ -64,7 +64,7 @@ is never printed.
     python3 evals/tab-state-jev/run.py --arm context --criteria-variant auth-first-run
 
 The screen arm sends the screen string as state. The context arm sends
-state: {screen, context}. Each JSON report includes per-label precision and
+state: {screen, context} with named `label` and `prompt_visible` questions in one request, matching the runtime fan-out. Both answers must be valid; missing prompt visibility fails the observation. The pre-Spine context arm used a single `q` question, so preserve its report before the after-run. Prompt visibility is recorded without a claimed ground-truth precision; safe-choice qualification belongs to the recovery evaluation. Each JSON report includes per-label precision and
 recall, strong and weak band precision, per-provider and per-transport
 precision, call counts, and a coverage-qualified verdict for each gate:
 

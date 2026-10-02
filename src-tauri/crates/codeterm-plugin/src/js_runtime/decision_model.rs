@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Instant;
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionQuestion, DecisionRequest, TokenMode,
+    decide_questions_sequentially, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo,
+    DecisionPricing, DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest,
+    DecisionResponse, TokenMode,
 };
 use serde_json::json;
 
@@ -31,6 +31,14 @@ impl DecisionModel for JsDecisionModel {
         &self.id
     }
 
+    fn model_id(&self) -> Option<String> {
+        call_json_or_default(&self.vm, &self.id, "modelId")
+    }
+
+    fn pricing(&self) -> Option<DecisionPricing> {
+        call_json_or_default(&self.vm, &self.id, "pricing")
+    }
+
     fn token_mode(&self) -> TokenMode {
         self.token_mode
     }
@@ -41,6 +49,30 @@ impl DecisionModel for JsDecisionModel {
 
     fn models(&self) -> Vec<DecisionModelInfo> {
         call_json_or_default(&self.vm, &self.id, "models")
+    }
+
+    fn decide_questions(
+        &self,
+        request: &DecisionQuestionsRequest,
+        deadline: Instant,
+    ) -> Result<DecisionResponse, DecisionError> {
+        if Instant::now() >= deadline {
+            return Err(DecisionError::Deadline);
+        }
+        let encoded = serde_json::to_value(request)
+            .map_err(|_| DecisionError::Parse("invalid_request".into()))?;
+        let response: DecisionResponse = match call_json(&self.vm, "decideQuestions", &[encoded]) {
+            Ok(answers) => answers,
+            Err(VmError::MissingFunction(_)) => {
+                return decide_questions_sequentially(self, request, deadline)
+            }
+            Err(error) => return Err(map_vm_error(error)),
+        };
+        if Instant::now() >= deadline {
+            return Err(DecisionError::Deadline);
+        }
+        request.validate_answers(&response.answers)?;
+        Ok(response)
     }
 
     fn decide(
@@ -58,7 +90,7 @@ impl DecisionModel for JsDecisionModel {
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
-        validate_answer(request, &answer)?;
+        request.question.validate_answer(&answer)?;
         Ok(answer)
     }
 }
@@ -84,66 +116,10 @@ fn map_vm_error(error: VmError) -> DecisionError {
     }
 }
 
-fn valid_probability(value: f64) -> bool {
-    value.is_finite() && (0.0..=1.0).contains(&value)
-}
-
-fn valid_confidence(value: Option<f64>) -> bool {
-    value.is_none_or(valid_probability)
-}
-
-fn validate_answer(
-    request: &DecisionRequest,
-    answer: &DecisionAnswer,
-) -> Result<(), DecisionError> {
-    let valid = match (&request.question, answer) {
-        (
-            DecisionQuestion::Choice { options },
-            DecisionAnswer::Choice {
-                choice,
-                probabilities,
-                confidence,
-            },
-        ) => {
-            options.contains_key(choice)
-                && !probabilities.is_empty()
-                && probabilities.keys().all(|key| options.contains_key(key))
-                && probabilities.values().all(|p| valid_probability(*p))
-                && valid_confidence(*confidence)
-        }
-        (DecisionQuestion::Noul { .. }, DecisionAnswer::Noul { p }) => valid_probability(*p),
-        (
-            DecisionQuestion::Score { levels },
-            DecisionAnswer::Score {
-                score,
-                probabilities,
-                confidence,
-            },
-        ) => {
-            let mut indexes = BTreeSet::new();
-            score.is_finite()
-                && !probabilities.is_empty()
-                && probabilities.iter().all(|(key, value)| {
-                    key.parse::<usize>()
-                        .ok()
-                        .filter(|index| *index < levels.len() && indexes.insert(*index))
-                        .is_some()
-                        && valid_probability(*value)
-                })
-                && valid_confidence(*confidence)
-        }
-        _ => false,
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(DecisionError::Parse("invalid_answer".into()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_types::decision::DecisionQuestion;
     use std::collections::BTreeMap;
     use std::time::Duration;
 
@@ -276,5 +252,66 @@ mod tests {
             malformed.decide(&request, deadline()),
             Err(DecisionError::Parse(reason)) if reason == "invalid_answer"
         ));
+    }
+}
+
+#[cfg(test)]
+mod questions_tests {
+    use super::*;
+    use codeterm_types::decision::{DecisionQuestion, DecisionUsage, NamedDecisionQuestion};
+    use std::collections::BTreeMap;
+    use std::time::Duration;
+
+    #[test]
+    fn js_decision_model_shared_request_preserves_usage_and_rejects_missing_answers() {
+        let request = DecisionQuestionsRequest {
+            state: json!({ "screen": "opaque" }),
+            questions: BTreeMap::from([
+                (
+                    "first".into(),
+                    NamedDecisionQuestion {
+                        instructions: "a".into(),
+                        question: DecisionQuestion::Noul { criteria: None },
+                    },
+                ),
+                (
+                    "second".into(),
+                    NamedDecisionQuestion {
+                        instructions: "b".into(),
+                        question: DecisionQuestion::Noul { criteria: None },
+                    },
+                ),
+            ]),
+        };
+        for missing in [false, true] {
+            let source = format!(
+                r#"module.exports.default = {{
+                decide() {{ throw new Error("one shared call required"); }},
+                decideQuestions(request) {{
+                    if (request.state.screen !== "opaque") throw new Error("wrong state");
+                    var answers = {{ first: {{ type: "noul", p: 0.9 }} }};
+                    if (!{missing}) answers.second = {{ type: "noul", p: 0.8 }};
+                    return {{ answers: answers, usage: {{ input_tokens: 123, output_tokens: 45 }} }};
+                }}
+            }};"#
+            );
+            let model = JsDecisionModel::new(
+                Arc::new(PluginVm::from_source("fixture", source).unwrap()),
+                "fixture",
+                TokenMode::None,
+            );
+            let result = model.decide_questions(&request, Instant::now() + Duration::from_secs(2));
+            if missing {
+                assert!(matches!(result, Err(DecisionError::Parse(_))));
+            } else {
+                assert_eq!(
+                    result.unwrap().usage,
+                    Some(DecisionUsage {
+                        input_tokens: 123,
+                        output_tokens: 45
+                    })
+                );
+            }
+        }
     }
 }

@@ -41,30 +41,6 @@ def private_root() -> Path:
     return root
 
 
-def parent_environment() -> dict[str, str]:
-    env = os.environ.copy()
-    env.pop("CODETERM_INSTANCE", None)
-    result = subprocess.run(
-        ["codeterm", "identify", "--json"],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(f"cannot identify parent CodeTerm connection: {result.stderr.strip()}")
-    identity = json.loads(result.stdout)
-    connection = identity.get("connection", {})
-    if connection.get("port") != 7685 or connection.get("instance"):
-        raise RuntimeError(
-            "run.py must start in the parent prod tab environment; "
-            "the summary route is verified on port 7685"
-        )
-    if not env.get("CODETERM_PARENT_TAB_ID"):
-        raise RuntimeError("CODETERM_PARENT_TAB_ID is required to route the summary")
-    return env
-
-
 def load_questions() -> list[dict[str, Any]]:
     raw = json.loads(QUESTIONS_PATH.read_text(encoding="utf-8"))
     questions = raw.get("questions") if isinstance(raw, dict) else raw
@@ -120,6 +96,21 @@ def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, An
     if not isinstance(value, dict) or not isinstance(value.get("hits"), list):
         raise RuntimeError("mem search returned an unexpected JSON shape")
     return value, latency_ms
+
+
+def ensure_supporter_connected(lib_path: Path, instance: str) -> None:
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    adapter = status.get("adapter")
+    if not isinstance(adapter, str) or not adapter:
+        raise RuntimeError("select a registered Supporter adapter before the live eval")
+    run_dc_command(lib_path, instance, ["supporter", "use", adapter])
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    token = status.get("token", {})
+    connected = status.get("connected", status.get("adapter_registered") is True and (
+        status.get("token_mode") in ("optional", "none") or (
+            token.get("present") is True and token.get("mode_ok") is not False)))
+    if not connected:
+        raise RuntimeError("the live eval needs a connected Supporter adapter")
 
 
 def read_docs_config(lib_path: Path, instance: str) -> int:
@@ -483,9 +474,8 @@ def parse_source_count(value: str, label: str, maximum: int) -> int:
     return count
 
 
-def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
+def run_evaluation(args: argparse.Namespace) -> tuple[Path, Path, str]:
     root = private_root()
-    parent_env = parent_environment()
     questions = load_questions()
     mapping_data = json.loads(MAP_PATH.read_text(encoding="utf-8"))
     item_map = mapping_data.get("items", {})
@@ -494,6 +484,8 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         raise RuntimeError(f"ground-truth ids missing from import map: {len(missing)}")
 
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    ensure_supporter_connected(lib_path, args.dev_instance)
+    status_before = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))
     if args.docs is None and args.sessions is None:
         records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
     else:
@@ -519,6 +511,11 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
                 if previous_sessions is not None:
                     write_sessions_config(lib_path, args.dev_instance, previous_sessions)
 
+    status_after = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))
+    before_calls = status_before.get("calls_last_day")
+    after_calls = status_after.get("calls_last_day")
+    call_delta = after_calls - before_calls if isinstance(before_calls, int) and isinstance(after_calls, int) else None
+    requests_per_search = call_delta / len(records) if call_delta is not None and call_delta >= 0 and records else None
     overall = {
         "cosine": arm_metrics(records, "cosine"),
         "rerank": arm_metrics(records, "rerank"),
@@ -546,9 +543,15 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         docs,
         sessions,
     )
+    summary += f"\nDecision requests/search: {fmt(requests_per_search)} (isolated whole-instance counter delta).\n"
     payload = {
         "timestamp_utc": timestamp,
         "dev_instance": args.dev_instance,
+        "decision_request_mode": getattr(args, "request_mode", None),
+        "supporter_status_before": status_before,
+        "supporter_status_after": status_after,
+        "requests_per_search": requests_per_search,
+        "request_count_note": "Whole-instance counter delta; isolate ambient observations and stay within one UTC day/window. Older baseline builds have no counters.",
         "decision_docs": args.docs,
         "decision_sessions": args.sessions,
         "docs": docs,
@@ -567,23 +570,30 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     summary_path.write_text(summary, encoding="utf-8")
     os.chmod(result_path, 0o600)
     os.chmod(summary_path, 0o600)
-    parent_tab = parent_env["CODETERM_PARENT_TAB_ID"]
-    delivered = subprocess.run(
-        ["codeterm", "send", "--tab", parent_tab, "--from-file", str(summary_path)],
-        env=parent_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if delivered.returncode:
-        raise RuntimeError(f"parent summary send failed: {delivered.stderr.strip()}")
-    print(json.dumps({"results": str(result_path), "summary": str(summary_path), "send": delivered.stdout.strip()}))
+    print(json.dumps({"results": str(result_path), "summary": str(summary_path)}))
     return result_path, summary_path, summary
+
+
+def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
+    mode = getattr(args, "request_mode", None)
+    if mode is None:
+        return run_evaluation(args)
+    lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    key = "supporter.memory_rerank.request_mode"
+    previous = json.loads(run_dc_command(lib_path, args.dev_instance, ["config", "get", key, "--json"])).get("value")
+    if previous not in {"per_candidate", "shared_state"}:
+        raise RuntimeError("request-mode selection requires the multi-question build")
+    try:
+        run_dc_command(lib_path, args.dev_instance, ["config", "set", key, mode, "--json"])
+        return run_evaluation(args)
+    finally:
+        run_dc_command(lib_path, args.dev_instance, ["config", "set", key, previous, "--json"])
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev-instance", default="memrerank")
+    parser.add_argument("--request-mode", choices=("per_candidate", "shared_state"))
     parser.add_argument("--docs", type=lambda value: parse_source_count(value, "docs", 10))
     parser.add_argument("--sessions", type=lambda value: parse_source_count(value, "sessions", 5))
     return parser.parse_args()

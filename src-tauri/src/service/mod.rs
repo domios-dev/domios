@@ -130,6 +130,7 @@ pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
 pub mod structured_prompt;
+pub(crate) mod supporter;
 pub(crate) mod supporter_tab_state;
 pub mod sync_watcher;
 pub(crate) mod tab;

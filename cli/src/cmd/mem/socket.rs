@@ -47,6 +47,11 @@ pub(super) fn socket_request(
                 "limit": limit,
                 "rerank": rerank,
             });
+            if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
+                if !tab_id.is_empty() {
+                    params["caller_tab_id"] = serde_json::json!(tab_id);
+                }
+            }
             if let Some(mode) = supporter {
                 params["supporter"] = serde_json::json!(mode.enabled());
             }

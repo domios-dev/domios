@@ -57,11 +57,11 @@ fn token_summary(token: &Value) -> String {
 fn state_text(status: &Value) -> String {
     match status.get("state").and_then(Value::as_str) {
         Some("active") => "Active".into(),
-        Some("ready") => "Ready".into(),
-        Some("token_only") => "Token set, all features off".into(),
+        Some("budget_reached") => "Budget reached".into(),
+        Some("credit_exhausted") => "Balance exhausted".into(),
+        Some("not_connected") => "Not connected".into(),
         Some("token_unusable") => "Token file needs attention".into(),
         Some("no_token") => "No token".into(),
-        Some("feature_without_token") => "Feature on, no token".into(),
         Some("adapter_unavailable") => "Adapter unavailable".into(),
         _ => "Unavailable".into(),
     }
@@ -103,9 +103,8 @@ pub(super) fn render_status(status: &Value) -> String {
     let model = status.get("model").and_then(Value::as_str).unwrap_or("?");
     let token = status.get("token").unwrap_or(&Value::Null);
     let registered = status.get("adapter_registered").and_then(Value::as_bool) == Some(true);
-    let features = status.get("features").unwrap_or(&Value::Null);
     let mut out = format!(
-        "{}\nAdapter: {} ({})\nModel: {}\nToken mode: {}\n{}\nMemory re-rank: {}\nTab-state: {}\nDeadline: {} ms\n",
+        "{}\nAdapter: {} ({})\nModel: {}\nToken mode: {}\n{}\nDeadline: {} ms\n",
         state_text(status),
         adapter,
         if registered {
@@ -114,16 +113,49 @@ pub(super) fn render_status(status: &Value) -> String {
             "not registered"
         },
         model,
-        status.get("token_mode").and_then(Value::as_str).unwrap_or("required"),
+        status
+            .get("token_mode")
+            .and_then(Value::as_str)
+            .unwrap_or("required"),
         token_summary(token),
-        on_off(features.get("memory_rerank")),
-        on_off(features.get("tab_state")),
         status
             .get("deadline_ms")
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "?".into())
     );
+    out.push_str(&format!("Calls: {} in the last hour / {} in the last day\nLast activity: {}\nBudget: {} (cap {} / hour, free at {})\n",
+        status["calls_last_hour"], status["calls_last_day"], status["last_activity"],
+        if status["budget"]["reached"] == true { "reached" } else { "available" },
+        status["budget"]["calls_per_hour"], status["budget"]["free_at"]));
+    for kind in ["rerank", "tab_state"] {
+        if let Some(verdict) = status["last_verdict"].get(kind) {
+            out.push_str(&format!(
+                "Last {kind}: {} at {}\n",
+                verdict["label"], verdict["time"]
+            ));
+        }
+    }
+    if let Some(spend) = status.get("spend") {
+        for (key, label) in [("today", "Today"), ("month", "This month")] {
+            out.push_str(&format!(
+                "{label}: {} input / {} output tokens; estimated USD {}\n",
+                spend[key]["input_tokens"],
+                spend[key]["output_tokens"],
+                spend[key]["estimated_usd"]
+            ));
+        }
+        out.push_str(&format!(
+            "Balance USD: {}; remaining USD: {} (estimate)\n",
+            spend["balance_usd"], spend["remaining_usd"]
+        ));
+        if spend["exhausted"] == true {
+            out.push_str(&format!(
+                "Credit exhausted; next request probe after {}\n",
+                spend["next_probe_at"]
+            ));
+        }
+    }
     if token.get("mode_ok").and_then(Value::as_bool) == Some(false) {
         out.push_str("Token file permissions are not owner-only.\n");
     }
@@ -196,12 +228,4 @@ fn model_names(value: Option<&Value>) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn on_off(value: Option<&Value>) -> &'static str {
-    if value.and_then(Value::as_bool) == Some(true) {
-        "on"
-    } else {
-        "off"
-    }
 }
