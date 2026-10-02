@@ -27,7 +27,6 @@ svg { flex-shrink: 0; }
 .button:active { transform: scale(.965, .95); transition-duration: var(--ct-duration-liquid-press); }
 .button-small { font-size: 12px; padding: 10px 14px; border-radius: 8px; }
 .primary { background: var(--ct-accent); border-color: var(--ct-accent); color: var(--ct-on-accent);  }
-.primary:hover { box-shadow: 0 8px 40px color-mix(in srgb, var(--ct-accent) 24%, transparent); }
 .secondary { background: transparent; }
 .theme-control { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 10px 0; color: var(--ct-muted-fg); }
 .liquid-toggle { width: 36px; height: 22px; position: relative; border: 1px solid var(--ct-border); border-radius: 99px; background: var(--ct-surface); }
@@ -40,7 +39,7 @@ svg { flex-shrink: 0; }
 .hero-badge { display: inline-flex; align-items: center; gap: 11px; padding: 8px 12px; border: 1px solid var(--ct-border); border-radius: 99px; background: color-mix(in srgb, var(--ct-surface) 40%, var(--ct-bg)); font: 10px var(--ct-font-mono); letter-spacing: 1.35px; color: var(--ct-muted-fg); }
 .hero-badge > span:last-child { padding-left: 8px; color: var(--ct-accent); }
 .hero-badge .brand-mark { width: 16px; height: 16px; flex: none; }
-.status-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); box-shadow: 0 0 8px color-mix(in srgb, var(--ct-green) 30%, transparent); }
+.status-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); }
 h1 { margin: 27px 0 22px; font-size: clamp(56px, 7.3vw, 91px); font-weight: 550; line-height: 1.04; letter-spacing: -.065em; color: var(--ct-heading); }
 h1 span { color: var(--ct-accent); }
 .hero-copy { max-width: 680px; margin-inline: auto; font-size: 18px; line-height: 1.65; color: var(--ct-muted-fg); letter-spacing: -.25px; }
@@ -65,23 +64,10 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
 .showcase-caption h3 { margin-top: 10px; font-size: 20px; font-weight: 500; letter-spacing: -.55px; color: var(--ct-heading); }
 .showcase-caption p { max-width: 420px; font-size: 12px; line-height: 1.7; color: var(--ct-muted-fg); }
 .video-player { overflow: hidden; border: 1px solid var(--ct-border); border-radius: 14px; background: var(--ct-surface); box-shadow: 0 20px 70px #00000012; }
-.video-stage { position: relative; aspect-ratio: 16 / 9; background: var(--ct-bg); overflow: hidden; }
-.video-stage video, .video-poster { position: absolute; width: 100%; height: 100%; inset: 0; object-fit: contain; }
-.video-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 15px; color: var(--ct-accent); background: radial-gradient(ellipse at center, color-mix(in srgb, var(--ct-accent) 9%, var(--ct-bg)), var(--ct-bg)); }
+.video-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--ct-bg); overflow: hidden; isolation: isolate; }
+.video-stage video, .video-poster { position: absolute; z-index: 1; width: 100%; height: 100%; inset: 0; object-fit: contain; }
+.video-placeholder { position: absolute; z-index: 0; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 15px; color: var(--ct-accent); background: var(--ct-bg); }
 .video-placeholder span { font-size: 22px; letter-spacing: -.5px; color: var(--ct-fg); }.video-placeholder small { color: var(--ct-muted-fg); }
-.caption-region { position: absolute; inset: auto 20px 25px; display: flex; align-items: center; justify-content: center; gap: 7px; pointer-events: none; }
-.caption-anchor { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 2px; background: var(--ct-accent); }
-.caption-chip { background: #0d1117ed; color: #f0f6fc; border: 1px solid #484f58; border-radius: 14px; padding: 12px 20px; text-align: center; font-size: clamp(11px, 1.4vw, 16px); line-height: 1.45; backdrop-filter: blur(12px); transform-origin: left center; animation: caption-pool var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) both; }
-@keyframes caption-pool {
-  0% { opacity: 0; transform: translateX(-12px) scale(.92, .8); }
-  56% { opacity: 1; transform: translateX(2px) scale(1.02, 1.04); }
-  100% { opacity: 1; transform: none; }
-}
-[data-motion="paused"] .caption-chip { animation: none; }
-.video-toolbar { min-height: 49px; padding: 8px 17px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font: 10px var(--ct-font-mono); color: var(--ct-muted-fg); border-top: 1px solid var(--ct-border); }
-.video-toolbar > span { display: flex; align-items: center; gap: 8px; }
-.play-control { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ct-border); background: var(--ct-bg); padding: 8px 12px; border-radius: 6px; font-size: 10px; }
-.transcript { padding: 15px 20px; font-size: 12px; line-height: 1.7; color: var(--ct-muted-fg); border-top: 1px solid var(--ct-border); }.transcript summary { cursor: pointer; }.transcript ol { padding-left: 20px; }
 .foundation { padding-top: 108px; }
 .pillar-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--ct-border); border-radius: 14px; margin-top: 35px; overflow: hidden; }
 .pillar { padding: 30px; background: linear-gradient(145deg, color-mix(in srgb, var(--ct-surface) 40%, var(--ct-bg)), var(--ct-bg)); border-right: 1px solid var(--ct-border); border-bottom: 1px solid var(--ct-border); }
@@ -112,7 +98,7 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
   .platforms { gap: 8px; font-size: 9px; flex-wrap: wrap; }.platform-divider { margin-inline: 0; }
   .showcase, .foundation { padding-top: 62px; }.section-heading { display: block; }.section-heading h2 { font-size: 29px; letter-spacing: -1.2px; }.section-heading > p { max-width: none; margin-top: 16px; font-size: 12px; }.eyebrow { font-size: 8px; }
   .showcase-caption { display: block; padding-block: 23px; }.showcase-caption h3 { font-size: 18px; }.showcase-caption p { max-width: none; margin-top: 11px; font-size: 11px; }
-  .video-player { border-radius: 9px; }.caption-region { inset: auto 9px 9px; }.caption-chip { padding: 7px 10px; font-size: 10px; border-radius: 6px; }.video-toolbar { font-size: 8px; padding-inline: 10px; }.play-control { font-size: 9px; padding: 7px; }.video-placeholder span { font-size: 17px; }.video-placeholder small { font-size: 10px; }
+  .video-player { border-radius: 9px; }.video-placeholder span { font-size: 17px; }.video-placeholder small { font-size: 10px; }
   .pillar-grid { grid-template-columns: 1fr 1fr; margin-top: 25px; }.pillar { padding: 23px 18px; }.pillar:nth-child(3n) { border-right: 1px solid var(--ct-border); }.pillar:nth-child(2n) { border-right: 0; }.pillar:nth-child(n+4) { border-bottom: 1px solid var(--ct-border); }.pillar:nth-child(n+5) { border-bottom: 0; }.pillar-top { margin-bottom: 23px; }.pillar h3 { font-size: 16px; line-height: 1.3; }.pillar p { font-size: 11px; line-height: 1.75; }.pillar-detail { font-size: 7px; line-height: 1.5; letter-spacing: .7px; }
   .closing { padding-block: 78px; }.closing h2 { font-size: 37px; letter-spacing: -1.8px; }.site-footer { flex-wrap: wrap; padding-block: 26px; gap: 15px; }.site-footer > span { font-size: 9px; margin-left: auto; }.site-footer nav { width: 100%; margin: 5px 0 0; justify-content: center; gap: 30px; }.site-footer nav a { font-size: 11px; }
 }
@@ -120,13 +106,12 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
   .section-wrap { padding-inline: 18px; }.hero-actions .button { padding: 13px 11px; font-size: 11px; }.platforms { font-size: 8px; gap: 6px; }.pillar { padding: 21px 15px; }.pillar h3 { font-size: 15px; }
 }
 @media (max-width: 650px) {
-  .hero-actions .button, .button-small, .play-control, .site-footer nav a { font-size: 12px; }
+  .hero-actions .button, .button-small, .site-footer nav a { font-size: 12px; }
   .platforms, .site-footer > span { font-size: 11px; }
   .section-heading > p, .showcase-caption p, .pillar p { font-size: 13px; }
   .pillar h3 { font-size: 18px; }
   .pillar-detail, .eyebrow, .showcase-caption .eyebrow { font-size: 10px; }
-  .caption-chip, .video-toolbar, .closing p { font-size: 12px; }
-  .video-toolbar { flex-wrap: wrap; }
+  .closing p { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
