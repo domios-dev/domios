@@ -94,6 +94,17 @@
         "Emits @ct-guide supporter-agent as a standalone paragraph outside a code fence",
         "Does not use a URL fragment, filesystem path or shell command to navigate to the Guide"
       ]
+    },
+    {
+      "id": 9,
+      "name": "waits-for-ci-creates-sentinel",
+      "prompt": "CI for this branch is still running. Wait for it to pass or fail and send the result to my current agent tab. The status command is gh run view 456 --json status,conclusion, and a connected Supporter adapter is available. Give the exact commands you would use without executing them.",
+      "expected_output": "Creates a bounded sentinel to watch CI and deliver one transition instead of repeatedly polling with the agent.",
+      "expectations": [
+        "Uses the codeterm sentinel create command family with --probe, --question, and --buckets to watch the CI result",
+        "Sets an explicit cadence through --every and a bounded lifetime through --timeout or --until",
+        "Does NOT implement an agent polling loop or sleep between repeated status checks"
+      ]
     }
   ]
 }

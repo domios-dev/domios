@@ -15,6 +15,7 @@ mod commands_mesh;
 mod config;
 mod crash;
 pub mod cron;
+pub(crate) mod sentinel;
 pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;

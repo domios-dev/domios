@@ -33,7 +33,7 @@ def main() -> None:
     }
     changed = {
         'bootstrap_instructions.md', 'codeterm_rule.md',
-        'rich_rendering_guidance.md',
+        'agent_codeterm_primer.md', 'rich_rendering_guidance.md',
     }
     for family, names in families.items():
         old, new = [], []
