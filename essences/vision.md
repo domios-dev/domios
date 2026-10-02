@@ -4,6 +4,15 @@
 
 CodeTerm is a **distributed OS for AI agents**. Not a terminal with AI bolted on — it's infrastructure that agents need to live, work, and coordinate, wrapped in a terminal because that's where developers work. The product name remains **CodeTerm**; the spinal cord names a product idea within it. What exists today and what is planned, capability by capability, is mapped in the [capability map](capabilities.md).
 
+## What people get from it
+
+The owner uses CodeTerm to keep agent work understandable and under control. Agents use its shared tools to act, remember and coordinate without each inventing its own environment.
+
+- **Continue with one agent.** A person can return to a project and its conversation after an app restart, or find and resume an earlier session. Tabs, chat and session search make the continuing work visible; session ownership keeps one agent's conversation from being mistaken for another's.
+- **Carry an intention through a Team.** The owner gives a goal; the Team turns it into tasks, work and reviewed results. The plan shows progress, reports preserve evidence, and review distinguishes a submitted result from an accepted one. Blockers and decisions that need the owner remain visible.
+- **Reach the same work remotely.** Away from the desktop, the owner can talk to the General Agent or a tab through its bridge, or use the web client over the private network. Messages reach the existing work, and replies and notifications return through the appropriate surface.
+- **Leave bounded work running unattended.** Memory ranking, tab observation and evidence-authorized recovery reduce the need to inspect every terminal. The spinal cord exposes activity and limits; a condition outside its authority becomes a visible blocker rather than permission to guess. The [capability map](capabilities.md) distinguishes the available foundation from planned model-first coverage, Sentinels and expanded activity views.
+
 ## Core metaphor: spinal cord
 
 CodeTerm's **spinal cord** combines a deterministic control surface with small, bounded judgments. The CLI and APIs let any agent open a tab, read output, spawn a worker or send a message without knowing the host's internals. The Supporter Agent adds the OS reflexes that keep work moving when nobody is watching every terminal: ranking memory, naming tab states, classifying event-level states before heuristic fallback, helping recover the General Agent and coordinating provider updates. Planned Sentinels let agents watch for changes and route outcomes without spending their own turns polling.
@@ -48,9 +57,9 @@ Tomorrow: the mesh becomes a **unified fabric** where:
 
 Core stays small: one service layer over PTY, agents, plans, the message gateway, mesh, memory and the plugin host, reached by the UI and CLI clients (named in `essences/core.md`). Features — agent providers, bridges, secret backends, views — are plugins with declared capabilities. The [core essence](core.md) describes provider and plugin boundaries.
 
-## A foundation for onboarding and the web
+## Onboarding, the web client and the marketing website
 
-The Guide explains the spinal cord in the same terms as the product: useful reflexes, visible cost, unchanged behavior without an adapter and evidence before action. First-run setup introduces the Supporter only after the user is established. Future onboarding and the future web experience build on this shared host capability, so understanding and recovering the environment do not depend on sitting beside its desktop. Their detailed journeys remain open; the authority boundary does not.
+The Guide explains the spinal cord in the same terms as the product: useful reflexes, visible cost, unchanged behavior without an adapter and evidence before action. First-run setup introduces the Supporter only after the user is established. Future onboarding and the web client build on the same host capabilities and authority boundary; their detailed future journeys remain open. The web client is a product entry surface for controlling existing work. The marketing website is a consumer of these contracts: it explains CodeTerm and its outcomes, and must distinguish available capabilities from planned work. A website presentation does not establish a new product-client contract.
 
 ## Future capabilities
 

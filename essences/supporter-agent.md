@@ -83,7 +83,7 @@ A future direction is to use the spinal cord to triage incoming work for LLM age
 
 After first-run setup is complete, the General Agent introduces the Supporter once and links to its Guide section. Connection remains the owner's choice. The Guide explains the spinal-cord idea in plain language first: what it helps with, what it sends, fallback without an adapter, budget and spend, and the limits of recovery. Connection instructions and technical detail follow that explanation.
 
-Future onboarding and the future web experience build on this same host-owned judgment and evidence contract. A new presentation may expose state, explain a choice or request an authorized operation; it cannot create a separate permission policy, model authority or recovery loop. Their detailed journeys remain roadmap work.
+Future onboarding and the web client build on this same host-owned judgment and evidence contract. The marketing website consumes these essences to explain the product; it is not a control surface or a source of new runtime authority. A new presentation may expose state, explain a choice or request an authorized operation; it cannot create a separate permission policy, model authority or recovery loop. Their detailed journeys remain roadmap work.
 
 ```map
 anchors:
