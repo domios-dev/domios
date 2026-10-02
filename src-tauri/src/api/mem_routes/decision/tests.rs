@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
     DecisionRequest, TokenMode,
 };
 use parking_lot::Mutex;
@@ -244,6 +244,15 @@ enum StubMode {
 
 struct StubModel {
     mode: StubMode,
+    finished: Option<mpsc::Sender<()>>,
+}
+
+impl Drop for StubModel {
+    fn drop(&mut self) {
+        if let Some(finished) = &self.finished {
+            let _ = finished.send(());
+        }
+    }
 }
 
 impl DecisionModel for StubModel {
@@ -308,8 +317,34 @@ impl DecisionModel for StubModel {
 
 fn registry_with(mode: StubMode) -> SupporterRegistry {
     let registry = SupporterRegistry::new();
-    registry.register(STUB_ID, Arc::new(StubModel { mode }));
+    registry.register(
+        STUB_ID,
+        Arc::new(StubModel {
+            mode,
+            finished: None,
+        }),
+    );
     registry
+}
+
+fn registry_with_completion(mode: StubMode) -> (SupporterRegistry, mpsc::Receiver<()>) {
+    let (finished, completion) = mpsc::channel();
+    let registry = SupporterRegistry::new();
+    registry.register(
+        STUB_ID,
+        Arc::new(StubModel {
+            mode,
+            finished: Some(finished),
+        }),
+    );
+    (registry, completion)
+}
+
+fn finish_registry(registry: SupporterRegistry, completion: mpsc::Receiver<()>) {
+    drop(registry);
+    completion
+        .recv_timeout(Duration::from_secs(10))
+        .expect("fixture_adapter_cleanup_liveness_exceeded");
 }
 
 fn relevance_registry(by_title: &[(&str, f64)]) -> SupporterRegistry {
@@ -538,57 +573,30 @@ fn decision_applied_low_confidence_envelope() {
 
 #[test]
 fn decision_fallback_hits_equal_baseline() {
-    let (_held_sender, never_signalled) = mpsc::channel::<()>();
-    let cases: Vec<(&str, SupporterRegistry, SupporterConfig)> = vec![
-        (
-            "adapter_error",
-            registry_with(StubMode::Fail(DecisionError::Http(500))),
-            enabled_cfg(),
-        ),
-        (
-            "deadline",
-            registry_with(StubMode::Fail(DecisionError::Deadline)),
-            enabled_cfg(),
-        ),
-        (
-            "deadline",
-            registry_with(StubMode::Gate {
-                signal: Mutex::new(never_signalled),
-                released: AtomicBool::new(false),
-            }),
-            SupporterConfig {
-                deadline_ms: 100,
-                ..enabled_cfg()
-            },
-        ),
-        (
-            "budget",
-            registry_with(StubMode::Fail(DecisionError::Budget)),
-            enabled_cfg(),
-        ),
-        (
-            "unavailable",
-            registry_with(StubMode::Fail(DecisionError::Unavailable(
-                "no token".into(),
-            ))),
-            enabled_cfg(),
-        ),
+    let _scope = clock::fixture_clock().enter();
+    let cases = [
+        ("adapter_error", DecisionError::Http(500)),
+        ("deadline", DecisionError::Deadline),
+        ("budget", DecisionError::Budget),
+        ("unavailable", DecisionError::Unavailable("no token".into())),
     ];
     let backend = seeded();
     let mut request = params(2);
     request.project = Some("/seeded/project".into());
-    for (reason, registry, cfg) in cases {
+    for (reason, error) in cases {
+        let (registry, completion) = registry_with_completion(StubMode::Fail(error));
         let baseline = baseline_oracle(&backend, &request);
         let output = resolve_search(
             &backend,
             &registry,
-            &cfg,
+            &enabled_cfg(),
             SearchParams {
                 supporter: Some(true),
                 ..request.clone()
             },
         )
         .unwrap();
+        finish_registry(registry, completion);
         assert_eq!(
             normalized(json!({ "hits": output["hits"] })),
             normalized(json!({ "hits": baseline["hits"] })),
@@ -750,6 +758,7 @@ fn supporter_token_dir_is_under_data_dir() {
     assert!(token_store().path(STUB_ID).starts_with(&dir));
 }
 
+mod clock;
 mod docs;
 mod graph;
 mod sessions;
