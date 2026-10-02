@@ -85,10 +85,40 @@ struct EpisodeState {
     previous_screen_hash: Option<u64>,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EpisodeSnapshot {
+    pub(crate) session_key: String,
+    pub(crate) episode: u64,
+    pub(crate) output_sequence: u64,
+    pub(crate) signaled: bool,
+    pub(crate) spawn_observed: bool,
+}
+
 static EPISODES: OnceLock<Mutex<HashMap<String, EpisodeState>>> = OnceLock::new();
 
 fn episodes() -> &'static Mutex<HashMap<String, EpisodeState>> {
     EPISODES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+pub(crate) fn snapshot_episode(tab_id: &str) -> EpisodeSnapshot {
+    let all = episodes().lock();
+    all.get(tab_id)
+        .map(|state| EpisodeSnapshot {
+            session_key: state.session_key.clone(),
+            episode: state.episode,
+            output_sequence: state.output_sequence,
+            signaled: state.signaled,
+            spawn_observed: state.spawn_observed,
+        })
+        .unwrap_or_else(|| EpisodeSnapshot {
+            session_key: String::new(),
+            episode: 0,
+            output_sequence: 0,
+            signaled: false,
+            spawn_observed: false,
+        })
 }
 
 fn state_for_session<'a>(
