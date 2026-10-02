@@ -894,6 +894,7 @@ pub fn run() {
                 )),
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 stalled_team_nudges: Arc::new(Default::default()),
+                heartbeat_gate: Arc::new(Default::default()),
                 worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
                     crate::service::WorkerPersonaReservations::default(),
                 )),
