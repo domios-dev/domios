@@ -3,7 +3,7 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch, resuming the recorded provider session if it still exists on disk, else starting fresh. A provider observed to have exited into its surviving shell is recovered in place: CodeTerm skips the exit and teardown legs, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
+Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch. A recorded provider session resumes when it still exists on disk; otherwise the provider starts a fresh session. If liveness is unobserved, a known PTY provider can still be restarted from a confirmed bare shell when the stage is `LaunchBindingUnconfirmed`, no launch owns the tab, the PTY is live and shows a shell-readiness prompt, and no verified recovery session can be selected from the tab's lineage and lifecycle journal. That path skips the exit command, replaces the PTY, clears the unverified session id, and starts fresh from the recorded launch. Other unobserved states are refused. A provider observed to have exited into its surviving shell is recovered in place: CodeTerm skips exit and teardown, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -20,15 +20,15 @@ Restart an agent whose process is observed live in a tab. The body is optional (
   "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "recovered_in_place": false,
   "old_pty_id": "f0c92c76-1cce-4a65-b5e4-a68c69ae1e2e", "new_pty_id": "b264031d-5a5a-461b-bba6-189405223f80",
   "tab_id": "a3f1b2c7", "provider": "claude", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
-  "session_was_stale": false, "session_action": "resume", "full_access": true, "force": false
+  "session_was_stale": false, "session_action": "resumed", "full_access": true, "force": false
 }
 ```
 
-The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session JSONL no longer exists on disk; the restart proceeds without `--resume` in a fresh session.
+`session_action` is `resumed` when the recorded session was resumed and `fresh_launch` when the provider started without a session. The CLI reports this action and exits non-zero unless a success response confirms both `agent_ready: true` and one of those completed actions. The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means CodeTerm observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session JSONL no longer exists on disk; the restart proceeds without `--resume` in a fresh session.
 
 **Errors:**
 - `404` — tab id not found
-- `400` — the agent process is unobserved, the provider is unsupported, a chat-backend session is closed, or exit recovery is refused: `exit_recovery_no_live_shell`, `exit_recovery_no_verified_session` (no agent and no nonce-verified prior session), or `exit_recovery_session_not_owned` (no single provider owns that session record)
+- `400` — liveness is unobserved and the tab is not a confirmed bare shell eligible for fresh launch, the provider is unsupported, a chat-backend session is closed, or exit recovery is refused: `exit_recovery_no_live_shell`, `exit_recovery_no_verified_session` (no agent and no nonce-verified prior session), or `exit_recovery_session_not_owned` (no single provider owns that session record)
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-tab to avoid restart loops
 - `500` — teardown or relaunch failed
 - `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
@@ -58,7 +58,7 @@ When the resumed provider omits its model and no assistant turn arrives before t
   "previous_model": "haiku", "requested_model": "sonnet", "launched_model": "sonnet",
   "model_confirmation": "pending", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "relaunch_evidence": { "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab", "launched_model": "sonnet", "agent_ready": true },
-  "restart": { "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "session_action": "resume" }
+  "restart": { "restart_accepted": true, "old_pty_torn_down": true, "agent_ready": true, "session_action": "resumed" }
 }
 ```
 
