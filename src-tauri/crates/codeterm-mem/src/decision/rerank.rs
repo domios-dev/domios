@@ -55,6 +55,7 @@ pub enum StageOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FallbackReason {
     NoAdapter,
+    Budget,
     Unsupported,
     Unavailable,
     Deadline,
@@ -64,6 +65,7 @@ pub enum FallbackReason {
 impl FallbackReason {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Budget => "budget",
             Self::NoAdapter => "no_adapter",
             Self::Unsupported => "unsupported",
             Self::Unavailable => "unavailable",
@@ -76,6 +78,7 @@ impl FallbackReason {
         match error {
             DecisionError::Unavailable(_) => Self::Unavailable,
             DecisionError::Unsupported => Self::Unsupported,
+            DecisionError::Budget => Self::Budget,
             DecisionError::Deadline => Self::Deadline,
             DecisionError::Http(_) | DecisionError::Transport(_) | DecisionError::Parse(_) => {
                 Self::AdapterError

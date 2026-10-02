@@ -158,15 +158,15 @@ The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local
 
 ### Supporter Agent
 
-The Supporter Agent provides optional memory re-rank and tab-state features. Both are off by default. Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, and feature switches. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
+The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `supporter.adapter` | `string` | `"typesafe-jev"` | Selected registered adapter. An unregistered id falls back with reason `no_adapter`. |
 | `supporter.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
 | `supporter.model` | `string?` | `"jev-latest"` | Selected model id discovered from the adapter. |
+| `supporter.calls_per_hour` | `usize` | `600` | Global rolling hourly request cap (`1..=100000`). |
 | `supporter.deadline_ms` | `u64` | `3000` | Failure deadline for a model stage (`100..=30000`). |
-| `supporter.memory_rerank.enabled` | `bool` | `false` | Apply memory re-rank to searches without a request override. |
 | `supporter.memory_rerank.docs_hybrid` | `bool` | `false` | Use cached vectors when ranking embedded docs candidates. |
 | `supporter.memory_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
 | `supporter.memory_rerank.sources.graph` | `usize` | `3` | Extra graph-linked candidates the recall pool lacks (`0..=20`); `0` leaves the pool recall-only. |
@@ -176,16 +176,15 @@ The Supporter Agent provides optional memory re-rank and tab-state features. Bot
 | `supporter.memory_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
 | `supporter.memory_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
 | `supporter.memory_rerank.max_body_chars` | `usize` | `2000` | Maximum body characters sent to the adapter (`256..=100000`); titles are included without truncation. |
-| `supporter.tab_state.enabled` | `bool` | `false` | Enable tab-state signals. |
 
 ```toml
 [supporter]
 adapter = "typesafe-jev"
 model = "jev-latest"
 deadline_ms = 3000
+calls_per_hour = 600
 
 [supporter.memory_rerank]
-enabled = false
 docs_hybrid = false
 
 [supporter.memory_rerank.sources]
@@ -194,8 +193,6 @@ graph = 3
 docs = 3
 sessions = 0
 
-[supporter.tab_state]
-enabled = false
 ```
 
 ### Librarian
@@ -231,4 +228,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

@@ -20,9 +20,8 @@ Injected into every agent session:
 # Search
 codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
 codeterm mem search "<query>" --supporter on|off      # per-request override of Supporter Agent memory re-rank
-codeterm supporter enable|disable|status|models
+codeterm supporter status|models
 codeterm supporter use <adapter> [--model <id>]
-codeterm supporter features [--memory-rerank on|off] [--tab-state on|off]
 printf %s "$TOKEN" | codeterm supporter token set [--adapter <id>]   # stdin only; also token clear|status
 codeterm mem get <id>                               # full item body
 codeterm mem wake-up                                # L0 identity + L1 critical
@@ -101,4 +100,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

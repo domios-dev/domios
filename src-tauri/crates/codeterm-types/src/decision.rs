@@ -8,6 +8,9 @@ use serde_json::Value;
 pub trait DecisionModel: Send + Sync {
     fn id(&self) -> &str;
     fn token_mode(&self) -> TokenMode;
+    fn model_id(&self) -> Option<String> {
+        None
+    }
     fn primitives(&self) -> DecisionPrimitives;
     fn models(&self) -> Vec<DecisionModelInfo> {
         Vec::new()
@@ -90,6 +93,7 @@ pub enum DecisionError {
     Unavailable(String),
     Unsupported,
     Deadline,
+    Budget,
     Http(u16),
     Transport(String),
     Parse(String),
@@ -100,6 +104,7 @@ impl fmt::Display for DecisionError {
         match self {
             Self::Unavailable(reason) => write!(f, "decision model unavailable: {reason}"),
             Self::Unsupported => f.write_str("decision primitive unsupported"),
+            Self::Budget => f.write_str("supporter call budget reached"),
             Self::Deadline => f.write_str("decision deadline exceeded"),
             Self::Http(status) => write!(f, "decision http status {status}"),
             Self::Transport(reason) => write!(f, "decision transport error: {reason}"),

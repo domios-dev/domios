@@ -57,7 +57,7 @@ Search combines text and semantic matches; use filters to narrow results and Sup
 
 ### Supporter Agent memory re-rank
 
-An optional second stage over `mem search`. Stage 1 is the unchanged hybrid recall, widened to a candidate pool; the selected Supporter Agent adapter grades candidates and re-sorts hits by absolute relevance. It is off by default (`[supporter.memory_rerank].enabled`); `codeterm mem search --supporter on|off` overrides config for one request, and an absent flag leaves the decision to config. The legacy `--rerank` is exclusive with `--supporter on` (the request is refused as invalid).
+An optional second stage over `mem search`. Stage 1 is the unchanged hybrid recall, widened to a candidate pool; the selected Supporter Agent adapter grades candidates and re-sorts hits by absolute relevance. It runs whenever the selected adapter is registered and connected: optional and token-free adapters need no token; required adapters need a usable stored token. `codeterm mem search --supporter on|off` is a diagnostic override for one request. The legacy `--rerank` is exclusive with `--supporter on` (the request is refused as invalid).
 
 - **Hits.** An applied search adds a `relevance` fraction (0..1) to each hit, shown as `rel 92%` next to the score in the human render.
 - **JSON.** CLI `--json` hits contain only an item `id` (or a doc pointer), `source`, optional `via`, baseline `score`, and Supporter `relevance`; titles, bodies, summaries and tags are omitted. The Supporter envelope retains its status, fallback reason and low-confidence fields. Use `codeterm mem get <id> --json` for a full memory record. The HTTP search response keeps item details for the Memory UI.
@@ -67,26 +67,27 @@ An optional second stage over `mem search`. Stage 1 is the unchanged hybrid reca
 - **Sessions source.** `[supporter.memory_rerank.sources].sessions` adds up to five recent matching snippets (default 0; `0` disables the source), using the same in-process provider search as `codeterm sessions search`. The snippet sent to the adapter contains its title, provider, date, and matched excerpt, capped by `max_body_chars`. Search runs under the rerank deadline and skips the source on error, timeout, or worker saturation. Applied hits use `{source: "session", session_id, provider, title, excerpt, pointer, relevance, via: "sessions"}` and point to `codeterm sessions get <id>`. Session and docs hits never record mem access. They appear only in applied output; off and fallback results retain the plain recall contract.
 - **Access.** Pool candidates, recall or graph, record no access while they are graded. Only the hits the search returns count as accessed, once each.
 - **Low confidence.** `low_confidence: true` means even the best hit scored below `low_confidence_threshold`: nothing relevant was found. The human render says so in one line; treat the hits as weak leads, not answers.
-- **Token mode.** Each adapter declares `required`, `optional`, or `none`. TypeSafe Jev requires its token. In plugin manifests, legacy bare `"decisionModel": true` means optional; `{ "tokenMode": "required" | "optional" | "none" }` is the explicit form. Optional and none adapters become `active` with a feature enabled or `ready` with features off without a token. Required adapters keep the existing token gate and states.
+- **Token mode.** Each adapter declares `required`, `optional`, or `none`. TypeSafe Jev requires its token. In plugin manifests, legacy bare `"decisionModel": true` means optional; `{ "tokenMode": "required" | "optional" | "none" }` is the explicit form. Optional and none adapters become `active` without a token. Required adapters become active with a usable token; otherwise status reports the token state. No selected adapter reports `not_connected`.
 - **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | codeterm supporter token set` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show `token_mode`, presence, path and `mode_ok`, never the value. A none-mode adapter reports that it needs no token and ignores token writes. The token lives in `<data dir>/supporter/<adapter>.json`: Unix uses a `0600` file in a `0700` directory, and Windows uses protected DACLs granting only the current user full control on the file and directory. Each instance keeps its own: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
 
 Supporter Agent adapters are designed for deterministic decision models such as [TypeSafe Jev](https://typesafe.ai). A Jev-style fine-tune or a general LLM accessed through logprobs can approximate the choices, but may be less accurate and have different latency. Calibrated choice and noul probabilities represent probabilities over decisions; sampled-text logprobs describe generated tokens and are not equivalent.
 
 Measured comparison: **[Orchestrator: fill in measurements from task_42a5ao]**.
 
-The token and feature switches are managed in **Settings > Agents > Supporter Agent** or with `codeterm supporter`.
+The adapter, model, token and activity are managed in **Settings > Agents > Supporter Agent** or with `codeterm supporter`.
 
 Keys and bounds: `codeterm docs RUNTIME-CONFIG`. Routes: `codeterm docs API-MEMORY`.
 
 ### Supporter Agent
 
-The user-facing name of the decision model behind decision re-rank. It grades, it never acts; the default adapter is TypeSafe's Jev (`typesafe-jev`).
+The decision model behind memory relevance and event-driven tab observations; the default adapter is TypeSafe's Jev (`typesafe-jev`).
 
-- **Where it works.** Memory re-rank (above): it re-orders recall and flags `low_confidence`. Tab state is off by default and reads the tab's recent screen and runtime context. When weak hints are enabled, its first strong hint carries `actionable: false`; a strong action requires `strong_actions` enabled and a second agreeing strong observation of the same launch. Hints are observations, not instructions to act.
-- **Setup.** It needs only a token: Settings > Agents > Supporter Agent (a write-only password field; the status shows set / not set and warns when the file is not owner-only), or `pbpaste | codeterm supporter token set`. Both use `/api/supporter/token` and the same `supporter/` store. Re-rank itself is the toggle in Memory > Settings or `supporter.memory_rerank.enabled`.
+- **Where it works.** Memory re-rank (above): it re-orders recall and flags `low_confidence`. A connected adapter also reads the tab's recent screen and runtime context on existing events. Its first strong hint carries `actionable: false`; a strong action requires a second agreeing strong observation of the same launch. An `other` verdict produces only journal evidence. Hints are observations, not instructions to act.
+- **Setup.** Select a registered adapter with `codeterm supporter use <adapter>`; required adapters also need a token: Settings > Agents > Supporter Agent (a write-only password field; the status shows set / not set and warns when the file is not owner-only), or `pbpaste | codeterm supporter token set`. Both use `/api/supporter/token` and the same `supporter/` store. Connected adapters work automatically.
 - **What is sent.** The query plus each candidate's title and body, bodies capped at `supporter.memory_rerank.max_body_chars` (default 2000); for tab state, the tab's recent screen text.
 - **Cost and latency.** About $0.0007 per search. The stage runs under `supporter.deadline_ms` (default 3000); a timeout, an adapter error or a missing token returns the plain recall hits with a `fallback` envelope.
-- **Off.** Turn off the feature in Settings > Agents > Supporter Agent or set `supporter.memory_rerank.enabled = false`; `--supporter off` skips it for one search. `codeterm supporter token clear` removes the token.
+- **Diagnostic override.** `--supporter off` skips it for one search. `codeterm supporter token clear` removes the token.
+- **Budget and evidence.** All tabs share 600 requests per rolling hour by default. With the retained per-candidate path, a full 36-candidate pool uses up to 36 requests, allowing roughly 16 such searches before tab observations. This is a conservative starting ceiling, pending normal-session measurement. Exhaustion returns baseline recall with reason `budget` and skips tab observation; status shows `budget_reached` and the window's free time. Settings > Agents shows recent call counts, activity and verdicts. `<data dir>/supporter/journal.jsonl` records actions, transitions, full answer distributions, adapter-reported model ids and criteria hashes; entries contain only input hashes. It rotates at 1 MiB and retains one previous file.
 - **Links.** https://docs.typesafe.ai and https://console.typesafe.ai/keys.
 
 ### Wake-up selection
@@ -167,4 +168,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
