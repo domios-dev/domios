@@ -381,7 +381,7 @@ describe("Supporter saved connections", () => {
     await panel();
     await click("Cancel");
     expect(writes()).toHaveLength(0);
-    expect(host.querySelector("form")).toBeNull();
+    expect(host.querySelector('form[aria-label="Connect another adapter"]')).toBeNull();
   });
   it("connect_success_focuses_and_announces_new_row", async () => {
     await mount();

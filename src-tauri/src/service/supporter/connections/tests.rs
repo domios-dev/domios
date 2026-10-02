@@ -332,7 +332,7 @@ fn supporter_connections_failed_config_save_restores_live_model_and_disconnect_t
         cfg: &mut f.cfg,
         registry: &f.registry,
         store: &f.store,
-        persist: |_| Err(ConnectionError::unavailable()),
+        persist: |_: &SupporterConfig| Err(ConnectionError::unavailable()),
     };
     assert!(service.set_model("b", "two".into()).is_err());
     assert!(service.disconnect("b").is_err());
