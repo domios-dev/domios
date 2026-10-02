@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
+import { SupporterAllowanceRow } from "../Usage/SupporterAllowanceRow";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ApiConfig, ModelGroup, Tab } from "../../lib/types";
@@ -85,6 +86,7 @@ export function TabTopBar({
   usageVisible,
   usageModelId,
   usageModelGroups,
+  api,
   watcherLastStatus,
   isWatcherTab = false,
   isActive = false,
@@ -209,12 +211,14 @@ export function TabTopBar({
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && (
           <UsageBubble
+            api={api}
             provider={usageProvider}
             trackingEnabled={!!usageVisible}
             modelId={usageModelId}
             modelGroups={usageModelGroups}
           />
         )}
+        {!usageProvider && <SupporterAllowanceRow api={api} />}
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

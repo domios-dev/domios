@@ -165,7 +165,7 @@ The Supporter Agent runs memory re-rank and tab-state whenever its selected adap
 | `supporter.adapter` | `string` | `"typesafe-jev"` | Selected registered adapter. An unregistered id falls back with reason `no_adapter`. |
 | `supporter.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
 | `supporter.model` | `string?` | `"jev-latest"` | Selected model id discovered from the adapter. |
-| `supporter.calls_per_hour` | `usize` | `600` | Global rolling hourly request cap (`1..=100000`). |
+| `supporter.calls_per_hour` | optional integer | absent | Shared hourly cap (`0..=100000`); absent or 0 is unlimited. |
 | `supporter.deadline_ms` | `u64` | `3000` | Failure deadline for a model stage (`100..=30000`). |
 | `supporter.memory_rerank.docs_hybrid` | `bool` | `false` | Use cached vectors when ranking embedded docs candidates. |
 | `supporter.memory_rerank.sources.recall` | `usize` | `30` | Recall candidates in the pool (`1..=50`); never fewer than the request limit. |
@@ -183,7 +183,7 @@ The Supporter Agent runs memory re-rank and tab-state whenever its selected adap
 adapter = "typesafe-jev"
 model = "jev-latest"
 deadline_ms = 3000
-calls_per_hour = 600
+calls_per_hour = 0 # Unlimited
 
 [supporter.memory_rerank]
 request_mode = "per_candidate"
@@ -197,7 +197,7 @@ sessions = 0
 
 ```
 
-The 600/hour cap counts requests, not questions: shared-state searches and multi-question tab observations each spend one slot. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
+Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: shared-state searches and multi-question tab observations each count as one request. Status reports a null cap when unlimited and live hourly/daily counts. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
 
 ### Librarian
 
@@ -232,4 +232,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

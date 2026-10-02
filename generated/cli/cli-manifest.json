@@ -12901,6 +12901,145 @@
       "subcommands": []
     },
     {
+      "name": "sentinel",
+      "about": "Cheap hash-gated watchers with closed-set routes",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "create",
+          "about": "Watch a bounded shell probe, classifying only changed output",
+          "aliases": [],
+          "args": [
+            {
+              "name": "buckets",
+              "positional": false,
+              "required": true,
+              "value_name": "BUCKETS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": "20s",
+              "help": "Owner-requested cadence (minimum 10s)",
+              "aliases": []
+            },
+            {
+              "name": "match",
+              "positional": false,
+              "required": false,
+              "value_name": "MATCHES",
+              "possible_values": [],
+              "default": null,
+              "help": "Deterministic fallback when no Choice adapter is connected: bucket=regex",
+              "aliases": []
+            },
+            {
+              "name": "probe",
+              "positional": false,
+              "required": true,
+              "value_name": "PROBE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "question",
+              "positional": false,
+              "required": true,
+              "value_name": "QUESTION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "route",
+              "positional": false,
+              "required": false,
+              "value_name": "ROUTES",
+              "possible_values": [],
+              "default": null,
+              "help": "Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop",
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "TIMEOUT",
+              "possible_values": [],
+              "default": null,
+              "help": "End the sentinel after this duration",
+              "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop after this bucket's first confident transition",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List sentinels scoped to the calling tab and its Team",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one sentinel",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Stop one sentinel",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "service",
       "about": "Manage daemon services (long-running processes monitored by codeterm)",
       "aliases": [],

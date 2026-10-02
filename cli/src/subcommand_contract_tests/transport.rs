@@ -42,6 +42,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("plugin management is local-only — run it on the target machine"),
     ),
     (
+        "sentinel",
+        &["codeterm", "sentinel", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("sentinels are creator-local; run on the owning machine"),
+    ),
+    (
         "supporter",
         &["codeterm", "supporter", "status"],
         Local::PreMesh,
@@ -399,7 +406,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 18, "unsupported command count changed");
+    assert_eq!(checked, 19, "unsupported command count changed");
 }
 
 #[test]

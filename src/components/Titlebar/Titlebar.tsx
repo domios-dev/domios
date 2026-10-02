@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ThemeConfig } from "../../lib/types";
+import { SupporterActivityTray } from "./SupporterActivityTray";
+import type { ApiConfig, ThemeConfig } from "../../lib/types";
 import { CloseXIcon, HamburgerIcon } from "../Icons";
 
 import { isMac } from "../../lib/keybindings";
@@ -18,6 +19,7 @@ import { developmentBuildLabel } from "./buildIdentity";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 
 interface TitlebarProps {
+  api?: ApiConfig;
   onToggleSidebar?: () => void;
   showSidebarToggle?: boolean;
   onNewTab?: () => void;
@@ -42,6 +44,7 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
+  api,
   onToggleSidebar,
   showSidebarToggle = false,
   theme: _theme,
@@ -153,6 +156,7 @@ export function Titlebar({
         {onToggleAnalytics && (
           <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
         )}
+        {api && <SupporterActivityTray api={api} />}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         {onOpenSettings && (

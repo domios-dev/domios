@@ -772,7 +772,7 @@ export interface SupporterConfig {
   model?: string | null;
   deadline_ms: number;
   memory_rerank: MemoryRerankConfig;
-  calls_per_hour: number;
+  calls_per_hour?: number | null;
 }
 
 export interface MemoryConfig {

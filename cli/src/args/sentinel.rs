@@ -1,0 +1,128 @@
+use clap::Subcommand;
+
+#[derive(Subcommand)]
+pub enum SentinelAction {
+    /// Watch a bounded shell probe, classifying only changed output
+    Create {
+        #[arg(long)]
+        probe: String,
+        #[arg(long)]
+        question: String,
+        #[arg(long, value_delimiter = ',', required = true)]
+        buckets: Vec<String>,
+        /// Owner-requested cadence (minimum 10s)
+        #[arg(long, default_value = "20s")]
+        every: String,
+        /// Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop
+        #[arg(long = "route", value_parser = parse_route)]
+        routes: Vec<String>,
+        /// Stop after this bucket's first confident transition
+        #[arg(long)]
+        until: Option<String>,
+        /// End the sentinel after this duration
+        #[arg(long)]
+        timeout: Option<String>,
+        /// Deterministic fallback when no Choice adapter is connected: bucket=regex
+        #[arg(long = "match", value_parser = parse_assignment)]
+        matches: Vec<String>,
+    },
+    /// List sentinels scoped to the calling tab and its Team
+    List,
+    /// Show one sentinel
+    Show { id: String },
+    /// Stop one sentinel
+    Stop { id: String },
+}
+
+fn parse_assignment(value: &str) -> Result<String, String> {
+    let (bucket, rhs) = value.split_once('=').ok_or("use bucket=value")?;
+    if bucket.is_empty() || rhs.is_empty() {
+        return Err("bucket and value must be nonempty".into());
+    }
+    Ok(value.into())
+}
+
+fn parse_route(value: &str) -> Result<String, String> {
+    let value = parse_assignment(value)?;
+    let (_, action) = value.split_once('=').ok_or("use bucket=action")?;
+    if action == "notify"
+        || action == "stop"
+        || action
+            .strip_prefix("send:")
+            .or_else(|| action.strip_prefix("cron:"))
+            .is_some_and(|target| !target.trim().is_empty())
+    {
+        Ok(value)
+    } else {
+        Err("route must be notify, send:<tab>, cron:<name>, or stop".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::cli::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn sentinel_create_parse_and_json() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--probe",
+            "check-ci",
+            "--question",
+            "CI state?",
+            "--buckets",
+            "pending,passed,failed",
+            "--every",
+            "20s",
+            "--route",
+            "passed=send:Review",
+            "--route",
+            "failed=stop",
+            "--match",
+            "passed=^success$",
+            "--until",
+            "passed",
+            "--timeout",
+            "1h",
+            "--json",
+        ])
+        .unwrap();
+        assert!(cli.json);
+        let Commands::Sentinel {
+            action:
+                SentinelAction::Create {
+                    buckets,
+                    routes,
+                    matches,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(buckets, ["pending", "passed", "failed"]);
+        assert_eq!(routes.len(), 2);
+        assert_eq!(matches, ["passed=^success$"]);
+        for args in [
+            vec!["codeterm", "sentinel", "list", "--json"],
+            vec!["codeterm", "sentinel", "show", "id", "--json"],
+            vec!["codeterm", "sentinel", "stop", "id", "--json"],
+        ] {
+            assert!(Cli::try_parse_from(args).unwrap().json);
+        }
+    }
+
+    #[test]
+    fn sentinel_routes_closed_set() {
+        for action in ["notify", "send:tab", "cron:check", "stop"] {
+            assert!(parse_route(&format!("passed={action}")).is_ok());
+        }
+        for action in ["sh:evil", "send:", "cron:", "notify;evil", "exec", ""] {
+            assert!(parse_route(&format!("passed={action}")).is_err());
+        }
+    }
+}
