@@ -162,9 +162,9 @@ The Supporter Agent runs memory re-rank and tab-state whenever its selected adap
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `supporter.adapter` | `string` | `"typesafe-jev"` | Selected registered adapter. An unregistered id falls back with reason `no_adapter`. |
-| `supporter.endpoint` | `string?` | adapter default | Adapter endpoint override. Read at daemon start. |
-| `supporter.model` | `string?` | `"jev-latest"` | Selected model id discovered from the adapter. |
+| `supporter.adapter` | `string?` | absent | Active adapter; absent means the Supporter is stopped with deterministic fallback. |
+| `supporter.connections.<id>.endpoint` | `string?` | adapter default | Per-adapter endpoint override, read at daemon start by adapters that support it. |
+| `supporter.connections.<id>.model` | `string?` | first catalogue model | Per-adapter saved model; changing it immediately updates that adapter without activating it. |
 | `supporter.calls_per_hour` | optional integer | absent | Shared hourly cap (`0..=100000`); absent or 0 is unlimited. |
 | `supporter.deadline_ms` | `u64` | `3000` | Failure deadline for a model stage (`100..=30000`). |
 | `supporter.memory_rerank.docs_hybrid` | `bool` | `false` | Use cached vectors when ranking embedded docs candidates. |
@@ -181,9 +181,11 @@ The Supporter Agent runs memory re-rank and tab-state whenever its selected adap
 ```toml
 [supporter]
 adapter = "typesafe-jev"
-model = "jev-latest"
 deadline_ms = 3000
 calls_per_hour = 0 # Unlimited
+
+[supporter.connections.typesafe-jev]
+model = "jev-latest"
 
 [supporter.memory_rerank]
 request_mode = "per_candidate"
@@ -198,6 +200,8 @@ sessions = 0
 ```
 
 Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: shared-state searches and multi-question tab observations each count as one request. Status reports a null cap when unlimited and live hourly/daily counts. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
+
+Saved membership is the union of the connections table, the active adapter and adapters with stored tokens. Switching keeps other tokens and models. `codeterm supporter disconnect <adapter>` removes that connection and token, preserving usage history; removing the active connection stops the Supporter without selecting another.
 
 ### Librarian
 
@@ -232,4 +236,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

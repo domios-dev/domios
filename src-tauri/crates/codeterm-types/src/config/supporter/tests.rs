@@ -7,9 +7,11 @@ fn supporter_config_round_trip() {
         r#"
 [supporter]
 adapter = "fixture"
-model = "fixture-model"
 deadline_ms = 8000
 calls_per_hour = 120
+[supporter.connections.fixture]
+model = "fixture-model"
+endpoint = "http://localhost:1234"
 [supporter.memory_rerank]
 candidates = 24
 [supporter.memory_rerank.sources]
@@ -84,4 +86,19 @@ fn supporter_default_has_no_cap_and_zero_is_unlimited() {
         let decoded: AppConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(decoded.supporter, config.supporter);
     }
+}
+
+#[test]
+fn supporter_connections_optional_active_and_removed_shared_keys() {
+    let config: SupporterConfig = toml::from_str("model = 'old'\nendpoint = 'old'\n").unwrap();
+    assert_eq!(config.adapter, None);
+    let value = serde_json::to_value(&config).unwrap();
+    assert!(value.get("model").is_none());
+    assert!(value.get("endpoint").is_none());
+    assert!(value.get("adapter").is_none());
+    let config: SupporterConfig = toml::from_str("adapter = 'fixture'\n[connections.fixture]\nmodel = 'one'\n[connections.second]\nmodel = 'two'\n").unwrap();
+    let decoded: SupporterConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+    assert_eq!(config, decoded);
+    assert_eq!(decoded.connection("fixture").model.as_deref(), Some("one"));
+    assert_eq!(decoded.connection("second").model.as_deref(), Some("two"));
 }

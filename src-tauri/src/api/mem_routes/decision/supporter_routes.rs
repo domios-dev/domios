@@ -1,239 +1,152 @@
+use super::connection_routes::ConnectionState;
+use super::supporter_json::SupporterJson;
 use super::*;
+use crate::service::supporter::connections;
+use axum::extract::FromRef;
 
 #[derive(Deserialize)]
 pub struct TokenSetBody {
     adapter: Option<String>,
     token: String,
 }
-
 #[derive(Deserialize)]
 pub struct AdapterQuery {
     adapter: Option<String>,
 }
-
 #[derive(Deserialize)]
 pub struct SupporterUseBody {
     adapter: String,
     model: Option<String>,
 }
 
-type RouteResult = Result<Json<Value>, (StatusCode, String)>;
+type RouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
+
+fn json_error(code: &str, message: &str) -> Json<Value> {
+    Json(json!({ "error": { "code": code, "message": message } }))
+}
+fn no_active() -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        json_error(
+            "unknown_adapter",
+            "Specify an adapter; there is no active connection.",
+        ),
+    )
+}
 
 pub async fn supporter_token_set(
     AxumState(state): AxumState<AppState>,
-    Json(body): Json<TokenSetBody>,
+    SupporterJson(body): SupporterJson<TokenSetBody>,
 ) -> RouteResult {
-    let adapter = body
+    let id = body
         .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    let Some(model) = state.svc.supporter_models.get(&adapter) else {
-        return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
-    };
-    if model.token_mode() == TokenMode::None {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let token = body.token;
-    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
-    let status = token_io(move || {
-        let store = token_store();
-        store.set(&adapter, &token)?;
-        runtime.connection_changed();
-        store.status(&adapter).map(|status| (adapter, status))
+        .or_else(|| state.config.lock().supporter.adapter.clone())
+        .ok_or_else(no_active)?;
+    super::connection_routes::mutate(ConnectionState::from_ref(&state), move |service| {
+        service.replace_token(&id, &body.token)
     })
-    .await?;
-    Ok(Json(token_status_json(
-        &status.0,
-        &status.1,
-        model.token_mode(),
-    )))
+    .await
 }
 
 pub async fn supporter_token_clear(
     AxumState(state): AxumState<AppState>,
     Query(query): Query<AdapterQuery>,
 ) -> RouteResult {
-    let adapter = query
+    let id = query
         .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    if state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .is_some_and(|model| model.token_mode() == TokenMode::None)
-    {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
-    let (adapter, removed) = token_io(move || {
-        let removed = token_store().clear(&adapter)?;
-        runtime.connection_changed();
-        Ok((adapter, removed))
+        .or_else(|| state.config.lock().supporter.adapter.clone())
+        .ok_or_else(no_active)?;
+    super::connection_routes::mutate(ConnectionState::from_ref(&state), move |service| {
+        service.clear_token(&id)
     })
-    .await?;
-    let token_mode = state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .map(|model| model.token_mode())
-        .unwrap_or(TokenMode::Required);
-    Ok(Json(json!({
-        "adapter": adapter,
-        "removed": removed,
-        "token_mode": token_mode_name(token_mode),
-    })))
+    .await
 }
 
 pub async fn supporter_token_status(
     AxumState(state): AxumState<AppState>,
     Query(query): Query<AdapterQuery>,
 ) -> RouteResult {
-    let adapter = query
+    let id = query
         .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
-    if state
+        .or_else(|| state.config.lock().supporter.adapter.clone())
+        .ok_or_else(no_active)?;
+    let mode = state
         .svc
         .supporter_models
-        .get(&adapter)
-        .is_some_and(|model| model.token_mode() == TokenMode::None)
-    {
-        return Ok(Json(no_token_needed_json(&adapter)));
-    }
-    let (adapter, status) = token_io(move || {
-        let status = token_store().status(&adapter)?;
-        Ok((adapter, status))
-    })
-    .await?;
-    let token_mode = state
-        .svc
-        .supporter_models
-        .get(&adapter)
-        .map(|model| model.token_mode())
-        .unwrap_or(TokenMode::Required);
-    Ok(Json(token_status_json(&adapter, &status, token_mode)))
-}
-
-pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
-    let models = state.svc.supporter_models.clone();
-    let cfg = state.config.lock().supporter.clone();
-    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
+        .get(&id)
+        .ok_or_else(|| {
+            super::connection_routes::error(connections::ConnectionError {
+                code: "unknown_adapter",
+                message: "This adapter is not registered.",
+            })
+        })?
+        .token_mode();
     token_io(move || {
-        let store = token_store();
-        let mut adapters = registered_adapters(&models);
-        for adapter in &mut adapters {
-            if let Some(id) = adapter.get("id").and_then(Value::as_str) {
-                let status = store.status(id)?;
-                let mode = models
-                    .get(id)
-                    .map(|model| model.token_mode())
-                    .unwrap_or(TokenMode::Required);
-                adapter["token"] = token_status_json(id, &status, mode);
-            }
-        }
-        let selected_token = store.status(&cfg.adapter)?;
-        let selected_model = models.get(&cfg.adapter);
-        let adapter_registered = selected_model.is_some();
-        let token_mode = selected_model
-            .as_ref()
-            .map_or(TokenMode::Required, |model| model.token_mode());
-        let mut state = supporter_state(
-            !cfg.adapter.is_empty(),
-            &selected_token,
-            adapter_registered,
-            token_mode,
-        );
-        let connected = crate::service::supporter::supporter_connected(
-            &cfg,
-            &models,
-            &crate::service::supporter::TokenSnapshot::read(&store, &cfg.adapter),
-        );
-        if !connected && state == "active" {
-            state = "token_unusable";
-        }
-        let model = cfg.model.clone().or_else(|| {
-            models
-                .get(&cfg.adapter)
-                .and_then(|model| model.models().first().map(|entry| entry.id.clone()))
-        });
-        let mut output = json!({
-            "state": state,
-            "token_mode": token_mode_name(token_mode),
-            "adapter": cfg.adapter,
-            "model": model,
-            "deadline_ms": cfg.deadline_ms,
-            "connected": connected,
-            "token": token_status_json(&cfg.adapter, &selected_token, token_mode),
-            "adapter_registered": adapter_registered,
-            "adapters": adapters,
-        });
-        let activity =
-            crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour.unwrap_or(0));
-        let price = selected_model.as_ref().and_then(|model| model.pricing());
-        output["spend"] = spend_snapshot(&runtime, &cfg.adapter, price.as_ref());
-        output["pricing"] = price.as_ref().map_or(Value::Null, |price| json!(price));
-        if output["connected"] == true && activity["budget"]["reached"] == true {
-            output["state"] = json!("budget_reached");
-        }
-        if output["connected"] == true && output["spend"]["exhausted"] == true {
-            output["state"] = json!("credit_exhausted");
-        }
-        if let (Some(output), Some(activity)) = (output.as_object_mut(), activity.as_object()) {
-            output.extend(activity.clone());
-        }
-        Ok(output)
+        let _transaction = connections::TRANSACTION.lock();
+        let status = token_store().status(&id)?;
+        Ok(token_status_json(&id, &status, mode))
     })
     .await
     .map(Json)
 }
 
+pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteResult {
+    token_io(move || {
+        let _transaction = connections::TRANSACTION.lock();
+        let cfg = state.config.lock().supporter.clone();
+        let models = &state.svc.supporter_models;
+        let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
+        let store = token_store();
+        let mut adapters = registered_adapters(models);
+        for adapter in &mut adapters {
+            if let Some(id) = adapter["id"].as_str() {
+                let mode = models.get(id).map_or(TokenMode::None, |model| model.token_mode());
+                adapter["token"] = token_status_json(id, &store.status(id)?, mode);
+            }
+        }
+        let id = cfg.active_id().unwrap_or("");
+        let selected_token = store.status(id)?;
+        let selected = models.get(id);
+        let mode = selected.as_ref().map_or(TokenMode::None, |model| model.token_mode());
+        let connected = crate::service::supporter::supporter_connected(&cfg, models, &crate::service::supporter::TokenSnapshot::read(&store, id));
+        let rows = connections::list(&cfg, models, &store).map_err(|_| io::Error::other("connections unavailable"))?;
+        let mut output = json!({
+            "state": supporter_state(cfg.active_id().is_some(), &selected_token, selected.is_some(), mode),
+            "token_mode": token_mode_name(mode), "adapter": cfg.adapter,
+            "model": rows.iter().find(|row| row["active"] == true).map(|row| row["model"].clone()),
+            "deadline_ms": cfg.deadline_ms, "connected": connected,
+            "token": token_status_json(id, &selected_token, mode),
+            "adapter_registered": selected.is_some(), "adapters": adapters, "connections": rows,
+        });
+        if !connected && output["state"] == "active" { output["state"] = json!("adapter_unavailable"); }
+        let price = selected.as_ref().and_then(|model| model.pricing());
+        output["spend"] = spend_snapshot(&runtime, id, price.as_ref());
+        output["pricing"] = price.as_ref().map_or(Value::Null, |price| json!(price));
+        let activity = crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour.unwrap_or(0));
+        if connected && activity["budget"]["reached"] == true { output["state"] = json!("budget_reached"); }
+        if connected && output["spend"]["exhausted"] == true { output["state"] = json!("credit_exhausted"); }
+        if let (Some(output), Some(activity)) = (output.as_object_mut(), activity.as_object()) { output.extend(activity.clone()); }
+        Ok(output)
+    }).await.map(Json)
+}
+
 pub async fn supporter_models(AxumState(state): AxumState<AppState>) -> RouteResult {
-    let cfg = state.config.lock().supporter.clone();
-    let models = state.svc.supporter_models.clone();
-    let adapters = registered_adapters(&models);
-    Ok(Json(json!({
-        "adapter": cfg.adapter,
-        "model": cfg.model,
-        "adapters": adapters,
-    })))
+    token_io(move || {
+        let _transaction = connections::TRANSACTION.lock();
+        let cfg = state.config.lock().supporter.clone();
+        let model = cfg.active_id().and_then(|id| cfg.connection(id).model.or_else(|| state.svc.supporter_models.get(id).and_then(|adapter| adapter.models().first().map(|model| model.id.clone()))));
+        Ok(json!({ "adapter": cfg.adapter, "model": model, "adapters": registered_adapters(&state.svc.supporter_models) }))
+    }).await.map(Json)
 }
 
 pub async fn supporter_use(
     AxumState(state): AxumState<AppState>,
-    Json(body): Json<SupporterUseBody>,
+    SupporterJson(body): SupporterJson<SupporterUseBody>,
 ) -> RouteResult {
-    let Some(adapter) = state.svc.supporter_models.get(&body.adapter) else {
-        return Err(unknown_adapter(&state.svc.supporter_models, &body.adapter));
-    };
-    let available = adapter.models();
-    let current = state.config.lock().supporter.clone();
-    let selected_model = select_model_id(
-        &body.adapter,
-        &available,
-        body.model,
-        current.adapter == body.adapter,
-        current.model,
-    )
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    if let Some(model_id) = selected_model.as_deref() {
-        if !adapter.select_model(model_id) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("adapter {} cannot select model {model_id}", body.adapter),
-            ));
-        }
-    }
-    let adapter_id = body.adapter;
-    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
-    let cfg = update_supporter_config(state, move |cfg| {
-        cfg.adapter = adapter_id;
-        cfg.model = selected_model;
+    super::connection_routes::mutate(ConnectionState::from_ref(&state), move |service| {
+        service.use_adapter(&body.adapter, body.model)
     })
-    .await?;
-    token_io(move || {
-        runtime.connection_changed();
-        Ok(())
-    })
-    .await?;
-    Ok(Json(json!({ "adapter": cfg.adapter, "model": cfg.model })))
+    .await
 }
 
 fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> Value {
@@ -246,78 +159,21 @@ fn token_status_json(adapter: &str, status: &TokenStatus, mode: TokenMode) -> Va
     })
 }
 
-fn no_token_needed_json(adapter: &str) -> Value {
-    json!({
-        "adapter": adapter,
-        "token_mode": "none",
-        "message": "this adapter needs no token",
-        "present": false,
-    })
-}
-
-fn unknown_adapter(models: &SupporterRegistry, adapter: &str) -> (StatusCode, String) {
-    let mut registered = models.ids();
-    registered.sort();
-    (
-        StatusCode::NOT_FOUND,
-        format!(
-            "supporter adapter is not registered: {adapter}; registered adapters: {}",
-            if registered.is_empty() {
-                "none".to_owned()
-            } else {
-                registered.join(", ")
-            }
-        ),
-    )
-}
-
-async fn update_supporter_config<F>(
-    state: AppState,
-    update: F,
-) -> Result<crate::config::schema::SupporterConfig, (StatusCode, String)>
-where
-    F: FnOnce(&mut crate::config::schema::SupporterConfig) + Send + 'static,
-{
-    let config_state = state.config.clone();
-    tokio::task::spawn_blocking(move || {
-        let mut config = config_state.lock().clone();
-        update(&mut config.supporter);
-        crate::config::bounds::validate_app_config(&config)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        let supporter = config.supporter.clone();
-        crate::config::save_config_and_apply(&config_state, config)
-            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-        Ok::<_, io::Error>(supporter)
-    })
-    .await
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("supporter config task failed: {error}"),
-        )
-    })?
-    .map_err(|error| {
-        let status = if error.kind() == io::ErrorKind::InvalidInput {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        };
-        (status, format!("supporter config update failed: {error}"))
-    })
-}
-
 /// Token file IO stays off the async runtime; io errors never carry the token value.
-async fn token_io<T, F>(work: F) -> Result<T, (StatusCode, String)>
+async fn token_io<T, F>(work: F) -> Result<T, (StatusCode, Json<Value>)>
 where
     T: Send + 'static,
     F: FnOnce() -> io::Result<T> + Send + 'static,
 {
     tokio::task::spawn_blocking(work)
         .await
-        .map_err(|error| {
+        .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("supporter token task failed: {error}"),
+                json_error(
+                    "unavailable",
+                    "Supporter storage task failed. Refresh and retry.",
+                ),
             )
         })?
         .map_err(|error| {
@@ -326,7 +182,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, format!("supporter token store: {error}"))
+            (
+                status,
+                json_error(
+                    "unavailable",
+                    "Supporter storage is unavailable. Refresh and retry.",
+                ),
+            )
         })
 }
 
@@ -338,13 +200,19 @@ pub struct SupporterBalanceBody {
 
 pub async fn supporter_balance(
     AxumState(state): AxumState<AppState>,
-    Json(body): Json<SupporterBalanceBody>,
+    SupporterJson(body): SupporterJson<SupporterBalanceBody>,
 ) -> RouteResult {
     let adapter = body
         .adapter
-        .unwrap_or_else(|| state.config.lock().supporter.adapter.clone());
+        .or_else(|| state.config.lock().supporter.adapter.clone())
+        .ok_or_else(no_active)?;
     let Some(model) = state.svc.supporter_models.get(&adapter) else {
-        return Err(unknown_adapter(&state.svc.supporter_models, &adapter));
+        return Err(super::connection_routes::error(
+            crate::service::supporter::connections::ConnectionError {
+                code: "unknown_adapter",
+                message: "This adapter is not registered. Install it and refresh.",
+            },
+        ));
     };
     if body
         .balance_usd
@@ -352,10 +220,25 @@ pub async fn supporter_balance(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            "balance must be a nonnegative USD value".into(),
+            json_error(
+                "invalid_request",
+                "Balance must be a nonnegative USD value.",
+            ),
         ));
     }
     let price = model.pricing();
+    if price.as_ref().is_none_or(|price| {
+        !price.input_usd_per_million.is_finite()
+            || !price.output_usd_per_million.is_finite()
+            || price.input_usd_per_million < 0.0
+            || price.output_usd_per_million < 0.0
+            || (price.input_usd_per_million == 0.0 && price.output_usd_per_million == 0.0)
+    }) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            json_error("unavailable", "This adapter has no declared pricing."),
+        ));
+    }
     let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
     token_io(move || {
         runtime

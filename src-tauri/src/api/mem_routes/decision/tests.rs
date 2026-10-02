@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 
 use super::sessions_source::SessionCandidate;
 use super::{
-    candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
-    token_store, DecisionBackend, SupporterRegistry, Untouched,
+    candidate, registered_adapters, supporter_state, supporter_token_dir, token_store,
+    DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
@@ -220,7 +220,7 @@ fn params(limit: usize) -> SearchParams {
 /// Recall-only pool: the shipped defaults add graph candidates, which these tests do not cover.
 fn enabled_cfg() -> SupporterConfig {
     SupporterConfig {
-        adapter: STUB_ID.into(),
+        adapter: Some(STUB_ID.into()),
         memory_rerank: MemoryRerankConfig {
             sources: crate::config::schema::SupporterSources {
                 graph: 0,
@@ -260,6 +260,10 @@ impl DecisionModel for StubModel {
             noul: true,
             ..DecisionPrimitives::default()
         }
+    }
+
+    fn model_id(&self) -> Option<String> {
+        Some("stub-model".into())
     }
 
     fn models(&self) -> Vec<DecisionModelInfo> {
@@ -407,29 +411,11 @@ fn supporter_models_lists_registered_models() {
             "id": STUB_ID,
             "token_mode": "none",
             "pricing": null,
+            "metadata": { "display_name": null, "help_url": null, "server_address": null, "settings_url": null },
             "primitives": { "choice": false, "noul": true, "score": false },
             "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
         })]
     );
-}
-
-#[test]
-fn supporter_models_and_use_refuse_unlisted_models() {
-    let models = vec![DecisionModelInfo {
-        id: "jev-current".into(),
-        display_name: "Jev current".into(),
-    }];
-
-    assert_eq!(
-        select_model_id("stub", &models, Some("jev-current".into()), false, None).unwrap(),
-        Some("jev-current".into())
-    );
-    assert_eq!(
-        select_model_id("stub", &models, None, true, Some("jev-current".into())).unwrap(),
-        Some("jev-current".into())
-    );
-    let error = select_model_id("stub", &models, Some("unknown".into()), false, None).unwrap_err();
-    assert!(error.contains("jev-current"));
 }
 
 #[test]
@@ -454,7 +440,7 @@ fn supporter_not_connected_search_is_baseline_identical() {
     let mut request = params(3);
     request.project = Some("/seeded/project".into());
     let off = SupporterConfig {
-        adapter: "unregistered".into(),
+        adapter: Some("unregistered".into()),
         ..SupporterConfig::default()
     };
     let overridden = SearchParams {

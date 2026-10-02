@@ -342,10 +342,10 @@ fn qualified(service: &ServiceContext, config: &codeterm_types::config::Supporte
     };
     let model = service
         .supporter_models
-        .get(&config.adapter)
+        .get(config.active_id().unwrap_or(""))
         .and_then(|model| model.model_id());
     q.authorizes(
-        &config.adapter,
+        config.active_id().unwrap_or(""),
         model.as_deref(),
         &crate::service::supporter_tab_state::criteria_version(),
         &crate::service::supporter::criteria_hash(include_bytes!(
@@ -396,7 +396,7 @@ impl ServiceContext {
         let config = crate::config::load_config().supporter;
         let tokens = crate::service::supporter::TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
-            &config.adapter,
+            config.active_id().unwrap_or(""),
         );
         crate::service::supporter::supporter_connected(&config, &self.supporter_models, &tokens)
     }

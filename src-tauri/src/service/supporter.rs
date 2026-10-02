@@ -14,6 +14,7 @@ use crate::api::mem_routes::decision::SupporterRegistry;
 use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
+pub(crate) mod connections;
 mod feed;
 mod journal;
 mod spend;
@@ -44,10 +45,40 @@ pub(crate) fn supporter_connected(
     registry: &SupporterRegistry,
     token_store: &TokenSnapshot,
 ) -> bool {
-    !cfg.adapter.is_empty()
-        && registry
-            .get(&cfg.adapter)
-            .is_some_and(|model| model.token_mode() != TokenMode::Required || token_store.usable)
+    configured_model(cfg, registry)
+        .is_some_and(|model| model.token_mode() != TokenMode::Required || token_store.usable)
+}
+
+pub(crate) fn configured_model(
+    cfg: &SupporterConfig,
+    registry: &SupporterRegistry,
+) -> Option<Arc<dyn DecisionModel>> {
+    let id = cfg.active_id()?;
+    let adapter = registry.get(id)?;
+    if cfg
+        .connection(id)
+        .model
+        .or_else(|| adapter.models().first().map(|model| model.id.clone()))
+        .as_deref()
+        .is_some_and(|model| adapter.model_id().as_deref() != Some(model))
+    {
+        return None;
+    }
+    Some(adapter)
+}
+
+pub(crate) fn restore_model(
+    cfg: &SupporterConfig,
+    id: &str,
+    adapter: &Arc<dyn DecisionModel>,
+) -> bool {
+    let model = cfg
+        .connection(id)
+        .model
+        .or_else(|| adapter.models().first().map(|model| model.id.clone()));
+    model.as_deref().is_none_or(|model| {
+        adapter.select_model(model) && adapter.model_id().as_deref() == Some(model)
+    })
 }
 
 pub(crate) fn runtime() -> Arc<SupporterRuntime> {
@@ -139,6 +170,9 @@ impl DecisionModel for BudgetedModel {
     }
     fn pricing(&self) -> Option<DecisionPricing> {
         self.model.pricing()
+    }
+    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+        self.model.metadata()
     }
     fn primitives(&self) -> DecisionPrimitives {
         self.model.primitives()

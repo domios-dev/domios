@@ -102,6 +102,8 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
         modelId() { return "fixture-model"; },
+        selectModel(id) { return id === "fixture-model"; },
+        metadata() { return {}; },
         pricing() { return { display_name: "local fixture", input_usd_per_million: 0, output_usd_per_million: 0 }; },
         primitives() { return { choice: true, noul: true, score: true }; },
         models() { return [{ id: "fixture-model", display_name: "Fixture model" }]; },
@@ -133,6 +135,7 @@ fn parity_decision_model_matches_shared_fixtures() {
         assert_eq!(native.models(), javascript.models());
         assert_eq!(native.model_id(), javascript.model_id());
         assert_eq!(native.pricing(), javascript.pricing());
+        assert_eq!(native.metadata(), javascript.metadata());
         assert!(native.select_model("fixture-model"));
         assert_eq!(
             native.select_model("fixture-model"),
@@ -197,4 +200,77 @@ fn parity_decision_model_multi_question_shared_state_and_sequential_local_adapte
         );
         assert_eq!(response.answers.len(), 3);
     }
+}
+
+#[test]
+fn parity_decision_metadata_and_model_selection_apply_without_cross_adapter_leak() {
+    use codeterm_types::decision::DecisionMetadata;
+    struct Native(parking_lot::Mutex<String>);
+    impl DecisionModel for Native {
+        fn id(&self) -> &str {
+            "fixture"
+        }
+        fn token_mode(&self) -> TokenMode {
+            TokenMode::Optional
+        }
+        fn model_id(&self) -> Option<String> {
+            Some(self.0.lock().clone())
+        }
+        fn primitives(&self) -> DecisionPrimitives {
+            Default::default()
+        }
+        fn models(&self) -> Vec<DecisionModelInfo> {
+            ["one", "two"]
+                .into_iter()
+                .map(|id| DecisionModelInfo {
+                    id: id.into(),
+                    display_name: id.into(),
+                })
+                .collect()
+        }
+        fn metadata(&self) -> DecisionMetadata {
+            DecisionMetadata {
+                help_url: Some("https://fixture.test/help".into()),
+                server_address: Some("http://localhost:1234".into()),
+                ..Default::default()
+            }
+        }
+        fn select_model(&self, id: &str) -> bool {
+            if !self.models().iter().any(|model| model.id == id) {
+                return false;
+            }
+            *self.0.lock() = id.into();
+            true
+        }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            Err(DecisionError::Unsupported)
+        }
+    }
+    let source = r#"var selected = "one";
+        module.exports.default = {
+            modelId() { return selected; },
+            models() { return [{ id: "one", display_name: "one" }, { id: "two", display_name: "two" }]; },
+            selectModel(id) { if (id !== "one" && id !== "two") return false; selected = id; return true; },
+            metadata() { return { help_url: "https://fixture.test/help", server_address: "http://localhost:1234" }; }
+        };"#;
+    let javascript = JsDecisionModel::new(
+        Arc::new(PluginVm::from_source("fixture", source.into()).unwrap()),
+        "fixture",
+        TokenMode::Optional,
+    );
+    let other = JsDecisionModel::new(
+        Arc::new(PluginVm::from_source("other", source.into()).unwrap()),
+        "other",
+        TokenMode::Optional,
+    );
+    let native = Native(parking_lot::Mutex::new("one".into()));
+    assert_eq!(native.metadata(), javascript.metadata());
+    assert_eq!(native.select_model("two"), javascript.select_model("two"));
+    assert_eq!(native.model_id(), javascript.model_id());
+    assert_eq!(other.model_id().as_deref(), Some("one"));
+    assert_eq!(
+        native.select_model("missing"),
+        javascript.select_model("missing")
+    );
+    assert_eq!(javascript.model_id().as_deref(), Some("two"));
 }

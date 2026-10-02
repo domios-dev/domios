@@ -36,6 +36,8 @@ Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 
 ## Decision model capability
 
+Decision adapters may expose `selectModel(id): boolean` to apply a catalogue model immediately (modelId must report the selected id), and `metadata()` for display_name, help_url, server_address and settings_url. Metadata must never contain credentials. Without selectModel, the host only accepts the model reported by modelId.
+
 Declare `"decisionModel": true` in `plugin.json` and export `primitives()`,
 `models()`, and `decide(request)`. `models()` returns entries with `id` and
 `display_name`; the host uses them for the supporter model picker. A request

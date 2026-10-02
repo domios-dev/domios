@@ -253,6 +253,14 @@ impl DecisionModel for TypeSafeAdapter {
         })
     }
 
+    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+        codeterm_types::decision::DecisionMetadata {
+            display_name: Some("TypeSafe Jev".into()),
+            help_url: Some("https://docs.typesafe.ai".into()),
+            ..Default::default()
+        }
+    }
+
     fn token_mode(&self) -> TokenMode {
         TokenMode::Required
     }
