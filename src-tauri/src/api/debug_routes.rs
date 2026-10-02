@@ -42,6 +42,16 @@ pub async fn clock_advance(
     ))?;
     let now_ms = clock.advance_ms(body.ms);
     state.cron_wake.notify_all();
+    {
+        use tauri::Manager;
+        if let Some(sentinels) = state
+            .svc
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            sentinels.notify();
+        }
+    }
     Ok(Json(serde_json::json!({"now_ms": now_ms})))
 }
 

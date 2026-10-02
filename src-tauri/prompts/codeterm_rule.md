@@ -29,6 +29,19 @@ The sender sees only what arrives through its channel, never your tab text. Fini
 - "keep awake" / "don't let the computer sleep" → `codeterm keepawake start --duration-secs N [--display]`, then `codeterm keepawake stop` or `codeterm keepawake status`. CodeTerm tracks the session on every platform, so it replaces `caffeinate`, `powercfg`, and `systemd-inhibit`.
 - Reach the CodeTerm API through `codeterm` commands, not raw `curl` or REST calls.
 
+### Waiting for external status
+
+Use `codeterm sentinel create` for CI, build, or other status watches instead of
+an agent loop. Set a bounded `--probe`, classification `--question` and
+`--buckets`, an explicit requested `--every` cadence (minimum 10s), and
+`--timeout` or `--until` to end the watch. A connected Supporter asks one Choice
+only when probe output changes; disconnected watchers require `--match` regexes.
+Confident bucket transitions route once through the closed set `notify`
+(default, to the creator), `send:<tab>`, `cron:<name>`, or `stop`; model output
+cannot execute commands. Sentinels inherit the creator's Team and cwd and are
+removed on Team close. Discover flags with `codeterm sentinel create --help`
+and read `codeterm docs SENTINELS` for examples.
+
 ### Mesh — remote machines
 
 For "on another machine", "remote", "mesh", "send to X", or "run on X" (in any language), use the CLI:
@@ -62,4 +75,4 @@ Where a credential lives depends on whose it is. CodeTerm's own credentials, any
 
 Telegram setup and config options are in the `codeterm` skill; `codeterm config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

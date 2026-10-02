@@ -27,6 +27,7 @@ use super::pad::PadAction;
 use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
+use super::sentinel::SentinelAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
@@ -262,6 +263,12 @@ pub enum Commands {
     Agent {
         #[command(subcommand)]
         action: AgentAction,
+    },
+
+    /// Cheap hash-gated watchers with closed-set routes
+    Sentinel {
+        #[command(subcommand)]
+        action: SentinelAction,
     },
 
     /// Cron job management

@@ -164,6 +164,11 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
+    let sentinel_clock: cron::clock::SharedClock = test_clock
+        .clone()
+        .map(|clock| clock as cron::clock::SharedClock)
+        .unwrap_or_else(cron::clock::system_clock);
+    crate::sentinel::scheduler::start(service_state.clone(), sentinel_clock);
 
     tauri::async_runtime::block_on(async {
         let init_started = std::time::Instant::now();
