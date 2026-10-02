@@ -47,7 +47,7 @@ function control(point: Point, side: Side, reach: number): Point {
 
 export function measureChannels(cards: HTMLElement[], mobile: boolean, compact: boolean): Channel[] {
   const links: [number, number, Side, Side][] = mobile
-    ? [[0, 1, 'bottom', 'top'], [1, 2, 'bottom', 'top']]
+    ? [[0, 1, 'bottom', 'top'], [1, 2, 'bottom', 'top'], [2, 3, 'bottom', 'top']]
     : [[0, 1, 'right', 'left'], [1, 2, compact ? 'bottom' : 'right', 'top'], [2, 3, 'left', 'right'], [3, 0, 'top', 'bottom']];
   return links.map(([from, to, sourceSide, targetSide]) => {
     const start = port(cards[from], sourceSide);
