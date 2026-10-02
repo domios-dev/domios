@@ -28,7 +28,7 @@
     "covered_points": [],
     "point_field": null,
     "case_points": {},
-    "reason": "Retained strict criteria remain pending owner disposition. Disconnected observer/candidate branches do no new work and emit no observation IDs; do not request new reads/journals on that baseline. Connected output does not contain the full paired verdict/occurrence/point/completion schema. Null mappings describe unmet criteria, not approved producer additions.",
+    "reason": "Retained strict criteria remain pending owner disposition. Reviewed bfdde439 adds passive captured correlation and actual partial Q2 data but is unmerged behind held slice3, qualification disabled. It supplies no external event/action receipt or full paired heuristic. No new disconnected work is requested. Strict field mappings remain unchanged/null.",
     "fields": {
       "tab": "tab",
       "launch": null,
@@ -88,6 +88,71 @@
       "status": "pending",
       "notification": "1a74efb3-6446-46a0-b654-23e9091521d9",
       "requested": "Actual deterministic outcome/receipt with unavailable IDs on disconnected cells; same-event comparison only where actual same-question opinions exist; separate Sentinel cross-run comparison. No adjustment approved."
+    },
+    "reviewed_passive_schema": {
+      "status": "pending",
+      "source_commit": "bfdde439a2ac717458570604f2cd15dd0cd072a3",
+      "integration_status": "reviewed_unmerged_held_slice3",
+      "held_ancestor": "812c9f8f985877e2bbf86ba29b44579d8a3823c0",
+      "qualification": "disabled",
+      "sources": [
+        "src-tauri/src/service/supporter_tab_state/identity/correlation.rs::Correlation::capture/RecordIdentity::decorate/project_diagnostics",
+        "src-tauri/src/service/supporter_tab_state/observer.rs::prepare_observation/observe",
+        "src-tauri/src/service/supporter_tab_state/candidates.rs::Pending::record/spawn",
+        "src-tauri/src/service/supporter/feed.rs::entry"
+      ],
+      "top_level_fields": [
+        "decision_point",
+        "observation_status",
+        "correlation",
+        "model_verdict",
+        "alternate_verdict"
+      ],
+      "correlation_fields": [
+        "version",
+        "decision_point",
+        "observation_id",
+        "launch_id",
+        "session_id",
+        "occurrence_id",
+        "occurrence",
+        "frame_hash",
+        "candidate_evidence"
+      ],
+      "version": 1,
+      "point_labels": [
+        "launch_ready",
+        "startup_deadline",
+        "startup_escalation",
+        "prompt_candidate",
+        "worker_idle_without_report",
+        "busy_without_output",
+        "tab_exit"
+      ],
+      "identity_semantics": {
+        "observation_id": "numeric capture id; outer/nested equality only; receipt replay identity, not source-event sequence",
+        "launch_id": "SHA256 local captured launch key including PTY and launch nonce, or captured generation when local identity unavailable",
+        "session_id": "SHA256 captured claimed session, or null",
+        "occurrence_id": "SHA256 serialized [launch_id,session_id,occurrence] tuple",
+        "frame_hash": "16 hexadecimal characters of captured transport frame hash"
+      },
+      "observation_status": {
+        "completed": "existing classifier consumed parsed response, including other and low-confidence; not distinct external producer event/action/receipt",
+        "rejected": "discarded or failed captured work; returned valid Q2 may still be retained",
+        "unavailable": "no valid captured receipt; uncaptured numeric action rows cannot invent one"
+      },
+      "model_verdict": "observed only for real returned criteria-allowed Q2 label and finite confidence [0,1]; otherwise unavailable. Not safe choice/action proof.",
+      "alternate_verdict": "skipped on adapter classification, otherwise unavailable. No diagnostic heuristic rerun or full paired verdict.",
+      "candidate_evidence": "observed source=provider_safe_target kind=update|onboarding only from existing captured metadata; otherwise unavailable. Not full heuristic/opinion.",
+      "feed_semantics": "bounded whitelist requires version, known point, matching outer/nested id/point and valid hashes; malformed receipts omitted and status unavailable; no raw/extraneous fields",
+      "unresolved": [
+        "distinct external producer-event barrier",
+        "exact action-row envelope join",
+        "approved same-question opinion criteria",
+        "independent expected launch/session/occurrence/point binding",
+        "owner admission/PTY disposition and bounded slice3 repair before real integration"
+      ],
+      "strict_mapping_status": "pending; informational producer paths are not adapters to decision.fields; completed is not mapped to a stronger receipt predicate"
     }
   },
   "coordinator": {
@@ -98,7 +163,7 @@
       "busy",
       "fail"
     ],
-    "reason": "Independent outcome validators are authored; real provokers remain pending isolated updater scope, exact session version receipts, safe occurrence receipts and busy event barriers. Persisted claims never prove resumption.",
+    "reason": "Event-driven CoordinatorScenario authored behind preflight. Authentic Codex prompt, daemon updater confinement/failure injection, exact action-envelope join, provider-side safe occurrence, own-session tool pairing and complete tree/failure observation barrier remain pending.",
     "outcome_status": "source_traced",
     "configuration": "updater.allow_provider_updates_in_non_prod",
     "consent": "automatic provider-declared capability; no consent click in current source",
@@ -125,7 +190,30 @@
       "restart_failed"
     ],
     "state_path": "daemon-home/.codeterm/provider-update-state.json",
-    "state_key": "provider:target"
+    "state_key": "provider:target",
+    "authentic_trigger_status": "pending",
+    "updater_confinement_status": "pending",
+    "termination_status": "pending",
+    "session_field": null,
+    "launch_field": null,
+    "run_path": null,
+    "receipt_paths": {
+      "real_prompt": null,
+      "isolated_update_scope": null,
+      "safe_receipts": null,
+      "prompt_occurrences": null,
+      "safe_choice": null,
+      "restart_launches": null,
+      "failure_barrier": null,
+      "tree_stopped": null,
+      "busy_checkpoint": null,
+      "idle_receipt": null,
+      "install_n": null,
+      "busy_restart_n": null,
+      "decision_rows": null,
+      "decision_identity": null,
+      "path": null
+    }
   },
   "sentinel": {
     "status": "pending",
@@ -193,7 +281,7 @@
         "reason": "Owner accepted N/A: regex mode never spends model budget; the Jev-on explicit cap plus regex companion covers exhaustion."
       }
     ],
-    "reason": "Reviewed raw UUID attempt/stage contract is source-bound only; merge, executable qualification, both-arm criteria and recipient receipts remain pending. No same-event paired-oracle adjustment approved.",
+    "reason": "Raw UUID attempt/stage schema ancestry-merged and mechanism-tested only; live qualification, both-arm criteria and recipient receipts remain pending. No same-event paired-oracle adjustment approved.",
     "raw_source_commit": "ecb3973cdc7cb291058cc555bddbe4b336d0ea9a",
     "raw_source_status": "ancestry_merged_canonical_0c93eebb",
     "raw_schema_status": "source_bound",
@@ -234,19 +322,25 @@
       "fallback"
     ],
     "feed_variant": "activity-feed",
-    "sentinel_feed_status": "source_repaired_not_run",
-    "reason": "feed.rs::entry accepts Sentinel rows at ddc23c2ff; original 6029471427 source-expected-red checkpoint is retained in README. Focused regression and live cell remain NOT RUN.",
+    "sentinel_feed_status": "mechanism_passed_Sentinel28_live_NOT_RUN",
+    "reason": "feed.rs::entry accepts Sentinel rows; original6029471427 source-expected-red checkpoint retained. Fermi reports focused feed regression passed within canonical Sentinel28; no repeat requested. Live visibility cell remains NOT RUN.",
     "repair_commit": "a97badc2d"
   },
   "isolation": {
     "status": "pending",
     "required": "Every case has isolated provider HOME, CODEX_HOME, CLAUDE_CONFIG_DIR and XDG roots",
-    "observed": "provider_exec.py::main restores owner auth roots for non-login cases under prior Brahms instruction",
+    "observed": "Strict fixture-home allowlist and exact cwd launch scopes authored; no owner profile or provider binary fallback",
     "owner": "Fermi",
-    "reason": "Acceptance and prior instruction conflict. No credential copy/global auth rewrite. Launch preflight remains pending owner disposition."
+    "reason": "Strict fixture source is bound to acceptance. Actual fixture-owned authentication readiness and owner runtime disposition remain pending notification 5a2c6367-cace-4c24-84d4-6a544f633c66. Empty homes and standalone version checks do not prove authenticated prompt readiness.",
+    "source_status": "strict_fixture_recipe_auth_unqualified"
   },
   "update_fixture": {
     "status": "pending",
-    "reason": "Pin metadata is verified, but Claude/OpenCode ignore-scripts leaves native bin placeholders; Codex startup update check is disabled in provider launch args. Isolated capability updater scope and real prompt provocation remain unproven."
+    "reason": "Native assembly/hash/layout and separate qualification sources authored but NOT RUN. Codex production startup check remains false; genuine supported update prompt trigger absent. Capability updater resolver/native destination/target and complete process-tree termination remain unconfined.",
+    "native_status": "source_authored_NOT_RUN",
+    "trigger_status": "pending",
+    "confinement_status": "pending",
+    "absolute_transport_status": "pending",
+    "absolute_transport_reason": "Standard urllib has no certified absolute-deadline open/read/cancel/completion seam here. Unsafe fallback removed; native_archive.acquire refuses with no adapter. Exact narrow bounded transport proposal is in ACQUISITION-TRANSPORT.md. Fake transport controls do not qualify a real adapter."
   }
 }

@@ -145,6 +145,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://unpkg.com/@anthropic-ai/claude-code@2.1.286/install.cjs",
+            "sha256": "5cbab1670597f492cd4eeb946f3c344ebcb1fbd43c623ba192c9b33744461b85",
+            "bytes": 7196,
+            "path": "install.cjs",
+            "archive_source_match": "NOT RUN"
           }
         },
         "2.1.287": {
@@ -283,6 +290,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://unpkg.com/@anthropic-ai/claude-code@2.1.287/install.cjs",
+            "sha256": "5cbab1670597f492cd4eeb946f3c344ebcb1fbd43c623ba192c9b33744461b85",
+            "bytes": 7196,
+            "path": "install.cjs",
+            "archive_source_match": "NOT RUN"
           }
         }
       },
@@ -402,6 +416,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-cli/bin/codex.js",
+            "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+            "bytes": 8790,
+            "path": "bin/codex.js",
+            "archive_source_match": "NOT RUN"
           }
         },
         "0.160.0": {
@@ -507,6 +528,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.160.0/codex-cli/bin/codex.js",
+            "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+            "bytes": 8790,
+            "path": "bin/codex.js",
+            "archive_source_match": "NOT RUN"
           }
         }
       },
@@ -718,6 +746,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.18.33/packages/opencode/script/postinstall.mjs",
+            "sha256": "5a7c990fe552e76b16422cdba3f4b0550590c7a487f7932c773362f74317c87b",
+            "bytes": 5496,
+            "path": "postinstall.mjs",
+            "archive_source_match": "NOT RUN"
           }
         },
         "1.18.34": {
@@ -915,6 +950,13 @@
               ],
               "archive_bytes_verified": false
             }
+          },
+          "installer_source": {
+            "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1.18.34/packages/opencode/script/postinstall.mjs",
+            "sha256": "5a7c990fe552e76b16422cdba3f4b0550590c7a487f7932c773362f74317c87b",
+            "bytes": 5496,
+            "path": "postinstall.mjs",
+            "archive_source_match": "NOT RUN"
           }
         }
       },
@@ -2726,5 +2768,34 @@
       }
     ],
     "current_manifest_sha256": "17d73a2df94f8e5daeae6a31277bfbf8df916e5e01b7c3671a96c867dc69f149"
-  }
+  },
+  "trigger_sources": {
+    "codex-main.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/cli/src/main.rs",
+      "sha256": "dc0356a131108ace0f63f7e9f5040b1f0fc19a71057eeeb4108e04623267c502",
+      "bytes": 177127
+    },
+    "update_action.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/update_action.rs",
+      "sha256": "1428d924e2c6a20c83d3f2b2a8c78f66c849e454ea6318d81cdcf2e88783030e",
+      "bytes": 7500
+    },
+    "update_prompt.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/update_prompt.rs",
+      "sha256": "ca20368a13e633f01f613ee42f1f8d459d629396b798b444d378928c5f736de9",
+      "bytes": 12804
+    },
+    "updates.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/tui/src/updates.rs",
+      "sha256": "34864b94a7379e99995256e63e39d9b78d83d1f256a8e4911a1f941d8b3dd793",
+      "bytes": 5893
+    },
+    "install-context.rs": {
+      "url": "https://raw.githubusercontent.com/openai/codex/rust-v0.159.3/codex-rs/install-context/src/lib.rs",
+      "sha256": "b7305f28586f61f7a3cc7d3c53c95dacabca05529b1ba3aa4b5e42d306db2ae5",
+      "bytes": 33763
+    }
+  },
+  "native_assembly_status": "source_authored_NOT_RUN",
+  "native_transport_status": "pending_absolute_deadline_adapter"
 }

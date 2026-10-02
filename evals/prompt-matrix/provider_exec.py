@@ -1,5 +1,5 @@
-"""WHAT: Run an installed real provider with a case-specific environment.
-WHY: Preserve real auth except for login; scope bad models and older binaries.
+"""WHAT: Run a qualified fixture-native provider with its exact launch scope.
+WHY: Owner profiles and unverified executables must never become fixture fallbacks.
 ORACLE: A per-launch record binds the real executable and PID to the dev tab.
 """
 
@@ -61,63 +61,41 @@ def main():
     options = parser.parse_args()
     args = options.args[1:] if options.args[:1] == ["--"] else options.args
     meta = json.loads((options.root / "instance.json").read_text())
-    active = json.loads((options.root / "active.json").read_text()) if (
-        options.root / "active.json"
-    ).exists() else {}
+    from launch_env import isolated_environment, select_scope
+    from native_assembly import load_native
+    from native_layout import demand
     provider = options.provider
-    binary = meta["binaries"][provider]
-    if not binary:
-        raise RuntimeError(f"Provider binary absent: {provider}")
-    env = dict(os.environ)
-    is_tab = bool(env.get("CODETERM_TAB_ID"))
-    testing = is_tab and active.get("provider") == provider
-    if is_tab:
-        env["HOME"] = meta["owner_home"]
-        env["CODEX_HOME"] = meta["owner_codex_home"]
-        env["CLAUDE_CONFIG_DIR"] = meta["owner_claude_config"]
-        env["XDG_CONFIG_HOME"] = meta["owner_xdg_config"]
-        env["XDG_DATA_HOME"] = meta["owner_xdg_data"]
-    if testing and active["case"] == "login":
-        home = Path(active["home"])
-        env.update({
-            "HOME": str(home), "CODEX_HOME": str(home / ".codex"),
-            "CLAUDE_CONFIG_DIR": str(home / ".claude"),
-            "XDG_CONFIG_HOME": str(home / ".config"),
-            "XDG_DATA_HOME": str(home / ".local/share"),
-        })
-        for name in tuple(env):
-            if any(word in name for word in ("API_KEY", "OAUTH_TOKEN", "AUTH_TOKEN")):
-                del env[name]
-    if testing and active["case"] == "bad-model":
+    active = select_scope(options.root, json.loads((options.root / "launch-scopes.json").read_text()),
+                          provider, Path.cwd())
+    demand(bool(os.environ.get("CODETERM_TAB_ID")), "Provider launch has no actual tab identity")
+    demand(os.environ.get("CODETERM_API_PORT") == str(meta["port"]), "Provider transport port differs")
+    manifest, executable = load_native(options.root, provider, active["version"])
+    binary = str(executable)
+    env = isolated_environment(os.environ, options.root, Path(active["home"]), meta["provider_tool_path"])
+    if provider == "codex":
+        env.update(CODEX_MANAGED_BY_NPM="1", CODEX_MANAGED_PACKAGE_ROOT=str(executable.parents[4] / "wrapper"))
+    if active["case"] == "bad-model":
         args = model_args(args, provider, active["bad_model"])
-    if testing and active["case"].startswith("trust-"):
+    if active["case"].startswith("trust-"):
         args = [arg for arg in args if arg not in BYPASS]
-    if testing and active["case"] == "permission":
+    if active["case"] == "permission":
         args = permission_args(args, provider)
         if provider == "opencode":
             config = json.loads(env.get("OPENCODE_CONFIG_CONTENT", "{}"))
             config["permission"] = {"*": "ask"}
             env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
-    if active.get("provider") == provider and active.get("case") in ("update", "update-coordinator"):
-        older = Path(active["prefix"]) / "bin" / meta["binary_names"][provider]
-        if not older.is_file():
-            raise RuntimeError("Isolated older provider prefix has not been installed")
-        binary = str(older)
-        env["PATH"] = str(older.parent) + os.pathsep + env["PATH"]
-        if active.get("variant") == "fail":
-            env["npm_config_registry"] = "http://127.0.0.1:1"
-            env["npm_config_fetch_retries"] = "0"
-            env["npm_config_fetch_timeout"] = "3000"
-    if testing:
-        record = {
-            "tab_id": env["CODETERM_TAB_ID"], "pid": os.getpid(), "ppid": os.getppid(),
-            "provider": provider, "executable": binary, "cwd": os.getcwd(),
-            "home": env["HOME"], "codex_home": env["CODEX_HOME"],
-            "case": active["case"],
-            "model_rewritten": active["case"] == "bad-model",
-            "permission_default": active["case"] == "permission",
-        }
-        write_json(Path(active["case_root"]) / f"launch-{os.getpid()}.json", record)
+    record = {
+        "tab_id": env["CODETERM_TAB_ID"], "pid": os.getpid(), "ppid": os.getppid(),
+        "provider": provider, "executable": binary, "cwd": os.getcwd(),
+        "home": env["HOME"], "codex_home": env["CODEX_HOME"],
+        "case": active["case"], "scope_id": active["scope_id"],
+        "version_pin": active["version"], "native_sha256": manifest["executable_sha256"],
+        "session": env.get("CODETERM_SESSION_ID"),
+        "startup_attempt_id": env.get("CODETERM_STARTUP_ATTEMPT_ID"),
+        "model_rewritten": active["case"] == "bad-model",
+        "permission_default": active["case"] == "permission",
+    }
+    write_json(Path(active["case_root"]) / f"launch-{os.getpid()}.json", record)
     os.execve(binary, [binary, *args], env)
 
 

@@ -79,9 +79,9 @@ def json_value(text):
     raise Finding("CLI did not return a complete JSON document")
 
 
-def run_group(argv, env, timeout, stdin=None):
+def run_group(argv, env, timeout, stdin=None, *, cwd=None):
     process = subprocess.Popen(
-        argv, cwd=REPO, env=env, start_new_session=True,
+        argv, cwd=REPO if cwd is None else cwd, env=env, start_new_session=True,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     try:
