@@ -170,12 +170,6 @@ contracts (API-PLAN).
 
 ### Quiet team heartbeat
 
-The existing reminder ticks collect plan changes since the last delivered heartbeat and each Worker's own ACK, verified session, provider process, appended turns, lane commits, classified prompt and task age. With a connected Supporter, one request classifies the workers and whether the tick needs action, sharing its budget and journal. There is no feature switch. Healthy, unchanged work stays quiet without a model call. Snapshot hashes use coarse health classes, so appended turns and commit counters do not spend calls while work stays healthy. Repeated soft decisions share the existing nudge interval; hard incidents bypass it. Identical snapshots spend no model request. After two hours of silence, a short status confirms the scheduler is active.
+A connected Supporter gates the reminder ticks: healthy, unchanged work stays quiet, and every heartbeat that does arrive names a concrete next step. Undelivered reports, failed gates, owner messages, worker incidents and plan mode changes always wake you. Record a deliberate review hold with `plan review hold --note`; it is not re-flagged as drift until the task's state or verdict changes.
 
-Undelivered reports, failed gates, owner messages or choice answers, worker incidents and plan mode changes always wake the Orchestrator. The model can add wakes. Uncertainty or confidence below 80% wakes too. Without a connected adapter, or when the budget or request fails, changed plan evidence or bad health wakes deterministically. Every wake includes a concrete next step. Settings > Agents records wakes and suppressions in the redacted Supporter feed.
-
-An already-observed plan changing mode gets one plain transition notice, including when entering pause; ordinary paused reminders stay silent.
-
-`plan review hold` keeps its latest note effective while the task remains in that review state. A later verdict or state change ends it; deliberate holds do not become aged-task or stale-review drift. Model-selected learnings are relevant to the current situation and capped at three. Deterministic fallback keeps Recent learnings.
-
-<!-- revision: 99 -->
+<!-- revision: 100 -->
