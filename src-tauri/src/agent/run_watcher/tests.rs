@@ -1023,7 +1023,8 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Provider)
+        Some(codeterm_types::pty::PromptKind::Provider),
+        false
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,
@@ -1034,7 +1035,8 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
     ));
 }
 
@@ -1047,7 +1049,8 @@ fn run_watcher_visible_tab_folder_trust_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
     ));
 }
 

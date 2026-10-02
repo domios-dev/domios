@@ -9,10 +9,26 @@ pub fn safe_choice(prompt: &PendingPrompt) -> Option<String> {
     if prompt.options.len() < 2 || !prompt.options.iter().any(|o| UPDATE.is_match(&o.label)) {
         return None;
     }
-    let mut safe = prompt.options.iter().filter(|o| SKIP.is_match(&o.label));
-    let option = safe.next()?;
-    if safe.next().is_some()
-        || option.value.is_empty()
+    static BARE_SKIP: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)^\s*(skip|later|postpone)\s*$").unwrap());
+    let safe: Vec<_> = prompt
+        .options
+        .iter()
+        .filter(|o| SKIP.is_match(&o.label))
+        .collect();
+    // Codex offers "Skip" and "Skip until next version"; the bare skip is the one-time choice.
+    let option = match safe.as_slice() {
+        [only] => *only,
+        _ => {
+            let mut bare = safe.iter().filter(|o| BARE_SKIP.is_match(&o.label));
+            let choice = bare.next()?;
+            if bare.next().is_some() {
+                return None;
+            }
+            *choice
+        }
+    };
+    if option.value.is_empty()
         || UPDATE.is_match(&option.label)
         || prompt
             .options
