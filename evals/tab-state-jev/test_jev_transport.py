@@ -4,6 +4,7 @@ ORACLE: injected reads/events/clock/authority expose each missing completion bit
 Synthetic mechanism fixtures only; no sockets, native children or clock sleeps.
 """
 
+from contextlib import ExitStack, redirect_stdout
 import io
 import json
 import os
@@ -12,6 +13,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+import local_jev_transport_io as local
 import jev_request_worker as w
 import jev_transport as t
 import request_contract as c
@@ -457,6 +459,58 @@ class OwnershipTests(unittest.TestCase):
             with self.assertRaisesRegex(t.TransportFailure, "token_preflight"):
                 t.token_bytes(token)
         self.assertEqual(t.token_bytes("synthetic-token"), b"synthetic-token")
+
+
+class HarnessRegressionTests(unittest.TestCase):
+    def harness_patches(self, stack):
+        stack.enter_context(patch.object(local.sys, "argv", ["local_jev_transport_io.py", "--case", "success"]))
+        stack.enter_context(patch.object(local.time, "monotonic", Clock()))
+        stack.enter_context(patch.object(t, "native_support"))
+        temporary = stack.enter_context(patch.object(local.tempfile, "TemporaryDirectory"))
+        temporary.return_value.__enter__.return_value = "/synthetic-mechanism"
+        stack.enter_context(patch.object(local.Path, "write_bytes"))
+        stack.enter_context(patch.object(local, "public_fixture_certificate", return_value=(b"public-ca", b"public-key")))
+        stack.enter_context(patch.object(local.ssl, "SSLContext"))
+        fixture_factory = stack.enter_context(patch.object(local, "LoopbackFixture"))
+        fixture_receipt = {"requests": 0, "responses": 0, "accepted_closed": False,
+                           "listener_closed": True, "thread_joined": True, "error": None}
+        fixture_factory.return_value.close.return_value = fixture_receipt
+        return fixture_factory, fixture_receipt
+
+    def test_preflight_refusal_never_opens_listener(self):
+        with ExitStack() as stack:
+            fixture_factory, _ = self.harness_patches(stack)
+            prepare = stack.enter_context(patch.object(t, "prepare_plan", side_effect=
+                                                      t.TransportFailure("trusted_file_permissions")))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(local.main(), 1)
+            prepare.assert_called_once()
+            fixture_factory.assert_not_called()
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["error"], "trusted_file_permissions")
+        self.assertFalse(report["fixture"]["listener_opened"])
+
+    def test_failed_receipt_keeps_primary_and_fixture_cleanup(self):
+        transport_receipt = {"error": "trusted_file_permissions", "phase": "preparation",
+                             "process_admitted": False, "completion_confirmed": False}
+        with ExitStack() as stack:
+            _, fixture_receipt = self.harness_patches(stack)
+            stack.enter_context(patch.object(t, "prepare_plan", return_value={
+                "argv": ["/synthetic-interpreter", "-I", "-S", "-B", "/synthetic-helper"],
+                "cwd": Path("/synthetic-mechanism"), "header": {}}))
+            stack.enter_context(patch.object(local, "fixture_plan_factory", return_value=Mock()))
+            stack.enter_context(patch.object(t.shutil, "rmtree"))
+            transport = stack.enter_context(patch.object(t, "JevTransport"))
+            transport.return_value.send.side_effect = t.TransportFailure("trusted_file_permissions", transport_receipt)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(local.main(), 1)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["error"], "trusted_file_permissions")
+        self.assertEqual(report.get("transport"), transport_receipt)
+        self.assertEqual(report.get("fixture"), fixture_receipt)
+        self.assertEqual(report.get("oracle_error"), "fixture_wrong_predicate")
 
 
 if __name__ == "__main__":
