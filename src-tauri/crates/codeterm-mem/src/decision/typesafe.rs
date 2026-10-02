@@ -38,7 +38,11 @@ impl TypeSafeAdapter {
         Self {
             token_store,
             endpoint: endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_owned()),
-            model: RwLock::new(model.unwrap_or_else(|| DEFAULT_MODEL.to_owned())),
+            model: RwLock::new(
+                model
+                    .filter(|id| id.starts_with("jev-"))
+                    .unwrap_or_else(|| DEFAULT_MODEL.to_owned()),
+            ),
         }
     }
 
@@ -267,18 +271,28 @@ impl DecisionModel for TypeSafeAdapter {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        vec![DecisionModelInfo {
-            id: model.clone(),
-            display_name: model,
-        }]
+        let mut ids = vec![DEFAULT_MODEL.to_owned()];
+        if model != DEFAULT_MODEL {
+            ids.push(model);
+        }
+        ids.into_iter()
+            .map(|id| DecisionModelInfo {
+                display_name: id.clone(),
+                id,
+            })
+            .collect()
     }
 
+    // TypeSafe serves the named jev-* versions; another adapter's id never applies here.
     fn select_model(&self, id: &str) -> bool {
-        let model = self
+        if !id.starts_with("jev-") {
+            return false;
+        }
+        *self
             .model
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        model.as_str() == id
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = id.to_owned();
+        true
     }
 
     fn decide_questions(

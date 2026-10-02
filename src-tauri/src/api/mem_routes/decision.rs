@@ -137,7 +137,11 @@ pub(crate) fn default_registry() -> Arc<SupporterRegistry> {
     let registry = SupporterRegistry::new();
     registry.register(
         TypeSafeAdapter::ID,
-        Arc::new(TypeSafeAdapter::new(token_store(), cfg.endpoint, cfg.model)),
+        Arc::new(TypeSafeAdapter::new(
+            token_store(),
+            cfg.endpoint,
+            cfg.model.filter(|_| cfg.adapter == TypeSafeAdapter::ID),
+        )),
     );
     Arc::new(registry)
 }

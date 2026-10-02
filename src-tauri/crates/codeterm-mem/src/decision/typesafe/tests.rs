@@ -333,20 +333,30 @@ fn typesafe_missing_token_is_unavailable_without_network() {
 }
 
 #[test]
-fn typesafe_models_returns_configured_model() {
+fn typesafe_models_list_the_default_plus_a_configured_jev_version() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = TypeSafeAdapter::new(
         TokenStore::new(dir.path().join("tokens")),
         None,
-        Some("fixture-model".into()),
+        Some("jev-1.13.0".into()),
     );
-    assert_eq!(
-        adapter.models(),
-        vec![DecisionModelInfo {
-            id: "fixture-model".into(),
-            display_name: "fixture-model".into(),
-        }]
+    let ids: Vec<String> = adapter.models().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, ["jev-latest", "jev-1.13.0"]);
+}
+
+#[test]
+fn typesafe_ignores_another_adapters_model_and_keeps_jev_selectable() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = TypeSafeAdapter::new(
+        TokenStore::new(dir.path().join("tokens")),
+        None,
+        Some("local-decision-model".into()),
     );
+    let ids: Vec<String> = adapter.models().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, ["jev-latest"]);
+    assert!(!adapter.select_model("local-decision-model"));
+    assert!(adapter.select_model("jev-1.13.0"));
+    assert_eq!(adapter.model_id().as_deref(), Some("jev-1.13.0"));
 }
 
 fn multi_request() -> DecisionQuestionsRequest {
