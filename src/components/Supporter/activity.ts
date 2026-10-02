@@ -8,6 +8,13 @@ export interface SupporterActivity {
   reason: string;
   budget_reached: boolean | null;
   fallback: boolean;
+  asked?: SupporterQuestionAnswer[] | null;
+}
+
+export interface SupporterQuestionAnswer {
+  name: string;
+  question: string;
+  answer: string;
 }
 
 const labels = [
@@ -43,7 +50,12 @@ const KIND_TITLES: Record<string, string> = {
   sentinel: "Sentinel",
 };
 
-export function activitySummary(text: ReturnType<typeof activityText>) {
+export function activitySummary(text: ReturnType<typeof activityText>, asked?: SupporterQuestionAnswer[] | null) {
+  if (asked?.length) {
+    const first = asked[0];
+    const more = asked.length > 1 ? ` (+${asked.length - 1} questions)` : "";
+    return `${first.question} → ${first.answer}${more}`;
+  }
   const title = KIND_TITLES[text.kind] ?? text.kind;
   return text.label === "redacted" ? title : `${title}: ${text.label}`;
 }

@@ -25,6 +25,7 @@ fn supporter_feed_api_bounded_and_team_filtered() {
             confidence: 0.9,
             action: Action::WeakHint,
             reason: "launch_ready",
+            asked: None,
         });
     }
     let query = Query::<SupporterFeedQuery>::try_from_uri(

@@ -185,6 +185,10 @@ impl ServiceContext {
                         } else {
                             "watchdog_dead_pty_event"
                         },
+                        asked: Some(crate::service::supporter::recovery_questions(
+                            &tab.title,
+                            "watchdog_dead_pty_event",
+                        )),
                     })
                     .is_err()
                 {
@@ -212,6 +216,9 @@ impl ServiceContext {
                                     confidence: 1.0,
                                     action: crate::service::supporter::Action::Recovery,
                                     reason,
+                                    asked: Some(crate::service::supporter::recovery_questions(
+                                        &tab.title, reason,
+                                    )),
                                 },
                             );
                             crate::service::supporter_notify::verbose(

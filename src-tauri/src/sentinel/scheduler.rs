@@ -107,6 +107,7 @@ pub fn record(
         "label": outcome.verdict.as_ref().map(|v| supporter::criteria_hash(v.bucket.as_bytes())),
         "confidence": outcome.verdict.as_ref().map(|v| v.confidence), "action": action, "reason": outcome.reason,
         "route": outcome.route.as_ref().map(routes::action_name),
+        "asked": supporter::sentinel_questions(&job.id, &job.buckets, outcome.verdict.as_ref().map(|v| v.bucket.as_str()), outcome.reason),
     }))
 }
 
