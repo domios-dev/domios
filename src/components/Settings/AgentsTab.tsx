@@ -49,6 +49,7 @@ export function AgentsOverview({
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
         <SupporterAgentCard
+          api={config.api}
           apiBase={daemonHttpBase(config.api)}
           apiHeaders={apiHeaders}
           onOpenGuide={onOpenGuide}

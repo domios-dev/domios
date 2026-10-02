@@ -1,5 +1,7 @@
 use std::collections::{HashSet, VecDeque};
-use std::sync::{mpsc, Arc, OnceLock};
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::{Arc, OnceLock};
 
 use super::ShadowVerdict;
 use parking_lot::{Condvar, Mutex};
@@ -14,12 +16,15 @@ struct Job {
     tab: String,
     critical: bool,
     work: Work,
+    #[cfg(test)]
     result: mpsc::Sender<std::thread::Result<Option<ShadowVerdict>>>,
 }
 
 impl Job {
     fn cancel(self) {
+        #[cfg(test)]
         let _ = self.result.send(Ok(None));
+        drop(self);
     }
 }
 
@@ -53,11 +58,15 @@ impl Drop for Scheduler {
     }
 }
 
-pub(crate) struct ObservationHandle(mpsc::Receiver<std::thread::Result<Option<ShadowVerdict>>>);
+pub(crate) struct ObservationHandle {
+    #[cfg(test)]
+    result: mpsc::Receiver<std::thread::Result<Option<ShadowVerdict>>>,
+}
 
+#[cfg(test)]
 impl ObservationHandle {
     pub(crate) fn join(self) -> std::thread::Result<Option<ShadowVerdict>> {
-        self.0.recv().unwrap_or(Ok(None))
+        self.result.recv().unwrap_or(Ok(None))
     }
 }
 
@@ -106,6 +115,7 @@ impl Scheduler {
         if questions == 0 || questions > MAX_QUESTIONS {
             return None;
         }
+        #[cfg(test)]
         let (tx, rx) = mpsc::channel();
         let mut cancelled = Vec::new();
         let mut queue = self.0.queue.lock();
@@ -140,6 +150,7 @@ impl Scheduler {
             tab,
             critical,
             work: Box::new(work),
+            #[cfg(test)]
             result: tx,
         });
         drop(queue);
@@ -147,7 +158,10 @@ impl Scheduler {
             job.cancel();
         }
         self.0.ready.notify_all();
-        Some(ObservationHandle(rx))
+        Some(ObservationHandle {
+            #[cfg(test)]
+            result: rx,
+        })
     }
 
     pub(crate) fn status(&self) -> Status {
@@ -195,7 +209,10 @@ fn run(shared: Arc<Shared>) {
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.work));
         shared.queue.lock().tabs.remove(&job.tab);
+        #[cfg(test)]
         let _ = job.result.send(result);
+        #[cfg(not(test))]
+        drop(result);
         shared.ready.notify_all();
     }
 }

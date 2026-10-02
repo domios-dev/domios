@@ -815,6 +815,7 @@ mod physical_tests {
 
     #[test]
     fn decision_physical_async_fetch_propagates_scope_and_deadline() {
+        let _guard = crate::js_runtime::PROCESS_TEST_LOCK.lock();
         struct BoundedMeter {
             calls: AtomicUsize,
             deadline: std::time::Instant,
@@ -867,8 +868,10 @@ mod physical_tests {
             panic!("fetch event did not complete before its failure deadline");
         };
         let done: serde_json::Value = serde_json::from_str(&done).unwrap();
-        assert_eq!(done["result"]["status"], 200);
         server.join().unwrap();
+        assert!(done.get("error").is_none(), "fetch completion: {done}");
+        assert_eq!(done["status"], 200);
+        assert_eq!(done["body"], "ok");
         assert_eq!(meter.calls.load(Ordering::SeqCst), 1);
         assert!(physical::current().is_none());
     }

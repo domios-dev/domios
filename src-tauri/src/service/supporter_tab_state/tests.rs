@@ -425,9 +425,20 @@ fn tab_state_no_call_without_token() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.99)));
     let (mut host, calls, _) = StubHost::new("ready", model);
     host.token = false;
-    assert!(run(&host, &tab(), ObservationTrigger::SpawnReady).is_none());
+    assert!(spawn_observer(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab(),
+        ObservationTrigger::SpawnReady,
+        "fixture-structural-verdict",
+    )
+    .is_none());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(host.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(host.runtime.status(0)["calls_last_hour"], 0);
+    assert!(!host._journal_dir.path().join("journal.jsonl").exists());
 }
 
 #[test]

@@ -107,12 +107,14 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
         .iter()
         .filter(|task| {
             task.status == TaskStatus::InReview
+                && crate::plan::reconcile::active_review_hold_note(task).is_none()
                 && task.review_stage == ReviewStage::Qa
                 && task.qa_state == Some(QaState::Queued)
         })
         .count();
     let running = plan.tasks.iter().find(|task| {
         task.status == TaskStatus::InReview
+            && crate::plan::reconcile::active_review_hold_note(task).is_none()
             && task.review_stage == ReviewStage::Qa
             && task.qa_state == Some(QaState::Running)
     });
@@ -131,7 +133,11 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
 }
 
 fn render_review_gate(plan: &Plan, out: &mut String) {
-    let status = super::review_gate::review_gate_status(plan);
+    let mut active = plan.clone();
+    active
+        .tasks
+        .retain(|task| crate::plan::reconcile::active_review_hold_note(task).is_none());
+    let status = super::review_gate::review_gate_status(&active);
     if status.reason.is_none() {
         return;
     }
@@ -581,6 +587,25 @@ impl PlanStore {
             blocked_or_gated_count: super::state::outstanding_blocked_count(&plan),
             heartbeat,
         })
+    }
+
+    pub fn prepend_heartbeat_with_selected_learnings(
+        &self,
+        plan_id: &str,
+        text: &str,
+        digests: &[String],
+        learning_ids: Option<&[String]>,
+    ) -> String {
+        let Some(mut plan) = self.get(plan_id) else {
+            return text.to_string();
+        };
+        if let Some(ids) = learning_ids {
+            let allowed: Vec<_> = ids.iter().take(3).collect();
+            plan.heartbeat
+                .learnings
+                .retain(|learning| allowed.contains(&&learning.id));
+        }
+        prepend_plan_heartbeat_with_digests(&plan, text, digests)
     }
 
     pub fn prepend_heartbeat_for_plan(&self, plan_id: &str, text: &str) -> String {

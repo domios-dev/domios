@@ -13,8 +13,6 @@ pub(crate) enum ObservationEvent {
     WorkerIdle,
     BusyNoOutput,
     TabExit,
-    PromptCandidate,
-    Anomaly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

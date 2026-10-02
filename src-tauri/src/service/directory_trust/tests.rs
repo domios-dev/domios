@@ -466,7 +466,7 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
-    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/untrusted"), false);
+    let (mut mux, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     mux.get_tab_mut(&tab_id).unwrap().pty_id = Some("pty-untrusted-repo".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
