@@ -767,9 +767,8 @@ export interface MemoryRerankConfig {
 }
 
 export interface SupporterConfig {
-  adapter: string;
-  endpoint?: string | null;
-  model?: string | null;
+  adapter?: string | null;
+  connections: Record<string, { model: string | null; endpoint: string | null }>;
   deadline_ms: number;
   memory_rerank: MemoryRerankConfig;
   calls_per_hour?: number | null;

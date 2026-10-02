@@ -151,7 +151,10 @@ pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
         crate::service::supporter::supporter_connected(
             cfg,
             models,
-            &crate::service::supporter::TokenSnapshot::read(&decision::token_store(), &cfg.adapter),
+            &crate::service::supporter::TokenSnapshot::read(
+                &decision::token_store(),
+                cfg.active_id().unwrap_or(""),
+            ),
         )
     });
     if !run_supporter {

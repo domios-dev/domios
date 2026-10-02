@@ -747,6 +747,27 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route(
+            "/api/supporter/connections",
+            get(mem_routes::decision::connections_list)
+                .post(mem_routes::decision::connections_connect),
+        )
+        .route(
+            "/api/supporter/connections/{adapter}",
+            axum::routing::delete(mem_routes::decision::connections_disconnect),
+        )
+        .route(
+            "/api/supporter/connections/{adapter}/activate",
+            post(mem_routes::decision::connections_activate),
+        )
+        .route(
+            "/api/supporter/connections/{adapter}/model",
+            axum::routing::put(mem_routes::decision::connections_model),
+        )
+        .route(
+            "/api/supporter/connections/{adapter}/token",
+            post(mem_routes::decision::connections_token),
+        )
+        .route(
             "/api/supporter/token",
             get(mem_routes::decision::supporter_token_status)
                 .post(mem_routes::decision::supporter_token_set)
@@ -1087,7 +1108,12 @@ pub fn create_router(state: AppState) -> Router {
         super::auth::auth_middleware,
     ));
     let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
-    router.layer(CatchPanicLayer::new()).with_state(state)
+    router
+        .layer(CatchPanicLayer::new())
+        .layer(middleware::from_fn(
+            mem_routes::decision::supporter_error_envelope,
+        ))
+        .with_state(state)
 }
 
 #[cfg(test)]

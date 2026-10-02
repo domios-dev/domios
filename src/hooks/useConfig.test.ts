@@ -9,6 +9,12 @@ assert(memory?.extraction_model === "", "extraction model waits for the provider
 assert(memory?.dreaming_model === "", "dreaming model waits for the provider catalog");
 assert(memory?.worker_model === "", "worker model waits for the provider catalog");
 
+const supporter = defaultConfig().supporter;
+assert(supporter.adapter == null, "Supporter starts without an active connection");
+assert(Object.keys(supporter.connections).length === 0, "Supporter starts without saved connections");
+assert(!("model" in supporter), "Supporter models belong to individual connections");
+assert(!("endpoint" in supporter), "Supporter endpoints belong to individual connections");
+
 const orchestration = defaultConfig().orchestration;
 assert(orchestration.plan_reminders, "plan reminders default on");
 assert(orchestration.nudge_interval_secs === 1800, "plan reminders default to 1800 seconds");

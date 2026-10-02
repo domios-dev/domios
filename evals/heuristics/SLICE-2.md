@@ -35,12 +35,23 @@ No provider capability or provider-id branch is added. The older requested
 at this release tip; the existing respondable-prompt test and manual-update
 module filter below replace that zero-match command.
 
+## Supporter connection integration
+
+The connection contract uses `SupporterConfig::active_id()`. Candidate capture
+returns before screen reads or queue admission when no active ID exists, even
+when saved connections and registered adapters remain. It uses the shared
+configured-model check and captures the active ID for every worker revalidation.
+The observation policy continues to include only the active connection's saved
+model and endpoint. No adapter is chosen as a fallback.
+
 ## Authored coverage; no executed result
 
 `supporter_first_opinion` includes scrape selection and every fallback arm,
 no-adapter zero reads/calls/consumer work, redaction, one batch, journal IDs and
 sources, stale captured frames, replacement generations, disconnect cancellation,
 unknown launch-block input-area evidence, and full transcript/composer negatives.
+Connection cases assert zero work with absent/empty/unregistered active IDs and
+abstention when the active saved model has not been applied.
 ServiceFixture cases assert the persisted prompt, explicit-handle precedence,
 failed revalidation, user-response cancellation without a redraw, reused PTY/new
 nonce cancellation, and zero prompt-step dispatches.

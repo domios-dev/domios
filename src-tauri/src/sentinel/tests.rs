@@ -308,7 +308,19 @@ fn sentinel_probe_bounded_runtime_and_output() {
         "[Console]::Out.Write(('x' * 200000))",
         "while ($true) { [Console]::Out.Write('x') }",
     );
-    let output = super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME).unwrap();
+    let started = std::time::Instant::now();
+    let trivial = super::probe::run("echo ok", dir.path(), super::probe::PROBE_RUNTIME);
+    assert!(
+        trivial.is_ok(),
+        "trivial probe failed after {:?}: {:?}",
+        started.elapsed(),
+        trivial.err()
+    );
+    let started = std::time::Instant::now();
+    let output =
+        super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME).unwrap_or_else(|error| {
+            panic!("large probe failed after {:?}: {error}", started.elapsed())
+        });
     assert!(output.bytes.len() <= super::probe::MAX_OUTPUT_BYTES + 12);
     assert!(output.bytes.len() >= super::probe::MAX_OUTPUT_BYTES / 2);
     let began = std::time::Instant::now();

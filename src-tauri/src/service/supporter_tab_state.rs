@@ -220,7 +220,7 @@ impl ShadowHost for ServiceContext {
     }
     fn connection_is_current(&self, adapter: &str) -> bool {
         let settings = crate::config::load_config().supporter;
-        settings.adapter == adapter
+        settings.active_id() == Some(adapter)
             && supporter::supporter_connected(
                 &settings,
                 &self.supporter_models,
@@ -506,7 +506,7 @@ impl ServiceContext {
         let _ = spawn_observer(
             self,
             &settings,
-            &settings.adapter,
+            settings.active_id().unwrap_or(""),
             settings.deadline_ms,
             tab_id,
             trigger,
@@ -521,12 +521,12 @@ impl ServiceContext {
         let config = crate::config::load_config().supporter;
         let tokens = TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
-            &config.adapter,
+            config.active_id().unwrap_or(""),
         );
         if !supporter::supporter_connected(&config, &self.supporter_models, &tokens) {
             return None;
         }
-        let adapter = self.supporter_models.get(&config.adapter)?;
+        let adapter = supporter::configured_model(&config, &self.supporter_models)?;
         let mut prepared = prepare_observation(
             self,
             tab_id,
@@ -550,7 +550,7 @@ impl ServiceContext {
         observer::enqueue_prepared(
             self,
             &config,
-            &config.adapter,
+            config.active_id().unwrap_or(""),
             config.deadline_ms,
             tab_id,
             ObservationTrigger::TabExit,

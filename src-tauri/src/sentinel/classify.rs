@@ -32,11 +32,11 @@ pub fn connected_model(
     if !supporter::supporter_connected(
         &config,
         &svc.supporter_models,
-        &TokenSnapshot::read(&tokens, &config.adapter),
+        &TokenSnapshot::read(&tokens, config.active_id().unwrap_or("")),
     ) {
         return None;
     }
-    let model = svc.supporter_models.get(&config.adapter)?;
+    let model = supporter::configured_model(&config, &svc.supporter_models)?;
     if !model.primitives().choice {
         return None;
     }

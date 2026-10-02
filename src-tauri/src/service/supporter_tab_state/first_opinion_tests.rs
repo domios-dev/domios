@@ -408,8 +408,20 @@ fn supporter_first_opinion_adapter_policy_changes_invalidate_the_receipt() {
     for index in 0..4 {
         let mut changed = config.clone();
         match index {
-            0 => changed.model = Some("opaque-model".into()),
-            1 => changed.endpoint = Some("https://example.test/opaque".into()),
+            0 => {
+                changed
+                    .connections
+                    .entry("fixture".into())
+                    .or_default()
+                    .model = Some("opaque-model".into());
+            }
+            1 => {
+                changed
+                    .connections
+                    .entry("fixture".into())
+                    .or_default()
+                    .endpoint = Some("https://example.test/opaque".into());
+            }
             2 => changed.calls_per_hour = Some(1),
             _ => changed.deadline_ms += 1,
         }
