@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_SUPPORTER_CALLS_PER_HOUR: usize = 600;
+pub const DEFAULT_SUPPORTER_CALLS_PER_HOUR: Option<usize> = None;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -10,7 +10,7 @@ pub struct SupporterConfig {
     pub model: Option<String>,
     pub deadline_ms: u64,
     pub memory_rerank: MemoryRerankConfig,
-    pub calls_per_hour: usize,
+    pub calls_per_hour: Option<usize>,
 }
 
 impl Default for SupporterConfig {

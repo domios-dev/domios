@@ -9,6 +9,9 @@ use serde_json::{json, Value};
 use super::journal::{ActionRecord, Journal, VerdictKind};
 use super::spend::{SpendAlert, SpendBook};
 
+type TeamResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+type JournalSink = Arc<dyn Fn(Value) + Send + Sync>;
+
 const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
 
@@ -32,6 +35,8 @@ pub(crate) struct SupporterRuntime {
     activity: Mutex<Activity>,
     journal: Mutex<Journal>,
     spend: SpendBook,
+    team_resolver: OnceLock<TeamResolver>,
+    journal_sink: OnceLock<JournalSink>,
     alert_sink: OnceLock<Arc<dyn Fn(SpendAlert) + Send + Sync>>,
 }
 
@@ -54,11 +59,26 @@ impl SupporterRuntime {
             journal: Mutex::new(journal),
             spend,
             alert_sink: OnceLock::new(),
+            team_resolver: OnceLock::new(),
+            journal_sink: OnceLock::new(),
         }
     }
 
     pub(crate) fn attach_alert_sink(&self, sink: Arc<dyn Fn(SpendAlert) + Send + Sync>) {
         let _ = self.alert_sink.set(sink);
+    }
+
+    pub(crate) fn attach_visibility(&self, resolver: TeamResolver, sink: JournalSink) {
+        let _ = self.team_resolver.set(resolver);
+        let _ = self.journal_sink.set(sink);
+    }
+
+    fn team_id(&self, tab: Option<&str>) -> Option<String> {
+        tab.and_then(|tab| self.team_resolver.get().and_then(|resolve| resolve(tab)))
+    }
+
+    pub(crate) fn feed(&self, limit: usize, team: Option<&str>) -> std::io::Result<Vec<Value>> {
+        self.journal.lock().feed(limit, team)
     }
 
     fn alerts(&self, adapter: &str, alerts: Vec<SpendAlert>) {
@@ -85,6 +105,17 @@ impl SupporterRuntime {
         self.reserve(cap, kind, tab, questions)
     }
 
+    pub(crate) fn failure(&self, kind: VerdictKind, tab: Option<&str>, error: &DecisionError) {
+        let reason = match error {
+            DecisionError::Budget => "budget",
+            DecisionError::CreditExhausted | DecisionError::Http(402) => "credit_exhausted",
+            DecisionError::Deadline => "deadline",
+            _ => "unavailable",
+        };
+        let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(),
+            "kind": kind, "tab": tab, "label": "other", "action": "notify_only", "reason": reason }));
+    }
+
     pub(crate) fn record_spend(
         &self,
         adapter: &str,
@@ -101,9 +132,19 @@ impl SupporterRuntime {
             response.as_ref().err(),
             chrono::Utc::now().timestamp_millis(),
         ) {
-            Ok(alerts) => self.alerts(adapter, alerts),
+            Ok(alerts) => {
+                self.alerts(adapter, alerts);
+                let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(),
+                    "kind": "spend_updated", "adapter": adapter }));
+            }
             Err(_) => log::warn!("[supporter] spend persistence failed"),
         }
+    }
+
+    pub(crate) fn connection_changed(&self) {
+        let _ = self.append(
+            json!({ "time": chrono::Utc::now().timestamp(), "kind": "connection_changed" }),
+        );
     }
 
     pub(crate) fn set_balance(
@@ -158,11 +199,27 @@ impl SupporterRuntime {
         let mut state = self.activity.lock();
         state.last_activity = Some(chrono::Utc::now().timestamp_millis());
         state.last_verdict.insert(kind.name().into(), value.clone());
+        drop(state);
         let _ = self.append(value);
     }
 
-    fn append(&self, value: Value) -> std::io::Result<()> {
-        let result = self.journal.lock().append(&value);
+    fn append(&self, mut value: Value) -> std::io::Result<()> {
+        if value.get("team_id").is_none() {
+            value["team_id"] = json!(self.team_id(value["tab"].as_str()));
+        }
+        let result = {
+            let journal = self.journal.lock();
+            value["budget"] = journal.load_calls().ok().map_or(
+                Value::Null,
+                |snapshot| json!({ "reached": snapshot.budget_reached }),
+            );
+            journal.append(&value)
+        };
+        if result.is_ok() {
+            if let Some(sink) = self.journal_sink.get() {
+                sink(json!({ "time": value["time"], "team_id": value["team_id"] }));
+            }
+        }
         if result.is_err() {
             log::warn!("[supporter] journal write failed");
         }
@@ -178,7 +235,7 @@ impl SupporterRuntime {
             .filter(|time| *time > now - HOUR)
             .collect();
         hour.sort_unstable();
-        let reached = hour.len() >= cap;
+        let reached = cap > 0 && hour.len() >= cap;
         let free_at = if reached {
             hour.get(hour.len().saturating_sub(cap))
                 .map(|time| time + HOUR)
@@ -197,7 +254,7 @@ impl SupporterRuntime {
                 log::warn!("[supporter] budget transition persistence failed");
             }
             let _ = self.append(json!({
-                "time": now / 1000, "kind": "budget_transition", "tab": null,
+                "time": now / 1000, "kind": "budget_transition", "tab": null, "team_id": null,
                 "action": if reached { "budget_reached" } else { "budget_available" },
                 "reason": "hourly_window", "free_at": free_at.map(|time| (time + 999) / 1000),
             }));
@@ -229,9 +286,10 @@ impl SupporterRuntime {
         questions: usize,
         now: i64,
     ) -> Result<(), DecisionError> {
+        let team_id = self.team_id(tab);
         let mut state = self.activity.lock();
         let (hour, _) = self.update_budget(&mut state, cap, now);
-        if hour >= cap {
+        if cap > 0 && hour >= cap {
             return Err(DecisionError::Budget);
         }
         if !state.storage_ready {
@@ -243,7 +301,7 @@ impl SupporterRuntime {
         if self
             .journal
             .lock()
-            .save_calls(&state.calls, hour + 1 >= cap)
+            .save_calls(&state.calls, cap > 0 && hour + 1 >= cap)
             .is_err()
         {
             state.calls.pop_back();
@@ -254,7 +312,7 @@ impl SupporterRuntime {
         state.last_activity = Some(now);
         self.append(
             json!({ "time": now / 1000, "kind": "model_call", "verdict_kind": kind,
-            "tab": tab, "question_count": questions, "action": "request", "reason": "connected" }),
+            "tab": tab, "team_id": team_id, "question_count": questions, "action": "request", "reason": "connected" }),
         )
         .map_err(|_| DecisionError::Unavailable("journal_unavailable".into()))?;
         self.update_budget(&mut state, cap, now);
@@ -278,7 +336,13 @@ impl SupporterRuntime {
     }
 
     pub(crate) fn claim_notification(&self, key: &str) -> std::io::Result<bool> {
-        self.journal.lock().claim_notification(key)
+        let result = self.journal.lock().claim_notification(key);
+        if matches!(result, Ok(true)) {
+            if let Some(sink) = self.journal_sink.get() {
+                sink(json!({ "team_id": null }));
+            }
+        }
+        result
     }
 
     pub(crate) fn status(&self, cap: usize) -> Value {
@@ -290,7 +354,7 @@ impl SupporterRuntime {
         let (hour, free_at) = self.update_budget(&mut state, cap, now);
         json!({ "last_activity": state.last_activity.map(|time| time / 1000), "calls_last_hour": hour,
             "calls_last_day": state.calls.len(), "last_verdict": state.last_verdict,
-            "budget": { "reached": state.budget_reached, "calls_per_hour": cap, "free_at": free_at.map(|time| (time + 999) / 1000), "storage_ready": state.storage_ready } })
+            "budget": { "reached": state.budget_reached, "calls_per_hour": (cap > 0).then_some(cap), "free_at": free_at.map(|time| (time + 999) / 1000), "storage_ready": state.storage_ready } })
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,42 @@ impl Journal {
         Self {
             path: dir.join("journal.jsonl"),
         }
+    }
+
+    pub(super) fn feed(&self, limit: usize, team: Option<&str>) -> io::Result<Vec<Value>> {
+        let limit = limit.min(super::feed::MAX_ENTRIES);
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut entries = VecDeque::with_capacity(limit);
+        for path in [
+            self.path.with_extension("previous.jsonl"),
+            self.path.clone(),
+        ] {
+            let file = match fs::File::open(path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let mut text = String::new();
+            file.take(MAX_JOURNAL_BYTES).read_to_string(&mut text)?;
+            for line in text.lines() {
+                let Ok(value) = serde_json::from_str::<Value>(line) else {
+                    continue;
+                };
+                if team.is_some_and(|id| value["team_id"].as_str() != Some(id)) {
+                    continue;
+                }
+                let Some(entry) = super::feed::entry(&value) else {
+                    continue;
+                };
+                if entries.len() == limit {
+                    entries.pop_front();
+                }
+                entries.push_back(entry);
+            }
+        }
+        Ok(entries.into_iter().rev().collect())
     }
 
     pub(super) fn load_calls(&self) -> io::Result<CallSnapshot> {

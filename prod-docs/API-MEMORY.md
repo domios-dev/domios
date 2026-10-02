@@ -10,7 +10,8 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | POST | `/api/supporter/token` | `{adapter?, token}` | Store a Supporter Agent token under `<data dir>/supporter/` (owner-only file). The response carries `adapter`, `present`, `path`, and `mode_ok`, never the token. Unregistered adapter: 404. Bearer HTTP only: the socket refuses `mem.supporter.token.*` and mesh peers are denied. |
 | GET | `/api/supporter/token` | `?adapter=<id>` | Token status: `adapter`, `present`, `path`, `mode_ok`. |
 | DELETE | `/api/supporter/token` | `?adapter=<id>` | Remove the stored token; returns `{adapter, removed}`. |
-| GET | `/api/supporter/status` | — | The shared CLI/UI status contract: overall `state`, selected `adapter` and `model`, `deadline_ms`, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, `budget`, `spend` (today/month/since-balance tokens and estimated USD, balance, estimated remaining, exhausted and next_probe_at), adapter pricing, selected token presence/mode, adapter registration and each registered adapter's primitives, discovered models, and token status. Token values are never returned. |
+| GET | `/api/supporter/status` | — | The shared CLI/UI status contract: overall `state`, selected `adapter` and `model`, `deadline_ms`, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, `budget`, `spend` (today/month/since-balance tokens and estimated USD, balance, estimated remaining, exhausted and next_probe_at), adapter pricing; `budget.calls_per_hour` is null without a cap, otherwise the explicit positive limit; selected token presence/mode, adapter registration and each registered adapter's primitives, discovered models, and token status. Token values are never returned. |
+| GET | `/api/supporter/activity` | `?limit=N&team_id=...` | Newest journal decisions, default 50 and maximum 100. Optional Team filter uses attribution recorded at append time. Returns `{entries}` with time, kind, redacted label, confidence band, action, reason, budget and fallback state; no raw input, bodies or credentials. `supporter-journal-appended` events refresh the General and Team feeds and allowance estimates. |
 | POST | `/api/supporter/balance` | `{adapter?, balance_usd: number\|null}` | Save optional nonnegative USD balance; resets since-entry totals and alert dedupe, re-arms exhausted calls. Returns spend snapshot. Settings > Agents renders estimated remaining; this is owner input, not a provider balance endpoint. |
 | GET | `/api/supporter/models` | — | Registered adapters and the models each adapter discovers; returns the current adapter and model too. |
 | POST | `/api/supporter/use` | `{adapter, model?}` | Select a registered adapter and, when supplied, a model listed by that adapter. Unknown adapters or unlisted models are refused. |
@@ -110,4 +111,4 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

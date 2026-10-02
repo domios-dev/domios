@@ -633,7 +633,7 @@ fn observe_guarded_inner<H: ShadowHost>(
     let model = supporter::budgeted_model(
         model,
         host.supporter_runtime(),
-        config.calls_per_hour,
+        config.calls_per_hour.unwrap_or(0),
         VerdictKind::TabState,
         Some(tab_id.to_owned()),
         Some(supporter::criteria_hash(CRITERIA_JSON.as_bytes())),

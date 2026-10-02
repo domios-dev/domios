@@ -157,6 +157,11 @@ The enum is open for future element types. The frontend renders each as a clicka
 | DELETE | `/api/pasteboard/{id}` | — | Explicit delete. |
 | GET | `/api/pasteboard` | — | List local pastes (id, size, ttl_remaining_ms, content_type). |
 
+#### Supporter visibility
+| Method | Path | Query | Description |
+|--------|------|-------|-------------|
+| GET | `/api/supporter/activity` | `?limit=N&team_id=...` | Latest redacted decisions, default 50 and maximum 100; optional persisted Team attribution filter. Contract: `codeterm docs API-MEMORY`. |
+
 #### Plan task mutation authority
 
 Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) carry caller/session/binding/owner-epoch authority (REST: matching `X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner. `GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks exist; consumers ignore unknown kinds and never invent a local explanation.
@@ -166,4 +171,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 180 -->
+<!-- revision: 181 -->
