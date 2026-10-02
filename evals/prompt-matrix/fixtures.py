@@ -1,5 +1,5 @@
 """WHAT: Prepare isolated instance state and provider launch environments.
-WHY: Login must not inherit credentials; updates must not replace owner binaries.
+WHY: Every provider and observer must use fixture-owned homes and verified binaries.
 ORACLE: Every launch records its tab, PID, executable and selected home paths.
 """
 
@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 
@@ -57,24 +56,17 @@ def prepare(instance, port):
         "[memory]\nfile_sync_enabled = false\nlibrarian_enabled = false\n"
         "[updater]\nallow_provider_updates_in_non_prod = false\n"
     )
-    binaries = {}
     binary_names = {}
     for provider in PROVIDERS:
         manifest = json.loads((REPO / "plugins" / f"provider-{provider}" / "plugin.json").read_text())
-        name = manifest["cliBinary"]
-        binary = shutil.which(name)
-        binaries[provider] = binary
-        binary_names[provider] = name
+        binary_names[provider] = manifest["cliBinary"]
     metadata = {
-        "instance": instance, "port": port, "root": str(root),
-        "owner_home": str(Path.home()), "binaries": binaries, "binary_names": binary_names,
-        "owner_codex_home": os.environ.get("CODEX_HOME", str(Path.home() / ".codex")),
-        "owner_claude_config": os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")),
-        "owner_path": os.environ["PATH"],
-        "owner_xdg_config": os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")),
-        "owner_xdg_data": os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")),
+        "instance": instance, "port": port, "root": str(root), "binary_names": binary_names,
+        "build_tool_path": os.environ["PATH"],
         "cargo_home": os.environ.get("CARGO_HOME", str(Path.home() / ".cargo")),
         "rustup_home": os.environ.get("RUSTUP_HOME", str(Path.home() / ".rustup")),
+        "provider_tool_path": "",
+        "auth_status": "unqualified",
     }
     write_json(root / "instance.json", metadata)
     bin_dir = root / "bin"
@@ -99,36 +91,30 @@ def prepare(instance, port):
 
 def environment(root):
     meta = json.loads((root / "instance.json").read_text())
-    env = dict(os.environ)
+    from launch_env import isolated_environment, make_home
+    home = make_home(root, root / "daemon-home")
+    env = isolated_environment(os.environ, root, home, str(root / "bin") + os.pathsep + meta["build_tool_path"])
     for name in tuple(env):
         if name.startswith("CODETERM_"):
             del env[name]
-    env.update({
-        "HOME": str(root / "daemon-home"), "CODETERM_INSTANCE": meta["instance"],
-        "CODEX_HOME": str(root / "daemon-home" / ".codex"),
-        "CLAUDE_CONFIG_DIR": str(root / "daemon-home" / ".claude"),
-        "XDG_CONFIG_HOME": str(root / "daemon-home" / ".config"),
-        "XDG_DATA_HOME": str(root / "daemon-home" / ".local/share"),
-        "CARGO_HOME": meta["cargo_home"], "RUSTUP_HOME": meta["rustup_home"],
-        "CODETERM_API_PORT": str(meta["port"]),
-        "PATH": str(root / "bin") + os.pathsep + meta["owner_path"],
-        "npm_config_prefix": str(root / "npm"),
-        "npm_config_cache": str(root / "npm-cache"),
-    })
+    env.update({"CODETERM_INSTANCE": meta["instance"], "CODETERM_API_PORT": str(meta["port"]),
+                "CARGO_HOME": meta["cargo_home"], "RUSTUP_HOME": meta["rustup_home"]})
     return env
 
 
 def case_fixture(root, provider, case, variant, bad_model):
     import tempfile
     case_root = Path(tempfile.mkdtemp(prefix=f"{provider}-{case}-", dir=root))
-    home = case_root / "home"
+    from launch_env import make_home
+    from uuid import uuid4
+    home = make_home(root, case_root / "home")
     cwd = case_root / "owner-directory"
     for path in (home, cwd, home / ".codex", home / ".claude"):
         path.mkdir(parents=True, exist_ok=True)
     config = {
         "provider": provider, "case": case, "variant": variant,
         "case_root": str(case_root), "home": str(home), "cwd": str(cwd),
-        "bad_model": bad_model, "prefix": str(root / "npm"),
+        "bad_model": bad_model, "scope_id": str(uuid4()),
+        "version": json.loads((HERE / "versions.json").read_text())["providers"].get(provider, {}).get("target"),
     }
-    write_json(root / "active.json", config)
     return config
