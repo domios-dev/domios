@@ -579,11 +579,28 @@ fn heartbeat_fixture_clock_preserves_budget_and_suppress_after_persistence() {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert_eq!(rows.iter().filter(|row| row["kind"] == "model_call").count(), 1);
-    let request = rows.iter().position(|row| row["kind"] == "model_call").unwrap();
-    let spend = rows.iter().position(|row| row["kind"] == "spend_updated").unwrap();
-    let verdict = rows.iter().position(|row| row["action"] == "verdict").unwrap();
-    let suppress = rows.iter().position(|row| row["action"] == "suppress").unwrap();
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row["kind"] == "model_call")
+            .count(),
+        1
+    );
+    let request = rows
+        .iter()
+        .position(|row| row["kind"] == "model_call")
+        .unwrap();
+    let spend = rows
+        .iter()
+        .position(|row| row["kind"] == "spend_updated")
+        .unwrap();
+    let verdict = rows
+        .iter()
+        .position(|row| row["action"] == "verdict")
+        .unwrap();
+    let suppress = rows
+        .iter()
+        .position(|row| row["action"] == "suppress")
+        .unwrap();
     assert!(request < spend && spend < verdict && verdict < suppress);
     assert_eq!(
         rows[suppress]["observation"]["workers"][0]["session_key"],

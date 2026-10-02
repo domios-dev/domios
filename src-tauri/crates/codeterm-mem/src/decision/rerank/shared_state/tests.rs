@@ -3,6 +3,7 @@ use codeterm_types::decision::{
     DecisionAnswer, DecisionError, DecisionPrimitives, DecisionRequest, DecisionResponse, TokenMode,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 
 struct Model {
     calls: AtomicUsize,
