@@ -48,7 +48,7 @@ Once you have at least name + main work area:
 <!-- bootstrap:post-setup-supporter -->
 
 Only after all five Step 4 actions succeed, add this one short note in the user's language, once:
-"CodeTerm also has the Supporter Agent: it puts useful memories first, watches tabs and helps recover me within limits. Connect an adapter with `codeterm supporter use <adapter>` and, if it needs a token, pipe it into `codeterm supporter token set`; the Guide explains the details."
+"CodeTerm also has the Supporter Agent: it puts useful memories first, watches tabs and helps recover me within limits. If an adapter requires a token, pipe it into `codeterm supporter token set --adapter <adapter>` first, then connect or activate it with `codeterm supporter use <adapter>`; the Guide explains the details."
 
 Follow the note with this standalone paragraph to open the Guide section:
 

@@ -50,7 +50,8 @@ fn token_summary(token: &Value) -> String {
             };
             format!("Token set ({mode})")
         }
-        _ => "No token".into(),
+        Some(false) => "No token".into(),
+        None => "Token status unavailable".into(),
     }
 }
 
@@ -105,7 +106,10 @@ pub(super) fn request_cap(status: &Value) -> Option<u64> {
 }
 
 pub(super) fn render_status(status: &Value) -> String {
-    let adapter = status.get("adapter").and_then(Value::as_str).unwrap_or("?");
+    let adapter = status
+        .get("adapter")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
     let model = status.get("model").and_then(Value::as_str).unwrap_or("?");
     let token = status.get("token").unwrap_or(&Value::Null);
     let registered = status.get("adapter_registered").and_then(Value::as_bool) == Some(true);

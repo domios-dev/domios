@@ -14,12 +14,15 @@ pub trait DecisionModel: Send + Sync {
     fn pricing(&self) -> Option<DecisionPricing> {
         None
     }
+    fn metadata(&self) -> DecisionMetadata {
+        DecisionMetadata::default()
+    }
     fn primitives(&self) -> DecisionPrimitives;
     fn models(&self) -> Vec<DecisionModelInfo> {
         Vec::new()
     }
     fn select_model(&self, id: &str) -> bool {
-        self.models().iter().any(|model| model.id == id)
+        self.model_id().as_deref() == Some(id) && self.models().iter().any(|model| model.id == id)
     }
     fn decide_questions(
         &self,
@@ -33,6 +36,15 @@ pub trait DecisionModel: Send + Sync {
         request: &DecisionRequest,
         deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError>;
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DecisionMetadata {
+    pub display_name: Option<String>,
+    pub help_url: Option<String>,
+    pub server_address: Option<String>,
+    pub settings_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

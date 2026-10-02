@@ -450,6 +450,8 @@ export type DecisionAnswer =
 
 export interface DecisionModelCapability {
   modelId?(): string | null;
+  selectModel?(id: string): boolean;
+  metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
   pricing?(): DecisionPricing | null;
   decide(request: DecisionRequest): DecisionAnswer;
   /** One shared-state request; omitted methods use sequential decide calls inside the adapter. */

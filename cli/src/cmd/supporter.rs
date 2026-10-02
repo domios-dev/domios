@@ -151,14 +151,37 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
             let reply = send(http.post(format!("{base}{USE_ROUTE}")).json(&body), base);
             let selected = ok_body_or_exit(reply, None);
             emit(json_mode, &selected, |value| {
+                if value["state"] == "saved_not_active" {
+                    return format!(
+                        "saved, not active: {}. Retry with codeterm supporter use {}\n",
+                        adapter, adapter
+                    );
+                }
                 format!(
-                    "selected {}{}\n",
+                    "active {}{}\n",
                     value.get("adapter").and_then(Value::as_str).unwrap_or("?"),
                     value
                         .get("model")
                         .and_then(Value::as_str)
                         .map(|model| format!(" / {model}"))
                         .unwrap_or_default()
+                )
+            });
+        }
+        SupporterAction::Disconnect { adapter } => {
+            let reply = send(
+                http.delete(format!(
+                    "{base}/api/supporter/connections/{}",
+                    urlencoding::encode(&adapter)
+                )),
+                base,
+            );
+            let removed = ok_body_or_exit(reply, None);
+            emit(json_mode, &removed, |value| {
+                format!(
+                    "removed {}. Active adapter: {}\n",
+                    adapter,
+                    value["active"].as_str().unwrap_or("none")
                 )
             });
         }

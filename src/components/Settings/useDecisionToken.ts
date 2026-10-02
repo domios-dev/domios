@@ -1,194 +1,175 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-
-export interface SupporterTokenStatus {
-  adapter: string;
-  token_mode: "required" | "optional" | "none";
-  present: boolean;
-  path?: string;
-  mode_ok?: boolean | null;
-}
-
-export interface SupporterAdapter {
-  id: string;
-  token_mode: SupporterTokenStatus["token_mode"];
-  primitives: { choice: boolean; noul: boolean; score: boolean };
-  models: { id: string; display_name: string }[];
-  token: SupporterTokenStatus;
-}
-
-export interface SupporterSpendTotals {
-  input_tokens: number;
-  output_tokens: number;
-  estimated_usd: number | null;
-}
-
-export interface SupporterSpend {
-  today: SupporterSpendTotals;
-  month: SupporterSpendTotals;
-  since_balance: SupporterSpendTotals;
-  balance_usd: number | null;
-  balance_set_at: number | null;
-  remaining_usd: number | null;
-  exhausted: boolean;
-  next_probe_at: number | null;
-  storage_ready: boolean;
-}
-
-export interface SupporterStatus {
-  state:
-    | "active"
-    | "credit_exhausted"
-    | "budget_reached"
-    | "not_connected"
-    | "no_token"
-    | "token_unusable"
-    | "adapter_unavailable";
-  token_mode: SupporterTokenStatus["token_mode"];
-  adapter: string;
-  model: string | null;
-  deadline_ms: number;
-  connected: boolean;
-  last_activity: number | null;
-  calls_last_hour: number;
-  calls_last_day: number;
-  last_verdict: Partial<
-    Record<"rerank" | "tab_state", { time: number; label: string | null; confidence: number | null }>
-  >;
-  budget: {
-    reached: boolean;
-    calls_per_hour: number | null;
-    free_at: number | null;
-    storage_ready: boolean;
-  };
-  pricing?: { display_name: string; input_usd_per_million: number; output_usd_per_million: number } | null;
-  spend: SupporterSpend;
-  token: SupporterTokenStatus;
-  adapter_registered: boolean;
-  adapters: SupporterAdapter[];
-}
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { SupporterAdapter, SupporterFailure, SupporterMutation, SupporterStatus } from "./supporterTypes";
+import { isSupporterCatalog, isSupporterStatus, redactSupporterError } from "./supporterResponse";
+export type * from "./supporterTypes";
 
 export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
-  const tokenRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<SupporterStatus | null>(null);
+  const [catalog, setCatalog] = useState<SupporterAdapter[]>([]);
   const [statusFailed, setStatusFailed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [errors, setErrors] = useState<Record<string, SupporterFailure>>({});
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
   const authRef = useRef(apiHeaders);
+  const pending = useRef(false);
+  const generation = useRef(0);
   authRef.current = apiHeaders;
 
-  const refreshStatus = useCallback(async () => {
-    try {
-      const response = await fetch(`${apiBase}/api/supporter/status`, {
+  const refreshStatus = useCallback(async (): Promise<boolean> => {
+    const current = ++generation.current;
+    const results = await Promise.allSettled([
+      fetch(`${apiBase}/api/supporter/status`, {
         headers: authRef.current,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setStatus((await response.json()) as SupporterStatus);
-      setStatusFailed(false);
-    } catch {
-      setStatusFailed(true);
-    }
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Status unavailable");
+        const value: unknown = await response.json();
+        if (!isSupporterStatus(value)) throw new Error("Status unavailable");
+        return value;
+      }),
+      fetch(`${apiBase}/api/supporter/models`, {
+        headers: authRef.current,
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Catalogue unavailable");
+        const value: unknown = await response.json();
+        if (!isSupporterCatalog(value)) throw new Error("Catalogue unavailable");
+        return value;
+      }),
+    ]);
+    if (generation.current !== current) return false;
+    const [nextStatus, nextCatalog] = results;
+    setStatusFailed(nextStatus.status === "rejected");
+    setCatalogFailed(nextCatalog.status === "rejected");
+    if (nextStatus.status === "fulfilled") setStatus(nextStatus.value);
+    if (nextCatalog.status === "fulfilled") setCatalog(nextCatalog.value.adapters);
+    return nextStatus.status === "fulfilled";
   }, [apiBase]);
 
   useEffect(() => {
     void refreshStatus();
+    return () => {
+      generation.current++;
+    };
   }, [refreshStatus]);
 
-  const clearInput = () => {
-    if (tokenRef.current) tokenRef.current.value = "";
-  };
-
-  const write = async (url: string, init: RequestInit, verb: string, secret?: string): Promise<boolean> => {
+  const write = async (
+    adapter: string,
+    path: string,
+    method: string,
+    body?: unknown,
+    secret?: string,
+  ): Promise<SupporterMutation | null> => {
+    if (pending.current || statusFailed || !status) return null;
+    pending.current = true;
     setBusy(true);
-    setError(null);
-    let ok = false;
+    setErrors((old) => {
+      const next = { ...old };
+      delete next[adapter];
+      return next;
+    });
+    let result: SupporterMutation | null = null;
     try {
-      const response = await fetch(url, {
-        ...init,
-        headers: { ...authRef.current, ...init.headers },
+      const headers = new Headers(authRef.current);
+      if (body !== undefined) headers.set("Content-Type", "application/json");
+      const response = await fetch(`${apiBase}/api/supporter/${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
       });
+      const text = await response.text();
+      let parsed: SupporterMutation | null = null;
+      try {
+        const value: unknown = JSON.parse(text);
+        if (typeof value === "object" && value !== null) parsed = value as SupporterMutation;
+      } catch {
+        /* Plain HTTP bodies are also actionable. */
+      }
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-        const message = body?.error?.message?.replace(secret ?? "\u0000", "[redacted]");
-        setError(message || `Could not ${verb} (HTTP ${response.status}).`);
+        const message = parsed?.error?.message || text || `HTTP ${response.status}`;
+        setErrors((old) => ({
+          ...old,
+          [adapter]: {
+            code: parsed?.error?.code ?? "unavailable",
+            message: redactSupporterError(message, secret),
+          },
+        }));
+      } else if (
+        parsed &&
+        (path !== "connections" || parsed.state === "active" || parsed.state === "saved_not_active")
+      ) {
+        result = parsed;
+        if (result.error)
+          result.error = {
+            ...result.error,
+            message: redactSupporterError(result.error.message, secret),
+          };
+        setSaved((old) => ({
+          ...old,
+          [adapter]: result?.state === "saved_not_active",
+        }));
+        if (result.error)
+          setErrors((old) => ({
+            ...old,
+            [adapter]: result?.error ?? {
+              code: "unavailable",
+              message: "Retry activation.",
+            },
+          }));
       } else {
-        ok = true;
+        setErrors((old) => ({
+          ...old,
+          [adapter]: {
+            code: "unavailable",
+            message: "The daemon returned an unknown outcome. Refreshing status before retry.",
+          },
+        }));
       }
     } catch {
-      setError(`Could not reach the daemon to ${verb}.`);
-    } finally {
-      clearInput();
+      setErrors((old) => ({
+        ...old,
+        [adapter]: {
+          code: "unavailable",
+          message: "The outcome is unknown. Refreshing authoritative status before retry.",
+        },
+      }));
     }
     await refreshStatus();
+    pending.current = false;
     setBusy(false);
-    return ok;
+    return result;
   };
-
-  const saveToken = async (event: FormEvent<HTMLFormElement>): Promise<boolean> => {
-    event.preventDefault();
-    const token = (tokenRef.current?.value ?? "").trim();
-    if (!token || busy) return false;
-    return write(
-      `${apiBase}/api/supporter/token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adapter: status?.adapter, token }),
-      },
-      "save the token",
-      token,
-    );
-  };
-
-  const clearToken = async () => {
-    if (busy || !status) return;
-    await write(
-      `${apiBase}/api/supporter/token?adapter=${encodeURIComponent(status.adapter)}`,
-      { method: "DELETE" },
-      "clear the token",
-    );
-  };
-
-  const select = async (adapter: string, model?: string) => {
-    if (busy) return;
-    await write(
-      `${apiBase}/api/supporter/use`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adapter, model }),
-      },
-      "select the Supporter Agent model",
-    );
-  };
-
-  const setBalance = async (balance: number | null) => {
-    if (busy || !status) return;
-    await write(
-      `${apiBase}/api/supporter/balance`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adapter: status.adapter, balance_usd: balance }),
-      },
-      "save the balance",
-    );
+  const path = (adapter: string) => `connections/${encodeURIComponent(adapter)}`;
+  const activate = (adapter: string) => write(adapter, `${path(adapter)}/activate`, "POST");
+  const connect = (adapter: string, model: string, token?: string) =>
+    write(adapter, "connections", "POST", { adapter, model, token, activate: true }, token);
+  const selectModel = (adapter: string, model: string) => write(adapter, `${path(adapter)}/model`, "PUT", { model });
+  const saveToken = async (adapter: string, token: string) =>
+    (await write(adapter, `${path(adapter)}/token`, "POST", { token }, token)) !== null;
+  const clearToken = async (adapter: string): Promise<boolean> =>
+    (await write(adapter, `token?adapter=${encodeURIComponent(adapter)}`, "DELETE")) !== null;
+  const disconnect = async (adapter: string): Promise<boolean> =>
+    (await write(adapter, path(adapter), "DELETE")) !== null;
+  const setBalance = async (adapter: string, balance: number | null) => {
+    await write(adapter, "balance", "POST", { adapter, balance_usd: balance });
   };
 
   return {
-    tokenRef,
     status,
+    catalog,
     busy,
-    error,
+    errors,
+    saved,
     statusFailed,
-    tokenState: status?.token.present ? "set" : status ? "not set" : null,
-    modeWarning: status?.token.present === true && status.token.mode_ok === false,
-    adapterMissing: status !== null && !status.adapter_registered,
+    catalogFailed,
     refreshStatus,
+    activate,
+    connect,
+    selectModel,
     saveToken,
     clearToken,
-    select,
+    disconnect,
     setBalance,
   };
 }
+
+export type SupporterControls = ReturnType<typeof useDecisionToken>;

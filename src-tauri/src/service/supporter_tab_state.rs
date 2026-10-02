@@ -414,7 +414,7 @@ impl ServiceContext {
         drop(spawn_observer(
             self,
             &settings,
-            &settings.adapter,
+            settings.active_id().unwrap_or(""),
             settings.deadline_ms,
             tab_id,
             trigger,
@@ -429,7 +429,7 @@ impl ServiceContext {
         let config = crate::config::load_config().supporter;
         let tokens = TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
-            &config.adapter,
+            config.active_id().unwrap_or(""),
         );
         if !supporter::supporter_connected(&config, &self.supporter_models, &tokens) {
             return None;
@@ -460,7 +460,7 @@ impl ServiceContext {
             observe_guarded_inner(
                 &host,
                 &config,
-                &config.adapter,
+                config.active_id().unwrap_or(""),
                 config.deadline_ms,
                 &tab_id,
                 ObservationTrigger::TabExit,
@@ -539,7 +539,12 @@ pub(crate) fn spawn_observer<H: ShadowHost>(
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Option<JoinHandle<Option<ShadowVerdict>>> {
-    if config.adapter.is_empty() || host.supporter_models().get(&config.adapter).is_none() {
+    if config.active_id().is_none()
+        || host
+            .supporter_models()
+            .get(config.active_id().unwrap_or(""))
+            .is_none()
+    {
         return None;
     }
     let host = host.clone();

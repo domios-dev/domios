@@ -1,10 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "../shared/Button";
 import { UI_INPUT } from "../shared/design";
-import type { SupporterSpend, SupporterSpendTotals } from "./useDecisionToken";
+import type { SupporterSpend, SupporterSpendTotals, SupporterStatus } from "./useDecisionToken";
+
+export function supporterIsPriced(price: SupporterStatus["pricing"]): boolean {
+  return Boolean(
+    price &&
+      Number.isFinite(price.input_usd_per_million) &&
+      Number.isFinite(price.output_usd_per_million) &&
+      price.input_usd_per_million >= 0 &&
+      price.output_usd_per_million >= 0 &&
+      (price.input_usd_per_million > 0 || price.output_usd_per_million > 0),
+  );
+}
 
 function usd(value: SupporterSpendTotals) {
-  return value.estimated_usd === null ? "price not reported" : `$${value.estimated_usd.toFixed(4)}`;
+  return value.estimated_usd === null || !Number.isFinite(value.estimated_usd)
+    ? "price not reported"
+    : `$${value.estimated_usd.toFixed(4)}`;
 }
 
 export function supporterTokenTotals(label: string, value: SupporterSpendTotals) {
@@ -17,7 +30,7 @@ export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
       <span>
         <span className="text-[var(--ct-fg)]">{usd(spend.today)}</span> today ·{" "}
         <span className="text-[var(--ct-fg)]">{usd(spend.month)}</span> this month
-        {spend.remaining_usd !== null && <> · ${spend.remaining_usd.toFixed(4)} left (estimate)</>}
+        {spend.remaining_usd !== null && <> · estimated remaining ${spend.remaining_usd.toFixed(4)}</>}
       </span>
       {spend.exhausted && (
         <span role="alert" className="text-[var(--ct-yellow,#d97706)]">
@@ -55,7 +68,7 @@ export function SupporterBalanceForm({ adapter, spend, busy, setBalance }: Balan
 
   return (
     <form onSubmit={(event) => void save(event)} className="flex flex-wrap items-center gap-2">
-      <label htmlFor="supporter-balance">Balance after top-up, USD</label>
+      <label htmlFor="supporter-balance">Manually entered balance, USD</label>
       <input
         id="supporter-balance"
         aria-label="Balance (USD)"
