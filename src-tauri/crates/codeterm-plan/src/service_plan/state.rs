@@ -191,15 +191,19 @@ impl TaskProjection {
 pub fn orchestrator_actionable_task_ids(plan: &Plan) -> Vec<String> {
     plan.tasks
         .iter()
-        .filter(|task| task_projection(plan, task).needs_orchestrator_action())
+        .filter(|task| {
+            crate::plan::reconcile::active_review_hold_note(task).is_none()
+                && task_projection(plan, task).needs_orchestrator_action()
+        })
         .map(|task| task.id.clone())
         .collect()
 }
 
 pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
-    plan.tasks
-        .iter()
-        .any(|task| task_projection(plan, task).needs_orchestrator_action())
+    plan.tasks.iter().any(|task| {
+        crate::plan::reconcile::active_review_hold_note(task).is_none()
+            && task_projection(plan, task).needs_orchestrator_action()
+    })
 }
 
 /// The single count of tasks the Orchestrator still owes attention to beyond

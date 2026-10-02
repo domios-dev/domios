@@ -14,6 +14,7 @@ pub(crate) enum VerdictKind {
     Rerank,
     TabState,
     Sentinel,
+    Heartbeat,
 }
 
 impl VerdictKind {
@@ -22,6 +23,7 @@ impl VerdictKind {
             Self::Rerank => "rerank",
             Self::TabState => "tab_state",
             Self::Sentinel => "sentinel",
+            Self::Heartbeat => "heartbeat",
         }
     }
 }

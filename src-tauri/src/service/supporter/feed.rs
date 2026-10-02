@@ -6,6 +6,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
         "sentinel" => "sentinel",
+        "heartbeat" => "heartbeat",
         "tab_state" if value["action"] == "recovery" => "recovery",
         "tab_state" => "tab_state",
         _ => return None,
@@ -26,6 +27,9 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "error_loop",
             "other",
             "still_starting",
+            "action_needed",
+            "nothing_changed",
+            "status_only",
         ],
         if value["label"].is_null() && kind == "rerank" {
             "relevance_scored"
@@ -49,6 +53,8 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "cron",
             "stop",
             "skip",
+            "wake",
+            "suppress",
         ],
         "notify_only",
     );
@@ -85,6 +91,11 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "adapter_disconnected",
             "invalid_answer",
             "route_failed",
+            "hard_wake",
+            "same_snapshot",
+            "healthy_snapshot",
+            "soft_cooldown",
+            "safety_status",
         ],
         "redacted",
     );
