@@ -19,7 +19,7 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
     if (!transcriptOpen) return;
     transcriptPanelRef.current?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.code !== 'Escape') return;
       event.preventDefault();
       setTranscriptOpen(false);
       transcriptTriggerRef.current?.focus({ preventScroll: true });
