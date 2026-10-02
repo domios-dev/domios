@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "cleaned_bounce_tests.rs"]
+mod cleaned_bounce_tests;
+
 fn review_attempt_matches_task(task: &Task, attempt: &crate::plan::TaskExecutionAttempt) -> bool {
     let assigned_executor =
         task.assigned_tab_id.as_deref() == Some(attempt.executor_tab_id.as_str());
