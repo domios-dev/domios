@@ -30,6 +30,7 @@ pub mod system_plugins;
 pub mod tab_menu;
 pub mod tab_state;
 pub mod transcribe;
+pub mod update_prompt;
 pub mod usage_parser;
 pub mod view;
 pub mod view_host;

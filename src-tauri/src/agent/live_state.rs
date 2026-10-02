@@ -115,6 +115,7 @@ impl ServiceContext {
     pub(crate) fn settle_restore_report(&self) {
         let tab_ids = crate::crash::restore_report::pending_tab_ids();
         if tab_ids.is_empty() {
+            crate::service::supporter_notify::restore_complete(self);
             return;
         }
         let restored_ids: std::collections::BTreeSet<String> = {
@@ -129,6 +130,9 @@ impl ServiceContext {
         let observed = observe_tabs(self, &tab_ids);
         if !crate::crash::restore_report::settle(&restored_ids, observed.clone()) {
             return;
+        }
+        if crate::crash::restore_report::wave_is_settled() {
+            crate::service::supporter_notify::restore_complete(self);
         }
         for (tab_id, liveness) in observed {
             if liveness == AgentLiveness::Absent {

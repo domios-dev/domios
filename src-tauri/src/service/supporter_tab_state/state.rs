@@ -28,9 +28,9 @@ pub(crate) fn confidence_band(confidence: f64) -> ConfidenceBand {
     if !(0.0..=1.0).contains(&confidence) {
         return ConfidenceBand::Ignored;
     }
-    if confidence >= 0.80 {
+    if confidence >= super::super::general_agent::recovery::OWNER_NOTIFICATION_CONFIDENCE {
         ConfidenceBand::Strong
-    } else if confidence >= 0.60 {
+    } else if confidence >= super::super::general_agent::recovery::IGNORE_CONFIDENCE_FLOOR {
         ConfidenceBand::Weak
     } else {
         ConfidenceBand::Ignored
@@ -60,6 +60,7 @@ pub(crate) fn launch_episode_key(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ObservationPermit {
     pub(crate) episode: u64,
+    pub(crate) observation_id: u64,
     pub(crate) spawn_claim: Option<u64>,
 }
 
@@ -183,6 +184,7 @@ pub(crate) fn claim_observation(
         None
     };
     Ok(ObservationPermit {
+        observation_id: NEXT_SPAWN_CLAIM.fetch_add(1, Ordering::Relaxed),
         episode: state.episode,
         spawn_claim,
     })

@@ -223,6 +223,21 @@ impl ServiceContext {
     /// The atomic spawn entry: pick the transport, build the tab, launch it,
     /// then return the authoritative snapshot.
     pub fn spawn_tab_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
+        self.spawn_tab_atomic_origin(params, false)
+    }
+
+    pub(crate) fn spawn_tab_atomic_from_ui(
+        &self,
+        params: AtomicSpawnParams,
+    ) -> Result<AtomicSpawn, String> {
+        self.spawn_tab_atomic_origin(params, true)
+    }
+
+    fn spawn_tab_atomic_origin(
+        &self,
+        params: AtomicSpawnParams,
+        ui: bool,
+    ) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
         } else {
@@ -238,7 +253,7 @@ impl ServiceContext {
                     ));
                 }
                 self.validate_atomic_reasoning_effort(&provider, &params)?;
-                self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None)
+                self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None, ui)
             }
             Some(ProviderTransport::Pty) => {
                 self.require_agent_provider_ready(&provider)?;
@@ -250,6 +265,7 @@ impl ServiceContext {
                     &PtyTransport,
                     chat_view,
                     Some(&provider),
+                    ui,
                 )
             }
             None => {
@@ -263,6 +279,7 @@ impl ServiceContext {
                     &PtyTransport,
                     chat_view,
                     Some(&provider),
+                    ui,
                 )
             }
         }
@@ -305,6 +322,7 @@ impl ServiceContext {
         transport: &dyn AgentTransport,
         chat_view: bool,
         agent_type: Option<&str>,
+        ui: bool,
     ) -> Result<AtomicSpawn, String> {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
@@ -331,6 +349,9 @@ impl ServiceContext {
             tab_id
         };
 
+        if ui {
+            super::supporter_notify::record_ui_origin(&tab_id);
+        }
         let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
             provider,

@@ -16,6 +16,7 @@ import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+import heldout
 
 try:
     import certifi
@@ -510,7 +511,8 @@ def evaluate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, default=DATASET)
+    parser.add_argument("--set", choices=("tuning", "heldout"), default="tuning")
+    parser.add_argument("--dataset", type=Path)
     parser.add_argument("--criteria-file", type=Path, default=CRITERIA_FILE)
     parser.add_argument("--criteria-variant", choices=("current", "auth-first-run"), default="current")
     parser.add_argument("--arm", choices=("screen", "context"), default="screen")
@@ -530,6 +532,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.dataset is None:
+        args.dataset = DATASET if args.set == "tuning" else DATASET.with_name("heldout.jsonl")
     if args.offset < 0:
         raise SystemExit("--offset must be nonnegative")
     if args.limit is not None and args.limit < 1:
@@ -537,7 +541,12 @@ def main() -> int:
     if args.timeout <= 0:
         raise SystemExit("--timeout must be positive")
     try:
-        all_samples = read_dataset(args.dataset, require_coverage=not args.allow_incomplete)
+        all_samples = read_dataset(args.dataset, require_coverage=args.set == "tuning" and not args.allow_incomplete)
+        if args.set == "heldout":
+            heldout.assert_separate(all_samples, read_dataset(DATASET, require_coverage=False))
+            gaps = heldout.coverage_gaps(all_samples)
+            if gaps and not args.allow_incomplete:
+                raise ValueError("held-out coverage missing: " + ", ".join(gaps))
         criteria = load_criteria(args.criteria_file, args.criteria_variant)
         samples = all_samples[args.offset :]
         if args.limit is not None:
@@ -559,6 +568,11 @@ def main() -> int:
             model=args.model,
             timeout=args.timeout,
         )
+        result["set"] = args.set
+        result["dataset"] = str(args.dataset)
+        if args.set == "heldout":
+            result["recovery_qualification"] = heldout.qualification(samples, result["predictions"],
+                complete_dataset=args.offset == 0 and len(samples) == len(all_samples))
         result["criteria_variant"] = args.criteria_variant
         result["dataset_slice"] = {
             "offset": args.offset,

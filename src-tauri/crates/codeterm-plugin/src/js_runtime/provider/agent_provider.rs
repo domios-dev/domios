@@ -262,6 +262,10 @@ impl AgentProvider for JsProvider {
         out
     }
 
+    fn update_prompt_safe_choice(&self, prompt: &PendingPrompt) -> Option<String> {
+        self.update_prompt_safe_choice_from_js(prompt)
+    }
+
     fn parse_prompt(&self, text: &str) -> Option<PendingPrompt> {
         // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {

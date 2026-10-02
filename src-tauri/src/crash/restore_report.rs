@@ -199,6 +199,14 @@ fn unlogged_pane_ids(
     unlogged
 }
 
+pub(crate) fn wave_is_settled() -> bool {
+    let guard = PENDING.lock();
+    guard.as_ref().is_none_or(|pending| {
+        build_restore_report(&pending.bound, &pending.restored_ids, &pending.observed).unobserved
+            == 0
+    })
+}
+
 fn report_is_finalized(report: &RestoreReport) -> bool {
     report.unobserved == 0
 }
