@@ -13,6 +13,8 @@ from media_contract import probe, read_timing, require, run, validate_captions, 
 from narration_proof import sha256, verify_words, verify_character_alignment
 from timeline_audit import timeline_audit
 from soundtrack_proof import measure_balance, enforce_balance
+from music_review import (PRIVATE_MARKERS, validate_markers, validate_music, validate_license,
+                          credit_payload, protect_private_path, prepared_music)
 
 
 def preserved_baseline(directory, manifest):
@@ -108,8 +110,9 @@ def video_oracle(path, timing, require_audio):
                 maximumResidual=residual, ptsTolerance=tolerance, loudness=loudness(path) if require_audio else None)
 
 
-def published_assets(directory, timing, require_audio, timing_path):
+def published_assets(directory, timing, require_audio, timing_path, private_review=False):
     manifest = json.loads((directory / 'manifest.json').read_text(encoding='utf-8-sig'))
+    validate_markers(manifest, private_review)
     require(manifest['duration'] == timing['duration'] and manifest['chapters'] == timing['chapters'], 'Manifest differs from timing authority')
     require(manifest.get('timingSha256') == (sha256(timing_path) if timing_path else None), 'Rendered timing authority changed')
     require((manifest['width'], manifest['height'], manifest['fps']) == (1280, 720, 30), 'Manifest picture mismatch')
@@ -131,6 +134,10 @@ def published_assets(directory, timing, require_audio, timing_path):
     allowed = {'trailer.mp4', 'trailer.webm', 'trailer-poster.webp', 'manifest.json', 'captions.json',
                'captions.vtt', 'transcript.json'} | {f'{chapter["id"]}-poster.webp' for chapter in timing['chapters']}
     if manifest.get('music'):
+        if private_review:
+            validate_music(manifest['music'], True)
+        else:
+            validate_license(manifest['music'])
         allowed |= {'credits.json', 'credits.txt'}
         require(json.loads((directory / 'credits.json').read_text(encoding='utf-8-sig')) == manifest['music'], 'Music credits differ')
         require((directory / 'credits.txt').read_text(encoding='utf-8-sig').strip() == manifest['music']['credit'], 'Music attribution missing')
@@ -151,8 +158,9 @@ def published_assets(directory, timing, require_audio, timing_path):
     return dict(totalBytes=total, files=len(allowed), music=manifest.get('music'))
 
 
-def narration_oracle(proof_path, timing, timing_path):
+def narration_oracle(proof_path, timing, timing_path, private_review=False):
     proof = json.loads(proof_path.read_text(encoding='utf-8-sig'))
+    validate_markers(proof, private_review)
     require(proof['timingSha256'] == sha256(timing_path), 'Timing changed after audio mix')
     require(proof['narration'] == timing['narration'], 'Word mapping differs from timing')
     verify_words(timing)
@@ -162,8 +170,15 @@ def narration_oracle(proof_path, timing, timing_path):
     require(proof['sourceAudio']['sha256'] == timing['narration']['audioSha256'], 'Wrong actual voice take')
     verify_character_alignment(timing, Path(proof['sourceAlignment']['path']))
     if proof['music']:
+        validate_music(proof['music'], private_review)
         music = proof['sourceMusic']
-        require(sha256(Path(music['path'])) == music['sha256'] == proof['music']['sha256'], 'Music source/license provenance changed')
+        require(sha256(Path(music['path'])).lower() == music['sha256'].lower() == proof['music']['sha256'].lower(),
+                'Music source/license provenance changed')
+        if proof.get('musicInput'):
+            require(prepared_music(Path(music['path']), timing['duration']) == proof['musicInput'], 'Prepared input proof changed')
+    if private_review:
+        require(proof['music'] and isinstance(proof.get('musicInput'), dict) and proof['musicInput'].get('prepared') is True,
+                'Private review requires prepared music provenance')
     for key in ('alignedVoice', 'finalAudio'):
         info = probe(Path(proof[key]['path']))
         require(abs(float(info['format']['duration']) - timing['duration']) <= 1 / 48000, 'PCM duration differs from timing')
@@ -173,6 +188,7 @@ def narration_oracle(proof_path, timing, timing_path):
     return dict(words=len(timing['narration']['words']), sourceAudioSha256=proof['sourceAudio']['sha256'],
                 finalAudioPath=proof['finalAudio']['path'], finalAudioSha256=proof['finalAudio']['sha256'],
                 phraseBalance=balance,
+                musicCredit=credit_payload(proof['music'], private_review) if proof['music'] else None,
                 listening='Root must audition complete A/V and every cue; metadata cannot prove pronunciation or clicks')
 
 
@@ -181,22 +197,32 @@ if __name__ == '__main__':
     parser.add_argument('--timeline-only', action='store_true')
     parser.add_argument('--baseline-ref', default='222f60c46')
     parser.add_argument('--require-audio', action='store_true')
+    parser.add_argument('--private-review', action='store_true')
     for name in ('baseline-dir', 'baseline-manifest', 'candidate-dir', 'reference-video-dir', 'timing', 'narration-alignment', 'audit'):
         parser.add_argument(f'--{name}', type=Path)
     args = parser.parse_args()
+    if args.private_review:
+        require(not args.timeline_only and args.require_audio and args.candidate_dir and args.narration_alignment,
+                'Private review requires the complete audio/media oracle')
+        inputs = [args.baseline_dir, args.baseline_manifest, args.reference_video_dir, args.timing, args.narration_alignment]
+        protect_private_path(args.candidate_dir, inputs)
+        protect_private_path(args.narration_alignment, [args.baseline_dir, args.reference_video_dir])
+        if args.audit:
+            protect_private_path(args.audit, inputs + [args.candidate_dir])
     if args.audit:
         for directory in (args.baseline_dir, args.candidate_dir, Path(__file__).resolve().parents[1] / 'public/media'):
             if directory:
                 require(directory.resolve() not in args.audit.resolve().parents, 'Audit must remain outside preserved/published media')
     timing = read_timing(args.timing)
-    report = dict(timeline=timeline_audit(args.baseline_ref, timing=timing))
+    report = dict(timeline=timeline_audit(args.baseline_ref, timing=timing), **(PRIVATE_MARKERS if args.private_review else {}))
     if not args.timeline_only:
         require(args.baseline_dir and args.baseline_manifest and args.candidate_dir, 'Final oracle needs baseline and candidate directories')
         report['baseline'] = preserved_baseline(args.baseline_dir, args.baseline_manifest)
-        report['assets'] = published_assets(args.candidate_dir, timing, args.require_audio, args.timing)
+        report['assets'] = published_assets(args.candidate_dir, timing, args.require_audio, args.timing, args.private_review)
         if args.require_audio:
             require(args.timing and args.narration_alignment, 'Actual timestamp/audio provenance required')
-            report['narration'] = narration_oracle(args.narration_alignment, timing, args.timing)
+            report['narration'] = narration_oracle(args.narration_alignment, timing, args.timing, args.private_review)
+            require(report['assets']['music'] == report['narration']['musicCredit'], 'Exported credits differ from audio provenance')
         report['formats'] = {}
         for kind in ('mp4', 'webm'):
             candidate = args.candidate_dir / f'trailer.{kind}'
@@ -210,4 +236,5 @@ if __name__ == '__main__':
                 report['formats'][kind]['audioPacketHash'] = audio_packet_oracle(candidate, Path(report['narration']['finalAudioPath']))
     if args.audit:
         write_json(args.audit, report)
-    print('Machine media oracles passed; visual/audio/browser owner review remains separate')
+    print('PRIVATE nonpublishable media oracles passed; publication rights unresolved' if args.private_review else
+          'Machine media oracles passed; visual/audio/browser owner review remains separate')
