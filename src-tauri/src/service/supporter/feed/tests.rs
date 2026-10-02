@@ -168,25 +168,19 @@ fn supporter_feed_keeps_observation_identity_and_capped_narrative_together() {
 
 #[test]
 fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity() {
-    use crate::service::supporter_tab_state::identity::correlation::{Correlation, RecordIdentity};
-    use crate::service::supporter_tab_state::{identity, ObservationTrigger};
-    let captured = Correlation::capture(
-        None,
-        "fixture-generation",
-        ObservationTrigger::PromptCandidate,
-        3,
-        42,
-        7,
-        None,
-    );
-    let value = identity::journal(
-        "fixture-tab",
-        RecordIdentity::captured(42, &captured),
-        identity::DecisionSource::Adapter,
-        "provider_update_prompt",
-        Some(0.95),
-        "fixture-title",
-    );
+    let value = json!({
+        "time":1, "kind":"tab_state", "action":"classification", "label":"provider_update_prompt",
+        "reason":"model_answer", "confidence":0.95, "decided_by":"adapter", "observation_id":42,
+        "decision_point":"prompt_candidate", "observation_status":"completed",
+        "model_verdict":{"status":"observed", "label":"provider_update_prompt", "confidence":0.95},
+        "alternate_verdict":{"status":"skipped"},
+        "correlation":{
+            "version":1, "decision_point":"prompt_candidate", "observation_id":42,
+            "launch_id":"a".repeat(64), "session_id":null, "occurrence_id":"b".repeat(64),
+            "occurrence":3, "frame_hash":"0000000000000007",
+            "candidate_evidence":{"status":"unavailable"},
+        },
+    });
     let feed = entry(&value).unwrap();
     assert_eq!(feed["correlation"], value["correlation"]);
     assert_eq!(feed["decision_point"], "prompt_candidate");
@@ -210,4 +204,15 @@ fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity
     let feed = entry(&changed).unwrap();
     assert!(!feed.to_string().contains("private-model"));
     assert!(!feed.to_string().contains("private-alternate"));
+}
+
+#[test]
+fn supporter_feed_passive_no_adapter_source_sets_fallback_honestly() {
+    let value = json!({"time":1, "kind":"tab_state", "action":"classification", "label":"other",
+        "reason":"model_answer", "decided_by":"fallback(no_adapter)", "observation_id":42,
+        "observation_status":"unavailable", "alternate_verdict":{"status":"unavailable"}});
+    let feed = entry(&value).unwrap();
+    assert_eq!(feed["fallback"], true);
+    assert_eq!(feed["observation_status"], "unavailable");
+    assert!(feed.get("correlation").is_none());
 }

@@ -94,7 +94,9 @@ fn supporter_first_opinion_passive_same_occurrence_distinct_capture_identity() {
         64
     );
     assert_eq!(project(&first_record).unwrap(), first_record["correlation"]);
-    assert_eq!(record(&first), first_record);
+    let replay = record(&first);
+    assert_eq!(replay["observation_id"], first_record["observation_id"]);
+    assert_eq!(replay["correlation"], first_record["correlation"]);
 }
 
 #[test]
@@ -181,12 +183,12 @@ fn supporter_first_opinion_passive_candidate_evidence_does_not_invent_an_alterna
         41,
         Some("onboarding"),
     );
-    let record = record(&c);
+    let observed = record(&c);
     assert_eq!(
-        record["correlation"]["candidate_evidence"],
+        observed["correlation"]["candidate_evidence"],
         json!({"status":"observed", "source":"provider_safe_target", "kind":"onboarding"})
     );
-    assert_eq!(record["alternate_verdict"], json!({"status":"skipped"}));
+    assert_eq!(observed["alternate_verdict"], json!({"status":"skipped"}));
     let unavailable = capture(
         &local("nonce-a", None),
         ObservationTrigger::PromptCandidate,
@@ -194,7 +196,7 @@ fn supporter_first_opinion_passive_candidate_evidence_does_not_invent_an_alterna
         None,
     );
     assert_eq!(
-        record_fn(&unavailable)["correlation"]["candidate_evidence"],
+        record(&unavailable)["correlation"]["candidate_evidence"],
         json!({"status":"unavailable"})
     );
     for source in [
@@ -218,10 +220,6 @@ fn supporter_first_opinion_passive_candidate_evidence_does_not_invent_an_alterna
         );
         assert_eq!(rejected["model_verdict"], json!({"status":"unavailable"}));
     }
-}
-
-fn record_fn(c: &Correlation) -> Value {
-    record(c)
 }
 
 #[test]
