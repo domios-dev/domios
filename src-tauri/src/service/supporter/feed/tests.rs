@@ -1,4 +1,17 @@
 use super::*;
+
+#[test]
+fn supporter_feed_safe_step_preserves_narrative_and_observation() {
+    for reason in ["provider_safe_step_authorized", "provider_safe_step_stale"] {
+        let record = serde_json::json!({"time": 1, "kind": "tab_state", "action": "recovery", "label": "provider_update_prompt", "confidence": 0.95, "reason": reason, "decided_by": "adapter", "observation_id": 42, "asked": [{"name": "safe_choice", "question": "opaque-question", "answer": "token=private-value"}]});
+        let projected = entry(&record).unwrap();
+        assert_eq!(projected["reason"], reason);
+        assert_eq!(projected["decided_by"], "adapter");
+        assert_eq!(projected["observation_id"], 42);
+        assert_eq!(projected["asked"][0]["name"], "safe_choice");
+        assert!(!projected.to_string().contains("private-value"));
+    }
+}
 use crate::service::supporter::narrative::{self, QuestionAnswer};
 
 fn record(asked: Value) -> Value {
