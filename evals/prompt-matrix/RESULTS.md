@@ -2,9 +2,9 @@
 
 Source phase only. No live matrix or red-green demonstration ran in this lane.
 
-The 87 cells below comprise 86 NOT RUN and one owner-accepted N/A. No transcript is claimed. The release gate remains closed.
+The 91 required cells below comprise 90 NOT RUN and one owner-accepted N/A (the original 86 executable cells plus four explicit disagreements). No transcript is claimed. The release gate remains closed.
 
-Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual fallback recorded. Deciding paths remain unobserved until journal-backed execution. Auditor disagreement points are pending its covered-point list.
+Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual fallback recorded. Deciding paths remain unobserved until journal-backed execution. Four explicit scrape_candidate disagreements are inventoried; Auditor's final covered-point list remains pending and may add coverage.
 
 | Provider | Case | Variant | Jev off result / path | Jev on result / path | Transcript |
 |---|---|---|---|---|---|
@@ -51,14 +51,20 @@ Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual 
 | host | sentinel | fake-ci | NOT RUN / unobserved | NOT RUN / unobserved | none |
 | host | sentinel | regex-no-jev | NOT RUN / unobserved | NOT RUN / unobserved | none |
 | host | sentinel | budget-exhausted | N/A: regex never spends model budget; owner accepted (Brahms, 2026-10-02) | NOT RUN / unobserved | none |
-| host | sentinel | activity-feed | No off-arm cell: feed projection regression | NOT RUN / expected RED: persisted Sentinel rows are currently excluded | none |
+| host | sentinel | activity-feed | No off-arm cell: feed projection regression | NOT RUN / source repaired; live visibility unobserved | none |
+| claude | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
+| codex | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
+| opencode | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
+| cursor | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
 
-Counts: PASS=0; FAIL=0; NOT RUN=86; N/A=1. Auditor disagreement cells: pending point list, additional to these 87.
+Counts: PASS=0; FAIL=0; NOT RUN=90; N/A=1. The baseline 86 executable cells and sole N/A are preserved; four explicit disagreements are additional. Auditor's final point list may increase these counts.
 
 Owner decision: budget-exhausted with Jev off is not applicable because regex mode never spends model budget. The Jev-on explicit cap plus a disconnected regex companion covers exhaustion. Source binding does not claim an executed outcome.
 
-Source-expected red: Sentinel verdicts must appear in the activity feed. The feed cell and focused Rust regression are authored to fail until the scheduled repair lands. No live FAIL has been observed here. Lookout CLI/outcome and Lens cap contracts are bound; Auditor paths and Courier remain PENDING.
+Source checkpoint: 6029471427 authored the feed regression as expected RED against the original exclusion; no executed feed failure was claimed. Source repair a97badc2d now accepts Sentinel rows, so the preserved focused regression and real feed cell expect success but remain NOT RUN. Auditor correlation, Courier live provokers, provider isolation and update fixture binding remain PENDING.
 
-Executed evidence: ACK confirmed; source/CLI-help discovery only. No provider was launched, no prompt provoked, and no dev or project gate executed.
+Executed by this attempt: ACK, source/CLI-help inspection, git fetch/ancestry/diff review, registry metadata and wrapper archive digest inspection, local Cursor launcher/index/node hashes. No provider launched, prompt provoked, package installed, or harness/test/build/dev/live gate executed.
 
-Red-green: deferred to Orchestrator canonical QA. Source deltas and exact gates are in README.md and GATES.md. contracts.json records unbound dependency contracts.
+Prior independent canonical evidence: 22 controls PASS and two original red demos exit 1 at ddc23c2ff; receipt root /tmp/codeterm-qa/matrix-oracles-20261002-165719-79114. This attempt did not execute those commands. Updated 76 controls and five intentional red demonstrations remain deferred to Orchestrator canonical QA. Source deltas and exact gates are in README.md and GATES.md. contracts.json records unbound dependency contracts.
+
+Reviewed Sentinel raw schema ecb3973c is ancestry-merged in canonical 0c93eebb; mechanism/check-tests receipts are separate from this NOT RUN inventory. Disconnected absent observer IDs remain unavailable under zero-new-work. Owner notification 1a74efb3-6446-46a0-b654-23e9091521d9 is pending; strict criteria are retained, no paired-oracle adjustment or extra exemption is made. Source authoring adds 76 pure controls, all unexecuted by this Worker.

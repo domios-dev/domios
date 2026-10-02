@@ -13,6 +13,8 @@ from fixtures import HERE, PROVIDERS
 from oracles import judge
 from scenarios import CASES
 from sentinel_oracles import judge_sentinel, judge_sentinel_feed
+from coordinator_oracles import judge_coordinator
+from attribution import binding_ready
 
 
 def cells():
@@ -27,9 +29,16 @@ def cells():
         for jev in ("off", "on"):
             yield "host", "sentinel", jev, variant, ""
     yield "host", "sentinel", "on", "activity-feed", ""
-    points = json.loads((HERE / "contracts.json").read_text())["decision"]["covered_points"]
-    for point in points:
+    decision = json.loads((HERE / "contracts.json").read_text())["decision"]
+    for point in disagreement_points(decision):
         yield point["provider"], point["case"], "on", "disagreement", point["id"]
+
+
+def disagreement_points(decision):
+    points = {}
+    for point in [*decision.get("required_disagreements", []), *decision.get("covered_points", [])]:
+        points[(point["provider"], point["case"], point["id"])] = point
+    return list(points.values())
 
 
 def records(root):
@@ -51,6 +60,8 @@ def records(root):
                 oracle = judge
                 if result["case"] == "sentinel":
                     oracle = judge_sentinel_feed if result["variant"] == "activity-feed" else judge_sentinel
+                if result["case"] == "update-coordinator":
+                    oracle = judge_coordinator
                 oracle(result["evidence"])
                 if result.get("path") != result["evidence"]["path"]:
                     raise ValueError("Result and oracle disagree on decision path")
@@ -74,7 +85,7 @@ def render(results):
         "Release gate remains closed until every required cell passes or has explicit owner acceptance.",
         "Missing evidence is NOT RUN. Pending contracts are PENDING. Neither is a pass.", "",
         "Off is the heuristic arm. On exercises connected Jev primary and records any actual fallback.",
-        "The deciding path comes only from `decided_by` plus `observation_id`, never from Jev configuration.", "",
+        "Deciding paths require bound occurrence/point/launch/session evidence and actual selected arms; Jev configuration is insufficient.", "",
         "| Provider | Case | Jev | Variant | Decision point | Result | Jev primary | Heuristic / regex | Deciding path | Transcript / finding |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
@@ -118,7 +129,20 @@ def main():
     body, counts = render(records(options.root))
     options.out.write_text(body)
     print("; ".join(f"{key}={value}" for key, value in sorted(counts.items())))
-    return 0 if counts and counts.get("PASS", 0) + counts.get("N/A", 0) == sum(counts.values()) else 1
+    return exit_code(counts, json.loads((HERE / "contracts.json").read_text()))
+
+
+def exit_code(counts, contracts):
+    points = disagreement_points(contracts["decision"])
+    complete = (counts and counts.get("PASS", 0) >= 86 + len(points) and counts.get("N/A", 0) == 1 and
+                counts.get("PASS", 0) + counts.get("N/A", 0) == sum(counts.values()))
+    bound = (binding_ready(contracts["decision"]) and
+             contracts["decision"].get("covered_points_status") == "bound" and
+             bool(contracts["decision"].get("covered_points")) and
+             all(point.get("status") == "bound" for point in points) and
+             all(contracts[key]["status"] == "bound" for key in
+                 ("coordinator", "sentinel", "isolation", "update_fixture")))
+    return 0 if complete and bound else 1
 
 
 if __name__ == "__main__":

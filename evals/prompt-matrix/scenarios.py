@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import signal
 
-from fixtures import REPO, write_json
+from fixtures import HERE, REPO, write_json
 from oracles import ready, require
 from transport import Finding, Pending, objects, run_group
 
@@ -199,9 +199,14 @@ def install_older(dev, root, version, provider="codex"):
     import re
     packages = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "opencode": "opencode-ai"}
     if provider not in packages:
-        raise Pending("Cursor needs a reviewed archived real binary; no pinned npm fixture is declared")
+        raise Pending("Cursor archive exists locally; real launch/update behavior and portable fixture binding remain pending")
     require(version and re.fullmatch(r"\d+\.\d+\.\d+", version),
             "--older-version must name an exact reviewed provider version")
+    pins = json.loads((HERE / "versions.json").read_text())["providers"][provider]
+    require(version == pins["older"], "Older version differs from the reviewed literal pin")
+    contracts = json.loads((HERE / "contracts.json").read_text())
+    if contracts["update_fixture"]["status"] != "bound":
+        raise Pending(contracts["update_fixture"]["reason"])
     command = ["npm", "install", "--global", "--prefix", str(root / "npm"),
                "--ignore-scripts", f"{packages[provider]}@{version}"]
     dev.transcript.record("fixture_command", command)
@@ -216,8 +221,8 @@ def install_older(dev, root, version, provider="codex"):
 
 def pending_special(options):
     if options.case == "update-coordinator":
-        raise Pending("Courier consent, update journal and per-tab version contract must bind before execution")
+        raise Pending("Courier isolated capability updater, real safe-choice/session receipts and busy/failure provokers remain unbound")
     if options.variant == "disagreement":
-        raise Pending("Auditor-covered disagreement points and atomic decision evidence must bind first")
+        raise Pending("Real disagreement provoker, emitted point/occurrence and paired-arm evidence must bind first")
     if options.case == "update" and options.provider == "cursor":
-        raise Pending("Cursor needs a reviewed archived real binary; no pinned npm fixture is declared")
+        raise Pending("Cursor archive exists locally but its manifest declares no updater; owner disposition is pending")
