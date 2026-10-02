@@ -11,7 +11,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use codeterm_types::decision::{DecisionModel, DecisionModelInfo, TokenMode};
+use codeterm_types::decision::{DecisionModel, TokenMode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -62,6 +62,7 @@ fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
                 },
                 "models": model.models(),
                 "pricing": model.pricing(),
+                "metadata": model.metadata(),
             }))
         })
         .collect()
@@ -98,49 +99,25 @@ fn token_mode_name(mode: TokenMode) -> &'static str {
     }
 }
 
-fn select_model_id(
-    adapter: &str,
-    available: &[DecisionModelInfo],
-    requested: Option<String>,
-    current_adapter: bool,
-    current_model: Option<String>,
-) -> Result<Option<String>, String> {
-    match requested {
-        Some(id) if available.iter().any(|model| model.id == id) => Ok(Some(id)),
-        Some(id) => {
-            let listed = available
-                .iter()
-                .map(|model| model.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            Err(format!(
-                "model {id} is not listed by adapter {adapter}; listed models: {listed}"
-            ))
-        }
-        None if current_adapter
-            && current_model
-                .as_ref()
-                .is_some_and(|id| available.iter().any(|model| &model.id == id)) =>
-        {
-            Ok(current_model)
-        }
-        None => Ok(available.first().map(|model| model.id.clone())),
-    }
-}
-
 pub(crate) fn token_store() -> TokenStore {
     TokenStore::new(supporter_token_dir())
 }
 
 pub(crate) fn default_registry() -> Arc<SupporterRegistry> {
     let cfg = crate::config::load_config().supporter;
-    let registry = SupporterRegistry::new();
+    let registry = SupporterRegistry::with_registration_hook(|id, adapter| {
+        crate::service::supporter::restore_model(
+            &crate::config::load_config().supporter,
+            id,
+            adapter,
+        );
+    });
     registry.register(
         TypeSafeAdapter::ID,
         Arc::new(TypeSafeAdapter::new(
             token_store(),
-            cfg.endpoint,
-            cfg.model.filter(|_| cfg.adapter == TypeSafeAdapter::ID),
+            cfg.connection(TypeSafeAdapter::ID).endpoint,
+            cfg.connection(TypeSafeAdapter::ID).model,
         )),
     );
     Arc::new(registry)
@@ -298,7 +275,7 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
     p: &SearchParams,
 ) -> Result<Value, SearchError> {
     let cfg = &supporter.memory_rerank;
-    let Some(model) = models.get(&supporter.adapter) else {
+    let Some(model) = crate::service::supporter::configured_model(supporter, models) else {
         return fallback(backend, p, FallbackReason::NoAdapter);
     };
     let limit = p.limit.unwrap_or(DEFAULT_RECALL_LIMIT);
@@ -553,6 +530,12 @@ fn doc_candidate(doc: &crate::mem::docs_source::DocCandidate) -> RerankCandidate
         body: doc.text.clone(),
     }
 }
+
+mod supporter_json;
+pub use supporter_json::supporter_error_envelope;
+
+mod connection_routes;
+pub use connection_routes::*;
 
 mod supporter_routes;
 pub use supporter_routes::*;

@@ -122,7 +122,7 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## General Agent recovery
 
-A connected Supporter Agent helps CodeTerm notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters also need a token. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ct-guide supporter-agent` on its own paragraph).
+A connected Supporter Agent helps CodeTerm notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ct-guide supporter-agent` on its own paragraph).
 
 The General Agent watchdog reacts to PTY death, provider exit to a shell and launch settlement. It respects shutdown, launch grace and restart limits; screen text alone never authorizes restarting a live agent. Model-authorized recovery remains notify-only until a separate held-out accuracy check passes.
 
@@ -158,4 +158,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

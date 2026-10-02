@@ -452,6 +452,8 @@ export interface DecisionModelCapability {
   /** Declares that decideQuestions sends at most one physical request. */
   supportsQuestionBatch?(): boolean;
   modelId?(): string | null;
+  selectModel?(id: string): boolean;
+  metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
   pricing?(): DecisionPricing | null;
   decide(request: DecisionRequest): DecisionAnswer;
   /** Named questions over shared state; omitted methods use sequential decide calls. */

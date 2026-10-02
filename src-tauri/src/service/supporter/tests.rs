@@ -46,7 +46,7 @@ fn supporter_connected_predicate_by_token_mode() {
             }),
         );
         let cfg = SupporterConfig {
-            adapter: "unrelated-adapter-name".into(),
+            adapter: Some("unrelated-adapter-name".into()),
             ..Default::default()
         };
         for usable in [true, false] {
@@ -62,7 +62,7 @@ fn supporter_connected_predicate_by_token_mode() {
         ));
         assert!(!supporter_connected(
             &SupporterConfig {
-                adapter: String::new(),
+                adapter: None,
                 ..cfg
             },
             &registry,
