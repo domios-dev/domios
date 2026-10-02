@@ -47,8 +47,10 @@ def prepare(source_metadata, alignment_path, audio, output, offset, duration):
     for index, chapter in enumerate(CHAPTERS):
         start = chapter_starts[index]
         end = chapter_starts[index + 1] if index < 3 else duration
+        opening_cue = cues[(0, 2, 4, 8)[index]]
+        poster_time = start + (opening_cue['visualEnd'] - start) * .8
         chapters.append(dict(id=chapter['id'], start=start, end=end,
-                             posterTime=min(end - 1 / 30, start + (end - start) * .8)))
+                             posterTime=min(opening_cue['visualEnd'] - 1 / 30, poster_time)))
     timing = dict(schemaVersion=1, fps=30, duration=duration, chapters=chapters, cues=cues,
                   narration=dict(audioSha256=digest, alignmentSha256=hashlib.sha256(alignment_path.read_bytes()).hexdigest(),
                                  sourceDuration=source['duration'], offset=offset, speed=1,
