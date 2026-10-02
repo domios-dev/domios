@@ -2797,5 +2797,5 @@
     }
   },
   "native_assembly_status": "source_authored_NOT_RUN",
-  "native_transport_status": "pending_absolute_deadline_adapter"
+  "native_transport_status": "owned_helper_source_authored_NOT_RUN"
 }

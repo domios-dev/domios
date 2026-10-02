@@ -65,7 +65,9 @@ def registry_url(url):
 
 def acquire(metadata, destination, deadline, transport=None, clock=time.monotonic):
     registry_url(metadata["tarball"])
-    demand(transport is not None, "Absolute-deadline registry transport unavailable; acquisition withheld")
+    if transport is None:
+        from acquisition_transport import acquire_owned
+        return acquire_owned(metadata, destination, deadline, clock=clock)
     hard = Deadline(deadline, clock)
     operation = hard.reserve(2)
     failed = True
