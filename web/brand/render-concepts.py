@@ -140,10 +140,11 @@ def sheet(concept, marks):
     canvas = Image.new("RGBA", (1600, 1420), PAPER)
     draw = ImageDraw.Draw(canvas)
     draw.rectangle((0, 0, 1599, 167), fill=INK)
-    heading = "DOMIOS / IDENTITY EXPLORATIONS" + (" / ROUND 2" if ROUND == 2 else "")
+    heading = "DOMIOS / IDENTITY EXPLORATIONS" + (f" / ROUND {ROUND}" if ROUND > 1 else "")
     text(draw, (64, 29), heading, 18, BLUE, "mono")
-    text(draw, (64, 68), f'{concept["slug"][:2]}   {concept["name"]}', 50, PAPER, "bold")
-    if ROUND == 2:
+    title = concept["name"] if ROUND == 3 else f'{concept["slug"][:2]}   {concept["name"]}'
+    text(draw, (64, 68), title, 50, PAPER, "bold")
+    if ROUND > 1:
         text(draw, (970, 99), "THE DISTRIBUTED OS FOR AI AGENTS", 18, MUTED, "mono")
     else:
         text(draw, (1000, 99), "THE OS FOR AI AGENTS", 18, MUTED, "mono")

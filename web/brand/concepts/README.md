@@ -1,6 +1,6 @@
 # Domios logo concepts
 
-**Latest: [round two — Joinery, Tandem, Sling, Patch](round-2/README.md).** It explores domestic and material metaphors for a distributed OS, without letter-based marks. The first-round proposals below remain available for comparison.
+**Latest: [round three — Threshold refinements and Liquid motion](round-3/README.md).** The owner selected original 03 as the direction to develop. [Round two](round-2/README.md) and the first-round proposals below remain available for comparison.
 
 Four directions for **the OS for AI agents**. Tagline: **Agents live here.**
 These are proposals, with no winner selected and no changes to the live site's header or favicon.
