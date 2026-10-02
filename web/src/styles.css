@@ -47,7 +47,7 @@ h1 span { color: var(--ct-accent); }
 .hero-actions { display: grid; grid-template-columns: minmax(0, 252px) minmax(0, 228px); grid-template-rows: 76px; justify-content: center; gap: 12px; margin-top: 32px; }
 .site .hero-actions .download-control > .button, .hero-actions > .secondary { width: 100%; height: 100%; line-height: 1.25; }
 .hero-actions .download-control { height: 100%; }
-.hero-actions .download-label { min-width: 0; }
+.hero-actions .download-label { min-width: 0; flex: 1; }
 .hero-actions .download-label small { line-height: 1.3; }
 .hero-actions > .secondary { background: color-mix(in srgb, var(--ct-surface) 65%, var(--ct-bg)); }
 .hero-actions > .secondary > span { min-width: 0; }
@@ -108,6 +108,7 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
   .section-wrap { padding-inline: 22px; }.site-header { height: 78px; gap: 15px; }.site-header nav { display: none; }.brand { font-size: 23px; }.header-actions { gap: 18px; }.button-small { padding: 10px; font-size: 11px; }
   .hero { padding-top: 52px; }h1 { font-size: clamp(51px, 11vw, 70px); margin-top: 25px; letter-spacing: -.065em; }.hero-copy { font-size: 15px; max-width: 340px; margin-inline: auto; }
   .hero-actions { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 9px; margin-top: 28px; }.hero-actions .button { font-size: 12px; padding: 14px; gap: 8px; }.hero-actions .secondary > svg:first-child { display: none; }
+  .hero-actions .download-label > span { min-height: 2.5em; display: flex; align-items: center; }
   .platforms { gap: 8px; font-size: 9px; flex-wrap: wrap; }.platform-divider { margin-inline: 0; }
   .showcase, .foundation { padding-top: 62px; }.section-heading { display: block; }.section-heading h2 { font-size: 29px; letter-spacing: -1.2px; }.section-heading > p { max-width: none; margin-top: 16px; font-size: 12px; }.eyebrow { font-size: 8px; }
   .showcase-caption { display: block; padding-block: 23px; }.showcase-caption h3 { font-size: 18px; }.showcase-caption p { max-width: none; margin-top: 11px; font-size: 11px; }
