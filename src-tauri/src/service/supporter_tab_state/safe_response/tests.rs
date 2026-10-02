@@ -123,6 +123,49 @@ fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
 }
 
 #[test]
+fn supporter_first_opinion_safe_response_update_skip_order_focus_and_opaque_values() {
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    for (screen, choice, step) in [
+        (
+            "Fixture selection\n❯ 1. Update\n 2. Skip\nEnter to confirm\n",
+            "2",
+            b"j".as_slice(),
+        ),
+        (
+            "Fixture selection\n 1. Update\n❯ 2. Skip\nEnter to confirm\n",
+            "2",
+            b"\r".as_slice(),
+        ),
+        (
+            "Fixture selection\n 1. Skip\n❯ 2. Update\nEnter to confirm\n",
+            "1",
+            b"k".as_slice(),
+        ),
+    ] {
+        let target = provider_target(&provider, screen).unwrap();
+        assert_eq!(target.kind, Kind::Update);
+        assert_eq!(target.choice, choice);
+        assert_eq!(target.step, step);
+    }
+    let mut update = target().prompt;
+    update.options[0].label = "Update".into();
+    update.options[1].label = "Skip".into();
+    let provider = crate::agent::test_provider::MockProvider::new("opaque-provider")
+        .with_parsed_prompt(update)
+        .with_classified_prompt_auto_response(
+            codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+        );
+    let target = provider_target(&provider, "opaque-screen").unwrap();
+    assert_eq!(target.choice, "skip-token");
+    assert_eq!(target.step, b"\x1b[B");
+    use codeterm_plugin::provider::AgentProvider;
+    assert!(!provider.supports_live_prompt_response());
+    let mut unsupported = evidence();
+    unsupported.eligible = false;
+    assert!(!authorized(&target, &unsupported));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_safe_response_post_launch_planner_and_owner_boundary() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
@@ -130,6 +173,8 @@ fn supporter_first_opinion_safe_response_post_launch_planner_and_owner_boundary(
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some("claude".into());
     tab.agent_session_id = Some("authenticated-session".into());
+    tab.session_binding_nonce = Some("authenticated-nonce".into());
+    tab.reported_session_binding_nonce = Some("authenticated-nonce".into());
     tab.role = Some(codeterm_types::agent::AgentRole::Manager);
     tab.role_profile = Some("planner".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -137,6 +182,13 @@ fn supporter_first_opinion_safe_response_post_launch_planner_and_owner_boundary(
         codeterm_plugin::agent_claude::ClaudeProvider::new(),
     ));
     let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .launch_session_authenticated());
     assert!(fixture
         .service
         .model_safe_response_target(&id, screen)
@@ -170,4 +222,28 @@ fn supporter_first_opinion_safe_response_qualification_is_question_set_specific(
         &criteria_version(),
         &"a".repeat(64)
     ));
+}
+
+#[test]
+fn supporter_first_opinion_safe_response_same_option_new_occurrence_shares_trust_ledger() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    let frame = "opaque-focus-frame";
+    assert!(
+        super::super::super::directory_trust::claim_model_onboarding_step(&tab, "launch:1", frame)
+    );
+    assert!(
+        !super::super::super::directory_trust::claim_model_onboarding_step(&tab, "launch:1", frame)
+    );
+    super::super::super::directory_trust::finish_model_onboarding_step(
+        &tab, "launch:1", frame, true,
+    );
+    assert!(
+        !super::super::super::directory_trust::claim_model_onboarding_step(&tab, "launch:1", frame)
+    );
+    assert!(
+        super::super::super::directory_trust::claim_model_onboarding_step(&tab, "launch:2", frame)
+    );
+    super::super::super::directory_trust::finish_model_onboarding_step(
+        &tab, "launch:2", frame, true,
+    );
 }

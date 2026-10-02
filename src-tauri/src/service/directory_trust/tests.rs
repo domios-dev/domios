@@ -31,6 +31,53 @@ fn agent_tab(provisioned: Option<&str>, authenticated: bool) -> (MultiplexerStat
     (state, tab_id)
 }
 
+#[test]
+fn supporter_first_opinion_model_onboarding_and_deterministic_responder_share_one_frame() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    let frame = "opaque-focus-frame";
+    assert!(super::claim_model_onboarding_step(&tab, "launch:1", frame));
+    assert_eq!(
+        super::observation_revision(&tab),
+        super::model_onboarding_step_revision(frame)
+    );
+    super::finish_model_onboarding_step(&tab, "launch:1", frame, true);
+    let frame_identity = format!("launch-onboarding:{frame}");
+    assert_eq!(
+        decide_with_frame_identity(
+            true,
+            &tab,
+            "opaque-screen",
+            &frame_identity,
+            &super::LEDGER,
+            |_| answer(b"\r")
+        ),
+        TrustDecision::Waiting
+    );
+    assert!(super::claim_model_onboarding_step(&tab, "launch:2", frame));
+    super::finish_model_onboarding_step(&tab, "launch:2", frame, true);
+}
+
+#[test]
+fn supporter_first_opinion_model_onboarding_stale_cleanup_does_not_release_new_owner() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    assert!(super::claim_model_onboarding_step(
+        &tab, "launch:1", "frame-a"
+    ));
+    super::finish_model_onboarding_step(&tab, "launch:1", "frame-a", false);
+    assert!(super::claim_model_onboarding_step(
+        &tab, "launch:1", "frame-a"
+    ));
+    super::finish_model_onboarding_step(&tab, "launch:1", "frame-a", true);
+    assert!(super::claim_model_onboarding_step(
+        &tab, "launch:2", "frame-a"
+    ));
+    super::finish_model_onboarding_step(&tab, "launch:1", "frame-a", false);
+    assert!(!super::claim_model_onboarding_step(
+        &tab, "launch:2", "frame-a"
+    ));
+    super::finish_model_onboarding_step(&tab, "launch:2", "frame-a", true);
+}
+
 fn answer(step: &[u8]) -> Option<DirectoryTrustPromptResponse> {
     Some(DirectoryTrustPromptResponse::Answer {
         step: step.to_vec(),
