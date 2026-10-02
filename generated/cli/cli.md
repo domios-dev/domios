@@ -2721,6 +2721,39 @@ Send text to a tab (default: current tab)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 - `--until` — Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time
 
+#### `codeterm sentinel`
+
+Cheap hash-gated watchers with closed-set routes
+
+#### `codeterm sentinel create`
+
+Watch a bounded shell probe, classifying only changed output
+
+- `--buckets`
+- `--every` — Owner-requested cadence (minimum 10s)
+- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--probe`
+- `--question`
+- `--route` — Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop
+- `--timeout` — End the sentinel after this duration
+- `--until` — Stop after this bucket's first confident transition
+
+#### `codeterm sentinel list`
+
+List sentinels scoped to the calling tab and its Team
+
+#### `codeterm sentinel show`
+
+Show one sentinel
+
+- `<id>`
+
+#### `codeterm sentinel stop`
+
+Stop one sentinel
+
+- `<id>`
+
 #### `codeterm service`
 
 Manage daemon services (long-running processes monitored by codeterm)
