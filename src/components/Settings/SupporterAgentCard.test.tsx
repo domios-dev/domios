@@ -180,6 +180,8 @@ const q = <T extends Element = HTMLElement>(id: string) => host.querySelector<T>
 const input = () => q<HTMLInputElement>("supporter-agent-token-input")!;
 
 async function typeAndSubmit(value: string) {
+  const replace = q<HTMLButtonElement>("supporter-agent-token-replace");
+  if (replace) await act(async () => replace.click());
   input().value = value;
   await act(async () => {
     q<HTMLFormElement>("supporter-agent-token-form")!.dispatchEvent(
@@ -250,7 +252,8 @@ describe("SupporterAgentCard", () => {
     await render();
     expect(q("supporter-agent-overall-status")?.textContent).toBe("No token");
     expect(q("supporter-agent-token-state")?.textContent).toBe("No token");
-    expect(q("supporter-agent-selection")?.textContent).toBe("fixture-adapter · fixture-model");
+    expect(q<HTMLSelectElement>("supporter-agent-adapter-picker")?.value).toBe("fixture-adapter");
+    expect(q<HTMLSelectElement>("supporter-agent-model-picker")?.value).toBe("fixture-model");
     expect(host.querySelector('[role="switch"][aria-label="Memory re-rank"]')).toBeNull();
     expect(host.querySelector('[role="switch"][aria-label="Tab-state"]')).toBeNull();
     expect(input().type).toBe("password");
@@ -281,9 +284,27 @@ describe("SupporterAgentCard", () => {
     await render();
     expect(q("supporter-agent-overall-status")?.textContent).toBe("Active");
     expect(q("supporter-agent-token-state")?.textContent).toBe("Token set");
+    expect(q("supporter-agent-token-masked")?.textContent).toMatch(/^•+$/);
+    expect(q("supporter-agent-token-input")).toBeNull();
+    await act(async () => q<HTMLButtonElement>("supporter-agent-token-replace")!.click());
     expect(host.querySelector('label[for="supporter-agent-token-input"]')?.textContent).toContain("Replace token");
     expect(q<HTMLButtonElement>("supporter-agent-token-save")?.textContent).toContain("Replace token");
     expect(input().value).toBe("");
+  });
+
+  it("supporter_token_remove_asks_for_confirmation_first", async () => {
+    statusBody = statusFixture("active");
+    await render();
+    const deletes = () => calls.filter((call) => call.method === "DELETE").length;
+    await act(async () => q<HTMLButtonElement>("supporter-agent-token-clear")!.click());
+    expect(deletes()).toBe(0);
+    expect(q("supporter-agent-token-remove-confirm")).not.toBeNull();
+    await act(async () => Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Keep")!.click());
+    expect(q("supporter-agent-token-remove-confirm")).toBeNull();
+    expect(deletes()).toBe(0);
+    await act(async () => q<HTMLButtonElement>("supporter-agent-token-clear")!.click());
+    await act(async () => q<HTMLButtonElement>("supporter-agent-token-remove-confirmed")!.click());
+    expect(deletes()).toBe(1);
   });
 
   it("supporter_card_shows_activity_and_budget_without_toggles", async () => {
@@ -291,7 +312,7 @@ describe("SupporterAgentCard", () => {
     await render();
     expect(q("supporter-agent-overall-status")?.textContent).toBe("Budget reached");
     expect(host.querySelector('[role="switch"]')).toBeNull();
-    expect(q("supporter-agent-activity")?.textContent).toContain("12 in the last hour");
+    expect(q("supporter-agent-activity")?.textContent).toContain("12 requests in the last hour");
     expect(q("supporter-agent-activity")?.textContent).toContain("45 in the last day");
     expect(q("supporter-agent-activity")?.textContent).toContain("Available again:");
     expect(q("supporter-agent-activity")?.textContent).toContain("ready_idle");
@@ -308,9 +329,9 @@ describe("SupporterAgentCard", () => {
     statusBody = statusFixture("active");
     await render();
     const spend = host.querySelector('[role="status"][aria-label="Supporter spend"]');
-    expect(spend?.textContent).toContain("$0.042000 estimated");
-    expect(spend?.textContent).toContain("$0.084000 estimated");
-    expect(spend?.textContent).toContain("Remaining: $4.9580 (estimate)");
+    expect(spend?.textContent).toContain("$0.0420 today");
+    expect(spend?.textContent).toContain("$0.0840 this month");
+    expect(spend?.textContent).toContain("$4.9580 left (estimate)");
     const balance = host.querySelector<HTMLInputElement>('[aria-label="Balance (USD)"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(balance, "10");
@@ -323,7 +344,7 @@ describe("SupporterAgentCard", () => {
       adapter: ADAPTER,
       balance_usd: 10,
     });
-    expect(spend?.textContent).toContain("Remaining: $10.0000 (estimate)");
+    expect(spend?.textContent).toContain("$10.0000 left (estimate)");
     expect(host.querySelector('[role="switch"]')).toBeNull();
   });
 
@@ -334,15 +355,16 @@ describe("SupporterAgentCard", () => {
     statusBody.spend.remaining_usd = null;
     await render();
     expect(q("supporter-agent-overall-status")?.textContent).toBe("Balance exhausted");
-    expect(host.textContent).toContain("Price not reported");
+    expect(host.textContent).toContain("price not reported");
     expect(host.textContent).toContain("Supporter uses deterministic results");
-    expect(host.textContent).not.toContain("Remaining:");
+    expect(host.textContent).not.toContain("left (estimate)");
   });
 
   it("supporter_token_input_is_write_only_and_refreshed", async () => {
     await render();
     await typeAndSubmit(TOKEN);
-    expect(input().value).toBe("");
+    expect(q("supporter-agent-token-input")).toBeNull();
+    expect(q("supporter-agent-token-masked")).not.toBeNull();
     expect(statusBody.state).toBe("active");
 
     writeRejects = true;
@@ -373,10 +395,10 @@ describe("SupporterAgentCard", () => {
     statusBody = { ...statusBody, calls_last_hour: 23 };
     await act(async () =>
       Array.from(host.querySelectorAll("button"))
-        .find((button) => button.textContent === "Refresh activity")!
+        .find((button) => button.getAttribute("aria-label") === "Refresh activity")!
         .click(),
     );
-    expect(q("supporter-agent-activity")?.textContent).toContain("23 in the last hour");
+    expect(q("supporter-agent-activity")?.textContent).toContain("23 requests in the last hour");
   });
 
   it("supporter_status_has_accessible_names_and_token_never_renders", async () => {
