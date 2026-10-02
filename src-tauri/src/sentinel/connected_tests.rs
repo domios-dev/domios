@@ -34,6 +34,7 @@ impl DecisionModel for Model {
         request: &DecisionRequest,
         _: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         let DecisionQuestion::Choice { options } = &request.question else {
             panic!("must use Choice")

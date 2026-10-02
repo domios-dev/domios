@@ -72,15 +72,16 @@ fn tab_state_dedup_per_tab_label_episode() {
 }
 
 #[test]
-fn tab_state_call_cap_per_episode() {
+fn supporter_first_opinion_no_default_request_cap_per_episode() {
     let tab = tab();
-    for _ in 0..CALL_CAP_PER_EPISODE {
-        assert!(claim_observation(&tab, "launch-1", ObservationEvent::WorkerIdle).is_ok());
-    }
-    assert_eq!(
-        claim_observation(&tab, "launch-1", ObservationEvent::WorkerIdle),
-        Err(PermitError::CallCapReached)
-    );
+    let ids: BTreeSet<_> = (0..601)
+        .map(|_| {
+            claim_observation(&tab, "launch-1", ObservationEvent::WorkerIdle)
+                .unwrap()
+                .observation_id
+        })
+        .collect();
+    assert_eq!(ids.len(), 601);
 }
 
 #[test]
@@ -287,4 +288,15 @@ fn tab_state_other_interrupts_consecutive_strong_agreement() {
         apply_verdict(&tab_id, "launch", "error_loop", 0.9),
         SignalAction::StrongAction
     );
+}
+
+#[test]
+fn supporter_first_opinion_captured_exit_cannot_reset_new_launch() {
+    let tab = tab();
+    let old = claim_observation(&tab, "nonce-1", ObservationEvent::WorkerIdle).unwrap();
+    assert!(audit_permit(&tab, "nonce-1", next_observation_id()).is_some());
+    claim_observation(&tab, "nonce-2", ObservationEvent::WorkerIdle).unwrap();
+    let current = snapshot_episode(&tab);
+    assert!(audit_permit(&tab, "nonce-1", old.observation_id).is_none());
+    assert_eq!(snapshot_episode(&tab), current);
 }

@@ -5,8 +5,6 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 
-pub(crate) const CALL_CAP_PER_EPISODE: usize = 4;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ObservationEvent {
     SpawnReady,
@@ -15,6 +13,8 @@ pub(crate) enum ObservationEvent {
     WorkerIdle,
     BusyNoOutput,
     TabExit,
+    PromptCandidate,
+    Anomaly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +68,6 @@ pub(crate) struct ObservationPermit {
 pub(crate) enum PermitError {
     SpawnAlreadyObserved,
     BusyAlreadyObserved,
-    CallCapReached,
 }
 
 #[derive(Default)]
@@ -77,7 +76,6 @@ struct EpisodeState {
     episode: u64,
     output_sequence: u64,
     output_epoch_seconds: u64,
-    calls: usize,
     spawn_observed: bool,
     spawn_claim: Option<u64>,
     last_busy_output_sequence: Option<u64>,
@@ -101,6 +99,10 @@ pub(crate) struct EpisodeSnapshot {
 
 static EPISODES: OnceLock<Mutex<HashMap<String, EpisodeState>>> = OnceLock::new();
 static NEXT_SPAWN_CLAIM: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn next_observation_id() -> u64 {
+    NEXT_SPAWN_CLAIM.fetch_add(1, Ordering::Relaxed)
+}
 
 fn episodes() -> &'static Mutex<HashMap<String, EpisodeState>> {
     EPISODES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -149,6 +151,15 @@ fn state_for_session<'a>(
     state
 }
 
+pub(crate) fn observation_revision(tab_id: &str) -> u64 {
+    episodes().lock().get(tab_id).map_or(0, |state| {
+        super::frame_hash(&format!(
+            "{}:{:?}:{}:{}",
+            state.episode, state.acted_labels, state.weak_emitted, state.signaled
+        ))
+    })
+}
+
 pub(crate) fn claim_observation(
     tab_id: &str,
     session_key: &str,
@@ -172,10 +183,6 @@ pub(crate) fn claim_observation(
         }
         state.last_busy_output_sequence = Some(state.output_sequence);
     }
-    if state.calls >= CALL_CAP_PER_EPISODE {
-        return Err(PermitError::CallCapReached);
-    }
-    state.calls += 1;
     let spawn_claim = if matches!(
         event,
         ObservationEvent::SpawnReady | ObservationEvent::SpawnDeadline
@@ -185,7 +192,7 @@ pub(crate) fn claim_observation(
         None
     };
     Ok(ObservationPermit {
-        observation_id: NEXT_SPAWN_CLAIM.fetch_add(1, Ordering::Relaxed),
+        observation_id: next_observation_id(),
         episode: state.episode,
         spawn_claim,
     })
@@ -242,7 +249,6 @@ pub(crate) fn screen_changed(tab_id: &str, session_key: &str, hash: u64) -> bool
             .as_secs();
         if state.signaled {
             state.episode = state.episode.saturating_add(1);
-            state.calls = 0;
             state.last_busy_output_sequence = None;
             state.previous_strong_label = None;
             state.applied_observation_ids.clear();
@@ -285,7 +291,6 @@ pub(crate) fn apply_observed_verdict(
     Some(apply_verdict_to_state(state, label, confidence))
 }
 
-#[cfg(test)]
 pub(crate) fn permit_is_current(
     tab_id: &str,
     session_key: &str,
@@ -294,6 +299,20 @@ pub(crate) fn permit_is_current(
     let all = episodes().lock();
     all.get(tab_id)
         .is_some_and(|state| state.session_key == session_key && state.episode == permit.episode)
+}
+
+pub(crate) fn audit_permit(
+    tab: &str,
+    session: &str,
+    observation_id: u64,
+) -> Option<ObservationPermit> {
+    let all = episodes().lock();
+    let state = all.get(tab).filter(|state| state.session_key == session)?;
+    Some(ObservationPermit {
+        episode: state.episode,
+        observation_id,
+        spawn_claim: None,
+    })
 }
 
 /// Spawn-ok belongs to its launch claim and survives signal-episode churn.

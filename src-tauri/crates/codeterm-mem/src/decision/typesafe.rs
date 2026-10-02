@@ -15,7 +15,7 @@ use super::token_store::TokenStore;
 
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_MODEL: &str = "jev-latest";
-static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static CLIENT: OnceLock<Result<reqwest::blocking::Client, DecisionError>> = OnceLock::new();
 
 pub struct TypeSafeAdapter {
     token_store: TokenStore,
@@ -232,6 +232,9 @@ fn probabilities(answer: &Value) -> Result<BTreeMap<String, f64>, DecisionError>
 }
 
 impl DecisionModel for TypeSafeAdapter {
+    fn supports_question_batch(&self) -> bool {
+        true
+    }
     fn id(&self) -> &str {
         Self::ID
     }
@@ -347,26 +350,37 @@ impl TypeSafeAdapter {
         if remaining.is_zero() {
             return Err(DecisionError::Deadline);
         }
-        let client = CLIENT.get_or_init(reqwest::blocking::Client::new);
+        let client = CLIENT
+            .get_or_init(|| {
+                reqwest::blocking::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .retry(reqwest::retry::never())
+                    .build()
+                    .map_err(|_| DecisionError::Unavailable("http_client_unavailable".into()))
+            })
+            .as_ref()
+            .map_err(Clone::clone)?;
         let model = self
             .model
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let body = Self::build_questions_body(&model, request);
-        let response = client
+        let request = client
             .post(&self.endpoint)
             .bearer_auth(token.expose())
             .timeout(remaining)
             .json(&body)
-            .send()
-            .map_err(|error| {
-                if error.is_timeout() {
-                    DecisionError::Deadline
-                } else {
-                    DecisionError::Transport("request_failed".to_owned())
-                }
-            })?;
+            .build()
+            .map_err(|_| DecisionError::Transport("invalid_request".into()))?;
+        codeterm_types::decision::physical::before_request()?;
+        let response = client.execute(request).map_err(|error| {
+            if error.is_timeout() {
+                DecisionError::Deadline
+            } else {
+                DecisionError::Transport("request_failed".to_owned())
+            }
+        })?;
         let status = response.status();
         if status.as_u16() == 402 {
             return Err(DecisionError::CreditExhausted);
