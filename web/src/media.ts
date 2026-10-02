@@ -7,9 +7,10 @@ export const chapters: Chapter[] = [
   { id: 'plugins', label: 'Choose your tools', title: 'Your agents. Your tools.', description: 'Choose your intelligence and add capabilities through plugins. One environment for your team.', start: 30, end: 45 },
 ];
 
-export type Caption = { start: number; end: number; text: string };
+export type Caption = { id?: number; start: number; end: number; text: string };
 export type MediaAsset = { src: string; bytes?: number };
-export type Trailer = { mp4: MediaAsset; webm: MediaAsset; poster: MediaAsset; duration: number; chapters: Chapter[]; captions: Caption[] };
+export type MusicCredit = { title: string; author: string; sourcePage: string; license: string; licenseUrl: string; credit: string };
+export type Trailer = { mp4: MediaAsset; webm: MediaAsset; poster: MediaAsset; duration: number; chapters: Chapter[]; captions: Caption[]; hasNarration?: boolean; subtitles?: MediaAsset; music?: MusicCredit };
 
 export const defaultMedia: Trailer = {
   mp4: { src: '/media/trailer.mp4' }, webm: { src: '/media/trailer.webm' },
@@ -22,6 +23,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isAsset(value: unknown): value is MediaAsset {
   return isRecord(value) && typeof value.src === 'string' && value.src.startsWith('/media/') && !value.src.includes('..');
+}
+
+function parseMusic(value: unknown): MusicCredit | undefined {
+  if (!isRecord(value) || typeof value.title !== 'string' || typeof value.author !== 'string'
+    || typeof value.license !== 'string' || typeof value.credit !== 'string'
+    || typeof value.sourcePage !== 'string' || !value.sourcePage.startsWith('https://')
+    || typeof value.licenseUrl !== 'string' || !value.licenseUrl.startsWith('https://')) return;
+  return { title: value.title, author: value.author, license: value.license, credit: value.credit,
+    sourcePage: value.sourcePage, licenseUrl: value.licenseUrl };
 }
 
 export function parseCaptions(value: unknown): Caption[] {
@@ -48,10 +58,14 @@ export function parseMedia(manifest: unknown, captions: unknown): Trailer {
     duration,
     chapters: contiguous && timeline[timeline.length - 1].end === duration ? timeline : chapters,
     captions: parseCaptions(captions),
+    hasNarration: value.hasNarration === true,
+    subtitles: isAsset(value.subtitles) ? value.subtitles : undefined,
+    music: parseMusic(value.music),
   };
 }
 
 export function chapterAt(time: number, timeline: Chapter[] = chapters) {
+  if (time >= timeline[timeline.length - 1].end) return timeline.length - 1;
   const index = timeline.findIndex((chapter) => time >= chapter.start && time < chapter.end);
   return index < 0 ? 0 : index;
 }

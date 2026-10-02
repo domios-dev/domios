@@ -22,9 +22,14 @@
 .clip-panel .caption-chip { padding: 0; border: 0; border-radius: 0; background: none; color: var(--ct-fg); backdrop-filter: none; text-align: left; font-size: 12px; line-height: 1.5; }
 .clip-panel .caption-anchor { width: 5px; height: 5px; flex-basis: 5px; }
 .clip-panel .video-toolbar { padding-inline: 18px; }
+.video-controls { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.sound-control { border: 1px solid var(--ct-border); border-radius: 5px; background: var(--ct-surface); color: var(--ct-fg); padding: 5px 7px; font: inherit; cursor: pointer; }
+.sound-control[aria-pressed="true"] { border-color: var(--ct-accent); color: var(--ct-heading); }
+.sound-control:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 3px; }
 .video-time { margin-left: 8px; font-variant-numeric: tabular-nums; }
 .clip-panel .transcript { padding: 12px 18px; }
 .transcript > p { margin-top: 12px; }
+.music-credit { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .transcript li { margin-top: 8px; }
 .transcript li button { display: flex; gap: 10px; text-align: left; border: 0; padding: 4px; color: inherit; background: none; font-size: 12px; line-height: 1.5; }
 .transcript li button span { color: color-mix(in srgb, var(--ct-accent) 75%, var(--ct-heading)); font-variant-numeric: tabular-nums; }
@@ -49,7 +54,8 @@
   .clip-panel .caption-region, .clip-panel .video-toolbar, .clip-panel .transcript { padding-inline: 12px; }
   .clip-panel .caption-region { min-height: 66px; }
   .video-time { margin-left: 2px; }
-  .clip-panel .video-toolbar { flex-wrap: nowrap; font-size: 10px; }
+  .clip-panel .video-toolbar { flex-wrap: wrap; gap: 8px; font-size: 10px; }
+  .video-controls { gap: 8px; margin-left: auto; }
   .clip-panel .play-control { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
