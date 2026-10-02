@@ -190,6 +190,61 @@ fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
         .expect("stop live shell PTY");
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn agent_restart_without_verified_session_launches_fresh() {
+    let pty_id = "unverified-launch-shell";
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("restart-fixture".into());
+        tab.agent_session_id = Some("unverified-session".into());
+        tab.pty_id = Some(pty_id.into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed);
+        tab.cwd = Some(
+            std::env::current_dir()
+                .expect("test working directory")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        tab.restorable_launch.captured = true;
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("restart-fixture"),
+    ));
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn the tab's surviving shell PTY");
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(pty_id, b"user@host:~$ ");
+
+    let snap = fixture
+        .service
+        .unverified_launch_shell_snapshot(&tab_id)
+        .expect("inspect the unverified shell")
+        .expect("recognize the known provider's bare shell");
+    let relaunch = super::relaunch::build_relaunch(&fixture.service, &snap, false)
+        .expect("build a fresh launch from the recorded spawn");
+    let command = relaunch.command;
+
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(pty_id)
+        .expect("stop the fixture shell PTY");
+    assert_eq!(snap.session_id, None);
+    assert!(command.contains("restart-fixture-cli"));
+    assert!(!command.contains("--resume"));
+}
+
 fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
     TabRestartSnapshot {
         tab_id: "tab-guard".into(),
@@ -379,14 +434,23 @@ fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> Restart
 }
 
 #[test]
-fn session_action_resume_when_present_and_fresh() {
-    assert_eq!(outcome(Some("sid"), false, true).session_action(), "resume");
+fn session_action_reports_resumed_for_present_session() {
+    assert_eq!(
+        outcome(Some("sid"), false, true).session_action(),
+        "resumed"
+    );
 }
 
 #[test]
 fn session_action_fresh_when_stale_or_missing() {
-    assert_eq!(outcome(Some("sid"), true, true).session_action(), "fresh");
-    assert_eq!(outcome(None, false, true).session_action(), "fresh");
+    assert_eq!(
+        outcome(Some("sid"), true, true).session_action(),
+        "fresh_launch"
+    );
+    assert_eq!(
+        outcome(None, false, true).session_action(),
+        "fresh_launch"
+    );
 }
 
 #[test]

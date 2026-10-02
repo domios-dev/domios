@@ -376,7 +376,13 @@ impl ServiceContext {
             previous_model,
             launched_model
         );
-        let restart = self.restart_live_agent(snap, false, DEFAULT_GRACE_SECS, Some(&launch))?;
+        let restart = self.restart_live_agent(
+            snap,
+            false,
+            DEFAULT_GRACE_SECS,
+            Some(&launch),
+            false,
+        )?;
         let observed = self.await_model_switch_observation(
             &restart.tab_id,
             &provider,
