@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
+import type { ApiConfig } from "../../lib/types";
+import { ActivityFeed } from "../Supporter/ActivityFeed";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
 import { AboutLink, InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
@@ -10,6 +12,7 @@ import { type SupporterAdapter, useDecisionToken } from "./useDecisionToken";
 const DOCS_URL = "https://docs.typesafe.ai";
 
 interface Props {
+  api: ApiConfig;
   apiBase: string;
   apiHeaders: HeadersInit;
   onOpenGuide: (section: HelpSectionId) => void;
@@ -55,7 +58,7 @@ function stateTone(state: string | undefined): "green" | "amber" | "accent" | "m
   return "muted";
 }
 
-export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
+export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Props) {
   const token = useDecisionToken(apiBase, apiHeaders);
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
@@ -178,6 +181,9 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
           </Button>
         </div>
       )}
+
+      <p className="text-xs text-[var(--ct-muted-fg)]">Team heartbeats wake the Orchestrator for decisions and incidents. Healthy, unchanged work stays quiet; wakes and suppressions appear below.</p>
+      <ActivityFeed api={api} />
 
       {status?.spend && (
         <SupporterSpendPanel

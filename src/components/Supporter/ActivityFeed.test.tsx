@@ -35,6 +35,18 @@ beforeEach(() => {
 afterEach(async () => setup.cleanup());
 
 describe("Supporter activity", () => {
+  it("heartbeat_wakes_and_suppressions_render_in_the_feed", async () => {
+    entries = [
+      { ...entry("team_aabbccdd"), kind: "heartbeat", label: "action_needed", action: "wake", reason: "hard_wake" },
+      { ...entry("team_aabbccdd"), kind: "heartbeat", label: "nothing_changed", action: "suppress", reason: "same_snapshot" },
+    ];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    const rows = host.querySelectorAll("ol > li");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].getAttribute("data-kind")).toBe("heartbeat");
+    expect(rows[0].textContent).toContain("Action: wake");
+    expect(rows[1].textContent).toContain("Action: suppress");
+  });
   it("feed_filters_by_team", async () => {
     const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
     expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");

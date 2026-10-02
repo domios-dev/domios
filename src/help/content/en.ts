@@ -190,6 +190,10 @@ export const enHelpContent: HelpLocaleContent = {
           type: "paragraph",
           text: "Recover the General Agent. CodeTerm can resume it after a confirmed crash or try a restart when startup fails. It makes at most two automatic restarts in one recovery episode, then stops and tells you. Automatic recovery starts only after its accuracy check passes; until then it asks you. Sign-in, unavailable models and uncovered folder trust need your decision; tool permissions follow the tab's own policy.",
         },
+        {
+          type: "paragraph",
+          text: "Quiet team heartbeats. On existing scheduler ticks, CodeTerm checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Supporter makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
+        },
         { type: "heading", text: "Budget and fallback" },
         {
           type: "paragraph",
