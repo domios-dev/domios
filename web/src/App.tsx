@@ -4,6 +4,7 @@ import { BrandMark, Icon } from './Icon';
 import type { IconName } from './Icon';
 import { ProviderStrip } from './ProviderStrip';
 import { GatherLink } from './GatherLink';
+import { BuilderNotes } from './BuilderNotes';
 import { Showcase } from './Showcase';
 import { useMediaQuery, useTheme } from './usePreferences';
 
@@ -40,6 +41,7 @@ export function App() {
         {!reducedMotion && <button className="motion-control" aria-pressed={motionPaused} onClick={() => setMotionPaused(!motionPaused)}><Icon name={motionPaused ? 'play' : 'pause'} size={12} />{motionPaused ? 'Resume' : 'Pause'} animation</button>}
       </section>
       <ProviderStrip />
+      <BuilderNotes staticMotion={reducedMotion || motionPaused} />
       <Showcase reducedMotion={reducedMotion} />
       <section id="foundation" className="foundation section-wrap" aria-labelledby="foundation-title"><div className="section-heading"><div><p className="eyebrow">THE ENVIRONMENT MATTERS</p><h2 id="foundation-title">Let your agents get to work.</h2></div><p>The infrastructure around the intelligence.<br className="desktop-break" /> Built to keep everything connected.</p></div>
         <div className="pillar-grid">{pillars.map((pillar, index) => <article className="pillar" key={pillar.title}><div className="pillar-top"><Icon name={pillar.icon} size={25} /><span>0{index + 1}</span></div><h3>{pillar.title}</h3><p>{pillar.text}</p><span className="pillar-detail">{pillar.detail}</span></article>)}</div>
