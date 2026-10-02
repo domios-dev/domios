@@ -355,13 +355,12 @@ none is skipped. Authored counts at this platform repair: focused33 and full132
 After an ancestry-preserving merge, canonical focused commands are:
 
 ```bash
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsPlatformTests.test_captured_windows_process_handle_is_closed_exactly_once'
-TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsPlatformTests test_regressions.WindowsTrustTests test_regressions.WindowsHandleFailureTests test_regressions.WindowsNativeInspectionTests test_regressions.WindowsHarnessTests test_regressions.WindowsCompletionTests'
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsPlatformTests test_regressions.WindowsTrustTests test_regressions.WindowsHandleFailureTests test_regressions.WindowsNativeInspectionTests test_regressions.WindowsHarnessTests test_regressions.WindowsCompletionTests test_regressions.WindowsAcquisitionRegressionTests test_regressions.WindowsAcquisitionRepairTests'
 TEST_CAP_SECS=600 scripts/test-capped.sh --exec python3 -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
 ```
 
-Expected1,33,132 executed/pass respectively, zero failed/skipped; stop on the first
-unexpected failure. These are injected mechanisms, not Windows resource proof.
+Expected46 and145 executed/pass respectively, zero failed/skipped; stop on the first
+unexpected failure. The previously confirmed process Close-once red is not repeated. These are injected mechanisms, not Windows resource proof.
 The one consolidated suite at this repair head replaces repeated historical suites.
 The shared process authority/settlement edits justify one macOS success smoke at
 the same exact Homebrew interpreter after canonical review; no six-case repeat.
@@ -417,3 +416,65 @@ restore honest unsupported Windows admission together with its tests/docs). The
 focused workflow checkpoint is independently retained; criteria/datasets and all
 product/shared/protected paths require no restoration. Existing live/release holds
 and separately owned platform/runtime prerequisites remain open.
+
+
+Windows acquisition correction remains source-only pending Fermi review. The
+literal tests-first ancestor is `f67a80ee06d54835e92156e172709e600895e450`,
+parented by the unmerged Windows source checkpoint
+`17b342a414dfaa92eb39600d94ac0ccde4a1665d`. Canonical must first review the
+complete correction, then real-merge that tests-only ancestor for these independent
+commands, each under the existing600s wrapper:
+
+```bash
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsAcquisitionRegressionTests.test_sid_failure_survives_partial_construction_and_ambiguous_closes'
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsAcquisitionRegressionTests.test_control_inspection_failure_closes_known_handle_once_and_retains_unknown_path'
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsAcquisitionRegressionTests.test_successful_construction_and_token_settlement_remain_positive'
+```
+
+Expected at that ancestor: first two select1/fail1 for the preserved primary
+`windows_sid` versus masked `windows_handle_close`, and acquired control handle
+close count0 versus1. The third selects1/pass1 for genuine mocked construction,
+SID conversion and token/allocation settlement. These are authored predicates;
+no executed red or green is claimed. After real-merging the reviewed descendant,
+run each command independently expecting1/pass1, then the changed focused boundary:
+
+```bash
+TEST_CAP_SECS=600 scripts/test-capped.sh --exec bash -c 'cd evals/tab-state-jev && python3 -m unittest test_regressions.WindowsAcquisitionRegressionTests test_regressions.WindowsAcquisitionRepairTests'
+```
+
+Expected13 executed/pass, zero failures/skips:3 preserved tests-first controls
+and10 added controls. Those cover actual injected successful fixture ownership,
+inherited-parent/target inspection failures, creation without identity, a failed
+probe constructor, native information failure, primary SID refusal with confirmed
+cleanup, complete failed helper JSON, native capture before guard registration,
+security/creation allocation cleanup failures, and parent preservation of a failed
+helper owner with the next lease refused. Current authored totals are
+run14 + contract21 + transport58 + regressions48 + heldout4 =145. Broader46/145
+commands above require their own canonical disposition; there is no unchanged
+macOS/Linux rerun or native Windows gate requested by this correction.
+
+WindowsApi records each returned token/allocation/file handle before subsequent
+conversion or inspection, with the captured native value, release-attempted and
+confirmed-closed states. Partial WindowsTrust construction initializes ownership
+first and returns the primary typed failure with its exact owner and independent
+cleanup facts. An ambiguous CloseHandle/LocalFree is attempted once, retained,
+and prevents new native acquisitions. The Windows-only unconfirmed-owner table
+holds exact resource records in process memory; it does not create processes,
+retry cleanup, or rediscover authority through paths/PIDs. Parent preparation,
+identity hashing, independent helper initialization and fixture failures propagate
+that ownership. Helper JSON preserves the primary refusal and separate cleanup
+errors; bounded summaries report up to16 pending identities, the full count and an explicit
+omitted count under the existing4KiB capture bound. Exact complete native records
+remain in the retained owner; omission cannot become confirmed closure. A failed
+Windows helper trust receipt preserves its primary refusal and poisons admission
+even when independent parent process exit/capture closure was confirmed.
+
+Fixture creation records a candidate path before acquisition; every returned
+handle enters the guard before inspection. Unknown created-path identity remains
+explicitly unconfirmed and prevents removal of that path or its root. Cleanup
+compares through the original held handle and removes only confirmed newly owned
+identities. Raw inspection of a captured fixture reparse object establishes its
+cleanup identity; production admission still refuses reparse objects and hard
+links. Partial probe ownership also blocks fixture path removal. These are source
+mechanisms, not native Windows proof. Original55/60/600 absolute ends,5s inside
+reserve, byte caps, strict TLS, credential policy and all platform/live holds remain.

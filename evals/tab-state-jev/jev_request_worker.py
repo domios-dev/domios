@@ -1,5 +1,6 @@
 """Trusted one-request interpreter helper; no subprocesses or descendant spawning."""
 
+from contextlib import contextmanager
 import ctypes
 import hashlib
 import importlib.util
@@ -30,6 +31,7 @@ MAX_DIAGNOSTIC = 4096
 MAX_TOKEN = 4096
 MAX_STDOUT = 4096
 WINDOWS_ACTIVE_TRUST = None
+WINDOWS_UNCONFIRMED_OWNERS = {}
 
 
 class WorkerError(ValueError):
@@ -287,6 +289,7 @@ def windows_acl_policy(security, user, *, private=False, ancestor=False):
 class WindowsApi:
     def __init__(self):
         self.allocations = set()
+        self.owners = []
         self.token_closed = False
         self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         self.security = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -315,54 +318,140 @@ class WindowsApi:
             function = getattr(dll, name)
             function.argtypes, function.restype = arguments, result
 
+    def captured(self, kind, native):
+        identity = native.value if isinstance(native, ctypes.c_void_p) else native
+        entry = {"kind": kind, "identity": identity, "native": native, "release_attempted": False, "closed": False}
+        self.owners.append(entry)
+        return entry
+
+    def record(self, kind, identity):
+        return next((entry for entry in reversed(self.owners)
+                     if entry["kind"] == kind and entry["identity"] == identity), None)
+
+    def release(self, entry):
+        if entry is None or entry["closed"]:
+            return
+        require(not entry["release_attempted"], "windows_release_unconfirmed")
+        entry["release_attempted"] = True
+        try:
+            if entry["kind"] == "allocation":
+                require(not self.kernel.LocalFree(entry["native"]), "windows_descriptor_close")
+                self.allocations.discard(entry["identity"])
+            else:
+                require(self.kernel.CloseHandle(entry["native"]), "windows_handle_close")
+            entry["closed"] = True
+            if entry["kind"] == "token":
+                self.token_closed = True
+            if entry["kind"] == "allocation":
+                self.owners.remove(entry)
+        except BaseException as error:
+            entry["error"] = getattr(error, "code", "windows_release_os")
+            WINDOWS_UNCONFIRMED_OWNERS[id(self)] = self
+            raise
+
+    def failed(self, error):
+        failure = error if isinstance(error, WorkerError) else WorkerError("windows_native_os")
+        failure.owner = self
+        failure.facts["native_resources"] = self.receipt()
+        if not self.settled():
+            WINDOWS_UNCONFIRMED_OWNERS[id(self)] = self
+        return failure
+
+    @contextmanager
+    def retiring(self, entry):
+        failure = None
+        try:
+            yield
+        except BaseException as error:
+            failure = error if isinstance(error, WorkerError) else WorkerError("windows_native_os")
+        try:
+            self.release(entry)
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.facts.setdefault("cleanup_errors", []).append(getattr(error, "code", "windows_release_os"))
+        if failure is not None:
+            raise self.failed(failure)
+
+    def admit_native(self):
+        require(not any(entry["release_attempted"] and not entry["closed"] for entry in self.owners),
+                "windows_native_resource_unconfirmed")
+
+    def settled(self):
+        return all(entry["closed"] for entry in self.owners) and not self.allocations
+
+    def settle_known(self):
+        first = None
+        for entry in tuple(reversed(self.owners)):
+            if entry["closed"] or entry["release_attempted"]:
+                continue
+            try:
+                self.release(entry)
+            except BaseException as error:
+                first = first or error
+        if first is not None:
+            raise self.failed(first)
+        require(self.settled(), "windows_native_resource_unconfirmed")
+
     def close(self, handle):
-        require(self.kernel.CloseHandle(handle), "windows_handle_close")
+        identity = handle.value if isinstance(handle, ctypes.c_void_p) else handle
+        entry = self.record("file", identity) or self.record("token", identity)
+        require(entry is not None, "windows_unknown_handle")
+        self.release(entry)
 
     def free(self, pointer):
-        require(not self.kernel.LocalFree(pointer), "windows_descriptor_close")
-        self.allocations.discard(pointer.value)
+        entry = self.record("allocation", pointer.value)
+        require(entry is not None, "windows_unknown_allocation")
+        self.release(entry)
 
     def allocated(self, pointer):
         if pointer.value:
             self.allocations.add(pointer.value)
+            return self.captured("allocation", pointer)
+        return None
 
     def receipt(self):
-        return {"token_handle_closed": self.token_closed, "unclosed_native_allocations": len(self.allocations)}
+        resources = [entry for entry in self.owners if entry["kind"] == "token" or not entry["closed"]]
+        return {"token_handle_closed": self.token_closed, "unclosed_native_allocations": len(self.allocations),
+                "owned_resources": [{key: entry[key] for key in ("kind", "identity", "release_attempted", "closed")}
+                                    for entry in resources[:16]], "owned_resources_count": len(resources),
+                "resources_omitted": max(0, len(resources) - 16), "all_resources_closed": self.settled()}
 
     def sid(self, pointer):
         require(pointer and self.security.IsValidSid(pointer) and self.security.GetLengthSid(pointer) <= 68, "windows_sid")
+        self.admit_native()
         raw = ctypes.c_void_p()
-        try:
-            result = self.security.ConvertSidToStringSidW(pointer, ctypes.byref(raw))
-            self.allocated(raw)
+        result = self.security.ConvertSidToStringSidW(pointer, ctypes.byref(raw))
+        entry = self.allocated(raw)
+        with self.retiring(entry):
             require(result and raw.value, "windows_sid")
             value = ctypes.wstring_at(raw)
             require(len(value) <= 184, "windows_sid")
             return value
-        finally:
-            if raw.value:
-                self.free(raw)
 
     def current_user(self):
+        self.admit_native()
         token = ctypes.c_void_p()
-        require(self.security.OpenProcessToken(self.kernel.GetCurrentProcess(), 8, ctypes.byref(token)), "windows_token")
-        try:
+        result = self.security.OpenProcessToken(self.kernel.GetCurrentProcess(), 8, ctypes.byref(token))
+        require(result and token.value, "windows_token")
+        entry = self.captured("token", token)
+        with self.retiring(entry):
             size = ctypes.c_uint32()
             self.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
             require(0 < size.value <= MAX_HEADERS, "windows_token_size")
             raw = ctypes.create_string_buffer(size.value)
             require(self.security.GetTokenInformation(token, 1, raw, size.value, ctypes.byref(size)), "windows_token")
             return self.sid(ctypes.c_void_p.from_buffer(raw).value)
-        finally:
-            self.close(token)
-            self.token_closed = True
+
 
     def descriptor(self, handle):
+        self.admit_native()
         owner, acl, descriptor = (ctypes.c_void_p() for _ in range(3))
         result = self.security.GetSecurityInfo(handle, 1, 5, ctypes.byref(owner), None,
                                                ctypes.byref(acl), None, ctypes.byref(descriptor))
-        self.allocated(descriptor)
-        try:
+        entry = self.allocated(descriptor)
+        with self.retiring(entry):
             require(result == 0 and descriptor.value, "windows_security_read")
             length = self.security.GetSecurityDescriptorLength(descriptor)
             require(0 < length <= MAX_HEADERS, "windows_security_size")
@@ -393,18 +482,16 @@ class WindowsApi:
             raw = ctypes.string_at(descriptor, length)
             return {"owner": self.sid(owner), "dacl_present": bool(present.value), "aces": records,
                     "protected": bool(control.value & 0x1000), "bytes": raw}
-        finally:
-            if descriptor.value:
-                self.free(descriptor)
 
-    def inspect(self, handle):
+    def identify(self, handle):
+        self.admit_native()
         require(self.kernel.GetFileType(handle) == 1, "windows_object_type")
         basic, standard, identity = (ctypes.create_string_buffer(size) for size in (40, 24, 24))
         for kind, raw in ((0, basic), (1, standard), (18, identity)):
             require(self.kernel.GetFileInformationByHandleEx(handle, kind, raw, len(raw)), "windows_file_identity")
         creation, _, written, changed, attributes = struct.unpack_from("<qqqqI", basic.raw)
         _, size, links, deleting, directory = struct.unpack_from("<qqIBB", standard.raw)
-        require(not attributes & 0x400 and not deleting and (directory or links == 1), "windows_reparse_or_links")
+        require(not deleting, "windows_object_deleting")
         filesystem = ctypes.create_unicode_buffer(32)
         flags = ctypes.c_uint32()
         require(self.kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, ctypes.byref(flags),
@@ -417,14 +504,23 @@ class WindowsApi:
         require(self.kernel.GetDriveTypeW(final.value[4:7]) == 3, "windows_local_volume")
         security = self.descriptor(handle)
         return {"identity": identity.raw, "size": size, "directory": bool(directory), "security": security,
+                "attributes": attributes, "links": links,
                 "signature": (identity.raw, creation, attributes, security["bytes"]) if directory else
                 (identity.raw, creation, written, changed, attributes, size, security["bytes"]),
                 "final": final.value[4:]}
 
+    def inspect(self, handle):
+        facts = self.identify(handle)
+        require(not facts["attributes"] & 0x400 and (facts["directory"] or facts["links"] == 1),
+                "windows_reparse_or_links")
+        return facts
+
     def open(self, path, *, directory=False):
+        self.admit_native()
         access = 0x20080 if directory else 0x80020000
         handle = self.kernel.CreateFileW(str(path), access, 1, None, 3, 0x02200000, None)
         require(handle not in (None, 0, ctypes.c_void_p(-1).value), "windows_open")
+        self.captured("file", handle)
         return handle
 
     def remove_directory(self, path):
@@ -437,44 +533,59 @@ class WindowsApi:
         return raw.raw[:size.value]
 
     def create_directory(self, path, sddl):
+        self.admit_native()
         class Attributes(ctypes.Structure):
             _fields_ = [("length", ctypes.c_uint32), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int32)]
         descriptor = ctypes.c_void_p()
-        try:
-            result = self.security.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None)
-            self.allocated(descriptor)
+        result = self.security.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(descriptor), None)
+        entry = self.allocated(descriptor)
+        with self.retiring(entry):
             require(result and descriptor.value, "windows_creation_descriptor")
             attributes = Attributes(ctypes.sizeof(Attributes), descriptor, 0)
             require(self.kernel.CreateDirectoryW(str(path), ctypes.byref(attributes)), "windows_directory_create")
-        finally:
-            if descriptor.value:
-                self.free(descriptor)
 
 
 class WindowsTrust:
     def __init__(self, end, *, clock=time.monotonic, api=None):
         self.end, self.clock = end, clock
-        self.check_time()
-        self.api = WindowsApi() if api is None else api
-        self.user = self.api.current_user()
-        self.objects, self.cwd = [], None
+        self.objects, self.cwd, self.api, self.user = [], None, None, None
         self.created_directory = None
         self.closed, self.lost = False, False
+        try:
+            self.check_time()
+            self.api = WindowsApi() if api is None else api
+            self.user = self.api.current_user()
+        except BaseException as error:
+            failure = error if isinstance(error, WorkerError) else WorkerError("windows_initialization_os")
+            try:
+                self.close()
+            except BaseException as cleanup:
+                failure.facts.setdefault("cleanup_errors", []).append(getattr(cleanup, "code", "windows_initialization_cleanup"))
+            failure.owner = self
+            failure.facts.update(windows_trust=self.receipt(), trust_handles_closed=self.closed,
+                                 cwd_closed=self.created_directory is None, constructor_complete=False)
+            if not self.closed:
+                WINDOWS_UNCONFIRMED_OWNERS[id(self)] = self
+            raise failure
 
     def check_time(self):
         remaining(self.end, self.clock)
 
-    def opened(self, path, *, directory=False, private=False, ancestor=False):
+    def capture(self, path, *, directory=False):
         self.check_time()
         path = Path(os.path.abspath(path))
         require(re.fullmatch(r"[A-Za-z]:[\\/].*", str(path)), "windows_local_path")
         handle = self.api.open(path, directory=directory)
         entry = {"path": path, "handle": handle, "closed": False}
         self.objects.append(entry)
-        facts = self.api.inspect(handle)
+        return entry
+
+    def opened(self, path, *, directory=False, private=False, ancestor=False):
+        entry = self.capture(path, directory=directory)
+        facts = self.api.inspect(entry["handle"])
         entry["facts"] = facts
         windows_acl_policy(facts["security"], self.user, private=private, ancestor=ancestor)
-        require(facts["directory"] == directory and os.path.normcase(facts["final"]) == os.path.normcase(str(path)),
+        require(facts["directory"] == directory and os.path.normcase(facts["final"]) == os.path.normcase(str(entry["path"])),
                 "windows_path_identity")
         self.check_time()
         return entry
@@ -532,8 +643,11 @@ class WindowsTrust:
             self.api.create_directory(path, sddl)
             self.directory(path, private=True)
         except BaseException as error:
-            raise WorkerError(getattr(error, "code", "windows_private_creation_unconfirmed"),
-                              directory_creation_unconfirmed=True) from error
+            failure = error if isinstance(error, WorkerError) else WorkerError("windows_private_creation_unconfirmed")
+            failure.facts.update(directory_creation_unconfirmed=True, windows_trust=self.receipt())
+            failure.owner = self
+            WINDOWS_UNCONFIRMED_OWNERS[id(self)] = self
+            raise failure
         return path
 
     def close_entry(self, entry):
@@ -567,18 +681,30 @@ class WindowsTrust:
                 self.close_entry(entry)
             except BaseException as error:
                 first = first or error
-        self.closed = all(entry["closed"] for entry in self.objects) and \
+        if self.api is not None and callable(getattr(self.api, "settle_known", None)):
+            try:
+                self.api.settle_known()
+            except BaseException as error:
+                first = first or error
+        native_closed = self.api.settled() if callable(getattr(self.api, "settled", None)) else \
             not getattr(self.api, "allocations", ()) and getattr(self.api, "token_closed", True)
+        self.closed = all(entry["closed"] for entry in self.objects) and native_closed
+        if not self.closed:
+            WINDOWS_UNCONFIRMED_OWNERS[id(self)] = self
         if first is not None:
             raise first
         require(self.closed, "windows_native_resource_unconfirmed")
         require(self.clock() < end, "deadline")
 
     def receipt(self):
-        native = self.api.receipt() if isinstance(self.api, WindowsApi) else {"fixture_type": "synthetic_mechanism"}
+        native = self.api.receipt() if callable(getattr(self.api, "receipt", None)) else {"fixture_type": "synthetic_mechanism"}
         return {"native_resources": native, "current_token_sid": self.user,
                 "trusted_administration_sids": sorted(WINDOWS_ADMINS),
                 "local_filesystem": "NTFS", "handles_closed": self.closed, "identity_lost": self.lost,
+                "private_directory_candidate": str(self.created_directory) if self.created_directory is not None else None,
+                "uninspected_objects": [{"path": str(entry["path"]), "handle": entry["handle"],
+                                        "close_attempted": entry.get("close_attempted", False), "closed": entry["closed"]}
+                                       for entry in self.objects if "facts" not in entry],
                 "objects": [{"path": str(entry["path"]), "closed": entry["closed"],
                              "volume_and_file_id": entry["facts"]["identity"].hex(),
                              "owner_sid": entry["facts"]["security"]["owner"],
@@ -607,21 +733,27 @@ class WindowsTrust:
 
 def file_hash(path, end):
     if os.name == "nt":
-        guard = WindowsTrust(end)
-        failure, digest = None, None
+        guard, failure, digest = None, None, None
         try:
+            guard = WindowsTrust(end)
             digest = guard.file(path)[1]
         except BaseException as error:
-            failure = error
-        try:
-            guard.close()
-        except BaseException as error:
-            if failure is None:
-                raise
-            raise WorkerError(getattr(failure, "code", "windows_file_hash"),
-                              trust_handles_closed=guard.closed,
-                              trust_cleanup_error=getattr(error, "code", "windows_trust_close")) from failure
+            failure = error if isinstance(error, WorkerError) else WorkerError("windows_file_hash")
+            guard = guard or getattr(error, "owner", None)
+        if guard is not None:
+            try:
+                guard.close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.facts.setdefault("cleanup_errors", []).append(getattr(error, "code", "windows_trust_close"))
         if failure is not None:
+            if not isinstance(failure, WorkerError):
+                failure = WorkerError("windows_file_hash")
+            failure.owner = guard
+            failure.facts.update(windows_trust=guard.receipt() if guard is not None else {},
+                                 trust_handles_closed=guard is not None and guard.closed)
             raise failure
         return digest
     digest = hashlib.sha256()
@@ -653,7 +785,13 @@ def frame(stream, limit):
 def load_contract(header, end):
     global WINDOWS_ACTIVE_TRUST
     if os.name == "nt":
-        guard = WindowsTrust(end)
+        try:
+            guard = WindowsTrust(end)
+        except WorkerError as error:
+            WINDOWS_ACTIVE_TRUST = getattr(error, "owner", None)
+            if WINDOWS_ACTIVE_TRUST is not None:
+                WINDOWS_ACTIVE_TRUST.hard_end = header["hard_end"]
+            raise
         WINDOWS_ACTIVE_TRUST = guard
         guard.hard_end = header["hard_end"]
         own, worker_hash, _ = guard.file(__file__)
@@ -754,23 +892,34 @@ def main(*, policy=None):
                 WINDOWS_ACTIVE_TRUST.close(cleanup_end=WINDOWS_ACTIVE_TRUST.hard_end)
                 receipt["windows_trust_closed"] = WINDOWS_ACTIVE_TRUST.closed
             except BaseException as error:
-                if "error" in receipt:
-                    receipt["primary_error"] = receipt["error"]
-                receipt.update(status="failed", error=getattr(error, "code", "windows_trust_close"),
+                cleanup_error = getattr(error, "code", "windows_trust_close")
+                receipt.setdefault("error", cleanup_error)
+                receipt.setdefault("cleanup_errors", []).append(cleanup_error)
+                receipt.update(status="failed",
                                windows_trust_closed=WINDOWS_ACTIVE_TRUST.closed)
                 receipt.pop("answers", None)
                 code = 1
+            trust_receipt = getattr(WINDOWS_ACTIVE_TRUST, "receipt", None)
+            if callable(trust_receipt):
+                facts = trust_receipt()
+                if type(facts) is dict:
+                    receipt["windows_trust"] = {key: facts[key] for key in (
+                        "handles_closed", "identity_lost", "private_directory_candidate") if key in facts}
+                    receipt["native_resources"] = facts.get("native_resources", {})
         try:
             sys.stdin.close()
             receipt["credential_channel_closed"] = True
         except OSError:
-            receipt.update(status="failed", error="channel_close")
+            receipt.setdefault("error", "channel_close")
+            receipt.setdefault("cleanup_errors", []).append("channel_close")
+            receipt.update(status="failed")
             code = 1
     raw = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     if len(raw) > MAX_STDOUT:
         compact = {key: receipt[key] for key in ("credential_channel_closed", "network_attempted", "wire_sha256",
                    "socket_closed", "http_status", "header_bytes", "header_fields", "response_bytes",
-                   "windows_trust_closed", "primary_error") if key in receipt}
+                   "windows_trust_closed", "primary_error", "cleanup_errors", "native_resources") if key in receipt}
+        compact["primary_error"] = receipt.get("error", "capture_size")
         compact.update(version=1, status="failed", error="capture_size", receipt_bytes=len(raw), receipt_limit=MAX_STDOUT)
         raw = json.dumps(compact, sort_keys=True, separators=(",", ":")).encode()
         code = 1
