@@ -4,7 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { useDecisionToken, type SupporterControls } from "./useDecisionToken";
 import type { SupporterAdapter, SupporterConnection, SupporterStatus } from "./supporterTypes";
-import { statusFixture } from "../Supporter/testSupport";
+import { API, statusFixture } from "../Supporter/testSupport";
+import { __setListenForTest } from "../../lib/bridge";
+import type { SupporterActivity } from "../Supporter/activity";
+
+vi.mock("../../lib/webApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/webApi")>()),
+  daemonFetch: (_api: unknown, path: string, init: RequestInit) => fetch(`http://127.0.0.1:7686${path}`, init),
+  daemonAuthToken: () => "fixture-auth",
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const TOKEN = "opaque-secret-do-not-render";
@@ -60,6 +68,8 @@ let release: (() => void) | undefined;
 let partial: boolean;
 let invalidStatus: boolean;
 let invalidCatalog: boolean;
+let activity: SupporterActivity[];
+const listeners = new Set<(event: { payload: unknown }) => void>();
 
 beforeEach(() => {
   host = document.createElement("div");
@@ -74,6 +84,15 @@ beforeEach(() => {
   partial = false;
   invalidStatus = false;
   invalidCatalog = false;
+  activity = [];
+  listeners.clear();
+  __setListenForTest(async (_name, callback) => {
+    const listener = callback as (event: { payload: unknown }) => void;
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -83,6 +102,7 @@ beforeEach(() => {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer fixture-auth");
       calls.push({ path, method, body });
       if (method === "GET") {
+        if (path.endsWith("/activity")) return Response.json({ entries: activity });
         if (path.endsWith("/status")) {
           if (stale) throw new Error("offline");
           return Response.json(invalidStatus ? { connections: [] } : state);
@@ -142,6 +162,8 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  __setListenForTest(null);
+  expect(listeners.size).toBe(0);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -150,6 +172,7 @@ async function mount() {
   await act(async () =>
     root.render(
       <SupporterAgentCard
+        api={API}
         apiBase="http://127.0.0.1:7686"
         apiHeaders={{ Authorization: "Bearer fixture-auth" }}
         onOpenGuide={() => {}}
@@ -207,6 +230,41 @@ async function resume() {
 }
 
 describe("Supporter saved connections", () => {
+  it("compact_details_embeds_heartbeat_activity_and_refreshes_on_journal_events", async () => {
+    activity = [
+      {
+        time: 1700000000,
+        team_id: null,
+        kind: "heartbeat",
+        label: "action_needed",
+        action: "wake",
+        reason: "hard_wake",
+        confidence_band: "strong",
+        budget_reached: false,
+        fallback: false,
+      },
+    ];
+    await mount();
+    const feed = section("required").querySelector("section[aria-label='Spinal-cord activity']")!;
+    expect(feed).not.toBeNull();
+    const details = feed.closest("details")!;
+    expect(details.querySelector("summary")?.textContent).toBe("Details");
+    expect(details.open).toBe(false);
+    expect(feed.querySelector("h3")).toBeNull();
+    expect(feed.querySelector("li")?.getAttribute("data-kind")).toBe("heartbeat");
+    expect(details.textContent).toContain("Team heartbeats");
+    await act(async () => details.querySelector("summary")!.click());
+    const count = calls.filter((call) => call.path.endsWith("/activity")).length;
+    activity = [{ ...activity[0], label: "nothing_changed", action: "suppress", reason: "same_snapshot" }];
+    await act(async () => {
+      for (const listener of listeners) listener({ payload: {} });
+    });
+    expect(calls.filter((call) => call.path.endsWith("/activity"))).toHaveLength(count + 1);
+    expect(feed.querySelector("li")?.textContent).toContain("Action: suppress");
+    await click("Make active", section("optional"));
+    expect(section("required").querySelector("section[aria-label='Spinal-cord activity']")).toBeNull();
+    expect(section("optional").querySelector("section[aria-label='Spinal-cord activity']")).not.toBeNull();
+  });
   it("initial_unknown_status_is_unavailable_without_token_claims", async () => {
     stale = true;
     await mount();

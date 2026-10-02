@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
+import type { ApiConfig } from "../../lib/types";
+import { ActivityFeed } from "../Supporter/ActivityFeed";
 import { Button } from "../shared/Button";
 import { InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
 import {
@@ -14,12 +16,13 @@ import { SupporterConnectPanel } from "./SupporterConnectPanel";
 import { useDecisionToken } from "./useDecisionToken";
 
 interface Props {
+  api: ApiConfig;
   apiBase: string;
   apiHeaders: HeadersInit;
   onOpenGuide: (section: HelpSectionId) => void;
 }
 
-export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
+export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Props) {
   const controls = useDecisionToken(apiBase, apiHeaders);
   const [connecting, setConnecting] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -123,6 +126,11 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
                     <span>{supporterTokenTotals("Today", status.spend.today)}</span>
                     <span>{supporterTokenTotals("This month", status.spend.month)}</span>
                     <span>Answer deadline: {status.deadline_ms} ms</span>
+                    <span>
+                      Team heartbeats wake the Orchestrator only for decisions and incidents; healthy, unchanged work
+                      stays quiet.
+                    </span>
+                    <ActivityFeed api={api} embedded />
                     {(["rerank", "tab_state"] as const).map((kind) => {
                       const verdict = status.last_verdict[kind];
                       return verdict ? (

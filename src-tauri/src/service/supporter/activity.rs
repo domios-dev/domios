@@ -20,6 +20,7 @@ pub(crate) struct DecisionEvidence<'a> {
     pub(crate) criteria_version: &'a str,
     pub(crate) state_hash: &'a str,
     pub(crate) question_set_hash: &'a str,
+    pub(crate) asked: Option<Vec<super::QuestionAnswer>>,
 }
 
 #[derive(Default)]
@@ -105,7 +106,13 @@ impl SupporterRuntime {
         self.reserve(cap, kind, tab, questions)
     }
 
-    pub(crate) fn failure(&self, kind: VerdictKind, tab: Option<&str>, error: &DecisionError) {
+    pub(crate) fn failure_with_activity(
+        &self,
+        kind: VerdictKind,
+        tab: Option<&str>,
+        error: &DecisionError,
+        context: Option<&super::ActivityContext>,
+    ) {
         let reason = match error {
             DecisionError::Budget => "budget",
             DecisionError::CreditExhausted | DecisionError::Http(402) => "credit_exhausted",
@@ -113,7 +120,8 @@ impl SupporterRuntime {
             _ => "unavailable",
         };
         let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(),
-            "kind": kind, "tab": tab, "label": "other", "action": "notify_only", "reason": reason }));
+            "kind": kind, "tab": tab, "label": "other", "action": "notify_only", "reason": reason,
+            "asked": context.map(|context| context.failure(reason)) }));
     }
 
     pub(crate) fn record_spend(
@@ -195,12 +203,16 @@ impl SupporterRuntime {
             "label": label, "confidence": confidence, "action": "verdict", "reason": "model_answer",
             "distribution": journal_answers(&response.answers), "usage": response.usage, "model_id": evidence.model_id,
             "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
-            "question_count": response.answers.len() });
+            "question_count": response.answers.len(), "asked": evidence.asked });
         let mut state = self.activity.lock();
         state.last_activity = Some(chrono::Utc::now().timestamp_millis());
         state.last_verdict.insert(kind.name().into(), value.clone());
         drop(state);
         let _ = self.append(value);
+    }
+
+    pub(crate) fn heartbeat_event(&self, event: Value) -> std::io::Result<()> {
+        self.append(event)
     }
 
     pub(crate) fn sentinel_event(&self, event: Value) -> std::io::Result<()> {

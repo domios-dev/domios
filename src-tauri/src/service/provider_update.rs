@@ -303,6 +303,7 @@ fn journal(
                 confidence: 1.0,
                 action: super::supporter::Action::Recovery,
                 reason,
+                asked: Some(super::supporter::update_questions(label)),
             },
         )
         .is_ok()
