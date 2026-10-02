@@ -1,3 +1,5 @@
+import type { ApiConfig } from "../../lib/types";
+import { SupporterAllowanceRow } from "./SupporterAllowanceRow";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, ArrowRight } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
@@ -22,6 +24,7 @@ import { visibleUsageMetrics } from "./metrics";
 import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
+  api?: ApiConfig;
   snapshot: UsageSnapshot;
   flipUp: boolean;
   onRefresh: () => Promise<void>;
@@ -46,7 +49,7 @@ function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }
   );
 }
 
-export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
+export function UsageDetail({ api, snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   // Open-count gating is centralized in config (bounded writes: stops at MAX)
@@ -153,6 +156,8 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 
       <MiniWeekBars buckets={buckets} />
 
+      <SupporterAllowanceRow api={api} />
+
       <div className="ct-usage-foot">
         <span className="live">
           <span className="pulse" />
@@ -168,7 +173,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 }
 
 // the cycle spend and reset instead of the gauge/projection machinery.
-export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailProps) {
+export function UsageSpendDetail({ api, snapshot, flipUp, onRefresh }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
@@ -230,6 +235,8 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
           {snapshot.spend_resets_at ? formatResetsAt(snapshot.spend_resets_at, now) : "—"}
         </span>
       </div>
+
+      <SupporterAllowanceRow api={api} />
 
       <div className="ct-usage-foot">
         <span className="live">

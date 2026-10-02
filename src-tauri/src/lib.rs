@@ -900,6 +900,7 @@ pub fn run() {
                 worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
+            crate::service::supporter::runtime_with_notifications(&svc_ctx);
             let service_state: ServiceState = Arc::new(svc_ctx);
             service_state.plan_store.bind_task_key_port(Arc::new(
                 crate::service::plan::task_key_port_impl::MuxTaskKeyPort::new(

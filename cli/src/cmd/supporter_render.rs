@@ -98,6 +98,12 @@ pub(super) fn render_token_clear(reply: &Value) -> String {
     }
 }
 
+pub(super) fn request_cap(status: &Value) -> Option<u64> {
+    status["budget"]["calls_per_hour"]
+        .as_u64()
+        .filter(|cap| *cap > 0)
+}
+
 pub(super) fn render_status(status: &Value) -> String {
     let adapter = status.get("adapter").and_then(Value::as_str).unwrap_or("?");
     let model = status.get("model").and_then(Value::as_str).unwrap_or("?");
@@ -124,10 +130,25 @@ pub(super) fn render_status(status: &Value) -> String {
             .map(|n| n.to_string())
             .unwrap_or_else(|| "?".into())
     );
-    out.push_str(&format!("Calls: {} in the last hour / {} in the last day\nLast activity: {}\nBudget: {} (cap {} / hour, free at {})\n",
-        status["calls_last_hour"], status["calls_last_day"], status["last_activity"],
-        if status["budget"]["reached"] == true { "reached" } else { "available" },
-        status["budget"]["calls_per_hour"], status["budget"]["free_at"]));
+    let cap = request_cap(status);
+    let budget = cap.map_or_else(
+        || "no cap".into(),
+        |cap| {
+            format!(
+                "{} (cap {cap} / hour, free at {})",
+                if status["budget"]["reached"] == true {
+                    "reached"
+                } else {
+                    "available"
+                },
+                status["budget"]["free_at"]
+            )
+        },
+    );
+    out.push_str(&format!(
+        "Calls: {} in the last hour / {} in the last day\nLast activity: {}\nBudget: {budget}\n",
+        status["calls_last_hour"], status["calls_last_day"], status["last_activity"]
+    ));
     for kind in ["rerank", "tab_state"] {
         if let Some(verdict) = status["last_verdict"].get(kind) {
             out.push_str(&format!(

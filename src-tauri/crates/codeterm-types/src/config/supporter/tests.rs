@@ -20,7 +20,7 @@ graph = 2
     .unwrap();
     let decoded: AppConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
     assert_eq!(decoded.supporter, config.supporter);
-    assert_eq!(decoded.supporter.calls_per_hour, 120);
+    assert_eq!(decoded.supporter.calls_per_hour, Some(120));
     assert_eq!(decoded.supporter.memory_rerank.candidates, 24);
 }
 
@@ -72,4 +72,16 @@ fn supporter_rerank_request_mode_is_selectable_and_stays_per_candidate_until_ab(
         toml::from_str::<AppConfig>("[supporter.memory_rerank]\nrequest_mode = 'invalid'\n")
             .is_err()
     );
+}
+
+#[test]
+fn supporter_default_has_no_cap_and_zero_is_unlimited() {
+    assert_eq!(SupporterConfig::default().calls_per_hour, None);
+    for text in ["", "[supporter]\ncalls_per_hour = 0\n"] {
+        let config: AppConfig = toml::from_str(text).unwrap();
+        assert_eq!(config.supporter.calls_per_hour.unwrap_or(0), 0);
+        let serialized = toml::to_string(&config).unwrap();
+        let decoded: AppConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(decoded.supporter, config.supporter);
+    }
 }

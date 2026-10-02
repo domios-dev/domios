@@ -147,6 +147,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
           data-testid="supporter-agent-activity"
           role="status"
           aria-label="Supporter activity"
+          data-cap={status.budget.calls_per_hour || "none"}
         >
           {status.budget.storage_ready === false && <span role="alert">Supporter budget storage needs attention.</span>}
           <span>
@@ -157,7 +158,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             {status.last_activity === null ? "None yet" : new Date(status.last_activity * 1000).toLocaleString()}
           </span>
           <span>
-            Budget: {status.calls_last_hour} / {status.budget.calls_per_hour} calls per hour
+            Request budget: {status.budget.calls_per_hour ? `${status.calls_last_hour} / ${status.budget.calls_per_hour} per hour` : "no cap"}
           </span>
           {status.budget.free_at !== null && (
             <span>Available again: {new Date(status.budget.free_at * 1000).toLocaleString()}</span>
